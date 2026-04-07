@@ -1,0 +1,294 @@
+import { useState } from 'react';
+import {
+  Shield,
+  LayoutDashboard,
+  Dumbbell,
+  Activity,
+  MessageSquare,
+  Settings,
+  LogOut,
+  ChevronDown,
+  AlertTriangle,
+  User,
+  Bell,
+  CheckCircle2,
+} from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { usePatient } from '../../context/PatientContext';
+import type { NavSection } from '../../types';
+
+const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: 'overview', label: 'סקירה כללית', icon: LayoutDashboard },
+  { id: 'exercises', label: 'תרגילים', icon: Dumbbell },
+  { id: 'pain-report', label: 'דוח כאב', icon: Activity },
+  { id: 'messages', label: 'הודעות', icon: MessageSquare },
+  { id: 'settings', label: 'הגדרות', icon: Settings },
+];
+
+const statusColors: Record<string, string> = {
+  active: '#10b981',
+  pending: '#f59e0b',
+  paused: '#94a3b8',
+};
+
+const statusLabels: Record<string, string> = {
+  active: 'פעיל',
+  pending: 'ממתין',
+  paused: 'מושהה',
+};
+
+export default function Sidebar() {
+  const { therapist, logout } = useAuth();
+  const { patients, selectedPatient, selectPatient, activeSection, setActiveSection, getPatientMessages } =
+    usePatient();
+  const [patientSwitcherOpen, setPatientSwitcherOpen] = useState(false);
+
+  const totalUnreadMessages = patients.reduce((sum, p) => {
+    const unread = getPatientMessages(p.id).filter((m) => !m.isRead && m.fromPatient).length;
+    return sum + unread;
+  }, 0);
+
+  const totalRedFlags = patients.filter((p) => p.hasRedFlag).length;
+
+  return (
+    <aside
+      className="flex flex-col h-screen w-64 shrink-0 border-l border-teal-100"
+      style={{ background: 'linear-gradient(180deg, #ffffff 0%, #f8fffe 100%)' }}
+      dir="rtl"
+    >
+      {/* Brand Header */}
+      <div className="px-4 py-5 border-b border-teal-100">
+        <div className="flex items-center gap-3">
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm"
+            style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
+          >
+            <Shield className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-base font-bold text-slate-800 leading-tight">The Guardian</h1>
+            <p className="text-xs text-slate-500">פורטל מטפלים</p>
+          </div>
+          {/* Notification badges */}
+          <div className="mr-auto flex items-center gap-1.5">
+            {totalRedFlags > 0 && (
+              <div className="relative">
+                <Bell className="w-5 h-5 text-red-500" />
+                <span className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                  {totalRedFlags}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Patient Switcher */}
+      <div className="px-3 py-3 border-b border-teal-50">
+        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
+          מטופל נבחר
+        </p>
+        <div className="relative">
+          <button
+            onClick={() => setPatientSwitcherOpen((v) => !v)}
+            className="w-full flex items-center gap-2.5 p-2.5 rounded-xl transition-all duration-200 text-right border border-teal-100"
+            style={{
+              background: patientSwitcherOpen ? '#e0f7f9' : '#f0fffe',
+            }}
+          >
+            {/* Avatar */}
+            <div
+              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm"
+              style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
+            >
+              {selectedPatient?.name.charAt(0)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-slate-800 truncate">
+                {selectedPatient?.name}
+              </p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{
+                    background: statusColors[selectedPatient?.status ?? 'active'],
+                  }}
+                />
+                <span className="text-xs text-slate-500">
+                  {statusLabels[selectedPatient?.status ?? 'active']}
+                </span>
+                {selectedPatient?.hasRedFlag && (
+                  <span
+                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold border"
+                    style={{ background: '#fef2f2', color: '#b91c1c', borderColor: '#fecaca' }}
+                  >
+                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                    התראה
+                  </span>
+                )}
+              </div>
+            </div>
+            <ChevronDown
+              className="w-4 h-4 text-slate-400 transition-transform duration-200"
+              style={{ transform: patientSwitcherOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
+            />
+          </button>
+
+          {/* Dropdown */}
+          {patientSwitcherOpen && (
+            <div
+              className="absolute top-full right-0 left-0 mt-1 rounded-xl border border-teal-100 shadow-xl overflow-hidden z-50"
+              style={{ background: 'white' }}
+            >
+              {patients.map((patient) => {
+                const unreadCount = getPatientMessages(patient.id).filter(
+                  (m) => !m.isRead && m.fromPatient
+                ).length;
+                const isSelected = patient.id === selectedPatient?.id;
+
+                return (
+                  <button
+                    key={patient.id}
+                    onClick={() => {
+                      selectPatient(patient.id);
+                      setPatientSwitcherOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-right transition-colors duration-150"
+                    style={{
+                      background: isSelected ? '#f0fffe' : 'transparent',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected)
+                        (e.currentTarget as HTMLButtonElement).style.background = '#f8fffe';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected)
+                        (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                    }}
+                  >
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                      style={{
+                        background: isSelected
+                          ? 'linear-gradient(135deg, #0d9488, #10b981)'
+                          : 'linear-gradient(135deg, #94a3b8, #cbd5e1)',
+                      }}
+                    >
+                      {patient.name.charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-medium text-slate-800 truncate">{patient.name}</p>
+                        {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-teal-500" />}
+                      </div>
+                      <p className="text-xs text-slate-500 truncate">{patient.diagnosis}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      {patient.hasRedFlag && (
+                        <span
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold border"
+                          style={{ background: '#fef2f2', color: '#b91c1c', borderColor: '#fecaca' }}
+                          title="דגל אדום — נדרשת בדיקה"
+                        >
+                          <AlertTriangle className="w-3 h-3 shrink-0" />
+                          התראה
+                        </span>
+                      )}
+                      {unreadCount > 0 && (
+                        <span className="w-5 h-5 rounded-full bg-teal-500 text-white text-[10px] font-bold flex items-center justify-center">
+                          {unreadCount}
+                        </span>
+                      )}
+                      <span
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ background: statusColors[patient.status] }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
+        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
+          ניווט
+        </p>
+        {navItems.map(({ id, label, icon: Icon }) => {
+          const isActive = activeSection === id;
+          const showBadge =
+            id === 'messages' && totalUnreadMessages > 0;
+
+          return (
+            <button
+              key={id}
+              onClick={() => setActiveSection(id)}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-right transition-all duration-150 group"
+              style={{
+                background: isActive
+                  ? 'linear-gradient(135deg, #ccfbf1, #d1fae5)'
+                  : 'transparent',
+                color: isActive ? '#0d9488' : '#64748b',
+              }}
+              onMouseEnter={(e) => {
+                if (!isActive)
+                  (e.currentTarget as HTMLButtonElement).style.background = '#f0fffe';
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive)
+                  (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+              }}
+            >
+              <Icon
+                className="w-4 h-4 shrink-0"
+              />
+              <span className="text-sm font-medium flex-1">{label}</span>
+              {showBadge && (
+                <span className="w-5 h-5 rounded-full bg-teal-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {totalUnreadMessages}
+                </span>
+              )}
+              {isActive && (
+                <span
+                  className="w-1 h-5 rounded-full"
+                  style={{ background: '#0d9488' }}
+                />
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Therapist Profile Footer */}
+      <div className="px-3 py-3 border-t border-teal-100">
+        <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-teal-50">
+          <div
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
+            style={{ background: 'linear-gradient(135deg, #0d9488, #059669)' }}
+          >
+            {therapist?.avatarInitials}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-slate-800 truncate">{therapist?.name}</p>
+            <p className="text-xs text-teal-600 truncate">{therapist?.title}</p>
+          </div>
+          <button
+            onClick={logout}
+            title="התנתק"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+        {/* Profile management hint */}
+        <button className="w-full mt-2 flex items-center justify-center gap-1.5 py-1.5 text-xs text-slate-400 hover:text-teal-600 transition-colors rounded-lg hover:bg-teal-50">
+          <User className="w-3.5 h-3.5" />
+          <span>ניהול פרופיל</span>
+        </button>
+      </div>
+    </aside>
+  );
+}
