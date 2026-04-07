@@ -11,10 +11,11 @@ import {
 import type {
   Patient, NavSection, Message, ExercisePlan, DailySession,
   PatientExercise, AiSuggestion, Exercise, PainLevel, ExerciseSession, AiSuggestionSource,
-  SafetyAlert, ClinicalSafetyTier, DailyHistoryEntry,
+  SafetyAlert, ClinicalSafetyTier, DailyHistoryEntry, BodyArea,
 } from '../types';
+import { bodyAreaLabels } from '../types';
 import {
-  mockPatients, mockMessages, mockExercisePlans, mockAiSuggestions,
+  mockPatients, mockMessages, mockExercisePlans, mockAiSuggestions, EXERCISE_LIBRARY,
 } from '../data/mockData';
 import { getClinicalAlertStandardMessage } from '../ai/patientProgressReasoning';
 import {
@@ -150,6 +151,13 @@ interface PatientContextValue {
   grantPatientCoins: (patientId: string, amount: number) => void;
   /** הידעת? — מטבעות + XP אחרי השלמת קריאה */
   grantPatientKnowledgeReward: (patientId: string) => void;
+
+  /** אזור גוף + תוכנית התחלתית מספרייה (אונבורדינג מטופל חדש/ממתין) */
+  applyInitialClinicalProfile: (
+    patientId: string,
+    primaryBodyArea: BodyArea,
+    libraryExerciseIds: string[]
+  ) => void;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -892,6 +900,38 @@ export function PatientProvider({
     []
   );
 
+  const applyInitialClinicalProfile = useCallback(
+    (patientId: string, primaryBodyArea: BodyArea, libraryExerciseIds: string[]) => {
+      const lib = EXERCISE_LIBRARY.filter((e) => libraryExerciseIds.includes(e.id));
+      const addedAt = new Date().toISOString();
+      const newExercises: PatientExercise[] = lib.map((exercise, i) => ({
+        ...exercise,
+        id: `${patientId}-${exercise.id}-${addedAt}-${i}`,
+        patientSets: exercise.sets,
+        patientReps: exercise.reps ?? 0,
+        addedAt,
+      }));
+
+      setPatients((prev) =>
+        prev.map((p) =>
+          p.id === patientId
+            ? {
+                ...p,
+                primaryBodyArea,
+                status: 'active',
+                diagnosis: `מוקד טיפול: ${bodyAreaLabels[primaryBodyArea]}`,
+              }
+            : p
+        )
+      );
+      setExercisePlans((prev) => {
+        const rest = prev.filter((ep) => ep.patientId !== patientId);
+        return [...rest, { patientId, exercises: newExercises }];
+      });
+    },
+    []
+  );
+
   const createPatientWithAccess = useCallback((displayName: string) => {
     const name = displayName.trim() || 'מטופל חדש';
     const patientId = `patient-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -999,6 +1039,7 @@ export function PatientProvider({
         submitGuardianRepsIncreaseRequest,
         grantPatientCoins,
         grantPatientKnowledgeReward,
+        applyInitialClinicalProfile,
       }}
     >
       {children}

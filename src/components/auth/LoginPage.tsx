@@ -2,11 +2,14 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield, Eye, EyeOff, Mail, Lock, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { loadAuthSnapshot } from '../../context/authPersistence';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const { login, isLoading, loginError } = useAuth();
-  const [email, setEmail] = useState('michal.levi@guardian-clinic.co.il');
+  const [email, setEmail] = useState(() =>
+    typeof window !== 'undefined' ? loadAuthSnapshot().therapistEmail : 'michal.levi@guardian-clinic.co.il'
+  );
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showHint, setShowHint] = useState(false);

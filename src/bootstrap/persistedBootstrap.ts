@@ -5,6 +5,7 @@
 import { loadAuthSnapshot, type AuthSnapshotV1 } from '../context/authPersistence';
 import type { PersistedPatientStateV1 } from '../context/patientPersistence';
 import { loadPersistedPatientState } from '../context/patientPersistence';
+import { setPersistedBootstrapInvalidator } from './invalidateBootstrap';
 
 export type AppBootstrapSnapshot = {
   auth: AuthSnapshotV1;
@@ -27,3 +28,5 @@ export function readPersistedOnce(): AppBootstrapSnapshot {
 export function clearPersistedBootstrapCache(): void {
   cache = null;
 }
+
+setPersistedBootstrapInvalidator(clearPersistedBootstrapCache);

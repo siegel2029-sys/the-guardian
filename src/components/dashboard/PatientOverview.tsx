@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Star, Flame, Trophy, Activity, Dumbbell,
   User, CalendarDays, Stethoscope, FileText, TrendingUp, ClipboardList, AlertTriangle,
-  KeyRound,
+  KeyRound, Copy, Eye, EyeOff,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
-import { findPatientLoginByPatientId } from '../../context/authPersistence';
+import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
 import StatsCard from './StatsCard';
 import XPProgressBar from './XPProgressBar';
 import PainAnalytics from './PainAnalytics';
@@ -14,6 +14,7 @@ import SessionHistory from './SessionHistory';
 import AiSuggestionsPanel from './AiSuggestionsPanel';
 import PendingApprovalsPanel from './PendingApprovalsPanel';
 import ManagePlanModal from './ManagePlanModal';
+import ClinicalProfileSetupModal from './ClinicalProfileSetupModal';
 import { bodyAreaLabels } from '../../types';
 
 const statusLabels: Record<string, string> = {
@@ -31,8 +32,15 @@ export default function PatientOverview() {
     getExercisePlan,
     isPatientExerciseSafetyLocked,
     clearPatientExerciseSafetyLock,
+    applyInitialClinicalProfile,
   } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
+  const [showClinicalModal, setShowClinicalModal] = useState(false);
+  const [revealPortalPassword, setRevealPortalPassword] = useState(false);
+
+  useEffect(() => {
+    setRevealPortalPassword(false);
+  }, [selectedPatient?.id]);
 
   if (!selectedPatient) {
     return (
@@ -46,7 +54,16 @@ export default function PatientOverview() {
   const style = statusStyles[p.status];
   const plan = getExercisePlan(p.id);
   const exerciseCount = plan?.exercises.length ?? 0;
-  const patientAccessLoginId = findPatientLoginByPatientId(p.id);
+  const portalAccess = getPatientCredentialsByPatientId(p.id);
+  const needsClinicalSetup = p.status === 'pending' || exerciseCount === 0;
+
+  const copyField = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const completionRate =
     p.analytics.sessionHistory.length > 0
@@ -141,13 +158,6 @@ export default function PatientOverview() {
               )}
             </div>
             <p className="text-sm text-teal-700 font-medium mt-0.5">{p.diagnosis}</p>
-            {patientAccessLoginId && (
-              <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                <KeyRound className="w-3.5 h-3.5" />
-                מזהה גישה למטופל:{' '}
-                <span className="font-mono font-semibold text-teal-800">{patientAccessLoginId}</span>
-              </p>
-            )}
             <div className="flex items-center gap-4 mt-2 flex-wrap">
               <span className="flex items-center gap-1.5 text-xs text-slate-500">
                 <User className="w-3.5 h-3.5" /> גיל {p.age}
@@ -182,6 +192,16 @@ export default function PatientOverview() {
                 </span>
               )}
             </button>
+            {needsClinicalSetup && (
+              <button
+                type="button"
+                onClick={() => setShowClinicalModal(true)}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 border-amber-500 text-amber-900 bg-amber-50 hover:bg-amber-100 transition-colors"
+              >
+                <Stethoscope className="w-4 h-4" />
+                עריכת פרופיל קליני
+              </button>
+            )}
           </div>
         </div>
 
@@ -193,6 +213,71 @@ export default function PatientOverview() {
           </div>
         )}
       </div>
+
+      {/* Portal credentials — נטען תמיד מ-localStorage (מקור אמת לאימות) */}
+      {portalAccess ? (
+        <div
+          className="rounded-2xl p-5 border shadow-sm mb-5 text-white"
+          style={{
+            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+            borderColor: '#334155',
+          }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <KeyRound className="w-5 h-5 text-teal-400" />
+            <h3 className="text-sm font-bold">גישה לפורטל מטופל</h3>
+          </div>
+          <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+            העבירו למטופל את המזהה והסיסמה להתחברות ב־/login (מזהה אינו דוא״ל). השמירו במקום מאובטח — הדמו שומר סיסמה בטקסט גלוי בדפדפן בלבד.
+          </p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap bg-slate-800/80 rounded-xl px-3 py-2.5">
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">מזהה ייחודי</p>
+                <code className="text-sm font-mono font-bold text-teal-300">{portalAccess.loginId}</code>
+              </div>
+              <button
+                type="button"
+                onClick={() => copyField(portalAccess.loginId)}
+                className="p-2 rounded-lg text-slate-300 hover:bg-slate-700"
+                title="העתקה"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex items-center justify-between gap-2 flex-wrap bg-slate-800/80 rounded-xl px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">סיסמה</p>
+                <code className="text-sm font-mono font-bold text-amber-200 break-all">
+                  {revealPortalPassword ? portalAccess.password : '••••••••'}
+                </code>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setRevealPortalPassword((v) => !v)}
+                  className="p-2 rounded-lg text-slate-300 hover:bg-slate-700"
+                  title={revealPortalPassword ? 'הסתר' : 'הצג'}
+                >
+                  {revealPortalPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => copyField(portalAccess.password)}
+                  className="p-2 rounded-lg text-slate-300 hover:bg-slate-700"
+                  title="העתקה"
+                >
+                  <Copy className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600 mb-5">
+          אין חשבון פורטל למטופל זה. מטופלים שנוצרו מ־«מטופל חדש + גישה» מקבלים מזהה וסיסמה אוטומטית.
+        </div>
+      )}
 
       {/* XP / Level Progress */}
       <div className="bg-white rounded-2xl p-5 border border-teal-100 shadow-sm mb-5">
@@ -271,6 +356,16 @@ export default function PatientOverview() {
 
       {/* Manage Plan Modal */}
       {showManageModal && <ManagePlanModal onClose={() => setShowManageModal(false)} />}
+
+      {showClinicalModal && (
+        <ClinicalProfileSetupModal
+          patientName={p.name}
+          onClose={() => setShowClinicalModal(false)}
+          onSave={(primaryBodyArea, libraryExerciseIds) =>
+            applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds)
+          }
+        />
+      )}
     </div>
   );
 }

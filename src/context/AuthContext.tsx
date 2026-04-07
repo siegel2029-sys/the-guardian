@@ -74,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const snap = loadAuthSnapshot();
     const id = identifier.trim();
-    const pw = password;
+    const pw = password.trim();
 
     try {
       if (isEmailLike(id)) {
