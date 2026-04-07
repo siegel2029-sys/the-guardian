@@ -12,11 +12,19 @@ import {
   Bot,
   Clock,
   KeyRound,
+  Stethoscope,
+  Leaf,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  Dumbbell,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
 import { getTherapistDisplayName } from '../../context/authPersistence';
 import BodyMap3D from '../body-map/BodyMap3D';
+import InteractiveBodyAvatar from './InteractiveBodyAvatar';
+import { getSelfCareExercisesForArea } from '../../data/selfCareExercises';
 import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseDetailModal from './ExerciseDetailModal';
 import PatientExerciseCard from './PatientExerciseCard';
@@ -70,6 +78,10 @@ export default function PatientDailyView() {
     safetyAlerts,
     clinicalToday,
     dailyHistoryByPatient,
+    getSelfCareZones,
+    toggleSelfCareZone,
+    logSelfCareSession,
+    getSelfCareReportsForClinicalDay,
   } = usePatient();
 
   const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
@@ -88,6 +100,9 @@ export default function PatientDailyView() {
   const [newLoginIdInput, setNewLoginIdInput] = useState('');
   const [loginIdCurrentPw, setLoginIdCurrentPw] = useState('');
   const [loginIdError, setLoginIdError] = useState<string | null>(null);
+  const [map3dOpen, setMap3dOpen] = useState(false);
+  const [avatarFocusArea, setAvatarFocusArea] = useState<BodyArea | null>(null);
+  const [avatarMode, setAvatarMode] = useState<'clinical' | 'selfcare' | null>(null);
 
   const careGiverName = useMemo(
     () => (selectedPatient ? getTherapistDisplayName(selectedPatient.therapistId) : ''),
@@ -152,6 +167,47 @@ export default function PatientDailyView() {
   const exerciseSafetyLocked = selectedPatient
     ? isPatientExerciseSafetyLocked(selectedPatient.id)
     : false;
+
+  const selfCareZones = selectedPatient ? getSelfCareZones(selectedPatient.id) : [];
+  const selfCareToday = selectedPatient
+    ? getSelfCareReportsForClinicalDay(selectedPatient.id, clinicalToday)
+    : [];
+
+  useEffect(() => {
+    if (!selectedPatient) return;
+    if (avatarMode === 'selfcare' && avatarFocusArea != null) {
+      const zones = getSelfCareZones(selectedPatient.id);
+      if (!zones.includes(avatarFocusArea)) {
+        setAvatarFocusArea(null);
+        setAvatarMode(null);
+      }
+    }
+  }, [selectedPatient?.id, avatarMode, avatarFocusArea, getSelfCareZones]);
+
+  useEffect(() => {
+    if (avatarMode === 'selfcare' && avatarFocusArea == null) {
+      setAvatarMode(null);
+    }
+  }, [avatarMode, avatarFocusArea]);
+
+  const handleAvatarZoneClick = (area: BodyArea) => {
+    if (!selectedPatient) return;
+    if (area === selectedPatient.primaryBodyArea) {
+      setAvatarMode('clinical');
+      setAvatarFocusArea(area);
+      setFilterArea(area);
+      return;
+    }
+    const had = getSelfCareZones(selectedPatient.id).includes(area);
+    toggleSelfCareZone(selectedPatient.id, area);
+    if (had) {
+      setAvatarFocusArea((prev) => (prev === area ? null : prev));
+    } else {
+      setAvatarFocusArea(area);
+      setAvatarMode('selfcare');
+      setFilterArea(null);
+    }
+  };
 
   const latestEmergencyReason = useMemo(() => {
     if (!selectedPatient) return undefined;

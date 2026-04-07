@@ -5,6 +5,8 @@ import type {
   DailySession,
   AiSuggestion,
   SafetyAlert,
+  BodyArea,
+  SelfCareSessionReport,
 } from '../types';
 import { invalidatePersistedBootstrapCache } from '../bootstrap/invalidateBootstrap';
 
@@ -20,6 +22,10 @@ export type PersistedPatientStateV1 = {
   selectedPatientId: string;
   safetyAlerts: SafetyAlert[];
   exerciseSafetyLockedPatientIds: Record<string, boolean>;
+  /** אזורי גוף לטיפול עצמי (פרהאב) — לפי מזהה מטופל */
+  selfCareZonesByPatientId?: Record<string, BodyArea[]>;
+  /** דיווחי תרגילי כוח/פרהאב — לפי מזהה מטופל */
+  selfCareReportsByPatientId?: Record<string, SelfCareSessionReport[]>;
 };
 
 export function loadPersistedPatientState(): PersistedPatientStateV1 | null {

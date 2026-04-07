@@ -12,6 +12,7 @@ import type {
   Patient, NavSection, Message, ExercisePlan, DailySession,
   PatientExercise, AiSuggestion, Exercise, PainLevel, ExerciseSession, AiSuggestionSource,
   SafetyAlert, ClinicalSafetyTier, DailyHistoryEntry, BodyArea,
+  SelfCareSessionReport,
 } from '../types';
 import { bodyAreaLabels } from '../types';
 import {
@@ -182,6 +183,19 @@ interface PatientContextValue {
   resetPatientExercisePlan: (patientId: string) => void;
   resetPatientMessageHistory: (patientId: string) => void;
   resetPatientPainReports: (patientId: string) => void;
+
+  /** אזורי פרהאב/כוח שנבחרו על ידי המטופל (לא כולל אזור קליני ראשי) */
+  getSelfCareZones: (patientId: string) => BodyArea[];
+  toggleSelfCareZone: (patientId: string, area: BodyArea) => void;
+  /** דיווחי תרגילי self-care לפי תאריך קליני */
+  logSelfCareSession: (
+    patientId: string,
+    exerciseId: string,
+    exerciseName: string,
+    effortRating: 1 | 2 | 3 | 4 | 5
+  ) => void;
+  getSelfCareReportsForPatient: (patientId: string) => SelfCareSessionReport[];
+  getSelfCareReportsForClinicalDay: (patientId: string, clinicalDate: string) => SelfCareSessionReport[];
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -286,6 +300,12 @@ export function PatientProvider({
     return persisted?.exerciseSafetyLockedPatientIds ?? {};
   });
   const [emergencyModalPatientId, setEmergencyModalPatientId] = useState<string | null>(null);
+  const [selfCareZonesByPatientId, setSelfCareZonesByPatientId] = useState<
+    Record<string, BodyArea[]>
+  >(() => readPersistedOnce().patient?.selfCareZonesByPatientId ?? {});
+  const [selfCareReportsByPatientId, setSelfCareReportsByPatientId] = useState<
+    Record<string, SelfCareSessionReport[]>
+  >(() => readPersistedOnce().patient?.selfCareReportsByPatientId ?? {});
 
   const isPatientSessionLocked = restrictPatientSessionId != null && restrictPatientSessionId !== '';
 
@@ -330,6 +350,8 @@ export function PatientProvider({
       selectedPatientId,
       safetyAlerts,
       exerciseSafetyLockedPatientIds,
+      selfCareZonesByPatientId,
+      selfCareReportsByPatientId,
     });
   }, [
     allPatients,
@@ -340,6 +362,8 @@ export function PatientProvider({
     selectedPatientId,
     safetyAlerts,
     exerciseSafetyLockedPatientIds,
+    selfCareZonesByPatientId,
+    selfCareReportsByPatientId,
   ]);
 
   const applyExternalSnapshot = useCallback(
@@ -351,6 +375,8 @@ export function PatientProvider({
       setAiSuggestions(data.aiSuggestions ?? []);
       setSafetyAlerts(data.safetyAlerts ?? []);
       setExerciseSafetyLockedPatientIds(data.exerciseSafetyLockedPatientIds ?? {});
+      setSelfCareZonesByPatientId(data.selfCareZonesByPatientId ?? {});
+      setSelfCareReportsByPatientId(data.selfCareReportsByPatientId ?? {});
       if (!restrictPatientSessionId) {
         setSelectedPatientId(data.selectedPatientId ?? '');
       }
@@ -1218,9 +1244,82 @@ export function PatientProvider({
       delete next[patientId];
       return next;
     });
+    setSelfCareZonesByPatientId((prev) => {
+      const next = { ...prev };
+      delete next[patientId];
+      return next;
+    });
+    setSelfCareReportsByPatientId((prev) => {
+      const next = { ...prev };
+      delete next[patientId];
+      return next;
+    });
     setSelectedPatientId((cur) => (cur === patientId ? '' : cur));
     setEmergencyModalPatientId((cur) => (cur === patientId ? null : cur));
   }, []);
+
+  const getSelfCareZones = useCallback(
+    (patientId: string) => {
+      const patient = allPatients.find((p) => p.id === patientId);
+      const raw = selfCareZonesByPatientId[patientId] ?? [];
+      if (!patient) return raw.filter(Boolean);
+      return raw.filter((a) => a && a !== patient.primaryBodyArea);
+    },
+    [allPatients, selfCareZonesByPatientId]
+  );
+
+  const toggleSelfCareZone = useCallback(
+    (patientId: string, area: BodyArea) => {
+      const patient = allPatients.find((p) => p.id === patientId);
+      if (!patient || area === patient.primaryBodyArea) return;
+      setSelfCareZonesByPatientId((prev) => {
+        const cur = prev[patientId] ?? [];
+        const has = cur.includes(area);
+        const next = has ? cur.filter((a) => a !== area) : [...cur, area];
+        return { ...prev, [patientId]: next };
+      });
+    },
+    [allPatients]
+  );
+
+  const logSelfCareSession = useCallback(
+    (
+      patientId: string,
+      exerciseId: string,
+      exerciseName: string,
+      effortRating: 1 | 2 | 3 | 4 | 5
+    ) => {
+      const id = `sc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const report: SelfCareSessionReport = {
+        id,
+        patientId,
+        clinicalDate: clinicalToday,
+        exerciseId,
+        exerciseName,
+        effortRating,
+        loggedAt: new Date().toISOString(),
+      };
+      setSelfCareReportsByPatientId((prev) => ({
+        ...prev,
+        [patientId]: [...(prev[patientId] ?? []), report],
+      }));
+    },
+    [clinicalToday]
+  );
+
+  const getSelfCareReportsForPatient = useCallback(
+    (patientId: string) =>
+      [...(selfCareReportsByPatientId[patientId] ?? [])].sort((a, b) =>
+        b.loggedAt.localeCompare(a.loggedAt)
+      ),
+    [selfCareReportsByPatientId]
+  );
+
+  const getSelfCareReportsForClinicalDay = useCallback(
+    (patientId: string, clinicalDate: string) =>
+      (selfCareReportsByPatientId[patientId] ?? []).filter((r) => r.clinicalDate === clinicalDate),
+    [selfCareReportsByPatientId]
+  );
 
   const resetPatientExercisePlan = useCallback((patientId: string) => {
     setExercisePlans((prev) =>
@@ -1291,6 +1390,11 @@ export function PatientProvider({
         resetPatientExercisePlan,
         resetPatientMessageHistory,
         resetPatientPainReports,
+        getSelfCareZones,
+        toggleSelfCareZone,
+        logSelfCareSession,
+        getSelfCareReportsForPatient,
+        getSelfCareReportsForClinicalDay,
       }}
     >
       {children}

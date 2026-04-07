@@ -71,6 +71,28 @@ export interface PatientAnalytics {
 export type PatientStatus = 'active' | 'pending' | 'paused';
 export type ExerciseLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
+/** תרגיל כוח/פרהאב לבחירת מטופל — מחוץ לתוכנית הקלינית */
+export interface SelfCareExercise {
+  id: string;
+  name: string;
+  bodyArea: BodyArea;
+  category: 'strength' | 'mobility' | 'cardio';
+  instructions: string;
+  videoUrl: string;
+  difficulty: 1 | 2 | 3 | 4 | 5;
+}
+
+/** דיווח מטופל על ביצוע תרגיל self-care ביום קליני */
+export interface SelfCareSessionReport {
+  id: string;
+  patientId: string;
+  clinicalDate: string;
+  exerciseId: string;
+  exerciseName: string;
+  effortRating: 1 | 2 | 3 | 4 | 5;
+  loggedAt: string;
+}
+
 export interface Patient {
   id: string;
   /** מטפל אחראי — סינון דשבורד ורישום מטופלים חדשים */
