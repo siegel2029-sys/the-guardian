@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Sparkles, X, MessageCircle, Coins, Activity, LogOut } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
@@ -24,8 +25,16 @@ import {
   DIFFICULTY_MAX_PATIENT_COPY,
 } from '../../safety/clinicalEmergencyScreening';
 
-export default function PatientDailyView() {
+export type PatientDailyViewVariant = 'default' | 'portal';
+
+export type PatientDailyViewProps = {
+  variant?: PatientDailyViewVariant;
+};
+
+export default function PatientDailyView({ variant = 'default' }: PatientDailyViewProps) {
+  const navigate = useNavigate();
   const { sessionRole, logout } = useAuth();
+  const isPortal = variant === 'portal';
   const {
     selectedPatient,
     getExercisePlan,
@@ -158,7 +167,7 @@ export default function PatientDailyView() {
       >
         <p className="text-teal-900 font-medium mb-4">לא נבחר מטופל או שהחשבון אינו מקושר.</p>
         <div className="flex flex-wrap gap-2 justify-center">
-          {!isPatientSessionLocked && (
+          {!isPortal && !isPatientSessionLocked && (
             <button
               type="button"
               onClick={() => setViewMode('therapist')}
@@ -170,7 +179,10 @@ export default function PatientDailyView() {
           {sessionRole === 'patient' && (
             <button
               type="button"
-              onClick={() => logout()}
+              onClick={() => {
+                logout();
+                navigate('/login', { replace: true });
+              }}
               className="px-5 py-2.5 rounded-2xl border border-slate-300 text-slate-700 font-medium"
             >
               התנתקות
@@ -199,7 +211,7 @@ export default function PatientDailyView() {
           backdropFilter: 'blur(10px)',
         }}
       >
-        {!isPatientSessionLocked ? (
+        {!isPortal && !isPatientSessionLocked ? (
           <button
             type="button"
             onClick={() => setViewMode('therapist')}
@@ -211,7 +223,10 @@ export default function PatientDailyView() {
         ) : sessionRole === 'patient' ? (
           <button
             type="button"
-            onClick={() => logout()}
+            onClick={() => {
+              logout();
+              navigate('/login', { replace: true });
+            }}
             title="התנתקות"
             className="flex items-center gap-1.5 text-sm font-medium text-slate-600 px-3 py-2 rounded-xl hover:bg-slate-100 border border-slate-200"
           >
@@ -222,22 +237,26 @@ export default function PatientDailyView() {
           <span className="w-[1px] shrink-0" aria-hidden />
         )}
         <div className="flex-1 min-w-0 text-end">
-          <p className="text-xs text-teal-600 font-medium">תצוגת מטופל</p>
+          <p className="text-xs text-teal-600 font-medium">
+            {isPortal ? 'הפורטל האישי שלך' : 'תצוגת מטופל'}
+          </p>
           <p className="text-base font-semibold text-slate-800 truncate">{selectedPatient.name}</p>
         </div>
-        <div
-          className="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-xl text-xs font-bold text-amber-900"
-          style={{ background: '#fef3c7', border: '1px solid #fcd34d' }}
-          title="מטבעות למידה"
-        >
-          <Coins className="w-4 h-4 text-amber-700" />
-          {selectedPatient.coins}
-        </div>
+        {!isPortal && (
+          <div
+            className="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-xl text-xs font-bold text-amber-900"
+            style={{ background: '#fef3c7', border: '1px solid #fcd34d' }}
+            title="מטבעות למידה"
+          >
+            <Coins className="w-4 h-4 text-amber-700" />
+            {selectedPatient.coins}
+          </div>
+        )}
       </header>
 
       <div className="flex-1 px-4 py-4 pb-28">
-        {/* 3D Body map — patient status */}
-        {exercises.length > 0 && (
+        {/* 3D Body map — patient status (מטפל / תצוגה מלאה בלבד) */}
+        {!isPortal && exercises.length > 0 && (
           <section className="mb-5">
             <div className="flex items-center justify-between mb-2 px-0.5">
               <h2 className="text-base font-bold text-slate-800">מפת הגוף שלי</h2>
