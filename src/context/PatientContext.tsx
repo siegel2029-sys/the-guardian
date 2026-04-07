@@ -25,6 +25,7 @@ import {
   type EmergencyScreenResult,
 } from '../safety/clinicalEmergencyScreening';
 import { getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
+import { computeClinicalProgressInsight } from '../ai/clinicalCommandInsight';
 import { mergeHistoryFromSessions } from '../utils/dailyHistory';
 import { savePersistedPatientState } from './patientPersistence';
 import { addPatientAccount, ensurePatientAccountsForPatients } from './authPersistence';
@@ -155,6 +156,13 @@ interface PatientContextValue {
     primaryBodyArea: BodyArea,
     libraryExerciseIds: string[]
   ) => void;
+
+  /** הערות מטפל — נשמרות ב-localStorage */
+  updateTherapistNotes: (patientId: string, notes: string) => void;
+  /**
+   * שמירת הערכה קלינית + יצירת הצעת תרגיל pending למטופל (לפי המלצת המערכת והנתונים).
+   */
+  runClinicalAssessmentEngine: (patientId: string, notes: string) => void;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -1053,6 +1061,72 @@ export function PatientProvider({
     );
   }, []);
 
+  const updateTherapistNotes = useCallback((patientId: string, notes: string) => {
+    setAllPatients((prev) =>
+      prev.map((p) => (p.id === patientId ? { ...p, therapistNotes: notes } : p))
+    );
+  }, []);
+
+  const runClinicalAssessmentEngine = useCallback(
+    (patientId: string, notes: string) => {
+      const patient = allPatients.find((p) => p.id === patientId);
+      if (!patient) return;
+      const plan = exercisePlans.find((ep) => ep.patientId === patientId);
+      const insight = computeClinicalProgressInsight(patient, clinicalToday);
+
+      setAllPatients((prev) =>
+        prev.map((p) => (p.id === patientId ? { ...p, therapistNotes: notes } : p))
+      );
+
+      setAiSuggestions((prev) => {
+        const withoutStale = prev.filter(
+          (s) =>
+            !(
+              s.patientId === patientId &&
+              s.source === 'therapist_note' &&
+              s.status === 'pending'
+            )
+        );
+
+        if (insight.category !== 'load_increase' && insight.category !== 'load_decrease' && insight.category !== 'escalate_care') {
+          return withoutStale;
+        }
+
+        const ex = plan?.exercises.find((e) => (e.patientReps ?? 0) > 0);
+        if (!ex) return withoutStale;
+
+        const currentValue = ex.patientReps;
+        const isReduce = insight.category === 'load_decrease' || insight.category === 'escalate_care';
+        const suggestedValue = isReduce
+          ? Math.max(1, currentValue - 3)
+          : currentValue + 2;
+        if (!isReduce && suggestedValue === currentValue) return withoutStale;
+
+        const noteRef =
+          notes.trim().length > 0
+            ? ` סינתזה לאחר עדכון ההערכה הקלינית («${notes.trim().slice(0, 80)}${notes.trim().length > 80 ? '…' : ''}»).`
+            : '';
+
+        const newSug: AiSuggestion = {
+          id: `ai-tn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          patientId,
+          exerciseId: ex.id,
+          exerciseName: ex.name,
+          type: isReduce ? 'reduce_reps' : 'increase_reps',
+          field: 'reps',
+          currentValue,
+          suggestedValue,
+          reason: `${insight.nextStepHe}${noteRef}`,
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+          source: 'therapist_note',
+        };
+        return [...withoutStale, newSug];
+      });
+    },
+    [allPatients, exercisePlans, clinicalToday]
+  );
+
   return (
     <PatientContext.Provider
       value={{
@@ -1086,6 +1160,8 @@ export function PatientProvider({
         grantPatientCoins,
         grantPatientKnowledgeReward,
         applyInitialClinicalProfile,
+        updateTherapistNotes,
+        runClinicalAssessmentEngine,
       }}
     >
       {children}

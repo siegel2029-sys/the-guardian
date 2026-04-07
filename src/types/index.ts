@@ -191,7 +191,7 @@ export type AiSuggestionType = 'increase_reps' | 'increase_sets' | 'reduce_reps'
 /** pending = מוצג למטופל; awaiting_therapist = המטופל אישר — ממתין לאישור מטפל לפני עדכון DB */
 export type AiSuggestionStatus = 'pending' | 'awaiting_therapist' | 'approved' | 'declined';
 
-export type AiSuggestionSource = 'system' | 'guardian_patient';
+export type AiSuggestionSource = 'system' | 'guardian_patient' | 'therapist_note';
 
 export interface AiSuggestion {
   id: string;
