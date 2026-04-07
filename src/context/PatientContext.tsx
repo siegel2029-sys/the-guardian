@@ -10,7 +10,7 @@ import {
 } from 'react';
 import type {
   Patient, NavSection, Message, ExercisePlan, DailySession,
-  PatientExercise, AiSuggestion, Exercise, PainLevel, ExerciseSession, AiSuggestionSource,
+  PatientExercise, AiSuggestion, Exercise, PainLevel, ExerciseSession,
   SafetyAlert, ClinicalSafetyTier, DailyHistoryEntry, BodyArea,
 } from '../types';
 import { bodyAreaLabels } from '../types';
@@ -1100,7 +1100,7 @@ export function PatientProvider({
         const suggestedValue = isReduce
           ? Math.max(1, currentValue - 3)
           : currentValue + 2;
-        if (!isReduce && suggestedValue === currentValue) return withoutStale;
+        if (suggestedValue === currentValue) return withoutStale;
 
         const noteRef =
           notes.trim().length > 0
