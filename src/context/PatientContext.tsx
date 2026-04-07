@@ -10,7 +10,7 @@ import {
 } from 'react';
 import type {
   Patient, NavSection, Message, ExercisePlan, DailySession,
-  PatientExercise, AiSuggestion, Exercise, PainLevel, ExerciseSession,
+  PatientExercise, AiSuggestion, Exercise, PainLevel, ExerciseSession, AiSuggestionSource,
   SafetyAlert, ClinicalSafetyTier, DailyHistoryEntry, BodyArea,
 } from '../types';
 import { bodyAreaLabels } from '../types';
