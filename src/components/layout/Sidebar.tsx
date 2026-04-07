@@ -14,6 +14,7 @@ import {
   Bell,
   CheckCircle2,
   AlertOctagon,
+  Reply,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { usePatient } from '../../context/PatientContext';
@@ -177,43 +178,40 @@ export default function Sidebar() {
                 const isSelected = patient.id === selectedPatient?.id;
 
                 return (
-                  <button
+                  <div
                     key={patient.id}
-                    onClick={() => {
-                      selectPatient(patient.id);
-                      setPatientSwitcherOpen(false);
-                    }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-right transition-colors duration-150"
+                    className="w-full flex items-stretch border-b border-teal-50 last:border-0 transition-colors duration-150"
                     style={{
                       background: isSelected ? '#f0fffe' : 'transparent',
                     }}
-                    onMouseEnter={(e) => {
-                      if (!isSelected)
-                        (e.currentTarget as HTMLButtonElement).style.background = '#f8fffe';
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isSelected)
-                        (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-                    }}
                   >
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                      style={{
-                        background: isSelected
-                          ? 'linear-gradient(135deg, #0d9488, #10b981)'
-                          : 'linear-gradient(135deg, #94a3b8, #cbd5e1)',
+                    <button
+                      type="button"
+                      onClick={() => {
+                        selectPatient(patient.id);
+                        setPatientSwitcherOpen(false);
                       }}
+                      className="flex-1 flex items-center gap-2.5 px-3 py-2.5 text-right min-w-0"
                     >
-                      {patient.name.charAt(0)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-sm font-medium text-slate-800 truncate">{patient.name}</p>
-                        {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-teal-500" />}
+                      <div
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                        style={{
+                          background: isSelected
+                            ? 'linear-gradient(135deg, #0d9488, #10b981)'
+                            : 'linear-gradient(135deg, #94a3b8, #cbd5e1)',
+                        }}
+                      >
+                        {patient.name.charAt(0)}
                       </div>
-                      <p className="text-xs text-slate-500 truncate">{patient.diagnosis}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-medium text-slate-800 truncate">{patient.name}</p>
+                          {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-teal-500" />}
+                        </div>
+                        <p className="text-xs text-slate-500 truncate">{patient.diagnosis}</p>
+                      </div>
+                    </button>
+                    <div className="flex flex-col items-center justify-center gap-1 px-2 py-1 shrink-0 border-s border-teal-50/80">
                       {patient.hasRedFlag && (
                         <span
                           className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold border"
@@ -237,12 +235,25 @@ export default function Sidebar() {
                           {unreadCount}
                         </span>
                       )}
+                      {unreadCount > 0 && (
+                        <button
+                          type="button"
+                          title="מענה — פתיחת צ׳אט"
+                          onClick={() => {
+                            selectPatient(patient.id, { openSection: 'messages' });
+                            setPatientSwitcherOpen(false);
+                          }}
+                          className="p-1.5 rounded-lg text-teal-700 hover:bg-teal-100 border border-teal-200/80"
+                        >
+                          <Reply className="w-4 h-4" />
+                        </button>
+                      )}
                       <span
                         className="w-1.5 h-1.5 rounded-full"
                         style={{ background: statusColors[patient.status] }}
                       />
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>

@@ -1,15 +1,18 @@
 import { useState, useMemo, useEffect } from 'react';
-import { LineChart, Dumbbell, Stethoscope } from 'lucide-react';
+import { LineChart, Dumbbell, Stethoscope, ClipboardList } from 'lucide-react';
 import type { Patient } from '../../../types';
 import { bodyAreaLabels } from '../../../types';
 import { usePatient } from '../../../context/PatientContext';
+import ClinicalIntakePanel from './ClinicalIntakePanel';
+import ClinicalSessionLineChart from './ClinicalSessionLineChart';
 
-type TabId = 'pain' | 'exercise' | 'assessment';
+type TabId = 'pain' | 'exercise' | 'assessment' | 'intake';
 
 const tabs: { id: TabId; label: string; icon: typeof LineChart }[] = [
   { id: 'pain', label: 'דוחות כאב', icon: LineChart },
   { id: 'exercise', label: 'היסטוריית תרגול', icon: Dumbbell },
   { id: 'assessment', label: 'הערכה קלינית', icon: Stethoscope },
+  { id: 'intake', label: 'אינטייק קליני', icon: ClipboardList },
 ];
 
 function PainTrendPanel({ patient }: { patient: Patient }) {
@@ -17,80 +20,11 @@ function PainTrendPanel({ patient }: { patient: Patient }) {
     () => [...patient.analytics.painHistory].sort((a, b) => a.date.localeCompare(b.date)),
     [patient.analytics.painHistory]
   );
-  const sessions = useMemo(
-    () => [...patient.analytics.sessionHistory].sort((a, b) => a.date.localeCompare(b.date)),
-    [patient.analytics.sessionHistory]
-  );
-
-  const maxPain = 10;
-  const dates = useMemo(() => {
-    const set = new Set<string>();
-    sorted.forEach((r) => set.add(r.date));
-    sessions.forEach((s) => set.add(s.date));
-    return [...set].sort();
-  }, [sorted, sessions]);
-
-  const painByDate = useMemo(() => {
-    const m = new Map<string, number>();
-    sorted.forEach((r) => m.set(r.date, r.painLevel));
-    return m;
-  }, [sorted]);
-
-  const effortByDate = useMemo(() => {
-    const m = new Map<string, number>();
-    sessions.forEach((s) => m.set(s.date, s.difficultyRating));
-    return m;
-  }, [sessions]);
-
-  if (dates.length === 0) {
-    return (
-      <p className="text-sm text-slate-500 text-center py-10">אין עדיין נתוני כאב או מאמץ לגרפים</p>
-    );
-  }
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-xs font-semibold text-slate-600 mb-3">מגמת כאב (VAS) ומאמץ מדווח (1–5)</p>
-        <div className="flex gap-1 items-end h-40 border-b border-slate-200 pb-1 px-1" style={{ direction: 'ltr' }}>
-          {dates.map((d) => {
-            const pain = painByDate.get(d);
-            const effort = effortByDate.get(d);
-            const painH = pain != null ? (pain / maxPain) * 100 : 0;
-            const effortH = effort != null ? (effort / 5) * 100 : 0;
-            return (
-              <div key={d} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-                <div className="flex gap-0.5 items-end justify-center h-32 w-full">
-                  {pain != null && (
-                    <div
-                      className="w-[42%] rounded-t transition-all bg-blue-500 min-h-[4px]"
-                      style={{ height: `${painH}%` }}
-                      title={`כאב ${pain}/10`}
-                    />
-                  )}
-                  {effort != null && (
-                    <div
-                      className="w-[42%] rounded-t transition-all bg-sky-300 min-h-[4px]"
-                      style={{ height: `${effortH}%` }}
-                      title={`מאמץ ${effort}/5`}
-                    />
-                  )}
-                </div>
-                <span className="text-[9px] text-slate-500 truncate w-full text-center leading-tight">
-                  {d.slice(5).replace('-', '/')}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex gap-4 justify-center mt-3 text-[11px] text-slate-600">
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-3 rounded-sm bg-blue-500" /> כאב
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-3 rounded-sm bg-sky-300" /> מאמץ
-          </span>
-        </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <ClinicalSessionLineChart patient={patient} />
       </div>
 
       <div className="rounded-lg border border-slate-200 overflow-hidden">
@@ -103,13 +37,24 @@ function PainTrendPanel({ patient }: { patient: Patient }) {
             </tr>
           </thead>
           <tbody>
-            {sorted.slice(-14).reverse().map((r) => (
-              <tr key={`${r.date}-${r.bodyArea}`} className="border-t border-slate-100">
-                <td className="p-2">{r.date}</td>
-                <td className="p-2 font-mono">{r.painLevel}/10</td>
-                <td className="p-2">{bodyAreaLabels[r.bodyArea]}</td>
+            {sorted.length === 0 ? (
+              <tr>
+                <td colSpan={3} className="p-6 text-center text-slate-400 text-sm">
+                  אין דוחות כאב רשומים
+                </td>
               </tr>
-            ))}
+            ) : (
+              sorted
+                .slice(-14)
+                .reverse()
+                .map((r) => (
+                  <tr key={`${r.date}-${r.bodyArea}`} className="border-t border-slate-100">
+                    <td className="p-2">{r.date}</td>
+                    <td className="p-2 font-mono">{r.painLevel}/10</td>
+                    <td className="p-2">{bodyAreaLabels[r.bodyArea]}</td>
+                  </tr>
+                ))
+            )}
           </tbody>
         </table>
       </div>
@@ -243,7 +188,7 @@ export default function ClinicalDeepDiveTabs({ patient }: { patient: Patient }) 
       style={{ borderColor: '#e2e8f0' }}
       dir="rtl"
     >
-      <div className="flex border-b border-slate-200 bg-slate-50/90">
+      <div className="flex flex-wrap border-b border-slate-200 bg-slate-50/90">
         {tabs.map((t) => {
           const Icon = t.icon;
           const active = tab === t.id;
@@ -252,7 +197,7 @@ export default function ClinicalDeepDiveTabs({ patient }: { patient: Patient }) 
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 px-2 text-xs sm:text-sm font-semibold transition-colors ${
+              className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 px-2 text-xs sm:text-sm font-semibold transition-colors ${
                 active
                   ? 'text-blue-800 bg-white border-b-2 border-blue-600 -mb-px'
                   : 'text-slate-500 hover:text-slate-700'
@@ -268,6 +213,7 @@ export default function ClinicalDeepDiveTabs({ patient }: { patient: Patient }) 
         {tab === 'pain' && <PainTrendPanel patient={patient} />}
         {tab === 'exercise' && <ExerciseHistoryPanel patient={patient} />}
         {tab === 'assessment' && <ClinicalAssessmentPanel patient={patient} />}
+        {tab === 'intake' && <ClinicalIntakePanel patient={patient} />}
       </div>
     </div>
   );

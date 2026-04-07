@@ -27,8 +27,16 @@ import {
 import { getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
 import { computeClinicalProgressInsight } from '../ai/clinicalCommandInsight';
 import { mergeHistoryFromSessions } from '../utils/dailyHistory';
-import { savePersistedPatientState } from './patientPersistence';
-import { addPatientAccount, ensurePatientAccountsForPatients } from './authPersistence';
+import {
+  savePersistedPatientState,
+  PATIENT_STATE_STORAGE_KEY,
+  type PersistedPatientStateV1,
+} from './patientPersistence';
+import {
+  addPatientAccount,
+  ensurePatientAccountsForPatients,
+  removePatientAccountsForPatient,
+} from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 
 function buildEmptySession(patientId: string, clinicalDate: string): DailySession {
@@ -51,7 +59,7 @@ interface PatientContextValue {
   // Patients
   patients: Patient[];
   selectedPatient: Patient | null;
-  selectPatient: (id: string) => void;
+  selectPatient: (id: string, options?: { openSection?: NavSection }) => void;
 
   // Navigation
   activeSection: NavSection;
@@ -163,6 +171,17 @@ interface PatientContextValue {
    * שמירת הערכה קלינית + יצירת הצעת תרגיל pending למטופל (לפי המלצת המערכת והנתונים).
    */
   runClinicalAssessmentEngine: (patientId: string, notes: string) => void;
+
+  /**
+   * החלפת תוכנית התרגול המלאה לפי תוצאות אינטייק קליני (תרגילים מהספרייה).
+   */
+  applyIntakeExercisePlan: (patientId: string, exercises: Exercise[], primaryBodyArea: BodyArea) => void;
+
+  /** מחיקת מטופל מהמערכת (כולל auth פורטל) */
+  deletePatient: (patientId: string) => void;
+  resetPatientExercisePlan: (patientId: string) => void;
+  resetPatientMessageHistory: (patientId: string) => void;
+  resetPatientPainReports: (patientId: string) => void;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -323,6 +342,36 @@ export function PatientProvider({
     exerciseSafetyLockedPatientIds,
   ]);
 
+  const applyExternalSnapshot = useCallback(
+    (data: PersistedPatientStateV1) => {
+      setAllPatients(normalizePatientsTherapistIds(data.patients));
+      setMessages(data.messages ?? []);
+      setExercisePlans(data.exercisePlans ?? []);
+      setDailySessions(data.dailySessions ?? []);
+      setAiSuggestions(data.aiSuggestions ?? []);
+      setSafetyAlerts(data.safetyAlerts ?? []);
+      setExerciseSafetyLockedPatientIds(data.exerciseSafetyLockedPatientIds ?? {});
+      if (!restrictPatientSessionId) {
+        setSelectedPatientId(data.selectedPatientId ?? '');
+      }
+    },
+    [restrictPatientSessionId]
+  );
+
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== PATIENT_STATE_STORAGE_KEY || e.newValue == null) return;
+      try {
+        const data = JSON.parse(e.newValue) as PersistedPatientStateV1;
+        if (data?.version === 1 && Array.isArray(data.patients)) applyExternalSnapshot(data);
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [applyExternalSnapshot]);
+
   const selectedPatient = useMemo(
     () => allPatients.find((p) => p.id === selectedPatientId) ?? null,
     [allPatients, selectedPatientId]
@@ -330,7 +379,7 @@ export function PatientProvider({
 
   // ── Patient selection ──────────────────────────────────────────
   const selectPatient = useCallback(
-    (id: string) => {
+    (id: string, options?: { openSection?: NavSection }) => {
       if (restrictPatientSessionId && id !== restrictPatientSessionId) return;
       if (
         therapistScopeId &&
@@ -339,7 +388,7 @@ export function PatientProvider({
         return;
       }
       setSelectedPatientId(id);
-      setActiveSection('overview');
+      setActiveSection(options?.openSection ?? 'overview');
     },
     [restrictPatientSessionId, therapistScopeId, allPatients]
   );
@@ -1067,6 +1116,35 @@ export function PatientProvider({
     );
   }, []);
 
+  const applyIntakeExercisePlan = useCallback(
+    (patientId: string, exercises: Exercise[], primaryBodyArea: BodyArea) => {
+      const addedAt = new Date().toISOString();
+      const newExercises: PatientExercise[] = exercises.map((exercise, i) => ({
+        ...exercise,
+        id: `${patientId}-intake-${exercise.id}-${addedAt}-${i}`,
+        patientSets: exercise.sets,
+        patientReps: exercise.reps ?? 0,
+        addedAt,
+      }));
+      setExercisePlans((prev) => {
+        const rest = prev.filter((ep) => ep.patientId !== patientId);
+        return [...rest, { patientId, exercises: newExercises }];
+      });
+      setAllPatients((prev) =>
+        prev.map((p) =>
+          p.id === patientId
+            ? {
+                ...p,
+                primaryBodyArea,
+                status: p.status === 'pending' ? 'active' : p.status,
+              }
+            : p
+        )
+      );
+    },
+    []
+  );
+
   const runClinicalAssessmentEngine = useCallback(
     (patientId: string, notes: string) => {
       const patient = allPatients.find((p) => p.id === patientId);
@@ -1127,6 +1205,52 @@ export function PatientProvider({
     [allPatients, exercisePlans, clinicalToday]
   );
 
+  const deletePatient = useCallback((patientId: string) => {
+    removePatientAccountsForPatient(patientId);
+    setAllPatients((prev) => prev.filter((p) => p.id !== patientId));
+    setExercisePlans((prev) => prev.filter((ep) => ep.patientId !== patientId));
+    setMessages((prev) => prev.filter((m) => m.patientId !== patientId));
+    setDailySessions((prev) => prev.filter((s) => s.patientId !== patientId));
+    setAiSuggestions((prev) => prev.filter((s) => s.patientId !== patientId));
+    setSafetyAlerts((prev) => prev.filter((a) => a.patientId !== patientId));
+    setExerciseSafetyLockedPatientIds((prev) => {
+      const next = { ...prev };
+      delete next[patientId];
+      return next;
+    });
+    setSelectedPatientId((cur) => (cur === patientId ? '' : cur));
+    setEmergencyModalPatientId((cur) => (cur === patientId ? null : cur));
+  }, []);
+
+  const resetPatientExercisePlan = useCallback((patientId: string) => {
+    setExercisePlans((prev) =>
+      prev.some((ep) => ep.patientId === patientId)
+        ? prev.map((ep) => (ep.patientId === patientId ? { ...ep, exercises: [] } : ep))
+        : [...prev, { patientId, exercises: [] }]
+    );
+  }, []);
+
+  const resetPatientMessageHistory = useCallback((patientId: string) => {
+    setMessages((prev) => prev.filter((m) => m.patientId !== patientId));
+  }, []);
+
+  const resetPatientPainReports = useCallback((patientId: string) => {
+    setAllPatients((prev) =>
+      prev.map((p) => {
+        if (p.id !== patientId) return p;
+        return {
+          ...p,
+          analytics: {
+            ...p.analytics,
+            painHistory: [],
+            averageOverallPain: 0,
+            painByArea: {},
+          },
+        };
+      })
+    );
+  }, []);
+
   return (
     <PatientContext.Provider
       value={{
@@ -1162,6 +1286,11 @@ export function PatientProvider({
         applyInitialClinicalProfile,
         updateTherapistNotes,
         runClinicalAssessmentEngine,
+        applyIntakeExercisePlan,
+        deletePatient,
+        resetPatientExercisePlan,
+        resetPatientMessageHistory,
+        resetPatientPainReports,
       }}
     >
       {children}

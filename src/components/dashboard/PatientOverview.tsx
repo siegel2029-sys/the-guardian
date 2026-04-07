@@ -16,6 +16,7 @@ import PatientAvatarStateCard from './clinical/PatientAvatarStateCard';
 import AiProgressInsightCard from './clinical/AiProgressInsightCard';
 import TherapistQuickChat from './clinical/TherapistQuickChat';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
+import PatientDataManagement from './clinical/PatientDataManagement';
 import { bodyAreaLabels } from '../../types';
 
 const statusLabels: Record<string, string> = {
@@ -249,6 +250,8 @@ export default function PatientOverview() {
         <div className="mb-5">
           <ClinicalDeepDiveTabs patient={p} />
         </div>
+
+        <PatientDataManagement patient={p} />
 
         {portalAccess ? (
           <div

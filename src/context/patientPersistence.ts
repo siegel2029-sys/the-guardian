@@ -6,6 +6,7 @@ import type {
   AiSuggestion,
   SafetyAlert,
 } from '../types';
+import { invalidatePersistedBootstrapCache } from '../bootstrap/invalidateBootstrap';
 
 export const PATIENT_STATE_STORAGE_KEY = 'guardian-patient-state-v1';
 
@@ -38,6 +39,7 @@ export function savePersistedPatientState(state: PersistedPatientStateV1): void 
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     window.localStorage.setItem(PATIENT_STATE_STORAGE_KEY, JSON.stringify(state));
+    invalidatePersistedBootstrapCache();
   } catch {
     /* quota / private mode */
   }

@@ -1,5 +1,5 @@
 import type { ExerciseSession, PainRecord, Patient } from '../types';
-import { addClinicalDays } from '../utils/clinicalCalendar';
+import { getPainMetricsFromReports } from '../utils/patientPainMetrics';
 
 export type ProgressInsightCategory = 'load_increase' | 'load_decrease' | 'maintain' | 'escalate_care';
 
@@ -63,20 +63,19 @@ export function computeClinicalProgressInsight(
   clinicalToday: string
 ): ClinicalProgressInsight {
   const painSorted = sortByDate(patient.analytics.painHistory);
-  const start7 = addClinicalDays(clinicalToday, -6);
-  const avgPain7d = averagePainInRange(patient.analytics.painHistory, start7, clinicalToday);
-
-  const currentPain =
-    painSorted.length > 0 ? painSorted[painSorted.length - 1].painLevel : null;
+  const { avgPain7d, todayPain, lastKnownPain } = getPainMetricsFromReports(patient, clinicalToday);
+  /** לתצוגה: כאב היום בלבד; אם אין דיווח היום — null (״אין נתונים״) */
+  const currentPain = todayPain;
+  /** להחלטות קליניות במערכת: נסיון כאב אחרון אם אין דיווח היום */
+  const decisionPain = todayPain ?? lastKnownPain;
 
   const compliance3d = averageComplianceLastSessions(patient.analytics.sessionHistory, 3);
   const delta = painTrendDelta(painSorted);
 
-  const painHigh =
-    currentPain != null && currentPain >= 6;
+  const painHigh = decisionPain != null && decisionPain >= 6;
   const painRising = delta != null && delta >= 0.6;
   const painLow =
-    avgPain7d != null && avgPain7d < 3 && (currentPain == null || currentPain < 4);
+    avgPain7d != null && avgPain7d < 3 && (decisionPain == null || decisionPain < 4);
   const complianceHigh = compliance3d != null && compliance3d >= 0.85;
   const complianceLow = compliance3d != null && compliance3d < 0.5;
 
@@ -96,7 +95,7 @@ export function computeClinicalProgressInsight(
       : 'נרשמת עלייה בכאב ביחס לתקופה הקודמת. מומלץ להפחית עומס או לשנות מרכיב בתוכנית.';
     nextStepHe =
       'הפחיתו חזרות/משקל או החליפו תרגיל מעמיס; תעדו בהערכה הקלינית; במידת הצורך שלחו הודעה למטופל דרך צ׳אט מהיר.';
-    basisHe = `מגמת כאב: ${delta != null ? (delta >= 0 ? '+' : '') + delta.toFixed(1) : '—'} נק׳ ממוצע בין תקופות; כאב נוכחי: ${currentPain ?? '—'}/10.`;
+    basisHe = `מגמת כאב: ${delta != null ? (delta >= 0 ? '+' : '') + delta.toFixed(1) : '—'} נק׳ ממוצע בין תקופות; כאב להחלטה: ${decisionPain ?? '—'}/10.`;
   } else if (painLow && complianceHigh) {
     category = 'load_increase';
     titleHe = 'מגמת שיפור';

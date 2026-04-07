@@ -56,14 +56,16 @@ export default function ClinicalSummaryStrip({
           <p className="font-bold text-slate-900 tabular-nums">
             ממוצע 7 ימים:{' '}
             <span style={{ color: '#1d4ed8' }}>
-              {avgPain7d != null ? avgPain7d.toFixed(1) : '—'}
+              {avgPain7d != null ? avgPain7d.toFixed(1) : 'אין נתונים'}
             </span>
-            <span className="text-slate-400 font-normal text-xs"> /10</span>
+            {avgPain7d != null && (
+              <span className="text-slate-400 font-normal text-xs"> /10 (VAS)</span>
+            )}
           </p>
           <p className="text-xs text-slate-500">
-            כאב נוכחי (אחרון):{' '}
+            כאב היום (דיווח אחרון):{' '}
             <span className="font-semibold text-slate-700">
-              {currentPain != null ? `${currentPain}/10` : 'אין דיווח'}
+              {currentPain != null ? `${currentPain}/10 (VAS)` : 'אין נתונים'}
             </span>
           </p>
         </div>

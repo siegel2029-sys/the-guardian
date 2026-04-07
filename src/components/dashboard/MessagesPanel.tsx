@@ -1,17 +1,29 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, MessageSquare, Clock, User, Bot } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 
 /** צ׳אט ישיר מטפל ↔ המטופל הנבחר (המטופל רואה בפורטל) */
 export default function MessagesPanel() {
-  const { selectedPatient, getPatientMessages, markMessageRead, sendTherapistReply } = usePatient();
+  const { selectedPatient, getPatientMessages, markMessageRead, sendTherapistReply, messages: allMessages } =
+    usePatient();
   const [replyText, setReplyText] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const messages = selectedPatient ? getPatientMessages(selectedPatient.id) : [];
 
+  const threadSignature = useMemo(
+    () =>
+      selectedPatient
+        ? allMessages
+            .filter((m) => m.patientId === selectedPatient.id)
+            .map((m) => `${m.id}:${m.timestamp}:${m.content.length}:${m.isRead ? 1 : 0}`)
+            .join('|')
+        : '',
+    [allMessages, selectedPatient?.id]
+  );
+
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-  }, [selectedPatient?.id, messages.length]);
+  }, [selectedPatient?.id, threadSignature]);
 
   if (!selectedPatient) {
     return (
@@ -74,8 +86,8 @@ export default function MessagesPanel() {
         )}
       </div>
 
-      <div ref={listRef} className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 min-h-0">
-        <div className="max-w-3xl mx-auto space-y-3">
+      <div ref={listRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 py-4 min-h-0">
+        <div className="max-w-4xl mx-auto w-full space-y-3 pb-4">
           {messages.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-teal-200 bg-white p-10 text-center text-slate-400">
               <MessageSquare className="w-10 h-10 mx-auto mb-2 opacity-40" />

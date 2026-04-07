@@ -334,6 +334,16 @@ export function updateTherapistRecord(
   });
 }
 
+/** מחיקת כל חשבונות הפורטל המקושרים למטופל (מזהי PT-…) */
+export function removePatientAccountsForPatient(patientId: string): void {
+  const snap = loadAuthSnapshot();
+  const patientAccounts = { ...snap.patientAccounts };
+  for (const [k, acc] of Object.entries(patientAccounts)) {
+    if (acc.patientId === patientId) delete patientAccounts[k];
+  }
+  saveAuthSnapshot({ ...snap, patientAccounts });
+}
+
 export function addPatientAccount(
   loginId: string,
   patientId: string,
