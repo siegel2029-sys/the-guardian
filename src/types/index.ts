@@ -125,7 +125,8 @@ export interface SafetyAlert {
   createdAt: string;
 }
 
-export type NavSection = 'overview' | 'exercises' | 'pain-report' | 'messages' | 'settings';
+/** ניווט דשבורד מטפל — ללא תצוגת מטופל (פורטל נפרד) */
+export type NavSection = 'overview' | 'clinical' | 'analytics' | 'messages' | 'settings';
 
 // ── Exercise System ──────────────────────────────────────────────
 

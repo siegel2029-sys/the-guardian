@@ -4,16 +4,21 @@ import { useAuth } from '../../context/AuthContext';
 import type { NavSection } from '../../types';
 
 const sectionTitles: Record<NavSection, string> = {
-  overview: 'סקירה כללית',
-  exercises: 'תכנית תרגילים',
-  'pain-report': 'דוח כאב',
-  messages: 'הודעות',
+  overview: 'רשימת מטופלים',
+  clinical: 'דוחות קליניים',
+  analytics: 'היסטוריה ואנליטיקה',
+  messages: 'הודעות וצ׳אט',
   settings: 'הגדרות',
 };
 
+/** תאימות לסשן ישן לפני שינוי NavSection */
+const legacySectionTitle: Record<string, string> = {
+  exercises: 'תכנית תרגילים (הועבר לפורטל)',
+  'pain-report': 'דוח כאב (הועבר ללשונית קליני)',
+};
+
 export default function Header() {
-  const { selectedPatient, activeSection, patients, setViewMode, isPatientSessionLocked } =
-    usePatient();
+  const { selectedPatient, activeSection, patients } = usePatient();
   const { therapist } = useAuth();
   const totalRedFlags = patients.filter((p) => p.hasRedFlag).length;
 
@@ -26,7 +31,9 @@ export default function Header() {
       {/* Left: Section + Patient */}
       <div className="flex items-center gap-3">
         <h2 className="text-base font-semibold text-slate-800">
-          {sectionTitles[activeSection]}
+          {sectionTitles[activeSection as NavSection] ??
+            legacySectionTitle[activeSection] ??
+            sectionTitles.overview}
         </h2>
         {selectedPatient && (
           <>
@@ -38,20 +45,6 @@ export default function Header() {
 
       {/* Right: Search + Alerts + Greeting */}
       <div className="flex items-center gap-3">
-        {selectedPatient && !isPatientSessionLocked && (
-          <button
-            type="button"
-            onClick={() => setViewMode('patient')}
-            className="text-xs font-semibold px-3 py-2 rounded-xl border transition-colors shrink-0"
-            style={{
-              borderColor: '#5eead4',
-              background: '#f0fdfa',
-              color: '#0f766e',
-            }}
-          >
-            מעבר לתצוגת מטופל
-          </button>
-        )}
         {/* Search placeholder */}
         <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-400 text-xs">
           <Search className="w-3.5 h-3.5" />

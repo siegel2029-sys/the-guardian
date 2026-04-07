@@ -1,17 +1,9 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { PatientProvider, usePatient } from './context/PatientContext';
+import { PatientProvider } from './context/PatientContext';
 import LoginPage from './components/auth/LoginPage';
 import DashboardLayout from './components/layout/DashboardLayout';
 import PatientDailyView from './components/patient/PatientDailyView';
-
-function TherapistShell() {
-  const { viewMode } = usePatient();
-  if (viewMode === 'patient') {
-    return <PatientDailyView />;
-  }
-  return <DashboardLayout />;
-}
 
 function LoginRoute() {
   const { isAuthenticated, sessionRole } = useAuth();
@@ -34,7 +26,7 @@ function PatientPortalRoute() {
   }
   return (
     <PatientProvider therapistScopeId={null} restrictPatientSessionId={patientSessionId}>
-      <PatientDailyView variant="portal" />
+      <PatientDailyView />
     </PatientProvider>
   );
 }
@@ -49,7 +41,7 @@ function TherapistRoute() {
   }
   return (
     <PatientProvider therapistScopeId={therapist?.id ?? null} restrictPatientSessionId={null}>
-      <TherapistShell />
+      <DashboardLayout />
     </PatientProvider>
   );
 }

@@ -2,30 +2,29 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import PatientOverview from '../dashboard/PatientOverview';
 import MessagesPanel from '../dashboard/MessagesPanel';
-import ExercisesPanel from '../dashboard/ExercisesPanel';
+import ClinicalReportsPanel from '../dashboard/ClinicalReportsPanel';
+import HistoryAnalyticsPanel from '../dashboard/HistoryAnalyticsPanel';
 import TherapistSettingsPanel from '../dashboard/TherapistSettingsPanel';
-import PlaceholderPanel from '../dashboard/PlaceholderPanel';
 import { usePatient } from '../../context/PatientContext';
+import type { NavSection } from '../../types';
 
 export default function DashboardLayout() {
   const { activeSection } = usePatient();
 
   const renderContent = () => {
-    switch (activeSection) {
+    const raw = activeSection as string;
+    const section: NavSection =
+      raw === 'exercises' || raw === 'pain-report' ? 'overview' : activeSection;
+
+    switch (section) {
       case 'overview':
         return <PatientOverview />;
+      case 'clinical':
+        return <ClinicalReportsPanel />;
+      case 'analytics':
+        return <HistoryAnalyticsPanel />;
       case 'messages':
         return <MessagesPanel />;
-      case 'exercises':
-        return <ExercisesPanel />;
-      case 'pain-report':
-        return (
-          <PlaceholderPanel
-            title="דוח כאב מתקדם"
-            description="ניתוח כאב מפורט עם גרפים, מגמות, ודגלים אדומים ייבנו בשלב 2."
-            phase="שלב 2 – בפיתוח"
-          />
-        );
       case 'settings':
         return <TherapistSettingsPanel />;
       default:
@@ -44,8 +43,8 @@ export default function DashboardLayout() {
         <Header />
 
         {/* Page Content */}
-        <main className="flex-1 overflow-hidden">
-          {renderContent()}
+        <main className="flex-1 min-h-0 overflow-hidden flex flex-col">
+          <div className="flex-1 min-h-0 overflow-hidden">{renderContent()}</div>
         </main>
       </div>
     </div>

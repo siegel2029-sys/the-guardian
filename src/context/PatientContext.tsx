@@ -27,7 +27,7 @@ import {
 import { getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
 import { mergeHistoryFromSessions } from '../utils/dailyHistory';
 import { savePersistedPatientState } from './patientPersistence';
-import { addPatientAccount } from './authPersistence';
+import { addPatientAccount, ensurePatientAccountsForPatients } from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 
 function buildEmptySession(patientId: string, clinicalDate: string): DailySession {
@@ -82,10 +82,7 @@ interface PatientContextValue {
   emergencyModalPatientId: string | null;
   setEmergencyModalPatientId: (id: string | null) => void;
 
-  // View mode (therapist dashboard vs simulated patient)
-  viewMode: 'therapist' | 'patient';
-  setViewMode: (mode: 'therapist' | 'patient') => void;
-  /** כניסה כמטופל — חוסם מעבר למסך מטפל */
+  /** כניסה כמטופל בפורטל — נפרד מדשבורד המטפל */
   isPatientSessionLocked: boolean;
   /** יצירת מטופל + מזהה גישה וסיסמה (נשמר ב-localStorage) */
   createPatientWithAccess: (displayName: string) => {
@@ -251,15 +248,6 @@ export function PatientProvider({
     const persisted = readPersistedOnce().patient;
     return persisted?.aiSuggestions ?? mockAiSuggestions;
   });
-  const [viewMode, setViewModeInternal] = useState<'therapist' | 'patient'>('therapist');
-
-  const setViewMode = useCallback(
-    (mode: 'therapist' | 'patient') => {
-      if (restrictPatientSessionId && mode === 'therapist') return;
-      setViewModeInternal(mode);
-    },
-    [restrictPatientSessionId]
-  );
   const [safetyAlerts, setSafetyAlerts] = useState<SafetyAlert[]>(() => {
     const persisted = readPersistedOnce().patient;
     return persisted?.safetyAlerts ?? [];
@@ -276,9 +264,14 @@ export function PatientProvider({
 
   useEffect(() => {
     if (!restrictPatientSessionId) return;
-    setViewModeInternal('patient');
     setSelectedPatientId(restrictPatientSessionId);
   }, [restrictPatientSessionId]);
+
+  useEffect(() => {
+    ensurePatientAccountsForPatients(
+      allPatients.map((p) => ({ id: p.id, therapistId: p.therapistId }))
+    );
+  }, [allPatients]);
 
   useEffect(() => {
     if (!therapistScopeId || restrictPatientSessionId) return;
@@ -1073,7 +1066,6 @@ export function PatientProvider({
         screenAndHandleEmergencyText,
         emergencyModalPatientId,
         setEmergencyModalPatientId,
-        viewMode, setViewMode,
         isPatientSessionLocked,
         createPatientWithAccess,
         resolveRedFlag,

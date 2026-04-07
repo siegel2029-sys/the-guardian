@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowRight,
   Sparkles,
   X,
   MessageCircle,
@@ -39,13 +38,8 @@ import {
   DIFFICULTY_MAX_PATIENT_COPY,
 } from '../../safety/clinicalEmergencyScreening';
 
-export type PatientDailyViewVariant = 'default' | 'portal';
-
-export type PatientDailyViewProps = {
-  variant?: PatientDailyViewVariant;
-};
-
-export default function PatientDailyView({ variant = 'default' }: PatientDailyViewProps) {
+/** תצוגת יום למטופל — מוצגת רק ב־/patient-portal (מפת גוף, תרגילים, לוח שנה). */
+export default function PatientDailyView() {
   const navigate = useNavigate();
   const {
     sessionRole,
@@ -55,15 +49,12 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
     patientLoginId,
     changePatientLoginId,
   } = useAuth();
-  const isPortal = variant === 'portal';
   const {
     selectedPatient,
     messages,
     getExercisePlan,
     getTodaySession,
     submitExerciseReport,
-    setViewMode,
-    isPatientSessionLocked,
     sendPatientMessage,
     getPatientMessages,
     markMessageRead,
@@ -84,7 +75,6 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
   const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
   const [detailFor, setDetailFor] = useState<PatientExercise | null>(null);
   const [filterArea, setFilterArea] = useState<BodyArea | null>(null);
-  const [messageOpen, setMessageOpen] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [painSheetOpen, setPainSheetOpen] = useState(false);
   const [loadSafetyNudge, setLoadSafetyNudge] = useState<string | null>(null);
@@ -123,11 +113,11 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
   );
 
   useEffect(() => {
-    if (!isPortal || !selectedPatient || !portalMessagesOpen) return;
+    if (!selectedPatient || !portalMessagesOpen) return;
     portalMessages.forEach((m) => {
       if (!m.fromPatient && !m.isRead) markMessageRead(m.id);
     });
-  }, [isPortal, selectedPatient?.id, portalMessagesOpen, portalMessages, markMessageRead]);
+  }, [selectedPatient?.id, portalMessagesOpen, portalMessages, markMessageRead]);
 
   const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
   const session = selectedPatient ? getTodaySession(selectedPatient.id) : null;
@@ -215,13 +205,6 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
     setReportFor(null);
   };
 
-  const sendMessage = () => {
-    if (!selectedPatient || !messageText.trim()) return;
-    sendPatientMessage(selectedPatient.id, messageText.trim());
-    setMessageText('');
-    setMessageOpen(false);
-  };
-
   const submitPasswordChange = () => {
     setPwFormError(null);
     if (pwNew !== pwConfirm) {
@@ -248,15 +231,6 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
       >
         <p className="text-teal-900 font-medium mb-4">לא נבחר מטופל או שהחשבון אינו מקושר.</p>
         <div className="flex flex-wrap gap-2 justify-center">
-          {!isPortal && !isPatientSessionLocked && (
-            <button
-              type="button"
-              onClick={() => setViewMode('therapist')}
-              className="px-5 py-2.5 rounded-2xl bg-teal-600 text-white font-medium"
-            >
-              חזרה למטפל
-            </button>
-          )}
           {sessionRole === 'patient' && (
             <button
               type="button"
@@ -292,18 +266,9 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
           backdropFilter: 'blur(10px)',
         }}
       >
-        {!isPortal && !isPatientSessionLocked ? (
-          <button
-            type="button"
-            onClick={() => setViewMode('therapist')}
-            className="flex items-center gap-1.5 text-sm font-medium text-teal-700 px-3 py-2 rounded-xl hover:bg-teal-50 border border-teal-200/80"
-          >
-            <ArrowRight className="w-4 h-4" />
-            חזרה למטפל
-          </button>
-        ) : sessionRole === 'patient' ? (
+        {sessionRole === 'patient' ? (
           <div className="flex items-center gap-1.5 shrink-0">
-            {isPortal && !patientMustChangePassword && (
+            {!patientMustChangePassword && (
               <button
                 type="button"
                 onClick={() => {
@@ -330,34 +295,26 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
               יציאה
             </button>
           </div>
-        ) : (
-          <span className="w-[1px] shrink-0" aria-hidden />
-        )}
+        ) : null}
         <div className="flex-1 min-w-0 text-end">
-          <p className="text-xs text-teal-600 font-medium">
-            {isPortal ? 'הפורטל האישי שלך' : 'תצוגת מטופל'}
-          </p>
+          <p className="text-xs text-teal-600 font-medium">הפורטל האישי שלך</p>
           <p className="text-base font-semibold text-slate-800 truncate">{selectedPatient.name}</p>
         </div>
         <div
-          className={`flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-xl text-xs font-bold ${
-            isPortal ? 'text-teal-900' : 'text-amber-900'
-          }`}
-          style={
-            isPortal
-              ? { background: 'rgba(240, 253, 250, 0.95)', border: '1px solid #99f6e4' }
-              : { background: '#fef3c7', border: '1px solid #fcd34d' }
-          }
+          className="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-xl text-xs font-bold text-teal-900"
+          style={{
+            background: 'rgba(240, 253, 250, 0.95)',
+            border: '1px solid #99f6e4',
+          }}
           title="מטבעות למידה"
         >
-          <Coins className={`w-4 h-4 ${isPortal ? 'text-teal-600' : 'text-amber-700'}`} />
+          <Coins className="w-4 h-4 text-teal-600" />
           {selectedPatient.coins}
         </div>
       </header>
 
       <div className="flex-1 px-4 py-4 pb-28">
-        {/* 3D Body map — תצוגת מטפל; בפורטל: מוקד פציעה/אזור טיפול */}
-        {((!isPortal && exercises.length > 0) || (isPortal && !!selectedPatient)) && (
+        {!!selectedPatient && (
           <section className="mb-5">
             <div className="flex items-center justify-between mb-2 px-0.5">
               <h2 className="text-base font-bold text-slate-800">מפת הגוף שלי</h2>
@@ -373,33 +330,25 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
               )}
             </div>
             <p className="text-xs text-slate-500 mb-2 leading-relaxed">
-              {isPortal ? (
-                <>
-                  אזור הטיפול שהגדיר המטפל מודגש. ניתן לסנן את רשימת התרגילים לפי אזור בלחיצה על המודל.
-                  {exercises.length > 0 && (
-                    <span className="block mt-1 text-teal-700/90">
-                      מוקד: <strong>{bodyAreaLabels[selectedPatient.primaryBodyArea]}</strong>
-                    </span>
-                  )}
-                </>
-              ) : (
-                <>
-                  כאב ממוצע לפי אזור, אזורים בתוכנית, והתאמה לרמה {selectedPatient.level}
-                </>
+              אזור הטיפול שהגדיר המטפל מודגש. ניתן לסנן את רשימת התרגילים לפי אזור בלחיצה על המודל.
+              {exercises.length > 0 && (
+                <span className="block mt-1 text-teal-700/90">
+                  מוקד: <strong>{bodyAreaLabels[selectedPatient.primaryBodyArea]}</strong>
+                </span>
               )}
             </p>
             <div
               className="rounded-2xl border overflow-hidden flex flex-col"
-              style={{ borderColor: '#a7f3d0', minHeight: isPortal ? '260px' : '300px' }}
+              style={{ borderColor: '#a7f3d0', minHeight: '260px' }}
             >
-              <div className={`flex-1 w-full ${isPortal ? 'min-h-[260px]' : 'min-h-[300px]'}`}>
+              <div className="flex-1 w-full min-h-[260px]">
                 <BodyMap3D
-                  activeAreas={isPortal && exercises.length === 0 ? [] : activeAreas}
+                  activeAreas={exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
                   painByArea={selectedPatient.analytics.painByArea}
                   level={selectedPatient.level}
                   selectedArea={filterArea}
-                  minHeightPx={isPortal ? 260 : 300}
+                  minHeightPx={260}
                   onAreaClick={(area) =>
                     setFilterArea((prev) => (prev === area ? null : area))
                   }
@@ -414,7 +363,7 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
           </section>
         )}
 
-        {isPortal && selectedPatient && (
+        {selectedPatient && (
           <section className="mb-5 rounded-2xl border overflow-hidden" style={{ borderColor: '#99f6e4' }}>
             <button
               type="button"
@@ -553,16 +502,14 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
             patient={selectedPatient}
             onKnowledgeComplete={() => grantPatientKnowledgeReward(selectedPatient.id)}
           />
-          {!isPortal && (
-            <PatientAiSuggestionCards
-              suggestions={pendingAiSuggestions}
-              onApprove={patientAgreeToAiSuggestion}
-              onDecline={patientDeclineAiSuggestion}
-            />
-          )}
+          <PatientAiSuggestionCards
+            suggestions={pendingAiSuggestions}
+            onApprove={patientAgreeToAiSuggestion}
+            onDecline={patientDeclineAiSuggestion}
+          />
         </div>
 
-        {isPortal && sessionRole === 'patient' && !patientMustChangePassword && selectedPatient && (
+        {sessionRole === 'patient' && !patientMustChangePassword && selectedPatient && (
           <section className="mb-5 rounded-2xl border overflow-hidden" style={{ borderColor: '#cbd5e1' }}>
             <button
               type="button"
@@ -775,7 +722,7 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
         patient={selectedPatient}
         exerciseCount={exercises.length}
         exercises={exercises}
-        variant={isPortal ? 'portal' : 'default'}
+        variant="portal"
         onSubmitGuardianRepsRequest={(exerciseId, exerciseName, fromReps, toReps) =>
           submitGuardianRepsIncreaseRequest(
             selectedPatient.id,
@@ -786,9 +733,7 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
           )
         }
         onTherapistClinicalAlert={(detail) => sendAiClinicalAlert(selectedPatient.id, detail)}
-        hidden={
-          !!detailFor || !!reportFor || exerciseSafetyLocked || (isPortal && patientMustChangePassword)
-        }
+        hidden={!!detailFor || !!reportFor || exerciseSafetyLocked || patientMustChangePassword}
       />
 
       <PatientPainProgressSheet
@@ -798,83 +743,6 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
         sessionHistory={selectedPatient.analytics.sessionHistory}
         aiNarrative={painReportNarrative}
       />
-
-      {/* Floating message to therapist (בפורטל מטופל — רק ממסך חירום) */}
-      {!isPortal && !detailFor && !reportFor && (
-        <button
-          type="button"
-          onClick={() => setMessageOpen(true)}
-          className="fixed z-[70] bottom-6 right-4 flex items-center gap-2 px-4 py-3 rounded-2xl font-semibold text-white shadow-lg max-w-[calc(100vw-2rem)]"
-          style={{
-            background: 'linear-gradient(135deg, #0d9488, #059669)',
-            boxShadow: '0 12px 28px -8px rgba(13, 148, 136, 0.55)',
-          }}
-        >
-          <MessageCircle className="w-5 h-5 shrink-0" />
-          <span className="text-sm truncate">שלח הודעה למטפל</span>
-        </button>
-      )}
-
-      {messageOpen && (
-        <div
-          className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center p-4"
-          style={{ background: 'rgba(15, 118, 110, 0.3)' }}
-          dir="rtl"
-          onClick={() => setMessageOpen(false)}
-          role="presentation"
-        >
-          <div
-            className="w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden"
-            style={{
-              background: 'linear-gradient(180deg, #f0fdfa 0%, #ffffff 50%)',
-              borderColor: '#99f6e4',
-            }}
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="msg-sheet-title"
-          >
-            <div
-              className="flex items-center justify-between px-5 py-4 border-b"
-              style={{ borderColor: '#ccfbf1' }}
-            >
-              <h2 id="msg-sheet-title" className="text-base font-bold text-teal-900">
-                שלח הודעה למטפל
-              </h2>
-              <button
-                type="button"
-                onClick={() => setMessageOpen(false)}
-                className="p-2 rounded-xl text-teal-600 hover:bg-teal-100/80"
-                aria-label="סגור"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-5 space-y-3">
-              <textarea
-                value={messageText}
-                onChange={(e) => setMessageText(e.target.value)}
-                placeholder="כתבו כאן…"
-                rows={4}
-                className="w-full resize-none rounded-2xl border border-teal-200 px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-400/50"
-                style={{ background: '#fafefd' }}
-              />
-              <button
-                type="button"
-                disabled={!messageText.trim()}
-                onClick={sendMessage}
-                className="w-full py-3.5 rounded-2xl font-semibold text-white disabled:opacity-45"
-                style={{
-                  background: 'linear-gradient(135deg, #0d9488, #059669)',
-                  boxShadow: '0 10px 25px -8px rgba(13, 148, 136, 0.5)',
-                }}
-              >
-                שליחה
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <ExerciseDetailModal
         exercise={detailFor}
@@ -901,15 +769,11 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
           setMessageText(
             'דחוף: דיווחתי על תסמינים שעלולים לחייב בדיקה רפואית דחופה. נא ליצור קשר בהקדם.'
           );
-          if (isPortal) {
-            setPortalMessagesOpen(true);
-          } else {
-            setMessageOpen(true);
-          }
+          setPortalMessagesOpen(true);
         }}
       />
 
-      {isPortal && sessionRole === 'patient' && patientMustChangePassword && (
+      {sessionRole === 'patient' && patientMustChangePassword && (
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center p-4"
           style={{ background: 'rgba(15, 118, 110, 0.35)' }}
@@ -978,10 +842,7 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
         </div>
       )}
 
-      {isPortal &&
-        sessionRole === 'patient' &&
-        !patientMustChangePassword &&
-        passwordModalOpen && (
+      {sessionRole === 'patient' && !patientMustChangePassword && passwordModalOpen && (
           <div
             className="fixed inset-0 z-[200] flex items-center justify-center p-4"
             style={{ background: 'rgba(15, 118, 110, 0.3)' }}

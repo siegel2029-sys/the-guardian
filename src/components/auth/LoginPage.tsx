@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield, Eye, EyeOff, Mail, Lock, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { SEED_PATIENT_PORTAL_PASSWORD } from '../../context/authPersistence';
 import { mockTherapist, mockTherapistB, MOCK_THERAPIST_B_PASSWORD } from '../../data/mockData';
 
 export default function LoginPage() {
@@ -194,9 +195,14 @@ export default function LoginPage() {
                 <p className="font-medium pt-2 border-t border-teal-200/80">דמו מטפל ב׳ (מטופל: שירה בלבד):</p>
                 <p className="font-mono text-xs break-all">{mockTherapistB.email}</p>
                 <p className="font-mono text-xs">{MOCK_THERAPIST_B_PASSWORD}</p>
-                <p className="font-medium pt-2 border-t border-teal-200/80">מטופל:</p>
+                <p className="font-medium pt-2 border-t border-teal-200/80">מטופל (דמו — נוצר אוטומטית):</p>
                 <p className="text-xs">
-                  אחרי «יצירת גישה למטופל» בדשבורד המטפל יוצגו מזהה וסיסמה — הזינו אותם כאן (לא דוא״ל).
+                  מזההי גישה: <span className="font-mono">PT-001</span>, <span className="font-mono">PT-002</span>,{' '}
+                  <span className="font-mono">PT-003</span> · סיסמה:{' '}
+                  <span className="font-mono">{SEED_PATIENT_PORTAL_PASSWORD}</span>
+                </p>
+                <p className="text-xs text-teal-700/90">
+                  מטופל חדש מהמטפל: אחרי «יצירת גישה» יוצגו מזהה וסיסמה — הזינו כאן (לא דוא״ל).
                 </p>
               </div>
             )}

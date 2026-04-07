@@ -7,6 +7,55 @@ import type { Therapist } from '../types';
 
 export const AUTH_STORAGE_KEY = 'guardian-auth-v1';
 
+/** סיסמה אחידה למטופלים שנוצרו אוטומטית (דמו) — התחברות מ־/login */
+export const SEED_PATIENT_PORTAL_PASSWORD = 'GuardianPatient';
+
+/**
+ * יוצר חשבונות PT-… + סיסמה לכל מטופל שאין לו רישום ב-auth (כולל mock ראשוני).
+ * נשמר ב-localStorage; אידמפוטנטי.
+ */
+export function ensurePatientAccountsForPatients(
+  patients: Array<{ id: string; therapistId: string }>
+): { added: number } {
+  const snap = loadAuthSnapshot();
+  let added = 0;
+  const patientAccounts = { ...snap.patientAccounts };
+
+  const existingLoginForPatient = (patientId: string): boolean =>
+    Object.values(patientAccounts).some((a) => a.patientId === patientId);
+
+  const allocateLoginKey = (patientId: string): string => {
+    const num = /^patient-(\d+)$/.exec(patientId);
+    let base = num ? `PT-${num[1]}` : `PT-${patientId.replace(/[^a-zA-Z0-9]/g, '').slice(-12).toUpperCase()}`;
+    if (base.length < 5) base = `PT-${patientId.slice(-8).toUpperCase()}`;
+    let key = base;
+    let n = 0;
+    while (patientAccounts[key] && patientAccounts[key].patientId !== patientId) {
+      n += 1;
+      key = `${base}N${n}`;
+    }
+    return key;
+  };
+
+  for (const { id, therapistId } of patients) {
+    if (existingLoginForPatient(id)) continue;
+    const key = allocateLoginKey(id);
+    if (patientAccounts[key]?.patientId === id) continue;
+    patientAccounts[key] = {
+      patientId: id,
+      therapistId,
+      password: SEED_PATIENT_PORTAL_PASSWORD,
+      mustChangePassword: false,
+    };
+    added += 1;
+  }
+
+  if (added > 0) {
+    saveAuthSnapshot({ ...snap, patientAccounts });
+  }
+  return { added };
+}
+
 /** סשן פעיל — מטפל חייב therapistId */
 export type AuthSessionV2 =
   | { role: 'therapist'; therapistId: string }
