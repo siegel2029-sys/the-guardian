@@ -25,8 +25,9 @@ import {
 } from '../safety/clinicalEmergencyScreening';
 import { getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
 import { mergeHistoryFromSessions } from '../utils/dailyHistory';
-import { loadPersistedPatientState, savePersistedPatientState } from './patientPersistence';
+import { savePersistedPatientState } from './patientPersistence';
 import { addPatientAccount } from './authPersistence';
+import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 
 function buildEmptySession(patientId: string, clinicalDate: string): DailySession {
   return { patientId, date: clinicalDate, completedIds: [], sessionXp: 0 };
@@ -170,44 +171,52 @@ export function PatientProvider({
   /** כשמוגדר — רק מטופל זה, ללא דשבורד מטפל */
   restrictPatientSessionId?: string | null;
 }) {
-  const persistedSnapshot = useMemo(() => loadPersistedPatientState(), []);
-
   const [clinicalTick, setClinicalTick] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => setClinicalTick((n) => n + 1), 60_000);
     return () => clearInterval(id);
   }, []);
 
-  const [patients, setPatients] = useState<Patient[]>(
-    () => persistedSnapshot?.patients ?? mockPatients
-  );
+  const [patients, setPatients] = useState<Patient[]>(() => {
+    const persisted = readPersistedOnce().patient;
+    return persisted?.patients ?? mockPatients;
+  });
   const [selectedPatientId, setSelectedPatientId] = useState<string>(() => {
-    const list = persistedSnapshot?.patients ?? mockPatients;
-    const id = persistedSnapshot?.selectedPatientId;
-    return id && list.some((p) => p.id === id) ? id : list[0].id;
+    const persisted = readPersistedOnce().patient;
+    const list = persisted?.patients ?? mockPatients;
+    if (restrictPatientSessionId && list.some((p) => p.id === restrictPatientSessionId)) {
+      return restrictPatientSessionId;
+    }
+    const id = persisted?.selectedPatientId;
+    return id && list.some((p) => p.id === id) ? id : list[0]?.id ?? mockPatients[0].id;
   });
   const [activeSection, setActiveSection] = useState<NavSection>('overview');
-  const [messages, setMessages] = useState<Message[]>(
-    () => persistedSnapshot?.messages ?? mockMessages
-  );
-  const [exercisePlans, setExercisePlans] = useState<ExercisePlan[]>(
-    () => persistedSnapshot?.exercisePlans ?? mockExercisePlans
-  );
-  const [dailySessions, setDailySessions] = useState<DailySession[]>(
-    () => persistedSnapshot?.dailySessions ?? []
-  );
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const persisted = readPersistedOnce().patient;
+    return persisted?.messages ?? mockMessages;
+  });
+  const [exercisePlans, setExercisePlans] = useState<ExercisePlan[]>(() => {
+    const persisted = readPersistedOnce().patient;
+    return persisted?.exercisePlans ?? mockExercisePlans;
+  });
+  const [dailySessions, setDailySessions] = useState<DailySession[]>(() => {
+    const persisted = readPersistedOnce().patient;
+    return persisted?.dailySessions ?? [];
+  });
   const [dailyHistoryByPatient, setDailyHistoryByPatient] = useState<
     Record<string, Record<string, DailyHistoryEntry>>
-  >(() =>
-    mergeHistoryFromSessions(
-      persistedSnapshot?.dailySessions ?? [],
-      persistedSnapshot?.exercisePlans ?? mockExercisePlans,
+  >(() => {
+    const persisted = readPersistedOnce().patient;
+    return mergeHistoryFromSessions(
+      persisted?.dailySessions ?? [],
+      persisted?.exercisePlans ?? mockExercisePlans,
       {}
-    )
-  );
-  const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>(
-    () => persistedSnapshot?.aiSuggestions ?? mockAiSuggestions
-  );
+    );
+  });
+  const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>(() => {
+    const persisted = readPersistedOnce().patient;
+    return persisted?.aiSuggestions ?? mockAiSuggestions;
+  });
   const [viewMode, setViewModeInternal] = useState<'therapist' | 'patient'>('therapist');
 
   const setViewMode = useCallback(
@@ -217,12 +226,16 @@ export function PatientProvider({
     },
     [restrictPatientSessionId]
   );
-  const [safetyAlerts, setSafetyAlerts] = useState<SafetyAlert[]>(
-    () => persistedSnapshot?.safetyAlerts ?? []
-  );
+  const [safetyAlerts, setSafetyAlerts] = useState<SafetyAlert[]>(() => {
+    const persisted = readPersistedOnce().patient;
+    return persisted?.safetyAlerts ?? [];
+  });
   const [exerciseSafetyLockedPatientIds, setExerciseSafetyLockedPatientIds] = useState<
     Record<string, boolean>
-  >(() => persistedSnapshot?.exerciseSafetyLockedPatientIds ?? {});
+  >(() => {
+    const persisted = readPersistedOnce().patient;
+    return persisted?.exerciseSafetyLockedPatientIds ?? {};
+  });
   const [emergencyModalPatientId, setEmergencyModalPatientId] = useState<string | null>(null);
 
   const isPatientSessionLocked = restrictPatientSessionId != null && restrictPatientSessionId !== '';

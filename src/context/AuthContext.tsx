@@ -16,6 +16,7 @@ import {
   updateTherapistCredentials as persistTherapistCredentials,
   type AuthSessionV1,
 } from './authPersistence';
+import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 
 export type SessionRole = 'therapist' | 'patient' | null;
 
@@ -29,7 +30,8 @@ interface AuthContextValue {
   isLoading: boolean;
   loginError: string | null;
   /** דוא״ל למטפל או מזהה גישה למטופל (PT-...) */
-  login: (identifier: string, password: string) => Promise<boolean>;
+  /** הצלחה: תפקיד; כישלון: null */
+  login: (identifier: string, password: string) => Promise<'therapist' | 'patient' | null>;
   logout: () => void;
   updateTherapistProfile: (email: string, newPassword: string) => void;
 }
@@ -45,16 +47,16 @@ function isEmailLike(s: string): boolean {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<AuthSessionV1 | null>(() => loadAuthSnapshot().session);
+  const [session, setSession] = useState<AuthSessionV1 | null>(() => readPersistedOnce().auth.session);
   const [therapist, setTherapist] = useState<Therapist | null>(() => {
-    const snap = loadAuthSnapshot();
+    const snap = readPersistedOnce().auth;
     if (snap.session?.role === 'therapist') {
       return therapistFromSnapshot(snap.therapistEmail);
     }
     return null;
   });
   const [patientSessionId, setPatientSessionId] = useState<string | null>(() => {
-    const snap = loadAuthSnapshot();
+    const snap = readPersistedOnce().auth;
     return snap.session?.role === 'patient' ? snap.session.patientId : null;
   });
   const [isLoading, setIsLoading] = useState(false);
@@ -65,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return session.role;
   }, [session]);
 
-  const login = useCallback(async (identifier: string, password: string): Promise<boolean> => {
+  const login = useCallback(async (identifier: string, password: string) => {
     setIsLoading(true);
     setLoginError(null);
     await new Promise((r) => setTimeout(r, 500));
@@ -83,11 +85,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession({ role: 'therapist' });
           setAuthSession({ role: 'therapist' });
           setIsLoading(false);
-          return true;
+          return 'therapist' as const;
         }
         setLoginError('כתובת דוא"ל או סיסמה שגויים (מטפל).');
         setIsLoading(false);
-        return false;
+        return null;
       }
 
       const loginKey = id.toUpperCase();
@@ -99,16 +101,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(sess);
         setAuthSession(sess);
         setIsLoading(false);
-        return true;
+        return 'patient' as const;
       }
 
       setLoginError('מזהה גישה או סיסמה שגויים (מטופל).');
       setIsLoading(false);
-      return false;
+      return null;
     } catch {
       setLoginError('שגיאת התחברות. נסו שוב.');
       setIsLoading(false);
-      return false;
+      return null;
     }
   }, []);
 
