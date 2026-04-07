@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Send, MessageSquare, Clock, User } from 'lucide-react';
+import { Send, MessageSquare, Clock, User, Bot } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 
 export default function MessagesPanel() {
@@ -10,7 +10,9 @@ export default function MessagesPanel() {
   if (!selectedPatient) return null;
 
   const messages = getPatientMessages(selectedPatient.id);
-  const unreadIds = messages.filter((m) => !m.isRead && m.fromPatient).map((m) => m.id);
+  const unreadIds = messages
+    .filter((m) => !m.isRead && (m.fromPatient || m.aiClinicalAlert))
+    .map((m) => m.id);
 
   const handleMarkAllRead = () => {
     unreadIds.forEach((id) => markMessageRead(id));
@@ -51,33 +53,60 @@ export default function MessagesPanel() {
           ) : (
             messages.map((msg) => {
               const isFromPatient = msg.fromPatient;
+              const isAiAlert = msg.aiClinicalAlert;
+              const tier = msg.clinicalSafetyTier;
+              const alignEnd = isFromPatient && !isAiAlert;
+              const alertStyle =
+                isAiAlert && tier === 'emergency'
+                  ? { background: '#fef2f2', borderColor: '#f87171' }
+                  : isAiAlert && tier === 'high_priority'
+                    ? { background: '#fffbeb', borderColor: '#fbbf24' }
+                    : isAiAlert
+                      ? { background: '#eef2ff', borderColor: '#a5b4fc' }
+                      : isFromPatient
+                        ? { background: '#f0fffe', borderColor: '#a7f3d0' }
+                        : { background: '#f8fafc', borderColor: '#e2e8f0' };
+              const botColor =
+                tier === 'emergency'
+                  ? 'text-red-600'
+                  : tier === 'high_priority'
+                    ? 'text-amber-700'
+                    : 'text-indigo-600';
+              const senderLabel =
+                isAiAlert && tier === 'emergency'
+                  ? 'התראת חירום'
+                  : isAiAlert && tier === 'high_priority'
+                    ? 'התראת בטיחות'
+                    : isAiAlert
+                      ? 'Guardian AI'
+                      : isFromPatient
+                        ? selectedPatient.name
+                        : 'המטפל';
               return (
                 <div
                   key={msg.id}
-                  className={`flex ${isFromPatient ? 'justify-end' : 'justify-start'}`}
+                  className={`flex ${alignEnd ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
                     className="max-w-[80%] rounded-2xl px-4 py-3 shadow-sm border"
-                    style={
-                      isFromPatient
-                        ? { background: '#f0fffe', borderColor: '#a7f3d0' }
-                        : { background: '#f8fafc', borderColor: '#e2e8f0' }
-                    }
+                    style={alertStyle}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      {isFromPatient ? (
+                      {isAiAlert ? (
+                        <Bot className={`w-3.5 h-3.5 ${botColor}`} />
+                      ) : isFromPatient ? (
                         <User className="w-3.5 h-3.5 text-teal-500" />
                       ) : (
                         <User className="w-3.5 h-3.5 text-slate-400" />
                       )}
                       <span className="text-[10px] font-semibold text-slate-500">
-                        {isFromPatient ? selectedPatient.name : 'המטפל'}
+                        {senderLabel}
                       </span>
-                      {!msg.isRead && isFromPatient && (
+                      {!msg.isRead && (isFromPatient || isAiAlert) && (
                         <span className="w-2 h-2 rounded-full bg-teal-500" />
                       )}
                     </div>
-                    <p className="text-sm text-slate-700">{msg.content}</p>
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{msg.content}</p>
                     <div className="flex items-center gap-1 mt-1">
                       <Clock className="w-3 h-3 text-slate-300" />
                       <span className="text-[10px] text-slate-400">

@@ -5,7 +5,14 @@ import DashboardLayout from './components/layout/DashboardLayout';
 import PatientDailyView from './components/patient/PatientDailyView';
 
 function PatientShell() {
+  const { sessionRole } = useAuth();
   const { viewMode } = usePatient();
+
+  /** מטופל מחובר — תמיד תצוגת מטופל בלבד (לא ניתן לגשת לדשבורד מטפל) */
+  if (sessionRole === 'patient') {
+    return <PatientDailyView />;
+  }
+
   if (viewMode === 'patient') {
     return <PatientDailyView />;
   }
@@ -13,14 +20,16 @@ function PatientShell() {
 }
 
 function AppContent() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, sessionRole, patientSessionId } = useAuth();
 
   if (!isAuthenticated) {
     return <LoginPage />;
   }
 
+  const restrictPatientId = sessionRole === 'patient' ? patientSessionId : null;
+
   return (
-    <PatientProvider>
+    <PatientProvider restrictPatientSessionId={restrictPatientId}>
       <PatientShell />
     </PatientProvider>
   );

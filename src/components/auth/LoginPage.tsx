@@ -45,22 +45,25 @@ export default function LoginPage() {
         {/* Login Card */}
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-teal-100">
           <h2 className="text-xl font-semibold text-slate-800 mb-1 text-right">ברוכים הבאים</h2>
-          <p className="text-slate-500 text-sm mb-6 text-right">הכנסו לחשבונכם כדי להמשיך</p>
+          <p className="text-slate-500 text-sm mb-6 text-right">
+            מטפלים: דוא״ל מקצועי. מטופלים: מזהה גישה (למשל PT-…) שקיבלתם מהמטפל.
+          </p>
 
           <form onSubmit={handleSubmit} className="space-y-5" dir="rtl">
-            {/* Email Field */}
+            {/* Email / Patient ID Field */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                כתובת דוא"ל
+                דוא״ל (מטפל) או מזהה גישה (מטופל)
               </label>
               <div className="relative">
                 <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
-                  type="email"
+                  type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder='your@email.com'
+                  placeholder="michal.levi@… או PT-ABC123"
                   required
+                  autoComplete="username"
                   className="w-full pr-10 pl-4 py-3 rounded-xl border border-slate-200 text-slate-800 text-sm
                     focus:outline-none focus:ring-2 focus:border-transparent transition-all
                     placeholder:text-slate-400"
@@ -174,10 +177,14 @@ export default function LoginPage() {
 
             {/* Demo hint */}
             {showHint && (
-              <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-sm text-teal-800 text-center space-y-1">
-                <p className="font-medium">פרטי כניסה לדמו:</p>
-                <p className="font-mono text-xs">michal.levi@guardian-clinic.co.il</p>
+              <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-sm text-teal-800 text-right space-y-2 leading-relaxed">
+                <p className="font-medium">דמו מטפל:</p>
+                <p className="font-mono text-xs break-all">michal.levi@guardian-clinic.co.il</p>
                 <p className="font-mono text-xs">guardian2024</p>
+                <p className="font-medium pt-2 border-t border-teal-200/80">מטופל:</p>
+                <p className="text-xs">
+                  אחרי «יצירת גישה למטופל» בדשבורד המטפל יוצגו מזהה וסיסמה — הזינו אותם כאן (לא דוא״ל).
+                </p>
               </div>
             )}
           </form>

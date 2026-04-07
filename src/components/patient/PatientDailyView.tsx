@@ -1,29 +1,51 @@
-import { useState, useMemo } from 'react';
-import { ArrowRight, Sparkles, X, MessageCircle, Coins, Activity } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { ArrowRight, Sparkles, X, MessageCircle, Coins, Activity, LogOut } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import { useAuth } from '../../context/AuthContext';
 import BodyMap3D from '../body-map/BodyMap3D';
 import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseDetailModal from './ExerciseDetailModal';
 import PatientExerciseCard from './PatientExerciseCard';
 import GuardianAssistantFAB from './GuardianAssistantFAB';
+import EmergencyStopModal from './EmergencyStopModal';
 import DidYouKnowBubble from './DidYouKnowBubble';
 import PatientAiSuggestionCards from './PatientAiSuggestionCards';
 import PatientPainProgressSheet from './PatientPainProgressSheet';
+import ClinicalMonthCalendar from './ClinicalMonthCalendar';
 import type { PatientExercise, BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
+import {
+  analyzePatientProgress,
+  buildPatientProgressPayload,
+  buildPainReportNarrative,
+} from '../../ai/patientProgressReasoning';
+import {
+  PAIN_SURGE_PATIENT_COPY,
+  DIFFICULTY_MAX_PATIENT_COPY,
+} from '../../safety/clinicalEmergencyScreening';
 
 export default function PatientDailyView() {
+  const { sessionRole, logout } = useAuth();
   const {
     selectedPatient,
     getExercisePlan,
     getTodaySession,
     submitExerciseReport,
     setViewMode,
+    isPatientSessionLocked,
     sendPatientMessage,
     getPendingAiSuggestions,
-    approveAiSuggestion,
-    declineAiSuggestion,
-    grantPatientCoins,
+    patientAgreeToAiSuggestion,
+    patientDeclineAiSuggestion,
+    grantPatientKnowledgeReward,
+    submitGuardianRepsIncreaseRequest,
+    sendAiClinicalAlert,
+    emergencyModalPatientId,
+    setEmergencyModalPatientId,
+    isPatientExerciseSafetyLocked,
+    safetyAlerts,
+    clinicalToday,
+    dailyHistoryByPatient,
   } = usePatient();
 
   const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
@@ -32,6 +54,7 @@ export default function PatientDailyView() {
   const [messageOpen, setMessageOpen] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [painSheetOpen, setPainSheetOpen] = useState(false);
+  const [loadSafetyNudge, setLoadSafetyNudge] = useState<string | null>(null);
 
   const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
   const session = selectedPatient ? getTodaySession(selectedPatient.id) : null;
@@ -57,7 +80,36 @@ export default function PatientDailyView() {
     [selectedPatient, getPendingAiSuggestions]
   );
 
+  const patientDayMap = useMemo(
+    () =>
+      selectedPatient ? dailyHistoryByPatient[selectedPatient.id] ?? {} : {},
+    [selectedPatient, dailyHistoryByPatient]
+  );
+
+  const exerciseSafetyLocked = selectedPatient
+    ? isPatientExerciseSafetyLocked(selectedPatient.id)
+    : false;
+
+  const latestEmergencyReason = useMemo(() => {
+    if (!selectedPatient) return undefined;
+    const hit = [...safetyAlerts]
+      .filter((a) => a.patientId === selectedPatient.id && a.severity === 'emergency')
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    return hit?.reasonHebrew;
+  }, [safetyAlerts, selectedPatient?.id]);
+
+  useEffect(() => {
+    setLoadSafetyNudge(null);
+  }, [selectedPatient?.id]);
+
   const lastPainRecord = selectedPatient?.analytics.painHistory.slice(-1)[0];
+
+  const painReportNarrative = useMemo(() => {
+    if (!selectedPatient) return '';
+    const payload = buildPatientProgressPayload(selectedPatient, exercises);
+    const analysis = analyzePatientProgress(payload);
+    return buildPainReportNarrative(selectedPatient, exercises, analysis);
+  }, [selectedPatient, exercises]);
 
   const openExerciseDetail = (ex: PatientExercise) => {
     if (completedSet.has(ex.id)) return;
@@ -84,6 +136,9 @@ export default function PatientDailyView() {
       effortRating,
       reportFor.xpReward
     );
+    if (painLevel >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
+    else if (effortRating === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
+    else setLoadSafetyNudge(null);
     setReportFor(null);
   };
 
@@ -101,14 +156,27 @@ export default function PatientDailyView() {
         style={{ background: '#F0F9FA' }}
         dir="rtl"
       >
-        <p className="text-teal-900 font-medium mb-4">לא נבחר מטופל</p>
-        <button
-          type="button"
-          onClick={() => setViewMode('therapist')}
-          className="px-5 py-2.5 rounded-2xl bg-teal-600 text-white font-medium"
-        >
-          חזרה למטפל
-        </button>
+        <p className="text-teal-900 font-medium mb-4">לא נבחר מטופל או שהחשבון אינו מקושר.</p>
+        <div className="flex flex-wrap gap-2 justify-center">
+          {!isPatientSessionLocked && (
+            <button
+              type="button"
+              onClick={() => setViewMode('therapist')}
+              className="px-5 py-2.5 rounded-2xl bg-teal-600 text-white font-medium"
+            >
+              חזרה למטפל
+            </button>
+          )}
+          {sessionRole === 'patient' && (
+            <button
+              type="button"
+              onClick={() => logout()}
+              className="px-5 py-2.5 rounded-2xl border border-slate-300 text-slate-700 font-medium"
+            >
+              התנתקות
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -131,14 +199,28 @@ export default function PatientDailyView() {
           backdropFilter: 'blur(10px)',
         }}
       >
-        <button
-          type="button"
-          onClick={() => setViewMode('therapist')}
-          className="flex items-center gap-1.5 text-sm font-medium text-teal-700 px-3 py-2 rounded-xl hover:bg-teal-50 border border-teal-200/80"
-        >
-          <ArrowRight className="w-4 h-4" />
-          חזרה למטפל
-        </button>
+        {!isPatientSessionLocked ? (
+          <button
+            type="button"
+            onClick={() => setViewMode('therapist')}
+            className="flex items-center gap-1.5 text-sm font-medium text-teal-700 px-3 py-2 rounded-xl hover:bg-teal-50 border border-teal-200/80"
+          >
+            <ArrowRight className="w-4 h-4" />
+            חזרה למטפל
+          </button>
+        ) : sessionRole === 'patient' ? (
+          <button
+            type="button"
+            onClick={() => logout()}
+            title="התנתקות"
+            className="flex items-center gap-1.5 text-sm font-medium text-slate-600 px-3 py-2 rounded-xl hover:bg-slate-100 border border-slate-200"
+          >
+            <LogOut className="w-4 h-4" />
+            יציאה
+          </button>
+        ) : (
+          <span className="w-[1px] shrink-0" aria-hidden />
+        )}
         <div className="flex-1 min-w-0 text-end">
           <p className="text-xs text-teal-600 font-medium">תצוגת מטופל</p>
           <p className="text-base font-semibold text-slate-800 truncate">{selectedPatient.name}</p>
@@ -201,13 +283,13 @@ export default function PatientDailyView() {
 
         <div className="mb-5 space-y-3">
           <DidYouKnowBubble
-            patientId={selectedPatient.id}
-            onClaimCoins={() => grantPatientCoins(selectedPatient.id, 5)}
+            patient={selectedPatient}
+            onKnowledgeComplete={() => grantPatientKnowledgeReward(selectedPatient.id)}
           />
           <PatientAiSuggestionCards
             suggestions={pendingAiSuggestions}
-            onApprove={approveAiSuggestion}
-            onDecline={declineAiSuggestion}
+            onApprove={patientAgreeToAiSuggestion}
+            onDecline={patientDeclineAiSuggestion}
           />
         </div>
 
@@ -264,11 +346,42 @@ export default function PatientDailyView() {
           </button>
         </div>
 
+        <ClinicalMonthCalendar dayMap={patientDayMap} clinicalToday={clinicalToday} />
+
         <h1 className="text-lg font-bold text-slate-800 mb-1">המשימות להיום</h1>
         <p className="text-sm text-slate-500 mb-4 leading-relaxed">
           לחצו על שורת התרגיל לפתיחת המסך המלא. מעבר עכבר על התמונה המקדימה מנגן וידאו (אם קיים) בלי לשנות
           את גודל השורה. במסך: וידאו מתנגן אוטומטית, לאחר «התחל תרגול» וסיום המדד — דיווח VAS.
         </p>
+
+        {loadSafetyNudge && (
+          <div
+            className="mb-4 rounded-2xl border-2 border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-950 leading-relaxed"
+            role="status"
+          >
+            <p className="font-bold text-amber-900 mb-1">עדכון בטיחות</p>
+            <p>{loadSafetyNudge}</p>
+            <button
+              type="button"
+              onClick={() => setLoadSafetyNudge(null)}
+              className="mt-2 text-xs font-semibold text-amber-800 underline"
+            >
+              סגירה
+            </button>
+          </div>
+        )}
+
+        {exerciseSafetyLocked && (
+          <div
+            className="mb-4 rounded-2xl border-2 border-red-500 bg-red-50 px-4 py-3 text-center"
+            role="alert"
+          >
+            <p className="text-sm font-black text-red-950">תרגול נעול</p>
+            <p className="text-xs text-red-900 mt-1 leading-relaxed">
+              רשימת התרגילים חסומה עד שמטפל ישחרר לאחר בדיקה. אם יש חשש לחירום — התקשרו ל־101.
+            </p>
+          </div>
+        )}
 
         {exercises.length === 0 ? (
           <div
@@ -282,34 +395,57 @@ export default function PatientDailyView() {
             אין תרגילים באזור שנבחר. נקו את הסינון או בחרו אזור אחר.
           </p>
         ) : (
-          <ul className="space-y-2 flex flex-col">
-            {visibleExercises.map((ex, i) => {
-              const done = completedSet.has(ex.id);
-              return (
-                <li key={ex.id} className="w-full">
-                  <PatientExerciseCard
-                    exercise={ex}
-                    index={i + 1}
-                    isCompleted={done}
-                    onOpen={() => openExerciseDetail(ex)}
-                  />
-                </li>
-              );
-            })}
-          </ul>
+          <div
+            className={`relative flex flex-col ${exerciseSafetyLocked ? 'pointer-events-none select-none opacity-[0.38]' : ''}`}
+          >
+            {exerciseSafetyLocked && (
+              <div
+                className="absolute inset-0 z-10 rounded-2xl bg-red-950/5 pointer-events-none"
+                aria-hidden
+              />
+            )}
+            <ul className="space-y-2 flex flex-col">
+              {visibleExercises.map((ex, i) => {
+                const done = completedSet.has(ex.id);
+                return (
+                  <li key={ex.id} className="w-full">
+                    <PatientExerciseCard
+                      exercise={ex}
+                      index={i + 1}
+                      isCompleted={done}
+                      onOpen={() => openExerciseDetail(ex)}
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         )}
       </div>
 
       <GuardianAssistantFAB
         patient={selectedPatient}
         exerciseCount={exercises.length}
-        hidden={!!detailFor || !!reportFor}
+        exercises={exercises}
+        onSubmitGuardianRepsRequest={(exerciseId, exerciseName, fromReps, toReps) =>
+          submitGuardianRepsIncreaseRequest(
+            selectedPatient.id,
+            exerciseId,
+            exerciseName,
+            fromReps,
+            toReps
+          )
+        }
+        onTherapistClinicalAlert={(detail) => sendAiClinicalAlert(selectedPatient.id, detail)}
+        hidden={!!detailFor || !!reportFor || exerciseSafetyLocked}
       />
 
       <PatientPainProgressSheet
         open={painSheetOpen}
         onClose={() => setPainSheetOpen(false)}
         painHistory={selectedPatient.analytics.painHistory}
+        sessionHistory={selectedPatient.analytics.sessionHistory}
+        aiNarrative={painReportNarrative}
       />
 
       {/* Floating message to therapist */}
@@ -400,6 +536,22 @@ export default function PatientDailyView() {
         exercise={reportFor}
         onClose={() => setReportFor(null)}
         onSubmit={handleReportSubmit}
+      />
+
+      <EmergencyStopModal
+        open={
+          !!selectedPatient &&
+          emergencyModalPatientId === selectedPatient.id
+        }
+        syndromeDetailHebrew={latestEmergencyReason}
+        onAcknowledge={() => setEmergencyModalPatientId(null)}
+        onOpenTherapistMessage={() => {
+          setEmergencyModalPatientId(null);
+          setMessageText(
+            'דחוף: דיווחתי על תסמינים שעלולים לחייב בדיקה רפואית דחופה. נא ליצור קשר בהקדם.'
+          );
+          setMessageOpen(true);
+        }}
       />
     </div>
   );

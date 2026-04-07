@@ -37,7 +37,9 @@ export default function PatientAiSuggestionCards({
         </div>
         <div>
           <h2 className="text-sm font-bold text-slate-800">הצעת AI לתוכנית</h2>
-          <p className="text-[11px] text-slate-500">אישור מעדכן את התרגיל בתוכנית שלך</p>
+          <p className="text-[11px] text-slate-500">
+            שליחת בקשה למטפל — התרגיל יתעדכן רק אחרי אישורו
+          </p>
         </div>
       </div>
       <div className="p-3 space-y-3" style={{ background: 'rgba(255,255,255,0.85)' }}>
@@ -74,7 +76,7 @@ export default function PatientAiSuggestionCards({
                       {s.suggestedValue}
                     </span>
                     <span className="text-xs text-slate-500">
-                      {s.field === 'reps' ? 'חזרות' : 'סטים'}
+                      {s.field === 'reps' ? 'חזרות' : s.field === 'sets' ? 'סטים' : 'משקל'}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-600 mt-2 leading-relaxed">
@@ -91,7 +93,7 @@ export default function PatientAiSuggestionCards({
                   style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}
                 >
                   <ThumbsUp className="w-3.5 h-3.5" />
-                  אשר עדכון
+                  שלח בקשה למטפל
                 </button>
                 <button
                   type="button"

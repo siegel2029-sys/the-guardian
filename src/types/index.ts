@@ -98,6 +98,8 @@ export interface AuthUser {
   isAuthenticated: boolean;
 }
 
+export type ClinicalSafetyTier = 'emergency' | 'high_priority' | 'standard';
+
 export interface Message {
   id: string;
   patientId: string;
@@ -105,6 +107,20 @@ export interface Message {
   timestamp: string;
   isRead: boolean;
   fromPatient: boolean;
+  /** התראה אוטומטית ממנוע Guardian — מופיעה בתיבת המטפל כנקראת */
+  aiClinicalAlert?: boolean;
+  /** דרגת חומרה לתצוגת מטפל */
+  clinicalSafetyTier?: ClinicalSafetyTier;
+}
+
+/** התראת בטיחות קלינית בדשבורד מטפל */
+export interface SafetyAlert {
+  id: string;
+  patientId: string;
+  reasonCode: string;
+  reasonHebrew: string;
+  severity: 'emergency' | 'high_priority';
+  createdAt: string;
 }
 
 export type NavSection = 'overview' | 'exercises' | 'pain-report' | 'messages' | 'settings';
@@ -136,6 +152,8 @@ export interface Exercise {
 export interface PatientExercise extends Exercise {
   patientSets: number;  // therapist override for this patient
   patientReps: number;  // therapist override (0 when time-based)
+  /** משקל (ק״ג) — אופציונלי, לתרגילים עם עומס */
+  patientWeightKg?: number;
   addedAt: string;      // ISO timestamp
 }
 
@@ -151,10 +169,26 @@ export interface DailySession {
   sessionXp: number;
 }
 
+/** סטטוס יום בלוח הקליני (מעקב אחר השלמת פוקוס קליני) */
+export type ClinicalDayStatus = 'gold' | 'silver' | 'stasis' | 'empty';
+
+/** רשומת היסטוריה יומית לאחר כל דיווח/עדכון סשן */
+export interface DailyHistoryEntry {
+  clinicalDate: string;
+  exercisesPlanned: number;
+  exercisesCompleted: number;
+  completedExerciseIds: string[];
+  xpEarned: number;
+  status: ClinicalDayStatus;
+}
+
 // ── AI Suggestion System ─────────────────────────────────────────
 
 export type AiSuggestionType = 'increase_reps' | 'increase_sets' | 'reduce_reps' | 'add_exercise';
-export type AiSuggestionStatus = 'pending' | 'approved' | 'declined';
+/** pending = מוצג למטופל; awaiting_therapist = המטופל אישר — ממתין לאישור מטפל לפני עדכון DB */
+export type AiSuggestionStatus = 'pending' | 'awaiting_therapist' | 'approved' | 'declined';
+
+export type AiSuggestionSource = 'system' | 'guardian_patient';
 
 export interface AiSuggestion {
   id: string;
@@ -162,12 +196,13 @@ export interface AiSuggestion {
   exerciseId: string;
   exerciseName: string;
   type: AiSuggestionType;
-  field: 'reps' | 'sets';
+  field: 'reps' | 'sets' | 'weight';
   currentValue: number;
   suggestedValue: number;
   reason: string;        // Hebrew explanation shown to therapist
   createdAt: string;
   status: AiSuggestionStatus;
+  source?: AiSuggestionSource;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────

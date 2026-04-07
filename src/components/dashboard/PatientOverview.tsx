@@ -2,14 +2,17 @@ import { useState } from 'react';
 import {
   Star, Flame, Trophy, Activity, Dumbbell,
   User, CalendarDays, Stethoscope, FileText, TrendingUp, ClipboardList, AlertTriangle,
+  KeyRound, UserPlus, Copy, X,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import { findPatientLoginByPatientId } from '../../context/authPersistence';
 import StatsCard from './StatsCard';
 import XPProgressBar from './XPProgressBar';
 import PainAnalytics from './PainAnalytics';
 import RedFlagAlert from './RedFlagAlert';
 import SessionHistory from './SessionHistory';
 import AiSuggestionsPanel from './AiSuggestionsPanel';
+import PendingApprovalsPanel from './PendingApprovalsPanel';
 import ManagePlanModal from './ManagePlanModal';
 import { bodyAreaLabels } from '../../types';
 
@@ -23,8 +26,19 @@ const statusStyles: Record<string, { bg: string; text: string; dot: string }> = 
 };
 
 export default function PatientOverview() {
-  const { selectedPatient, getExercisePlan } = usePatient();
+  const {
+    selectedPatient,
+    getExercisePlan,
+    isPatientExerciseSafetyLocked,
+    clearPatientExerciseSafetyLock,
+    createPatientWithAccess,
+  } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
+  const [onboardOpen, setOnboardOpen] = useState(false);
+  const [newPatientName, setNewPatientName] = useState('');
+  const [createdCreds, setCreatedCreds] = useState<{ loginId: string; password: string } | null>(
+    null
+  );
 
   if (!selectedPatient) {
     return (
@@ -38,6 +52,26 @@ export default function PatientOverview() {
   const style = statusStyles[p.status];
   const plan = getExercisePlan(p.id);
   const exerciseCount = plan?.exercises.length ?? 0;
+  const patientAccessLoginId = findPatientLoginByPatientId(p.id);
+
+  const openOnboard = () => {
+    setOnboardOpen(true);
+    setCreatedCreds(null);
+    setNewPatientName('');
+  };
+
+  const handleCreateAccess = () => {
+    const creds = createPatientWithAccess(newPatientName);
+    setCreatedCreds({ loginId: creds.loginId, password: creds.password });
+  };
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const completionRate =
     p.analytics.sessionHistory.length > 0
@@ -67,6 +101,34 @@ export default function PatientOverview() {
     <div className="h-full overflow-y-auto p-6" dir="rtl">
       {/* Red Flag Alert */}
       {p.hasRedFlag && <RedFlagAlert patient={p} />}
+
+      {isPatientExerciseSafetyLocked(p.id) && (
+        <div
+          className="mb-5 rounded-2xl border-2 border-red-600 bg-red-50 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+          dir="rtl"
+        >
+          <div className="flex items-start gap-2 min-w-0">
+            <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-black text-red-950">נעילת תרגול פעילה</p>
+              <p className="text-xs text-red-900 mt-1 leading-relaxed">
+                המטופל קיבל התראת חירום או נעילה קלינית. שחררו את הנעילה רק לאחר הערכה מתאימה ובהתאם לפרוטוקול.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => clearPatientExerciseSafetyLock(p.id)}
+            className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold text-white"
+            style={{
+              background: 'linear-gradient(135deg, #b91c1c, #7f1d1d)',
+              boxShadow: '0 8px 20px -6px rgba(127, 29, 29, 0.45)',
+            }}
+          >
+            שחרור נעילת תרגול
+          </button>
+        </div>
+      )}
 
       {/* Patient Profile Header */}
       <div className="bg-white rounded-2xl p-5 border border-teal-100 shadow-sm mb-5">
@@ -104,6 +166,13 @@ export default function PatientOverview() {
               )}
             </div>
             <p className="text-sm text-teal-700 font-medium mt-0.5">{p.diagnosis}</p>
+            {patientAccessLoginId && (
+              <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                <KeyRound className="w-3.5 h-3.5" />
+                מזהה גישה למטופל:{' '}
+                <span className="font-mono font-semibold text-teal-800">{patientAccessLoginId}</span>
+              </p>
+            )}
             <div className="flex items-center gap-4 mt-2 flex-wrap">
               <span className="flex items-center gap-1.5 text-xs text-slate-500">
                 <User className="w-3.5 h-3.5" /> גיל {p.age}
@@ -123,20 +192,30 @@ export default function PatientOverview() {
             </div>
           </div>
 
-          {/* Manage Plan button */}
-          <button
-            onClick={() => setShowManageModal(true)}
-            className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
-            style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
-          >
-            <ClipboardList className="w-4 h-4" />
-            ניהול תוכנית
-            {exerciseCount > 0 && (
-              <span className="w-5 h-5 rounded-full bg-white/30 flex items-center justify-center text-xs font-black">
-                {exerciseCount}
-              </span>
-            )}
-          </button>
+          <div className="flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowManageModal(true)}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+              style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
+            >
+              <ClipboardList className="w-4 h-4" />
+              ניהול תוכנית
+              {exerciseCount > 0 && (
+                <span className="w-5 h-5 rounded-full bg-white/30 flex items-center justify-center text-xs font-black">
+                  {exerciseCount}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={openOnboard}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 border-teal-500 text-teal-800 bg-teal-50/80 hover:bg-teal-100 transition-colors"
+            >
+              <UserPlus className="w-4 h-4" />
+              יצירת גישה למטופל
+            </button>
+          </div>
         </div>
 
         {/* Therapist Notes */}
@@ -199,7 +278,10 @@ export default function PatientOverview() {
         />
       </div>
 
-      {/* ── AI Suggestions section ──────────────────────────────── */}
+      {/* ── Pending therapist approvals (after patient consent) ── */}
+      <PendingApprovalsPanel />
+
+      {/* ── AI Suggestions tracking ─────────────────────────────── */}
       <AiSuggestionsPanel />
 
       {/* Analytics Section */}
@@ -222,6 +304,104 @@ export default function PatientOverview() {
 
       {/* Manage Plan Modal */}
       {showManageModal && <ManagePlanModal onClose={() => setShowManageModal(false)} />}
+
+      {onboardOpen && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4"
+          style={{ background: 'rgba(15, 23, 42, 0.45)' }}
+          dir="rtl"
+          onClick={() => setOnboardOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-teal-100 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="onboard-title"
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-teal-100">
+              <h2 id="onboard-title" className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-teal-600" />
+                יצירת מטופל וגישה
+              </h2>
+              <button
+                type="button"
+                onClick={() => setOnboardOpen(false)}
+                className="p-2 rounded-lg text-slate-400 hover:bg-slate-100"
+                aria-label="סגור"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              {!createdCreds ? (
+                <>
+                  <p className="text-sm text-slate-600 leading-relaxed">
+                    נוצר מטופל חדש במערכת, תוכנית ריקה, ומזהה + סיסמה לכניסה כמטופל (מסך אישי בלבד).
+                  </p>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">שם תצוגה</label>
+                    <input
+                      value={newPatientName}
+                      onChange={(e) => setNewPatientName(e.target.value)}
+                      placeholder="למשל: יוסי כהן"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCreateAccess}
+                    className="w-full py-3 rounded-xl font-semibold text-white"
+                    style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
+                  >
+                    יצירה והפקת גישה
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-teal-900">
+                    שמרו והעבירו למטופל — לא יוצג שוב:
+                  </p>
+                  <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-2 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-500">מזהה</span>
+                      <code className="font-mono text-xs font-bold">{createdCreds.loginId}</code>
+                      <button
+                        type="button"
+                        onClick={() => copyText(createdCreds.loginId)}
+                        className="p-1.5 text-teal-600"
+                        title="העתקה"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-500">סיסמה</span>
+                      <code className="font-mono text-xs font-bold">{createdCreds.password}</code>
+                      <button
+                        type="button"
+                        onClick={() => copyText(createdCreds.password)}
+                        className="p-1.5 text-teal-600"
+                        title="העתקה"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setOnboardOpen(false)}
+                    className="w-full py-2.5 rounded-xl border border-slate-200 text-slate-700 font-medium"
+                  >
+                    סגירה
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

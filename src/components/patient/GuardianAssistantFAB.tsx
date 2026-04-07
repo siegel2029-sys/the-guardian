@@ -1,23 +1,43 @@
 import { useState, useRef, useEffect } from 'react';
 import { Bot, X, Send } from 'lucide-react';
-import type { Patient } from '../../types';
-import { buildGuardianReply } from './buildGuardianReply';
+import type { Patient, PatientExercise } from '../../types';
+import {
+  buildGuardianTurn,
+  isGuardianOfferConfirmation,
+  type GuardianPendingOffer,
+} from './buildGuardianReply';
+import { analyzePatientProgress, buildPatientProgressPayload } from '../../ai/patientProgressReasoning';
+import { screenPatientFreeTextForEmergency } from '../../safety/clinicalEmergencyScreening';
+import { usePatient } from '../../context/PatientContext';
 
 interface GuardianAssistantFABProps {
   patient: Patient;
   exerciseCount: number;
-  /** מוסתר כשמודל אחר פתוח (תרגיל / דיווח) */
+  exercises: PatientExercise[];
+  onSubmitGuardianRepsRequest: (
+    exerciseId: string,
+    exerciseName: string,
+    fromReps: number,
+    toReps: number
+  ) => void;
+  /** התראת AI קלינית לתיבת המטפל */
+  onTherapistClinicalAlert?: (detailHebrew?: string) => void;
   hidden?: boolean;
 }
 
 export default function GuardianAssistantFAB({
   patient,
   exerciseCount,
+  exercises,
+  onSubmitGuardianRepsRequest,
+  onTherapistClinicalAlert,
   hidden,
 }: GuardianAssistantFABProps) {
+  const { screenAndHandleEmergencyText } = usePatient();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
+  const [pendingOffer, setPendingOffer] = useState<GuardianPendingOffer | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -29,8 +49,80 @@ export default function GuardianAssistantFAB({
   const send = () => {
     const text = input.trim();
     if (!text) return;
-    const reply = buildGuardianReply(text, patient, exerciseCount);
+
+    // חובה: סינון חירום לפני כל לוגיקה אחרת (הצעות, אישורים, buildGuardianTurn)
+    const emergency = screenPatientFreeTextForEmergency(text);
+    if (emergency.isEmergency) {
+      screenAndHandleEmergencyText(patient.id, text, 'צ׳אט Guardian');
+      setMessages((m) => [
+        ...m,
+        { role: 'user', text },
+        {
+          role: 'assistant',
+          text:
+            'זוהתה התאמה לתסמינים שדורשים בדיקה דחופה. הופיעה הודעת חירום במערכת — אל תמשיך בתרגול עד שמטפל או גורם רפואי ינחה אותך. אם המצב מחמיר, התקשרו ל־101.',
+        },
+      ]);
+      setPendingOffer(null);
+      setInput('');
+      setOpen(false);
+      return;
+    }
+
+    if (pendingOffer && isGuardianOfferConfirmation(text)) {
+      const payload = buildPatientProgressPayload(patient, exercises);
+      const analysis = analyzePatientProgress(payload);
+      if (!analysis.allowExerciseLoadIncrease) {
+        if (analysis.suggestTherapistClinicalAlert) {
+          onTherapistClinicalAlert?.(analysis.therapistAlertDetailHebrew);
+        }
+        const extra = analysis.suggestTherapistClinicalAlert
+          ? '\n\nעדכנתי את המטפל בהתראה במערכת — נדרשת החלטה מקצועית.'
+          : '';
+        setMessages((m) => [
+          ...m,
+          { role: 'user', text },
+          {
+            role: 'assistant',
+            text:
+              (analysis.refusalExplanationHebrew ??
+                'לא ניתן לאשר כרגע הגדלת עומס מבחינה קלינית.') + extra,
+          },
+        ]);
+        setPendingOffer(null);
+        setInput('');
+        return;
+      }
+      onSubmitGuardianRepsRequest(
+        pendingOffer.exerciseId,
+        pendingOffer.exerciseName,
+        pendingOffer.fromReps,
+        pendingOffer.toReps
+      );
+      setMessages((m) => [
+        ...m,
+        { role: 'user', text },
+        {
+          role: 'assistant',
+          text: 'מצוין! שלחתי בקשה למטפל שלך. הוא יראה אותה תחת «אישורים ממתינים» ויוכל לאשר או לדחות — רק אחרי אישורו יתעדכנו החזרות בתוכנית.',
+        },
+      ]);
+      setPendingOffer(null);
+      setInput('');
+      return;
+    }
+
+    const { reply, offer, sendTherapistClinicalAlert } = buildGuardianTurn(
+      text,
+      patient,
+      exerciseCount,
+      exercises
+    );
+    if (sendTherapistClinicalAlert) {
+      onTherapistClinicalAlert?.(sendTherapistClinicalAlert.detailHebrew);
+    }
     setMessages((m) => [...m, { role: 'user', text }, { role: 'assistant', text: reply }]);
+    setPendingOffer(offer);
     setInput('');
   };
 
@@ -83,7 +175,9 @@ export default function GuardianAssistantFAB({
                   <h2 id="guardian-title" className="text-sm font-bold text-indigo-950 truncate">
                     עוזר Guardian
                   </h2>
-                  <p className="text-[11px] text-indigo-600/90">שאלות על כאב ותרגילים לפי המצב שלך</p>
+                  <p className="text-[11px] text-indigo-600/90">
+                    ניתוח כאב, רצף והתאמת עומס (ללא תחליף למטפל)
+                  </p>
                 </div>
               </div>
               <button
@@ -99,7 +193,7 @@ export default function GuardianAssistantFAB({
             <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-[180px]">
               {messages.length === 0 && (
                 <p className="text-xs text-slate-500 leading-relaxed px-1">
-                  לדוגמה: «אם אני מרגיש כאב 6, מה לעשות?» או «כמה תרגילים יש לי היום?»
+                  לדוגמה: «איך אני מתקדם?», «אם אני מרגיש כאב 6, מה לעשות?» או «התרגילים קלים לי».
                 </p>
               )}
               {messages.map((msg, i) => (
@@ -108,7 +202,7 @@ export default function GuardianAssistantFAB({
                   className={`flex ${msg.role === 'user' ? 'justify-start' : 'justify-end'}`}
                 >
                   <div
-                    className="max-w-[92%] rounded-2xl px-3 py-2 text-sm leading-relaxed"
+                    className="max-w-[92%] rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap"
                     style={
                       msg.role === 'user'
                         ? { background: '#e0e7ff', color: '#1e1b4b' }
@@ -119,6 +213,11 @@ export default function GuardianAssistantFAB({
                   </div>
                 </div>
               ))}
+              {pendingOffer && (
+                <p className="text-[11px] text-indigo-700 text-center px-2">
+                  אם תרצו לשלוח בקשה למטפל — ענו «כן» או «שלח».
+                </p>
+              )}
               <div ref={endRef} />
             </div>
 
@@ -128,7 +227,7 @@ export default function GuardianAssistantFAB({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder="שאלה על כאב או תרגילים…"
+                placeholder="שאלה או «כן» לאישור שליחה למטפל…"
                 className="flex-1 min-w-0 rounded-2xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
                 style={{ background: '#fafafa' }}
               />

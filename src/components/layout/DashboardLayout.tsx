@@ -3,6 +3,7 @@ import Header from './Header';
 import PatientOverview from '../dashboard/PatientOverview';
 import MessagesPanel from '../dashboard/MessagesPanel';
 import ExercisesPanel from '../dashboard/ExercisesPanel';
+import TherapistSettingsPanel from '../dashboard/TherapistSettingsPanel';
 import PlaceholderPanel from '../dashboard/PlaceholderPanel';
 import { usePatient } from '../../context/PatientContext';
 
@@ -26,13 +27,7 @@ export default function DashboardLayout() {
           />
         );
       case 'settings':
-        return (
-          <PlaceholderPanel
-            title="הגדרות פרופיל"
-            description="ניהול פרופיל מטפל, הגדרות התראות, ואבטחת חשבון."
-            phase="שלב 2 – בפיתוח"
-          />
-        );
+        return <TherapistSettingsPanel />;
       default:
         return <PatientOverview />;
     }

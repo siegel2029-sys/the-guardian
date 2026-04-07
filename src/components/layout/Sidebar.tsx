@@ -12,6 +12,7 @@ import {
   User,
   Bell,
   CheckCircle2,
+  AlertOctagon,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { usePatient } from '../../context/PatientContext';
@@ -39,16 +40,32 @@ const statusLabels: Record<string, string> = {
 
 export default function Sidebar() {
   const { therapist, logout } = useAuth();
-  const { patients, selectedPatient, selectPatient, activeSection, setActiveSection, getPatientMessages } =
-    usePatient();
+  const {
+    patients,
+    selectedPatient,
+    selectPatient,
+    activeSection,
+    setActiveSection,
+    getPatientMessages,
+    getTotalAwaitingTherapistCount,
+    aiSuggestions,
+    safetyAlerts,
+    dismissSafetyAlert,
+  } = usePatient();
   const [patientSwitcherOpen, setPatientSwitcherOpen] = useState(false);
 
   const totalUnreadMessages = patients.reduce((sum, p) => {
-    const unread = getPatientMessages(p.id).filter((m) => !m.isRead && m.fromPatient).length;
+    const unread = getPatientMessages(p.id).filter(
+      (m) => !m.isRead && (m.fromPatient || m.aiClinicalAlert)
+    ).length;
     return sum + unread;
   }, 0);
 
   const totalRedFlags = patients.filter((p) => p.hasRedFlag).length;
+  const pendingApprovals = getTotalAwaitingTherapistCount();
+
+  const awaitingForPatient = (patientId: string) =>
+    aiSuggestions.filter((s) => s.patientId === patientId && s.status === 'awaiting_therapist').length;
 
   return (
     <aside
@@ -71,6 +88,14 @@ export default function Sidebar() {
           </div>
           {/* Notification badges */}
           <div className="mr-auto flex items-center gap-1.5">
+            {pendingApprovals > 0 && (
+              <div className="relative" title="אישורי AI ממתינים">
+                <CheckCircle2 className="w-5 h-5 text-teal-600" />
+                <span className="absolute -top-1 -left-1 min-w-[16px] h-4 px-0.5 rounded-full bg-teal-600 text-white text-[9px] font-bold flex items-center justify-center">
+                  {pendingApprovals}
+                </span>
+              </div>
+            )}
             {totalRedFlags > 0 && (
               <div className="relative">
                 <Bell className="w-5 h-5 text-red-500" />
@@ -194,6 +219,14 @@ export default function Sidebar() {
                           התראה
                         </span>
                       )}
+                      {awaitingForPatient(patient.id) > 0 && (
+                        <span
+                          className="min-w-[20px] h-5 px-1 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center"
+                          title="אישור AI ממתין"
+                        >
+                          {awaitingForPatient(patient.id)}
+                        </span>
+                      )}
                       {unreadCount > 0 && (
                         <span className="w-5 h-5 rounded-full bg-teal-500 text-white text-[10px] font-bold flex items-center justify-center">
                           {unreadCount}
@@ -212,8 +245,54 @@ export default function Sidebar() {
         </div>
       </div>
 
+      {safetyAlerts.length > 0 && (
+        <div className="px-3 py-2 border-b border-red-200 shrink-0 max-h-40 overflow-y-auto bg-red-50/40">
+          <p className="text-[10px] font-black text-red-900 uppercase tracking-wider mb-2 px-1 flex items-center gap-1.5">
+            <AlertOctagon className="w-3.5 h-3.5 shrink-0" />
+            התראות בטיחות
+          </p>
+          <ul className="space-y-2">
+            {[...safetyAlerts]
+              .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+              .map((alert) => {
+                const pname =
+                  patients.find((x) => x.id === alert.patientId)?.name ?? alert.patientId;
+                return (
+                  <li
+                    key={alert.id}
+                    className="rounded-xl border-2 border-red-500 bg-red-50 shadow-sm overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      className="w-full text-right px-2.5 py-2 hover:bg-red-100/80 transition-colors"
+                      onClick={() => {
+                        selectPatient(alert.patientId);
+                        setPatientSwitcherOpen(false);
+                      }}
+                    >
+                      <p className="text-xs font-black text-red-950 leading-tight">{pname}</p>
+                      <p className="text-[11px] text-red-900 font-semibold mt-0.5 leading-snug">
+                        {alert.reasonHebrew}
+                      </p>
+                    </button>
+                    <div className="flex justify-end px-2 pb-1.5">
+                      <button
+                        type="button"
+                        onClick={() => dismissSafetyAlert(alert.id)}
+                        className="text-[10px] font-medium text-red-700 hover:underline"
+                      >
+                        הסר מהרשימה
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+          </ul>
+        </div>
+      )}
+
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto min-h-0">
         <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
           ניווט
         </p>
@@ -284,7 +363,11 @@ export default function Sidebar() {
           </button>
         </div>
         {/* Profile management hint */}
-        <button className="w-full mt-2 flex items-center justify-center gap-1.5 py-1.5 text-xs text-slate-400 hover:text-teal-600 transition-colors rounded-lg hover:bg-teal-50">
+        <button
+          type="button"
+          onClick={() => setActiveSection('settings')}
+          className="w-full mt-2 flex items-center justify-center gap-1.5 py-1.5 text-xs text-slate-400 hover:text-teal-600 transition-colors rounded-lg hover:bg-teal-50"
+        >
           <User className="w-3.5 h-3.5" />
           <span>ניהול פרופיל</span>
         </button>

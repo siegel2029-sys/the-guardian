@@ -12,7 +12,8 @@ const sectionTitles: Record<NavSection, string> = {
 };
 
 export default function Header() {
-  const { selectedPatient, activeSection, patients, setViewMode } = usePatient();
+  const { selectedPatient, activeSection, patients, setViewMode, isPatientSessionLocked } =
+    usePatient();
   const { therapist } = useAuth();
   const totalRedFlags = patients.filter((p) => p.hasRedFlag).length;
 
@@ -37,7 +38,7 @@ export default function Header() {
 
       {/* Right: Search + Alerts + Greeting */}
       <div className="flex items-center gap-3">
-        {selectedPatient && (
+        {selectedPatient && !isPatientSessionLocked && (
           <button
             type="button"
             onClick={() => setViewMode('patient')}
