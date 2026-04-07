@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Shield, Eye, EyeOff, Mail, Lock, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export default function LoginPage() {
+  const navigate = useNavigate();
   const { login, isLoading, loginError } = useAuth();
   const [email, setEmail] = useState('michal.levi@guardian-clinic.co.il');
   const [password, setPassword] = useState('');
@@ -11,7 +13,12 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    await login(email, password);
+    const role = await login(email, password);
+    if (role === 'therapist') {
+      navigate('/therapist', { replace: true });
+    } else if (role === 'patient') {
+      navigate('/patient-portal', { replace: true });
+    }
   };
 
   return (

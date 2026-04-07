@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Shield,
   LayoutDashboard,
@@ -17,6 +18,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { usePatient } from '../../context/PatientContext';
 import type { NavSection } from '../../types';
+import SidebarNewPatient from './SidebarNewPatient';
 
 const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'overview', label: 'סקירה כללית', icon: LayoutDashboard },
@@ -39,6 +41,7 @@ const statusLabels: Record<string, string> = {
 };
 
 export default function Sidebar() {
+  const navigate = useNavigate();
   const { therapist, logout } = useAuth();
   const {
     patients,
@@ -107,6 +110,8 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
+
+      <SidebarNewPatient />
 
       {/* Patient Switcher */}
       <div className="px-3 py-3 border-b border-teal-50">
@@ -355,7 +360,10 @@ export default function Sidebar() {
             <p className="text-xs text-teal-600 truncate">{therapist?.title}</p>
           </div>
           <button
-            onClick={logout}
+            onClick={() => {
+              logout();
+              navigate('/login', { replace: true });
+            }}
             title="התנתק"
             className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
           >
