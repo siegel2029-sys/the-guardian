@@ -1,45 +1,118 @@
 /**
- * אחסון אימות מקומי (דמו). סיסמאות בטקסט גלוי — לא מתאים לייצור ללא שרת.
+ * אחסון אימות מקומי (דמו). גרסה 2: מספר מטפלים, מטופלים משויכים ל־therapistId.
  */
 import { invalidatePersistedBootstrapCache } from '../bootstrap/invalidateBootstrap';
-import { mockTherapist, MOCK_PASSWORD } from '../data/mockData';
+import { mockTherapist, mockTherapistB, MOCK_PASSWORD, MOCK_THERAPIST_B_PASSWORD } from '../data/mockData';
+import type { Therapist } from '../types';
 
 export const AUTH_STORAGE_KEY = 'guardian-auth-v1';
 
-export type AuthSessionV1 =
-  | { role: 'therapist' }
+/** סשן פעיל — מטפל חייב therapistId */
+export type AuthSessionV2 =
+  | { role: 'therapist'; therapistId: string }
   | { role: 'patient'; patientId: string };
+
+export type TherapistAuthRecord = {
+  email: string;
+  password: string;
+  displayName: string;
+  clinicName: string;
+};
 
 export type PatientAccountV1 = {
   patientId: string;
+  therapistId: string;
   password: string;
-  /** נוצר עם חשבון חדש — מחייב החלפת סיסמה בכניסה ראשונה לפורטל */
   mustChangePassword?: boolean;
 };
 
-export type AuthSnapshotV1 = {
+/** צילום auth נוכחי (תמיד v2 בזיכרון אחרי טעינה) */
+export type AuthSnapshotV2 = {
+  version: 2;
+  therapists: Record<string, TherapistAuthRecord>;
+  patientAccounts: Record<string, PatientAccountV1>;
+  session: AuthSessionV2 | null;
+};
+
+/** תאימות לאחור — מבנה ישן ב־localStorage */
+type AuthSnapshotLegacyV1 = {
   version: 1;
   therapistEmail: string;
   therapistPassword: string;
-  /** מפתח = מזהה כניסה למטופל (למשל PT-XXXX) */
-  patientAccounts: Record<string, PatientAccountV1>;
-  session: AuthSessionV1 | null;
+  patientAccounts: Record<
+    string,
+    { patientId: string; password: string; mustChangePassword?: boolean; therapistId?: string }
+  >;
+  session: { role: string; therapistId?: string; patientId?: string } | null;
 };
 
-export function defaultAuthSnapshot(): AuthSnapshotV1 {
+export function defaultAuthSnapshot(): AuthSnapshotV2 {
   return {
-    version: 1,
-    therapistEmail: mockTherapist.email,
-    therapistPassword: MOCK_PASSWORD,
+    version: 2,
+    therapists: {
+      [mockTherapist.id]: {
+        email: mockTherapist.email,
+        password: MOCK_PASSWORD,
+        displayName: mockTherapist.name,
+        clinicName: mockTherapist.clinicName,
+      },
+      [mockTherapistB.id]: {
+        email: mockTherapistB.email,
+        password: MOCK_THERAPIST_B_PASSWORD,
+        displayName: mockTherapistB.name,
+        clinicName: mockTherapistB.clinicName,
+      },
+    },
     patientAccounts: {},
     session: null,
   };
 }
 
-export function normalizeAuthSession(raw: unknown): AuthSessionV1 | null {
+function migrateLegacyV1(data: AuthSnapshotLegacyV1): AuthSnapshotV2 {
+  const def = defaultAuthSnapshot();
+  const tid = mockTherapist.id;
+  const therapists: Record<string, TherapistAuthRecord> = {
+    ...def.therapists,
+    [tid]: {
+      email: data.therapistEmail.trim(),
+      password:
+        typeof data.therapistPassword === 'string' && data.therapistPassword.length > 0
+          ? data.therapistPassword
+          : MOCK_PASSWORD,
+      displayName: mockTherapist.name,
+      clinicName: mockTherapist.clinicName,
+    },
+  };
+  const patientAccounts: Record<string, PatientAccountV1> = {};
+  for (const [k, v] of Object.entries(data.patientAccounts ?? {})) {
+    if (!v?.patientId) continue;
+    const key = k.trim().toUpperCase();
+    patientAccounts[key] = {
+      patientId: v.patientId.trim(),
+      therapistId: typeof v.therapistId === 'string' && v.therapistId ? v.therapistId : tid,
+      password: String(v.password ?? ''),
+      mustChangePassword: v.mustChangePassword === true,
+    };
+  }
+  let session: AuthSessionV2 | null = null;
+  const s = data.session;
+  if (s?.role === 'therapist') {
+    session = { role: 'therapist', therapistId: tid };
+  } else if (s?.role === 'patient' && typeof s.patientId === 'string' && s.patientId.trim()) {
+    session = { role: 'patient', patientId: s.patientId.trim() };
+  }
+  return { version: 2, therapists, patientAccounts, session };
+}
+
+export function normalizeAuthSession(raw: unknown): AuthSessionV2 | null {
   if (raw == null || typeof raw !== 'object') return null;
-  const r = raw as { role?: string; patientId?: unknown };
-  if (r.role === 'therapist') return { role: 'therapist' };
+  const r = raw as { role?: string; patientId?: unknown; therapistId?: unknown };
+  if (r.role === 'therapist') {
+    if (typeof r.therapistId === 'string' && r.therapistId.trim().length > 0) {
+      return { role: 'therapist', therapistId: r.therapistId.trim() };
+    }
+    return null;
+  }
   if (
     r.role === 'patient' &&
     typeof r.patientId === 'string' &&
@@ -51,7 +124,8 @@ export function normalizeAuthSession(raw: unknown): AuthSessionV1 | null {
 }
 
 function normalizeAccounts(
-  raw: Record<string, PatientAccountV1> | undefined
+  raw: Record<string, PatientAccountV1> | undefined,
+  fallbackTherapistId: string
 ): Record<string, PatientAccountV1> {
   if (!raw || typeof raw !== 'object') return {};
   const out: Record<string, PatientAccountV1> = {};
@@ -60,6 +134,10 @@ function normalizeAccounts(
     const key = k.trim().toUpperCase();
     out[key] = {
       patientId: v.patientId.trim(),
+      therapistId:
+        typeof v.therapistId === 'string' && v.therapistId.trim()
+          ? v.therapistId.trim()
+          : fallbackTherapistId,
       password: String(v.password ?? ''),
       mustChangePassword: v.mustChangePassword === true,
     };
@@ -67,27 +145,55 @@ function normalizeAccounts(
   return out;
 }
 
-export function loadAuthSnapshot(): AuthSnapshotV1 {
+function normalizeTherapists(
+  raw: Record<string, TherapistAuthRecord> | undefined
+): Record<string, TherapistAuthRecord> {
+  const def = defaultAuthSnapshot().therapists;
+  if (!raw || typeof raw !== 'object') return { ...def };
+  const out: Record<string, TherapistAuthRecord> = { ...def };
+  for (const [id, t] of Object.entries(raw)) {
+    if (!t || typeof t.email !== 'string') continue;
+    out[id.trim()] = {
+      email: t.email.trim(),
+      password: String(t.password ?? ''),
+      displayName: typeof t.displayName === 'string' && t.displayName.trim() ? t.displayName.trim() : mockTherapist.name,
+      clinicName:
+        typeof t.clinicName === 'string' && t.clinicName.trim()
+          ? t.clinicName.trim()
+          : mockTherapist.clinicName,
+    };
+  }
+  return out;
+}
+
+export function loadAuthSnapshot(): AuthSnapshotV2 {
   if (typeof window === 'undefined' || !window.localStorage) {
     return defaultAuthSnapshot();
   }
   try {
     const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return defaultAuthSnapshot();
-    const data = JSON.parse(raw) as Partial<AuthSnapshotV1>;
-    if (data?.version !== 1 || typeof data.therapistEmail !== 'string') {
+    const data = JSON.parse(raw) as Partial<AuthSnapshotLegacyV1> & Partial<AuthSnapshotV2>;
+
+    if (data.version === 1 && typeof (data as AuthSnapshotLegacyV1).therapistEmail === 'string') {
+      const migrated = migrateLegacyV1(data as AuthSnapshotLegacyV1);
+      saveAuthSnapshot(migrated);
+      return migrated;
+    }
+
+    if (data.version !== 2 || typeof data.therapists !== 'object') {
       return defaultAuthSnapshot();
     }
-    const def = defaultAuthSnapshot();
-    const therapistPassword =
-      typeof data.therapistPassword === 'string' && data.therapistPassword.length > 0
-        ? data.therapistPassword
-        : def.therapistPassword;
+
+    const therapists = normalizeTherapists(data.therapists as Record<string, TherapistAuthRecord>);
+    const fallbackTid = mockTherapist.id;
     return {
-      version: 1,
-      therapistEmail: data.therapistEmail.trim(),
-      therapistPassword,
-      patientAccounts: normalizeAccounts(data.patientAccounts as AuthSnapshotV1['patientAccounts']),
+      version: 2,
+      therapists,
+      patientAccounts: normalizeAccounts(
+        data.patientAccounts as Record<string, PatientAccountV1>,
+        fallbackTid
+      ),
       session: normalizeAuthSession(data.session),
     };
   } catch {
@@ -95,7 +201,7 @@ export function loadAuthSnapshot(): AuthSnapshotV1 {
   }
 }
 
-export function saveAuthSnapshot(snapshot: AuthSnapshotV1): void {
+export function saveAuthSnapshot(snapshot: AuthSnapshotV2): void {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(snapshot));
@@ -105,11 +211,12 @@ export function saveAuthSnapshot(snapshot: AuthSnapshotV1): void {
   }
 }
 
-export function mergeAuthSnapshot(partial: Partial<AuthSnapshotV1>): AuthSnapshotV1 {
+export function mergeAuthSnapshot(partial: Partial<AuthSnapshotV2>): AuthSnapshotV2 {
   const cur = loadAuthSnapshot();
-  const next: AuthSnapshotV1 = {
+  const next: AuthSnapshotV2 = {
     ...cur,
     ...partial,
+    therapists: partial.therapists ?? cur.therapists,
     patientAccounts: partial.patientAccounts ?? cur.patientAccounts,
     session: partial.session !== undefined ? partial.session : cur.session,
   };
@@ -117,32 +224,86 @@ export function mergeAuthSnapshot(partial: Partial<AuthSnapshotV1>): AuthSnapsho
   return next;
 }
 
-export function setAuthSession(session: AuthSessionV1 | null): void {
+export function setAuthSession(session: AuthSessionV2 | null): void {
   mergeAuthSnapshot({ session });
+}
+
+export function findTherapistIdByCredentials(email: string, password: string): string | null {
+  const snap = loadAuthSnapshot();
+  const em = email.trim().toLowerCase();
+  const pw = password.trim();
+  for (const [id, t] of Object.entries(snap.therapists)) {
+    if (t.email.toLowerCase() === em && t.password === pw) return id;
+  }
+  return null;
+}
+
+export function therapistRecordToTherapist(therapistId: string, rec: TherapistAuthRecord): Therapist {
+  const initials = rec.displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('');
+  return {
+    id: therapistId,
+    name: rec.displayName,
+    email: rec.email,
+    title: mockTherapist.title,
+    avatarInitials: initials || mockTherapist.avatarInitials,
+    clinicName: rec.clinicName,
+  };
+}
+
+export function getTherapistRecord(therapistId: string): TherapistAuthRecord | null {
+  const snap = loadAuthSnapshot();
+  return snap.therapists[therapistId] ?? null;
+}
+
+export function getTherapistDisplayName(therapistId: string): string {
+  return getTherapistRecord(therapistId)?.displayName ?? mockTherapist.name;
+}
+
+export function updateTherapistRecord(
+  therapistId: string,
+  updates: Partial<Pick<TherapistAuthRecord, 'email' | 'password' | 'displayName' | 'clinicName'>>
+): void {
+  const snap = loadAuthSnapshot();
+  const cur = snap.therapists[therapistId];
+  if (!cur) return;
+  const nextRec: TherapistAuthRecord = {
+    ...cur,
+    ...updates,
+    email: (updates.email ?? cur.email).trim(),
+    displayName: (updates.displayName ?? cur.displayName).trim(),
+    clinicName: (updates.clinicName ?? cur.clinicName).trim(),
+    password: updates.password ?? cur.password,
+  };
+  saveAuthSnapshot({
+    ...snap,
+    therapists: { ...snap.therapists, [therapistId]: nextRec },
+  });
 }
 
 export function addPatientAccount(
   loginId: string,
   patientId: string,
   password: string,
+  therapistId: string,
   options?: { mustChangePassword?: boolean }
 ): void {
   const snap = loadAuthSnapshot();
   const mustChange = options?.mustChangePassword !== false;
   const patientAccounts = {
     ...snap.patientAccounts,
-    [loginId.trim().toUpperCase()]: { patientId, password, mustChangePassword: mustChange },
+    [loginId.trim().toUpperCase()]: {
+      patientId,
+      therapistId,
+      password,
+      mustChangePassword: mustChange,
+    },
   };
   saveAuthSnapshot({ ...snap, patientAccounts });
-}
-
-export function updateTherapistCredentials(email: string, password: string): void {
-  const snap = loadAuthSnapshot();
-  saveAuthSnapshot({
-    ...snap,
-    therapistEmail: email.trim(),
-    therapistPassword: password,
-  });
 }
 
 export function findPatientLoginByPatientId(patientId: string): string | null {
@@ -153,7 +314,6 @@ export function findPatientLoginByPatientId(patientId: string): string | null {
   return null;
 }
 
-/** מזהה כניסה + סיסמה כפי שנשמרו (למסירה למטופל — דמו בלבד). */
 export function getPatientCredentialsByPatientId(
   patientId: string
 ): { loginId: string; password: string } | null {
@@ -166,7 +326,7 @@ export function getPatientCredentialsByPatientId(
   return null;
 }
 
-export function patientAccountRequiresPasswordChange(snap: AuthSnapshotV1, patientId: string): boolean {
+export function patientAccountRequiresPasswordChange(snap: AuthSnapshotV2, patientId: string): boolean {
   for (const acc of Object.values(snap.patientAccounts)) {
     if (acc.patientId === patientId) return acc.mustChangePassword === true;
   }
@@ -191,6 +351,30 @@ export function verifyAndUpdatePatientPassword(
     ...snap.patientAccounts,
     [key]: { ...acc, password: newPw, mustChangePassword: false },
   };
+  saveAuthSnapshot({ ...snap, patientAccounts });
+  return 'ok';
+}
+
+export type PatientLoginChangeResult = 'ok' | 'bad_password' | 'invalid_id' | 'taken';
+
+export function verifyAndUpdatePatientLoginId(
+  patientId: string,
+  currentPassword: string,
+  newLoginIdRaw: string
+): PatientLoginChangeResult {
+  const snap = loadAuthSnapshot();
+  const newKey = newLoginIdRaw.trim().toUpperCase();
+  if (!/^PT-[A-Z0-9-]{4,}$/.test(newKey)) {
+    return 'invalid_id';
+  }
+  const entry = Object.entries(snap.patientAccounts).find(([, a]) => a.patientId === patientId);
+  if (!entry) return 'bad_password';
+  const [oldKey, acc] = entry;
+  if (acc.password !== currentPassword.trim()) return 'bad_password';
+  if (snap.patientAccounts[newKey] && newKey !== oldKey) return 'taken';
+  const patientAccounts = { ...snap.patientAccounts };
+  delete patientAccounts[oldKey];
+  patientAccounts[newKey] = { ...acc };
   saveAuthSnapshot({ ...snap, patientAccounts });
   return 'ok';
 }

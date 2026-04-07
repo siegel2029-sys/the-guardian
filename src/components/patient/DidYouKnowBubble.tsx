@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Lightbulb, X, ExternalLink } from 'lucide-react';
 import type { Patient } from '../../types';
 import { selectContextualClinicalTip } from '../../ai/patientProgressReasoning';
@@ -16,17 +16,40 @@ export default function DidYouKnowBubble({ patient, onKnowledgeComplete }: DidYo
 
   const [modalOpen, setModalOpen] = useState(false);
   const claimKeyRef = useRef<string | null>(null);
+  /** מפתח טיפ שממתין לחזרה מלשונית המאמר (visibility) */
+  const pendingReturnKeyRef = useRef<string | null>(null);
+
+  const rewardKey = `${patient.id}:${tip.id}`;
 
   useEffect(() => {
     claimKeyRef.current = null;
+    pendingReturnKeyRef.current = null;
   }, [patient.id, tip.id]);
 
-  const handleCompleteRead = () => {
-    const key = `${patient.id}:${tip.id}`;
-    if (claimKeyRef.current !== key) {
-      claimKeyRef.current = key;
-      onKnowledgeComplete();
-    }
+  const grantOnce = useCallback(() => {
+    if (claimKeyRef.current === rewardKey) return;
+    claimKeyRef.current = rewardKey;
+    pendingReturnKeyRef.current = null;
+    onKnowledgeComplete();
+  }, [rewardKey, onKnowledgeComplete]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (pendingReturnKeyRef.current !== rewardKey) return;
+      grantOnce();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [rewardKey, grantOnce]);
+
+  const openArticleInNewTab = () => {
+    pendingReturnKeyRef.current = rewardKey;
+    window.open(tip.articleUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleCompleteReadInModal = () => {
+    grantOnce();
     setModalOpen(false);
   };
 
@@ -50,13 +73,26 @@ export default function DidYouKnowBubble({ patient, onKnowledgeComplete }: DidYo
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-bold text-amber-800 uppercase tracking-wide mb-1">הידעת?</p>
             <p className="text-sm font-semibold text-slate-800 leading-snug">{tip.headline}</p>
-            <button
-              type="button"
-              onClick={() => setModalOpen(true)}
-              className="mt-3 text-xs font-bold text-amber-900 px-3 py-1.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 transition-colors"
-            >
-              קרא עוד
-            </button>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={openArticleInNewTab}
+                className="text-xs font-bold text-amber-950 px-3 py-1.5 rounded-xl border border-amber-400 bg-amber-100 hover:bg-amber-200 transition-colors inline-flex items-center gap-1.5"
+              >
+                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                קרא עוד — מאמר / מחקר
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalOpen(true)}
+                className="text-xs font-semibold text-amber-900 px-3 py-1.5 rounded-xl border border-amber-300 bg-white/80 hover:bg-amber-50/90 transition-colors"
+              >
+                תקציר במסך
+              </button>
+            </div>
+            <p className="text-[10px] text-amber-800/80 mt-2 leading-relaxed">
+              פתחו את הקישור, קראו, וחזרו לכאן — יינתנו אוטומטית נקודות ניסיון ומטבעות למידה (פעם אחת לכל כרטיס).
+            </p>
           </div>
         </div>
       </div>
@@ -103,27 +139,33 @@ export default function DidYouKnowBubble({ patient, onKnowledgeComplete }: DidYo
                 className="rounded-2xl border border-teal-100 p-3"
                 style={{ background: '#f0fdfa' }}
               >
-                <p className="text-[11px] font-semibold text-teal-900 mb-2">למידה נוספת</p>
-                <a
-                  href={tip.articleUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-teal-700 font-medium flex items-center gap-1.5 hover:underline"
+                <p className="text-[11px] font-semibold text-teal-900 mb-2">מאמר או מחקר מומלץ</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalOpen(false);
+                    openArticleInNewTab();
+                  }}
+                  className="text-xs text-teal-700 font-medium flex items-center gap-1.5 hover:underline text-start w-full"
                 >
                   <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                   {tip.articleTitle}
-                </a>
+                </button>
               </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                אפשר גם לפתוח את הקישור מהכרטיס הראשי. חזרה ללשונית זו אחרי קריאה תזכה בבונוס (או לחצו למטה אם
+                קראתם כאן בלבד).
+              </p>
               <button
                 type="button"
-                onClick={handleCompleteRead}
+                onClick={handleCompleteReadInModal}
                 className="w-full py-3 rounded-2xl text-sm font-bold text-white"
                 style={{
                   background: 'linear-gradient(135deg, #0d9488, #059669)',
                   boxShadow: '0 8px 20px -6px rgba(13, 148, 136, 0.45)',
                 }}
               >
-                סיימתי לקרוא — קבל +5 מטבעות ו-+5 נק׳ ניסיון
+                סיימתי לקרוא — +5 מטבעות ו-+5 נק׳ ניסיון
               </button>
             </div>
           </div>

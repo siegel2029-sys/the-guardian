@@ -8,16 +8,21 @@ import {
   type ReactNode,
 } from 'react';
 import type { Therapist } from '../types';
-import { mockTherapist } from '../data/mockData';
 import {
   loadAuthSnapshot,
   mergeAuthSnapshot,
   setAuthSession,
-  updateTherapistCredentials as persistTherapistCredentials,
+  updateTherapistRecord,
+  findTherapistIdByCredentials,
+  therapistRecordToTherapist,
+  getTherapistRecord,
+  findPatientLoginByPatientId,
   patientAccountRequiresPasswordChange,
   verifyAndUpdatePatientPassword,
-  type AuthSessionV1,
+  verifyAndUpdatePatientLoginId,
+  type AuthSessionV2,
   type PatientPasswordChangeResult,
+  type PatientLoginChangeResult,
 } from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 
@@ -25,43 +30,44 @@ export type SessionRole = 'therapist' | 'patient' | null;
 
 interface AuthContextValue {
   therapist: Therapist | null;
-  /** null = לא מחובר; therapist / patient לפי סשן */
   sessionRole: SessionRole;
-  /** כשמחובר כמטופל — מזהה המטופל */
   patientSessionId: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   loginError: string | null;
-  /** דוא״ל למטפל או מזהה גישה למטופל (PT-...) */
-  /** הצלחה: תפקיד; כישלון: null */
   login: (identifier: string, password: string) => Promise<'therapist' | 'patient' | null>;
   logout: () => void;
-  updateTherapistProfile: (email: string, newPassword: string) => void;
-  /** מטופל מחובר — נדרשת החלפת סיסמה (חשבון חדש או דגל ב־localStorage) */
+  /** שם תצוגה, דוא״ל, סיסמה (ריק = ללא שינוי סיסמה) */
+  updateTherapistProfile: (displayName: string, email: string, newPassword: string) => void;
   patientMustChangePassword: boolean;
-  /** עדכון סיסמת מטופל לאחר אימות סיסמה נוכחית */
   completePatientPasswordChange: (
     currentPassword: string,
     newPassword: string
   ) => PatientPasswordChangeResult;
+  /** שינוי מזהה כניסה למטופל (PT-...) לאחר אימות סיסמה */
+  changePatientLoginId: (currentPassword: string, newLoginId: string) => PatientLoginChangeResult;
+  /** מזהה כניסה נוכחי למטופל מחובר (לתצוגה בהגדרות) */
+  patientLoginId: string | null;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-function therapistFromSnapshot(email: string): Therapist {
-  return { ...mockTherapist, email };
-}
 
 function isEmailLike(s: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 }
 
+function therapistFromSession(snap: ReturnType<typeof loadAuthSnapshot>, therapistId: string): Therapist | null {
+  const rec = snap.therapists[therapistId];
+  if (!rec) return null;
+  return therapistRecordToTherapist(therapistId, rec);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<AuthSessionV1 | null>(() => readPersistedOnce().auth.session);
+  const [session, setSession] = useState<AuthSessionV2 | null>(() => readPersistedOnce().auth.session);
   const [therapist, setTherapist] = useState<Therapist | null>(() => {
     const snap = readPersistedOnce().auth;
     if (snap.session?.role === 'therapist') {
-      return therapistFromSnapshot(snap.therapistEmail);
+      return therapistFromSession(snap, snap.session.therapistId);
     }
     return null;
   });
@@ -71,7 +77,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  /** מספר עדכון אחרי שינוי סיסמת מטופל — מרענן נגזרות מ־loadAuthSnapshot */
   const [patientAuthRevision, setPatientAuthRevision] = useState(0);
 
   const sessionRole: SessionRole = useMemo(() => {
@@ -86,6 +91,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return patientAccountRequiresPasswordChange(snap, session.patientId);
   }, [session, patientAuthRevision]);
 
+  const patientLoginId = useMemo(() => {
+    void patientAuthRevision;
+    if (!patientSessionId) return null;
+    return findPatientLoginByPatientId(patientSessionId);
+  }, [patientSessionId, patientAuthRevision]);
+
   const login = useCallback(async (identifier: string, password: string) => {
     setIsLoading(true);
     setLoginError(null);
@@ -97,17 +108,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       if (isEmailLike(id)) {
-        const emailMatch = id.toLowerCase() === snap.therapistEmail.toLowerCase();
-        const passwordMatch = pw === snap.therapistPassword;
-        if (emailMatch && passwordMatch) {
-          const t = therapistFromSnapshot(snap.therapistEmail);
-          setTherapist(t);
-          setPatientSessionId(null);
-          setPatientAuthRevision((n) => n + 1);
-          setSession({ role: 'therapist' });
-          setAuthSession({ role: 'therapist' });
-          setIsLoading(false);
-          return 'therapist' as const;
+        const therapistId = findTherapistIdByCredentials(id, pw);
+        if (therapistId) {
+          const rec = snap.therapists[therapistId];
+          if (rec) {
+            setTherapist(therapistRecordToTherapist(therapistId, rec));
+            setPatientSessionId(null);
+            setPatientAuthRevision((n) => n + 1);
+            const sess = { role: 'therapist' as const, therapistId };
+            setSession(sess);
+            setAuthSession(sess);
+            setIsLoading(false);
+            return 'therapist' as const;
+          }
         }
         setLoginError('כתובת דוא"ל או סיסמה שגויים (מטפל).');
         setIsLoading(false);
@@ -157,12 +170,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [patientSessionId]
   );
 
-  const updateTherapistProfile = useCallback((email: string, newPassword: string) => {
-    persistTherapistCredentials(email, newPassword);
-    if (therapist) {
-      setTherapist({ ...therapist, email: email.trim() });
-    }
-  }, [therapist]);
+  const changePatientLoginId = useCallback(
+    (currentPassword: string, newLoginId: string): PatientLoginChangeResult => {
+      if (!patientSessionId) return 'bad_password';
+      const r = verifyAndUpdatePatientLoginId(patientSessionId, currentPassword, newLoginId);
+      if (r === 'ok') setPatientAuthRevision((n) => n + 1);
+      return r;
+    },
+    [patientSessionId]
+  );
+
+  const updateTherapistProfile = useCallback(
+    (displayName: string, email: string, newPassword: string) => {
+      if (!therapist) return;
+      const cur = getTherapistRecord(therapist.id);
+      if (!cur) return;
+      const pw = newPassword.trim().length > 0 ? newPassword.trim() : cur.password;
+      updateTherapistRecord(therapist.id, {
+        displayName: displayName.trim() || cur.displayName,
+        email: email.trim(),
+        password: pw,
+      });
+      const next = getTherapistRecord(therapist.id);
+      if (next) setTherapist(therapistRecordToTherapist(therapist.id, next));
+    },
+    [therapist]
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -177,6 +210,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updateTherapistProfile,
       patientMustChangePassword,
       completePatientPasswordChange,
+      changePatientLoginId,
+      patientLoginId,
     }),
     [
       therapist,
@@ -190,6 +225,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updateTherapistProfile,
       patientMustChangePassword,
       completePatientPasswordChange,
+      changePatientLoginId,
+      patientLoginId,
     ]
   );
 

@@ -2,13 +2,13 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield, Eye, EyeOff, Mail, Lock, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { loadAuthSnapshot } from '../../context/authPersistence';
+import { mockTherapist, mockTherapistB, MOCK_THERAPIST_B_PASSWORD } from '../../data/mockData';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const { login, isLoading, loginError } = useAuth();
   const [email, setEmail] = useState(() =>
-    typeof window !== 'undefined' ? loadAuthSnapshot().therapistEmail : 'michal.levi@guardian-clinic.co.il'
+    typeof window !== 'undefined' ? mockTherapist.email : 'michal.levi@guardian-clinic.co.il'
   );
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -188,9 +188,12 @@ export default function LoginPage() {
             {/* Demo hint */}
             {showHint && (
               <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-sm text-teal-800 text-right space-y-2 leading-relaxed">
-                <p className="font-medium">דמו מטפל:</p>
-                <p className="font-mono text-xs break-all">michal.levi@guardian-clinic.co.il</p>
+                <p className="font-medium">דמו מטפל א׳ (מטופלים: אריאל, יוסף):</p>
+                <p className="font-mono text-xs break-all">{mockTherapist.email}</p>
                 <p className="font-mono text-xs">guardian2024</p>
+                <p className="font-medium pt-2 border-t border-teal-200/80">דמו מטפל ב׳ (מטופל: שירה בלבד):</p>
+                <p className="font-mono text-xs break-all">{mockTherapistB.email}</p>
+                <p className="font-mono text-xs">{MOCK_THERAPIST_B_PASSWORD}</p>
                 <p className="font-medium pt-2 border-t border-teal-200/80">מטופל:</p>
                 <p className="text-xs">
                   אחרי «יצירת גישה למטופל» בדשבורד המטפל יוצגו מזהה וסיסמה — הזינו אותם כאן (לא דוא״ל).

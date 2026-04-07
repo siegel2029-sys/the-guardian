@@ -2,13 +2,13 @@
  * קריאה סינכרונית חד-פעמית מ-localStorage בתחילת חיי האפליקציה,
  * כדי שרענון/הדבקת URL יטענו מיד נתונים שמורים (ולא mock).
  */
-import { loadAuthSnapshot, type AuthSnapshotV1 } from '../context/authPersistence';
+import { loadAuthSnapshot, type AuthSnapshotV2 } from '../context/authPersistence';
 import type { PersistedPatientStateV1 } from '../context/patientPersistence';
 import { loadPersistedPatientState } from '../context/patientPersistence';
 import { setPersistedBootstrapInvalidator } from './invalidateBootstrap';
 
 export type AppBootstrapSnapshot = {
-  auth: AuthSnapshotV1;
+  auth: AuthSnapshotV2;
   patient: PersistedPatientStateV1 | null;
 };
 

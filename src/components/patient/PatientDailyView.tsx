@@ -14,9 +14,9 @@ import {
   Clock,
   KeyRound,
 } from 'lucide-react';
-import { mockTherapist } from '../../data/mockData';
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
+import { getTherapistDisplayName } from '../../context/authPersistence';
 import BodyMap3D from '../body-map/BodyMap3D';
 import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseDetailModal from './ExerciseDetailModal';
@@ -52,6 +52,8 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
     logout,
     patientMustChangePassword,
     completePatientPasswordChange,
+    patientLoginId,
+    changePatientLoginId,
   } = useAuth();
   const isPortal = variant === 'portal';
   const {
@@ -92,6 +94,20 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
   const [pwNew, setPwNew] = useState('');
   const [pwConfirm, setPwConfirm] = useState('');
   const [pwFormError, setPwFormError] = useState<string | null>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [newLoginIdInput, setNewLoginIdInput] = useState('');
+  const [loginIdCurrentPw, setLoginIdCurrentPw] = useState('');
+  const [loginIdError, setLoginIdError] = useState<string | null>(null);
+
+  const careGiverName = useMemo(
+    () => (selectedPatient ? getTherapistDisplayName(selectedPatient.therapistId) : ''),
+    [selectedPatient?.therapistId]
+  );
+
+  const careGiverShort = useMemo(() => {
+    if (!careGiverName) return '';
+    return careGiverName.replace(/^ד"ר\s+/u, '').split(/\s+/)[0] || careGiverName;
+  }, [careGiverName]);
 
   const portalMessages = useMemo(
     () => (selectedPatient ? getPatientMessages(selectedPatient.id) : []),
@@ -411,7 +427,7 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-slate-800">מרכז הודעות</p>
                   <p className="text-[11px] text-slate-500 truncate">
-                    שיחה עם {mockTherapist.name}
+                    שיחה עם {careGiverName}
                   </p>
                 </div>
               </div>
@@ -463,7 +479,7 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
                               : 'עדכון מהמערכת'
                           : fromMe
                             ? 'אני'
-                            : mockTherapist.name;
+                            : careGiverName;
                         return (
                           <div
                             key={msg.id}
@@ -507,7 +523,7 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
                   <textarea
                     value={messageText}
                     onChange={(e) => setMessageText(e.target.value)}
-                    placeholder={`הודעה ל־${mockTherapist.name.split(' ')[0]}…`}
+                    placeholder={`הודעה ל־${careGiverShort}…`}
                     rows={2}
                     className="flex-1 resize-none rounded-xl border border-teal-200/90 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-400/40"
                     style={{ background: '#fafefd' }}
@@ -532,18 +548,97 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
           </section>
         )}
 
-        {!isPortal && (
-          <div className="mb-5 space-y-3">
-            <DidYouKnowBubble
-              patient={selectedPatient}
-              onKnowledgeComplete={() => grantPatientKnowledgeReward(selectedPatient.id)}
-            />
+        <div className="mb-5 space-y-3">
+          <DidYouKnowBubble
+            patient={selectedPatient}
+            onKnowledgeComplete={() => grantPatientKnowledgeReward(selectedPatient.id)}
+          />
+          {!isPortal && (
             <PatientAiSuggestionCards
               suggestions={pendingAiSuggestions}
               onApprove={patientAgreeToAiSuggestion}
               onDecline={patientDeclineAiSuggestion}
             />
-          </div>
+          )}
+        </div>
+
+        {isPortal && sessionRole === 'patient' && !patientMustChangePassword && selectedPatient && (
+          <section className="mb-5 rounded-2xl border overflow-hidden" style={{ borderColor: '#cbd5e1' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setAccountOpen((o) => !o);
+                setLoginIdError(null);
+              }}
+              className="w-full flex items-center justify-between px-4 py-3 text-start gap-2"
+              style={{ background: 'rgba(248, 250, 252, 0.95)' }}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <User className="w-5 h-5 text-slate-600 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-800">פרופיל ומזהה כניסה</p>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    מזהה נוכחי: {patientLoginId ?? '—'}
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs text-slate-600 font-medium shrink-0">
+                {accountOpen ? 'סגירה' : 'פתיחה'}
+              </span>
+            </button>
+            {accountOpen && (
+              <div className="px-4 pb-4 pt-1 border-t border-slate-200 space-y-3 text-sm" dir="rtl">
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  ניתן לשנות את מזהה הגישה (PT-…) לאחר הזנת הסיסמה הנוכחית. הפורמט: PT- ואז אותיות ומספרים
+                  באנגלית (למשל PT-MYID01).
+                </p>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">מזהה חדש</label>
+                  <input
+                    type="text"
+                    value={newLoginIdInput}
+                    onChange={(e) => setNewLoginIdInput(e.target.value.toUpperCase())}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono"
+                    placeholder="PT-..."
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">סיסמה נוכחית לאימות</label>
+                  <input
+                    type="password"
+                    value={loginIdCurrentPw}
+                    onChange={(e) => setLoginIdCurrentPw(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    autoComplete="current-password"
+                  />
+                </div>
+                {loginIdError && <p className="text-xs text-red-600">{loginIdError}</p>}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginIdError(null);
+                    const r = changePatientLoginId(loginIdCurrentPw, newLoginIdInput.trim());
+                    if (r === 'invalid_id') {
+                      setLoginIdError('מזהה לא תקין. נדרש פורמט PT- עם לפחות 4 תווים אחרי המקף.');
+                    } else if (r === 'bad_password') {
+                      setLoginIdError('סיסמה שגויה.');
+                    } else if (r === 'taken') {
+                      setLoginIdError('מזהה זה כבר בשימוש.');
+                    } else {
+                      setNewLoginIdInput('');
+                      setLoginIdCurrentPw('');
+                      setLoginIdError(null);
+                    }
+                  }}
+                  className="w-full py-2.5 rounded-xl font-semibold text-white text-sm"
+                  style={{ background: 'linear-gradient(135deg, #475569, #334155)' }}
+                >
+                  עדכון מזהה כניסה
+                </button>
+              </div>
+            )}
+          </section>
         )}
 
         <div

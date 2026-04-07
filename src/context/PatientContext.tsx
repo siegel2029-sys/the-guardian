@@ -15,7 +15,7 @@ import type {
 } from '../types';
 import { bodyAreaLabels } from '../types';
 import {
-  mockPatients, mockMessages, mockExercisePlans, mockAiSuggestions, EXERCISE_LIBRARY,
+  mockPatients, mockMessages, mockExercisePlans, mockAiSuggestions, EXERCISE_LIBRARY, mockTherapist,
 } from '../data/mockData';
 import { getClinicalAlertStandardMessage } from '../ai/patientProgressReasoning';
 import {
@@ -171,13 +171,23 @@ function randomPatientPassword(): string {
   return s;
 }
 
+function normalizePatientsTherapistIds(list: Patient[]): Patient[] {
+  return list.map((p) => ({
+    ...p,
+    therapistId: p.therapistId ?? mockTherapist.id,
+  }));
+}
+
 export function PatientProvider({
   children,
   restrictPatientSessionId = null,
+  therapistScopeId = null,
 }: {
   children: ReactNode;
   /** כשמוגדר — רק מטופל זה, ללא דשבורד מטפל */
   restrictPatientSessionId?: string | null;
+  /** מטפל מחובר — סינון רשימת מטופלים בדשבורד */
+  therapistScopeId?: string | null;
 }) {
   const [clinicalTick, setClinicalTick] = useState(0);
   useEffect(() => {
@@ -185,18 +195,34 @@ export function PatientProvider({
     return () => clearInterval(id);
   }, []);
 
-  const [patients, setPatients] = useState<Patient[]>(() => {
+  const [allPatients, setAllPatients] = useState<Patient[]>(() => {
     const persisted = readPersistedOnce().patient;
-    return persisted?.patients ?? mockPatients;
+    const base = persisted?.patients ?? mockPatients;
+    return normalizePatientsTherapistIds(base);
   });
+
+  const patients = useMemo(() => {
+    if (restrictPatientSessionId) {
+      return allPatients.filter((p) => p.id === restrictPatientSessionId);
+    }
+    if (therapistScopeId) {
+      return allPatients.filter((p) => p.therapistId === therapistScopeId);
+    }
+    return allPatients;
+  }, [allPatients, therapistScopeId, restrictPatientSessionId]);
+
   const [selectedPatientId, setSelectedPatientId] = useState<string>(() => {
     const persisted = readPersistedOnce().patient;
-    const list = persisted?.patients ?? mockPatients;
-    if (restrictPatientSessionId && list.some((p) => p.id === restrictPatientSessionId)) {
+    const listAll = normalizePatientsTherapistIds(persisted?.patients ?? mockPatients);
+    if (restrictPatientSessionId && listAll.some((p) => p.id === restrictPatientSessionId)) {
       return restrictPatientSessionId;
     }
+    const scoped = therapistScopeId
+      ? listAll.filter((p) => p.therapistId === therapistScopeId)
+      : listAll;
     const id = persisted?.selectedPatientId;
-    return id && list.some((p) => p.id === id) ? id : list[0]?.id ?? mockPatients[0].id;
+    if (id && scoped.some((p) => p.id === id)) return id;
+    return scoped[0]?.id ?? listAll[0]?.id ?? '';
   });
   const [activeSection, setActiveSection] = useState<NavSection>('overview');
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -254,6 +280,14 @@ export function PatientProvider({
     setSelectedPatientId(restrictPatientSessionId);
   }, [restrictPatientSessionId]);
 
+  useEffect(() => {
+    if (!therapistScopeId || restrictPatientSessionId) return;
+    const mine = allPatients.filter((p) => p.therapistId === therapistScopeId);
+    if (!mine.some((p) => p.id === selectedPatientId)) {
+      setSelectedPatientId(mine[0]?.id ?? '');
+    }
+  }, [therapistScopeId, allPatients, selectedPatientId, restrictPatientSessionId]);
+
   const clinicalToday = useMemo(() => {
     void clinicalTick;
     return getClinicalDate();
@@ -268,7 +302,7 @@ export function PatientProvider({
   useEffect(() => {
     savePersistedPatientState({
       version: 1,
-      patients,
+      patients: allPatients,
       messages,
       exercisePlans,
       dailySessions,
@@ -278,7 +312,7 @@ export function PatientProvider({
       exerciseSafetyLockedPatientIds,
     });
   }, [
-    patients,
+    allPatients,
     messages,
     exercisePlans,
     dailySessions,
@@ -289,18 +323,24 @@ export function PatientProvider({
   ]);
 
   const selectedPatient = useMemo(
-    () => patients.find((p) => p.id === selectedPatientId) ?? null,
-    [patients, selectedPatientId]
+    () => allPatients.find((p) => p.id === selectedPatientId) ?? null,
+    [allPatients, selectedPatientId]
   );
 
   // ── Patient selection ──────────────────────────────────────────
   const selectPatient = useCallback(
     (id: string) => {
       if (restrictPatientSessionId && id !== restrictPatientSessionId) return;
+      if (
+        therapistScopeId &&
+        !allPatients.some((p) => p.id === id && p.therapistId === therapistScopeId)
+      ) {
+        return;
+      }
       setSelectedPatientId(id);
       setActiveSection('overview');
     },
-    [restrictPatientSessionId]
+    [restrictPatientSessionId, therapistScopeId, allPatients]
   );
 
   // ── Messages ───────────────────────────────────────────────────
@@ -312,8 +352,8 @@ export function PatientProvider({
   const markMessageRead = useCallback((messageId: string) => {
     setMessages((prev) => {
       const next = prev.map((m) => (m.id === messageId ? { ...m, isRead: true } : m));
-      setPatients((patients) =>
-        patients.map((p) => ({
+      setAllPatients((prev) =>
+        prev.map((p) => ({
           ...p,
           pendingMessages: next.filter(
             (m) =>
@@ -365,7 +405,7 @@ export function PatientProvider({
           clinicalSafetyTier: 'emergency',
         },
       ]);
-      setPatients((prev) =>
+      setAllPatients((prev) =>
         prev.map((p) =>
           p.id === patientId
             ? { ...p, hasRedFlag: true, pendingMessages: p.pendingMessages + 1 }
@@ -434,7 +474,7 @@ export function PatientProvider({
           fromPatient: true,
         },
       ]);
-      setPatients((prev) =>
+      setAllPatients((prev) =>
         prev.map((p) =>
           p.id === patientId ? { ...p, pendingMessages: p.pendingMessages + 1 } : p
         )
@@ -472,7 +512,7 @@ export function PatientProvider({
           clinicalSafetyTier: tier,
         },
       ]);
-      setPatients((prev) =>
+      setAllPatients((prev) =>
         prev.map((p) =>
           p.id === patientId ? { ...p, pendingMessages: p.pendingMessages + 1 } : p
         )
@@ -483,7 +523,7 @@ export function PatientProvider({
 
   // ── Red flags ──────────────────────────────────────────────────
   const resolveRedFlag = useCallback((patientId: string) => {
-    setPatients((prev) => prev.map((p) => (p.id === patientId ? { ...p, hasRedFlag: false } : p)));
+    setAllPatients((prev) => prev.map((p) => (p.id === patientId ? { ...p, hasRedFlag: false } : p)));
   }, []);
 
   // ── Exercise plan CRUD ─────────────────────────────────────────
@@ -639,7 +679,7 @@ export function PatientProvider({
         );
       });
 
-      setPatients((prev) =>
+      setAllPatients((prev) =>
         prev.map((p) => {
           if (p.id !== patientId) return p;
 
@@ -824,9 +864,14 @@ export function PatientProvider({
     [aiSuggestions]
   );
 
+  const visiblePatientIds = useMemo(() => new Set(patients.map((p) => p.id)), [patients]);
+
   const getTotalAwaitingTherapistCount = useCallback(
-    () => aiSuggestions.filter((s) => s.status === 'awaiting_therapist').length,
-    [aiSuggestions]
+    () =>
+      aiSuggestions.filter(
+        (s) => s.status === 'awaiting_therapist' && visiblePatientIds.has(s.patientId)
+      ).length,
+    [aiSuggestions, visiblePatientIds]
   );
 
   const patientAgreeToAiSuggestion = useCallback((suggestionId: string) => {
@@ -919,7 +964,7 @@ export function PatientProvider({
         addedAt,
       }));
 
-      setPatients((prev) =>
+      setAllPatients((prev) =>
         prev.map((p) =>
           p.id === patientId
             ? {
@@ -940,6 +985,7 @@ export function PatientProvider({
   );
 
   const createPatientWithAccess = useCallback((displayName: string) => {
+    const ownerTid = therapistScopeId ?? mockTherapist.id;
     const name = displayName.trim() || 'מטופל חדש';
     const patientId = `patient-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const loginId = `PT-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`.toUpperCase();
@@ -947,6 +993,7 @@ export function PatientProvider({
     const joinDate = new Date().toISOString().slice(0, 10);
     const newPatient: Patient = {
       id: patientId,
+      therapistId: ownerTid,
       name,
       age: 30,
       diagnosis: 'חדש — עדכנו אבחון ואזור גוף',
@@ -972,17 +1019,17 @@ export function PatientProvider({
         sessionHistory: [],
       },
     };
-    setPatients((prev) => [...prev, newPatient]);
+    setAllPatients((prev) => [...prev, newPatient]);
     setExercisePlans((prev) => [...prev, { patientId, exercises: [] }]);
-    addPatientAccount(loginId, patientId, password, { mustChangePassword: true });
+    addPatientAccount(loginId, patientId, password, ownerTid, { mustChangePassword: true });
     setSelectedPatientId(patientId);
     setActiveSection('overview');
     return { loginId, password, patientId };
-  }, []);
+  }, [therapistScopeId]);
 
   const grantPatientCoins = useCallback((patientId: string, amount: number) => {
     if (amount <= 0) return;
-    setPatients((prev) =>
+    setAllPatients((prev) =>
       prev.map((p) => (p.id === patientId ? { ...p, coins: p.coins + amount } : p))
     );
   }, []);
@@ -990,7 +1037,7 @@ export function PatientProvider({
   const grantPatientKnowledgeReward = useCallback((patientId: string) => {
     const COINS = 5;
     const XP = 5;
-    setPatients((prev) =>
+    setAllPatients((prev) =>
       prev.map((p) => {
         if (p.id !== patientId) return p;
         let { xp, level, xpForNextLevel, coins } = p;

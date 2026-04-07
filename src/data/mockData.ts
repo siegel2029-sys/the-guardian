@@ -10,11 +10,23 @@ export const mockTherapist: Therapist = {
   clinicName: 'מרכז The Guardian',
 };
 
+/** מטפל שני לדמו — מטופלים משויכים ל־therapistId נפרד */
+export const mockTherapistB: Therapist = {
+  id: 'therapist-002',
+  name: 'ד"ר יוסי כהן',
+  email: 'yossi.cohen@guardian-clinic.co.il',
+  title: 'פיזיותרפיסט',
+  avatarInitials: 'יכ',
+  clinicName: 'מרכז The Guardian',
+};
+
 export const MOCK_PASSWORD = 'guardian2024';
+export const MOCK_THERAPIST_B_PASSWORD = 'guardian2demo';
 
 export const mockPatients: Patient[] = [
   {
     id: 'patient-001',
+    therapistId: 'therapist-001',
     name: 'אריאל כהן',
     age: 34,
     diagnosis: 'כאב גב תחתון כרוני',
@@ -56,6 +68,7 @@ export const mockPatients: Patient[] = [
   },
   {
     id: 'patient-002',
+    therapistId: 'therapist-002',
     name: 'שירה מזרחי',
     age: 28,
     diagnosis: 'שיקום לאחר קרע ברצועת ACL',
@@ -102,6 +115,7 @@ export const mockPatients: Patient[] = [
   },
   {
     id: 'patient-003',
+    therapistId: 'therapist-001',
     name: 'יוסף אברהם',
     age: 55,
     diagnosis: 'כאב כתף - תסמונת הרוטטור קאף',

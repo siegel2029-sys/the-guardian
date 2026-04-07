@@ -73,6 +73,8 @@ export type ExerciseLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
 export interface Patient {
   id: string;
+  /** מטפל אחראי — סינון דשבורד ורישום מטופלים חדשים */
+  therapistId: string;
   name: string;
   age: number;
   diagnosis: string;

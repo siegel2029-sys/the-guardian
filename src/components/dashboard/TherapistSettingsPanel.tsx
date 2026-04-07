@@ -1,19 +1,23 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { Mail, Lock, Save, AlertCircle, Shield } from 'lucide-react';
+import { Mail, Lock, Save, AlertCircle, Shield, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { loadAuthSnapshot } from '../../context/authPersistence';
+import { getTherapistRecord } from '../../context/authPersistence';
 
 export default function TherapistSettingsPanel() {
   const { therapist, updateTherapistProfile } = useAuth();
-  const [email, setEmail] = useState(() => loadAuthSnapshot().therapistEmail);
+  const [displayName, setDisplayName] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (therapist?.email) setEmail(therapist.email);
-  }, [therapist?.email]);
+    if (!therapist) return;
+    const rec = getTherapistRecord(therapist.id);
+    setDisplayName(rec?.displayName ?? therapist.name);
+    setEmail(therapist.email);
+  }, [therapist]);
 
   if (!therapist) return null;
 
@@ -21,6 +25,11 @@ export default function TherapistSettingsPanel() {
     e.preventDefault();
     setError(null);
     setSaved(false);
+    const name = displayName.trim();
+    if (name.length < 2) {
+      setError('נא למלא שם תצוגה (לפחות 2 תווים).');
+      return;
+    }
     const em = email.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
       setError('כתובת דוא״ל לא תקינה.');
@@ -34,9 +43,7 @@ export default function TherapistSettingsPanel() {
       setError('אימות הסיסמה אינו תואם.');
       return;
     }
-    const snap = loadAuthSnapshot();
-    const newPw = password.length > 0 ? password : snap.therapistPassword;
-    updateTherapistProfile(em, newPw);
+    updateTherapistProfile(name, em, password);
     setPassword('');
     setConfirm('');
     setSaved(true);
@@ -50,7 +57,9 @@ export default function TherapistSettingsPanel() {
           <h2 className="text-lg font-bold text-slate-800">הגדרות מטפל</h2>
         </div>
         <p className="text-sm text-slate-500 mb-6">
-          עדכון דוא״ל וסיסמה נשמרים במכשיר זה (localStorage). לדמו בלבד — לא לאחסון רגיש בלי שרת.
+          שם תצוגה, דוא״ל וסיסמה נשמרים במכשיר זה (localStorage). מזהה מטפל:{' '}
+          <span className="font-mono text-xs text-slate-600">{therapist.id}</span> — לסינון מטופלים בין
+          מטפלים.
         </p>
 
         <form
@@ -58,7 +67,21 @@ export default function TherapistSettingsPanel() {
           className="bg-white rounded-2xl border border-teal-100 shadow-sm p-6 space-y-4"
         >
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">דוא״ל</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">שם תצוגה (שם משתמש)</label>
+            <div className="relative">
+              <User className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="w-full pr-10 pl-3 py-2.5 rounded-xl border border-slate-200 text-sm"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">דוא״ל (לכניסה)</label>
             <div className="relative">
               <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
