@@ -21,7 +21,7 @@ import type { NavSection } from '../../types';
 import SidebarNewPatient from './SidebarNewPatient';
 
 const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: 'overview', label: 'רשימת מטופלים', icon: LayoutDashboard },
+  { id: 'overview', label: 'סקירה קלינית', icon: LayoutDashboard },
   { id: 'clinical', label: 'דוחות קליניים', icon: FileText },
   { id: 'analytics', label: 'היסטוריה ואנליטיקה', icon: BarChart3 },
   { id: 'messages', label: 'הודעות וצ׳אט', icon: MessageSquare },

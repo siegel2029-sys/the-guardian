@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import type { NavSection } from '../../types';
 
 const sectionTitles: Record<NavSection, string> = {
-  overview: 'רשימת מטופלים',
+  overview: 'סקירה קלינית',
   clinical: 'דוחות קליניים',
   analytics: 'היסטוריה ואנליטיקה',
   messages: 'הודעות וצ׳אט',
