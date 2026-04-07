@@ -89,6 +89,8 @@ export interface Patient {
   pendingMessages: number;
   hasRedFlag: boolean;
   therapistNotes: string;
+  /** מטבעות למידה / בונוסים בתצוגת מטופל */
+  coins: number;
 }
 
 export interface AuthUser {

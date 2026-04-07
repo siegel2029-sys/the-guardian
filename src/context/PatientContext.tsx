@@ -89,6 +89,9 @@ interface PatientContextValue {
   getPendingAiSuggestions: (patientId: string) => AiSuggestion[];
   approveAiSuggestion: (suggestionId: string) => void;
   declineAiSuggestion: (suggestionId: string) => void;
+
+  /** בונוס למידה (מטבעות) בתצוגת מטופל */
+  grantPatientCoins: (patientId: string, amount: number) => void;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -422,22 +425,29 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   );
 
   const approveAiSuggestion = useCallback((suggestionId: string) => {
-    setAiSuggestions((prev) =>
-      prev.map((s) => (s.id === suggestionId ? { ...s, status: 'approved' } : s))
-    );
-    // Apply the change to the exercise plan
-    const suggestion = aiSuggestions.find((s) => s.id === suggestionId);
-    if (!suggestion) return;
+    let found: AiSuggestion | undefined;
+    setAiSuggestions((prev) => {
+      found = prev.find((s) => s.id === suggestionId);
+      return prev.map((s) => (s.id === suggestionId ? { ...s, status: 'approved' as const } : s));
+    });
+    if (!found || found.status !== 'pending') return;
     const updates: Partial<Pick<PatientExercise, 'patientReps' | 'patientSets'>> =
-      suggestion.field === 'reps'
-        ? { patientReps: suggestion.suggestedValue }
-        : { patientSets: suggestion.suggestedValue };
-    updateExerciseInPlan(suggestion.patientId, suggestion.exerciseId, updates);
-  }, [aiSuggestions, updateExerciseInPlan]);
+      found.field === 'reps'
+        ? { patientReps: found.suggestedValue }
+        : { patientSets: found.suggestedValue };
+    updateExerciseInPlan(found.patientId, found.exerciseId, updates);
+  }, [updateExerciseInPlan]);
 
   const declineAiSuggestion = useCallback((suggestionId: string) => {
     setAiSuggestions((prev) =>
       prev.map((s) => (s.id === suggestionId ? { ...s, status: 'declined' } : s))
+    );
+  }, []);
+
+  const grantPatientCoins = useCallback((patientId: string, amount: number) => {
+    if (amount <= 0) return;
+    setPatients((prev) =>
+      prev.map((p) => (p.id === patientId ? { ...p, coins: p.coins + amount } : p))
     );
   }, []);
 
@@ -453,6 +463,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         addExerciseToPlan, removeExerciseFromPlan, updateExerciseInPlan,
         dailySessions, getTodaySession, toggleExercise, submitExerciseReport,
         aiSuggestions, getPendingAiSuggestions, approveAiSuggestion, declineAiSuggestion,
+        grantPatientCoins,
       }}
     >
       {children}

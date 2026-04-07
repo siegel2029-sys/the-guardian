@@ -1,10 +1,14 @@
 import { useState, useMemo } from 'react';
-import { ArrowRight, Sparkles, X, MessageCircle } from 'lucide-react';
+import { ArrowRight, Sparkles, X, MessageCircle, Coins, Activity } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import BodyMap3D from '../body-map/BodyMap3D';
 import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseDetailModal from './ExerciseDetailModal';
 import PatientExerciseCard from './PatientExerciseCard';
+import GuardianAssistantFAB from './GuardianAssistantFAB';
+import DidYouKnowBubble from './DidYouKnowBubble';
+import PatientAiSuggestionCards from './PatientAiSuggestionCards';
+import PatientPainProgressSheet from './PatientPainProgressSheet';
 import type { PatientExercise, BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
 
@@ -16,14 +20,18 @@ export default function PatientDailyView() {
     submitExerciseReport,
     setViewMode,
     sendPatientMessage,
+    getPendingAiSuggestions,
+    approveAiSuggestion,
+    declineAiSuggestion,
+    grantPatientCoins,
   } = usePatient();
 
   const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
   const [detailFor, setDetailFor] = useState<PatientExercise | null>(null);
-  const [detailAutoStart, setDetailAutoStart] = useState(false);
   const [filterArea, setFilterArea] = useState<BodyArea | null>(null);
   const [messageOpen, setMessageOpen] = useState(false);
   const [messageText, setMessageText] = useState('');
+  const [painSheetOpen, setPainSheetOpen] = useState(false);
 
   const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
   const session = selectedPatient ? getTodaySession(selectedPatient.id) : null;
@@ -44,15 +52,20 @@ export default function PatientDailyView() {
     [session?.completedIds]
   );
 
-  const openExerciseDetail = (ex: PatientExercise, autoStart: boolean) => {
+  const pendingAiSuggestions = useMemo(
+    () => (selectedPatient ? getPendingAiSuggestions(selectedPatient.id) : []),
+    [selectedPatient, getPendingAiSuggestions]
+  );
+
+  const lastPainRecord = selectedPatient?.analytics.painHistory.slice(-1)[0];
+
+  const openExerciseDetail = (ex: PatientExercise) => {
     if (completedSet.has(ex.id)) return;
-    setDetailAutoStart(autoStart);
     setDetailFor(ex);
   };
 
   const closeExerciseDetail = () => {
     setDetailFor(null);
-    setDetailAutoStart(false);
   };
 
   const handleRequestCompleteFromDetail = (ex: PatientExercise) => {
@@ -130,6 +143,14 @@ export default function PatientDailyView() {
           <p className="text-xs text-teal-600 font-medium">תצוגת מטופל</p>
           <p className="text-base font-semibold text-slate-800 truncate">{selectedPatient.name}</p>
         </div>
+        <div
+          className="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-xl text-xs font-bold text-amber-900"
+          style={{ background: '#fef3c7', border: '1px solid #fcd34d' }}
+          title="מטבעות למידה"
+        >
+          <Coins className="w-4 h-4 text-amber-700" />
+          {selectedPatient.coins}
+        </div>
       </header>
 
       <div className="flex-1 px-4 py-4 pb-28">
@@ -178,6 +199,18 @@ export default function PatientDailyView() {
           </section>
         )}
 
+        <div className="mb-5 space-y-3">
+          <DidYouKnowBubble
+            patientId={selectedPatient.id}
+            onClaimCoins={() => grantPatientCoins(selectedPatient.id, 5)}
+          />
+          <PatientAiSuggestionCards
+            suggestions={pendingAiSuggestions}
+            onApprove={approveAiSuggestion}
+            onDecline={declineAiSuggestion}
+          />
+        </div>
+
         <div
           className="rounded-2xl p-4 mb-5 border"
           style={{
@@ -195,7 +228,7 @@ export default function PatientDailyView() {
               {xp} / {next} נק׳
             </span>
           </div>
-          <div className="h-2 rounded-full bg-teal-100 overflow-hidden">
+          <div className="h-2 rounded-full bg-teal-100 overflow-hidden mb-3">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{
@@ -204,13 +237,37 @@ export default function PatientDailyView() {
               }}
             />
           </div>
+
+          <button
+            type="button"
+            onClick={() => setPainSheetOpen(true)}
+            className="w-full rounded-xl border border-teal-200/90 px-3 py-2.5 flex items-center justify-between gap-2 text-start transition-colors hover:bg-teal-50/80 active:bg-teal-50"
+            style={{ background: 'rgba(255,255,255,0.65)' }}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Activity className="w-4 h-4 text-teal-600 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-teal-900">מעקב כאב</p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  ממוצע {selectedPatient.analytics.averageOverallPain.toFixed(1)}/10
+                  {lastPainRecord != null && (
+                    <span className="text-slate-600">
+                      {' '}
+                      · אחרון {lastPainRecord.painLevel}/10
+                    </span>
+                  )}
+                  {lastPainRecord == null && ' · עדיין אין דיווחים — לחצו לפרטים'}
+                </p>
+              </div>
+            </div>
+            <span className="text-xs font-medium text-teal-700 shrink-0">גרף</span>
+          </button>
         </div>
 
         <h1 className="text-lg font-bold text-slate-800 mb-1">המשימות להיום</h1>
         <p className="text-sm text-slate-500 mb-4 leading-relaxed">
-          השתמשו ב־<strong className="text-teal-800">נגן</strong> להתחלת מדד זמן, או ב־
-          <strong className="text-teal-800">V</strong> לפתיחת ההנחיות — לאחר מדד זמן חובה יופיע דיווח
-          VAS.
+          לחצו על שורת התרגיל לפתיחת המסך המלא. מעבר עכבר על התמונה המקדימה מנגן וידאו (אם קיים) בלי לשנות
+          את גודל השורה. במסך: וידאו מתנגן אוטומטית, לאחר «התחל תרגול» וסיום המדד — דיווח VAS.
         </p>
 
         {exercises.length === 0 ? (
@@ -225,7 +282,7 @@ export default function PatientDailyView() {
             אין תרגילים באזור שנבחר. נקו את הסינון או בחרו אזור אחר.
           </p>
         ) : (
-          <ul className="space-y-3 flex flex-col">
+          <ul className="space-y-2 flex flex-col">
             {visibleExercises.map((ex, i) => {
               const done = completedSet.has(ex.id);
               return (
@@ -234,8 +291,7 @@ export default function PatientDailyView() {
                     exercise={ex}
                     index={i + 1}
                     isCompleted={done}
-                    onPlay={() => openExerciseDetail(ex, true)}
-                    onDone={() => openExerciseDetail(ex, false)}
+                    onOpen={() => openExerciseDetail(ex)}
                   />
                 </li>
               );
@@ -244,8 +300,20 @@ export default function PatientDailyView() {
         )}
       </div>
 
+      <GuardianAssistantFAB
+        patient={selectedPatient}
+        exerciseCount={exercises.length}
+        hidden={!!detailFor || !!reportFor}
+      />
+
+      <PatientPainProgressSheet
+        open={painSheetOpen}
+        onClose={() => setPainSheetOpen(false)}
+        painHistory={selectedPatient.analytics.painHistory}
+      />
+
       {/* Floating message to therapist */}
-      {!detailFor && (
+      {!detailFor && !reportFor && (
         <button
           type="button"
           onClick={() => setMessageOpen(true)}
@@ -326,7 +394,6 @@ export default function PatientDailyView() {
         onClose={closeExerciseDetail}
         onRequestComplete={handleRequestCompleteFromDetail}
         isCompleted={detailFor ? completedSet.has(detailFor.id) : false}
-        autoStartTimer={detailAutoStart}
       />
 
       <ExerciseReportModal

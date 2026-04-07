@@ -30,6 +30,7 @@ export const mockPatients: Patient[] = [
     pendingMessages: 2,
     hasRedFlag: false,
     therapistNotes: 'מתקדם היטב. לשים לב לתרגילי חיזוק הליבה.',
+    coins: 12,
     analytics: {
       averageOverallPain: 4.2,
       averageDifficulty: 3.1,
@@ -70,6 +71,7 @@ export const mockPatients: Patient[] = [
     pendingMessages: 0,
     hasRedFlag: false,
     therapistNotes: 'ביצועים מצוינים. שלב 2 של שיקום - אפשר להגביר עומסים.',
+    coins: 5,
     analytics: {
       averageOverallPain: 2.8,
       averageDifficulty: 3.8,
@@ -112,6 +114,7 @@ export const mockPatients: Patient[] = [
     pendingMessages: 1,
     hasRedFlag: true,
     therapistNotes: 'דיווח על כאב חריג בלילה. לבדוק ב-Flag האדום.',
+    coins: 0,
     analytics: {
       averageOverallPain: 6.7,
       averageDifficulty: 2.3,
@@ -224,6 +227,19 @@ export const mockExercisePlans: ExercisePlan[] = [
 // Patient 3 (avg pain 6.3 last 3 days > 6)  → reduce_reps
 
 export const mockAiSuggestions: AiSuggestion[] = [
+  {
+    id: 'ai-000',
+    patientId: 'patient-001',
+    exerciseId: 'ex-001-1',
+    exerciseName: 'גשר אגן',
+    type: 'increase_reps',
+    field: 'reps',
+    currentValue: 12,
+    suggestedValue: 14,
+    reason: 'מגמת כאב יציבה בימים האחרונים. ניתן להעלות מעט חזרות בזהירות.',
+    createdAt: '2026-04-07T07:00:00Z',
+    status: 'pending',
+  },
   {
     id: 'ai-001',
     patientId: 'patient-002',
