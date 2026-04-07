@@ -300,70 +300,74 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
           </section>
         )}
 
-        <div className="mb-5 space-y-3">
-          <DidYouKnowBubble
-            patient={selectedPatient}
-            onKnowledgeComplete={() => grantPatientKnowledgeReward(selectedPatient.id)}
-          />
-          <PatientAiSuggestionCards
-            suggestions={pendingAiSuggestions}
-            onApprove={patientAgreeToAiSuggestion}
-            onDecline={patientDeclineAiSuggestion}
-          />
-        </div>
-
-        <div
-          className="rounded-2xl p-4 mb-5 border"
-          style={{
-            borderColor: '#a7f3d0',
-            background: 'linear-gradient(135deg, #f0fdfa, #ffffff)',
-          }}
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="w-4 h-4 text-teal-600" />
-            <span className="text-sm font-semibold text-teal-900">התקדמות</span>
-          </div>
-          <div className="flex justify-between text-sm text-slate-600 mb-1">
-            <span>רמה {selectedPatient.level}</span>
-            <span className="tabular-nums">
-              {xp} / {next} נק׳
-            </span>
-          </div>
-          <div className="h-2 rounded-full bg-teal-100 overflow-hidden mb-3">
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${pct}%`,
-                background: 'linear-gradient(90deg, #14b8a6, #059669)',
-              }}
+        {!isPortal && (
+          <div className="mb-5 space-y-3">
+            <DidYouKnowBubble
+              patient={selectedPatient}
+              onKnowledgeComplete={() => grantPatientKnowledgeReward(selectedPatient.id)}
+            />
+            <PatientAiSuggestionCards
+              suggestions={pendingAiSuggestions}
+              onApprove={patientAgreeToAiSuggestion}
+              onDecline={patientDeclineAiSuggestion}
             />
           </div>
+        )}
 
-          <button
-            type="button"
-            onClick={() => setPainSheetOpen(true)}
-            className="w-full rounded-xl border border-teal-200/90 px-3 py-2.5 flex items-center justify-between gap-2 text-start transition-colors hover:bg-teal-50/80 active:bg-teal-50"
-            style={{ background: 'rgba(255,255,255,0.65)' }}
+        {!isPortal && (
+          <div
+            className="rounded-2xl p-4 mb-5 border"
+            style={{
+              borderColor: '#a7f3d0',
+              background: 'linear-gradient(135deg, #f0fdfa, #ffffff)',
+            }}
           >
-            <div className="flex items-center gap-2 min-w-0">
-              <Activity className="w-4 h-4 text-teal-600 shrink-0" />
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-teal-900">מעקב כאב</p>
-                <p className="text-[11px] text-slate-500 truncate">
-                  ממוצע {selectedPatient.analytics.averageOverallPain.toFixed(1)}/10
-                  {lastPainRecord != null && (
-                    <span className="text-slate-600">
-                      {' '}
-                      · אחרון {lastPainRecord.painLevel}/10
-                    </span>
-                  )}
-                  {lastPainRecord == null && ' · עדיין אין דיווחים — לחצו לפרטים'}
-                </p>
-              </div>
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-4 h-4 text-teal-600" />
+              <span className="text-sm font-semibold text-teal-900">התקדמות</span>
             </div>
-            <span className="text-xs font-medium text-teal-700 shrink-0">גרף</span>
-          </button>
-        </div>
+            <div className="flex justify-between text-sm text-slate-600 mb-1">
+              <span>רמה {selectedPatient.level}</span>
+              <span className="tabular-nums">
+                {xp} / {next} נק׳
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-teal-100 overflow-hidden mb-3">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${pct}%`,
+                  background: 'linear-gradient(90deg, #14b8a6, #059669)',
+                }}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setPainSheetOpen(true)}
+              className="w-full rounded-xl border border-teal-200/90 px-3 py-2.5 flex items-center justify-between gap-2 text-start transition-colors hover:bg-teal-50/80 active:bg-teal-50"
+              style={{ background: 'rgba(255,255,255,0.65)' }}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <Activity className="w-4 h-4 text-teal-600 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-teal-900">מעקב כאב</p>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    ממוצע {selectedPatient.analytics.averageOverallPain.toFixed(1)}/10
+                    {lastPainRecord != null && (
+                      <span className="text-slate-600">
+                        {' '}
+                        · אחרון {lastPainRecord.painLevel}/10
+                      </span>
+                    )}
+                    {lastPainRecord == null && ' · עדיין אין דיווחים — לחצו לפרטים'}
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-medium text-teal-700 shrink-0">גרף</span>
+            </button>
+          </div>
+        )}
 
         <ClinicalMonthCalendar dayMap={patientDayMap} clinicalToday={clinicalToday} />
 
@@ -459,16 +463,18 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
         hidden={!!detailFor || !!reportFor || exerciseSafetyLocked}
       />
 
-      <PatientPainProgressSheet
-        open={painSheetOpen}
-        onClose={() => setPainSheetOpen(false)}
-        painHistory={selectedPatient.analytics.painHistory}
-        sessionHistory={selectedPatient.analytics.sessionHistory}
-        aiNarrative={painReportNarrative}
-      />
+      {!isPortal && (
+        <PatientPainProgressSheet
+          open={painSheetOpen}
+          onClose={() => setPainSheetOpen(false)}
+          painHistory={selectedPatient.analytics.painHistory}
+          sessionHistory={selectedPatient.analytics.sessionHistory}
+          aiNarrative={painReportNarrative}
+        />
+      )}
 
-      {/* Floating message to therapist */}
-      {!detailFor && !reportFor && (
+      {/* Floating message to therapist (בפורטל מטופל — רק ממסך חירום) */}
+      {!isPortal && !detailFor && !reportFor && (
         <button
           type="button"
           onClick={() => setMessageOpen(true)}
