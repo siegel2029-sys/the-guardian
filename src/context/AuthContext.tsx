@@ -11,10 +11,13 @@ import type { Therapist } from '../types';
 import { mockTherapist } from '../data/mockData';
 import {
   loadAuthSnapshot,
-  saveAuthSnapshot,
+  mergeAuthSnapshot,
   setAuthSession,
   updateTherapistCredentials as persistTherapistCredentials,
+  patientAccountRequiresPasswordChange,
+  verifyAndUpdatePatientPassword,
   type AuthSessionV1,
+  type PatientPasswordChangeResult,
 } from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 
@@ -34,6 +37,13 @@ interface AuthContextValue {
   login: (identifier: string, password: string) => Promise<'therapist' | 'patient' | null>;
   logout: () => void;
   updateTherapistProfile: (email: string, newPassword: string) => void;
+  /** מטופל מחובר — נדרשת החלפת סיסמה (חשבון חדש או דגל ב־localStorage) */
+  patientMustChangePassword: boolean;
+  /** עדכון סיסמת מטופל לאחר אימות סיסמה נוכחית */
+  completePatientPasswordChange: (
+    currentPassword: string,
+    newPassword: string
+  ) => PatientPasswordChangeResult;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -61,11 +71,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  /** מספר עדכון אחרי שינוי סיסמת מטופל — מרענן נגזרות מ־loadAuthSnapshot */
+  const [patientAuthRevision, setPatientAuthRevision] = useState(0);
 
   const sessionRole: SessionRole = useMemo(() => {
     if (!session) return null;
     return session.role;
   }, [session]);
+
+  const patientMustChangePassword = useMemo(() => {
+    void patientAuthRevision;
+    if (!session || session.role !== 'patient') return false;
+    const snap = loadAuthSnapshot();
+    return patientAccountRequiresPasswordChange(snap, session.patientId);
+  }, [session, patientAuthRevision]);
 
   const login = useCallback(async (identifier: string, password: string) => {
     setIsLoading(true);
@@ -78,10 +97,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       if (isEmailLike(id)) {
-        if (id.toLowerCase() === snap.therapistEmail.toLowerCase() && pw === snap.therapistPassword) {
+        const emailMatch = id.toLowerCase() === snap.therapistEmail.toLowerCase();
+        const passwordMatch = pw === snap.therapistPassword;
+        if (emailMatch && passwordMatch) {
           const t = therapistFromSnapshot(snap.therapistEmail);
           setTherapist(t);
           setPatientSessionId(null);
+          setPatientAuthRevision((n) => n + 1);
           setSession({ role: 'therapist' });
           setAuthSession({ role: 'therapist' });
           setIsLoading(false);
@@ -97,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (acc && acc.password === pw) {
         setTherapist(null);
         setPatientSessionId(acc.patientId);
+        setPatientAuthRevision((n) => n + 1);
         const sess = { role: 'patient' as const, patientId: acc.patientId };
         setSession(sess);
         setAuthSession(sess);
@@ -115,13 +138,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    setIsLoading(false);
     setTherapist(null);
     setPatientSessionId(null);
     setSession(null);
     setLoginError(null);
-    const snap = loadAuthSnapshot();
-    saveAuthSnapshot({ ...snap, session: null });
+    setPatientAuthRevision((n) => n + 1);
+    mergeAuthSnapshot({ session: null });
   }, []);
+
+  const completePatientPasswordChange = useCallback(
+    (currentPassword: string, newPassword: string): PatientPasswordChangeResult => {
+      if (!patientSessionId) return 'bad_current';
+      const result = verifyAndUpdatePatientPassword(patientSessionId, currentPassword, newPassword);
+      if (result === 'ok') setPatientAuthRevision((n) => n + 1);
+      return result;
+    },
+    [patientSessionId]
+  );
 
   const updateTherapistProfile = useCallback((email: string, newPassword: string) => {
     persistTherapistCredentials(email, newPassword);
@@ -141,8 +175,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       updateTherapistProfile,
+      patientMustChangePassword,
+      completePatientPasswordChange,
     }),
-    [therapist, sessionRole, patientSessionId, session, isLoading, loginError, login, logout, updateTherapistProfile]
+    [
+      therapist,
+      sessionRole,
+      patientSessionId,
+      session,
+      isLoading,
+      loginError,
+      login,
+      logout,
+      updateTherapistProfile,
+      patientMustChangePassword,
+      completePatientPasswordChange,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

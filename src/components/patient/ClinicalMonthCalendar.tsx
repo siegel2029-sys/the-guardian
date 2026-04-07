@@ -24,8 +24,8 @@ function ymd(year: number, month: number, day: number): string {
 
 /** מרכז תא בלוח (RTL: עמודה 0 = ימין) */
 function cellCenter(
-  year: number,
-  month: number,
+  _year: number,
+  _month: number,
   calendarDay: number,
   firstWeekday: number
 ): { x: number; y: number } {

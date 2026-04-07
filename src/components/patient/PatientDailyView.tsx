@@ -1,6 +1,20 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Sparkles, X, MessageCircle, Coins, Activity, LogOut } from 'lucide-react';
+import {
+  ArrowRight,
+  Sparkles,
+  X,
+  MessageCircle,
+  Coins,
+  Activity,
+  LogOut,
+  Send,
+  User,
+  Bot,
+  Clock,
+  KeyRound,
+} from 'lucide-react';
+import { mockTherapist } from '../../data/mockData';
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
 import BodyMap3D from '../body-map/BodyMap3D';
@@ -33,16 +47,24 @@ export type PatientDailyViewProps = {
 
 export default function PatientDailyView({ variant = 'default' }: PatientDailyViewProps) {
   const navigate = useNavigate();
-  const { sessionRole, logout } = useAuth();
+  const {
+    sessionRole,
+    logout,
+    patientMustChangePassword,
+    completePatientPasswordChange,
+  } = useAuth();
   const isPortal = variant === 'portal';
   const {
     selectedPatient,
+    messages,
     getExercisePlan,
     getTodaySession,
     submitExerciseReport,
     setViewMode,
     isPatientSessionLocked,
     sendPatientMessage,
+    getPatientMessages,
+    markMessageRead,
     getPendingAiSuggestions,
     patientAgreeToAiSuggestion,
     patientDeclineAiSuggestion,
@@ -64,6 +86,32 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
   const [messageText, setMessageText] = useState('');
   const [painSheetOpen, setPainSheetOpen] = useState(false);
   const [loadSafetyNudge, setLoadSafetyNudge] = useState<string | null>(null);
+  const [portalMessagesOpen, setPortalMessagesOpen] = useState(true);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [pwFormError, setPwFormError] = useState<string | null>(null);
+
+  const portalMessages = useMemo(
+    () => (selectedPatient ? getPatientMessages(selectedPatient.id) : []),
+    [selectedPatient, getPatientMessages, messages]
+  );
+
+  const unreadForPatient = useMemo(
+    () =>
+      portalMessages.filter(
+        (m) => !m.isRead && !m.fromPatient
+      ).length,
+    [portalMessages]
+  );
+
+  useEffect(() => {
+    if (!isPortal || !selectedPatient || !portalMessagesOpen) return;
+    portalMessages.forEach((m) => {
+      if (!m.fromPatient && !m.isRead) markMessageRead(m.id);
+    });
+  }, [isPortal, selectedPatient?.id, portalMessagesOpen, portalMessages, markMessageRead]);
 
   const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
   const session = selectedPatient ? getTodaySession(selectedPatient.id) : null;
@@ -158,6 +206,23 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
     setMessageOpen(false);
   };
 
+  const submitPasswordChange = () => {
+    setPwFormError(null);
+    if (pwNew !== pwConfirm) {
+      setPwFormError('הסיסמאות החדשות אינן תואמות.');
+      return;
+    }
+    const r = completePatientPasswordChange(pwCurrent, pwNew);
+    if (r === 'bad_current') setPwFormError('סיסמה נוכחית שגויה.');
+    else if (r === 'invalid_new') setPwFormError('סיסמה חדשה קצרה מדי (לפחות 6 תווים).');
+    else {
+      setPwCurrent('');
+      setPwNew('');
+      setPwConfirm('');
+      setPasswordModalOpen(false);
+    }
+  };
+
   if (!selectedPatient) {
     return (
       <div
@@ -221,18 +286,34 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
             חזרה למטפל
           </button>
         ) : sessionRole === 'patient' ? (
-          <button
-            type="button"
-            onClick={() => {
-              logout();
-              navigate('/login', { replace: true });
-            }}
-            title="התנתקות"
-            className="flex items-center gap-1.5 text-sm font-medium text-slate-600 px-3 py-2 rounded-xl hover:bg-slate-100 border border-slate-200"
-          >
-            <LogOut className="w-4 h-4" />
-            יציאה
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isPortal && !patientMustChangePassword && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPwFormError(null);
+                  setPasswordModalOpen(true);
+                }}
+                title="שינוי סיסמה"
+                className="flex items-center gap-1 text-sm font-medium text-slate-600 px-2.5 py-2 rounded-xl hover:bg-slate-100 border border-slate-200"
+              >
+                <KeyRound className="w-4 h-4" />
+                <span className="hidden min-[400px]:inline">סיסמה</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                logout();
+                navigate('/login', { replace: true });
+              }}
+              title="התנתקות"
+              className="flex items-center gap-1.5 text-sm font-medium text-slate-600 px-3 py-2 rounded-xl hover:bg-slate-100 border border-slate-200"
+            >
+              <LogOut className="w-4 h-4" />
+              יציאה
+            </button>
+          </div>
         ) : (
           <span className="w-[1px] shrink-0" aria-hidden />
         )}
@@ -242,21 +323,25 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
           </p>
           <p className="text-base font-semibold text-slate-800 truncate">{selectedPatient.name}</p>
         </div>
-        {!isPortal && (
-          <div
-            className="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-xl text-xs font-bold text-amber-900"
-            style={{ background: '#fef3c7', border: '1px solid #fcd34d' }}
-            title="מטבעות למידה"
-          >
-            <Coins className="w-4 h-4 text-amber-700" />
-            {selectedPatient.coins}
-          </div>
-        )}
+        <div
+          className={`flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-xl text-xs font-bold ${
+            isPortal ? 'text-teal-900' : 'text-amber-900'
+          }`}
+          style={
+            isPortal
+              ? { background: 'rgba(240, 253, 250, 0.95)', border: '1px solid #99f6e4' }
+              : { background: '#fef3c7', border: '1px solid #fcd34d' }
+          }
+          title="מטבעות למידה"
+        >
+          <Coins className={`w-4 h-4 ${isPortal ? 'text-teal-600' : 'text-amber-700'}`} />
+          {selectedPatient.coins}
+        </div>
       </header>
 
       <div className="flex-1 px-4 py-4 pb-28">
-        {/* 3D Body map — patient status (מטפל / תצוגה מלאה בלבד) */}
-        {!isPortal && exercises.length > 0 && (
+        {/* 3D Body map — תצוגת מטפל; בפורטל: מוקד פציעה/אזור טיפול */}
+        {((!isPortal && exercises.length > 0) || (isPortal && !!selectedPatient)) && (
           <section className="mb-5">
             <div className="flex items-center justify-between mb-2 px-0.5">
               <h2 className="text-base font-bold text-slate-800">מפת הגוף שלי</h2>
@@ -271,21 +356,34 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
                 </button>
               )}
             </div>
-            <p className="text-xs text-slate-500 mb-2">
-              כאב ממוצע לפי אזור, אזורים בתוכנית, והתאמה לרמה {selectedPatient.level}
+            <p className="text-xs text-slate-500 mb-2 leading-relaxed">
+              {isPortal ? (
+                <>
+                  אזור הטיפול שהגדיר המטפל מודגש. ניתן לסנן את רשימת התרגילים לפי אזור בלחיצה על המודל.
+                  {exercises.length > 0 && (
+                    <span className="block mt-1 text-teal-700/90">
+                      מוקד: <strong>{bodyAreaLabels[selectedPatient.primaryBodyArea]}</strong>
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  כאב ממוצע לפי אזור, אזורים בתוכנית, והתאמה לרמה {selectedPatient.level}
+                </>
+              )}
             </p>
             <div
               className="rounded-2xl border overflow-hidden flex flex-col"
-              style={{ borderColor: '#a7f3d0', minHeight: '300px' }}
+              style={{ borderColor: '#a7f3d0', minHeight: isPortal ? '260px' : '300px' }}
             >
-              <div className="flex-1 min-h-[300px] w-full">
+              <div className={`flex-1 w-full ${isPortal ? 'min-h-[260px]' : 'min-h-[300px]'}`}>
                 <BodyMap3D
-                  activeAreas={activeAreas}
+                  activeAreas={isPortal && exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
                   painByArea={selectedPatient.analytics.painByArea}
                   level={selectedPatient.level}
                   selectedArea={filterArea}
-                  minHeightPx={300}
+                  minHeightPx={isPortal ? 260 : 300}
                   onAreaClick={(area) =>
                     setFilterArea((prev) => (prev === area ? null : area))
                   }
@@ -296,6 +394,140 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
               <p className="text-xs text-teal-700 mt-2 font-medium">
                 מסונן: {bodyAreaLabels[filterArea]}
               </p>
+            )}
+          </section>
+        )}
+
+        {isPortal && selectedPatient && (
+          <section className="mb-5 rounded-2xl border overflow-hidden" style={{ borderColor: '#99f6e4' }}>
+            <button
+              type="button"
+              onClick={() => setPortalMessagesOpen((o) => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 text-start gap-3"
+              style={{ background: 'rgba(255,255,255,0.85)' }}
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <MessageCircle className="w-5 h-5 text-teal-600 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-800">מרכז הודעות</p>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    שיחה עם {mockTherapist.name}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {unreadForPatient > 0 && (
+                  <span
+                    className="min-w-[1.25rem] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center text-white"
+                    style={{ background: '#0d9488' }}
+                  >
+                    {unreadForPatient > 9 ? '9+' : unreadForPatient}
+                  </span>
+                )}
+                <span className="text-xs text-teal-600 font-medium">
+                  {portalMessagesOpen ? 'סגירה' : 'פתיחה'}
+                </span>
+              </div>
+            </button>
+            {portalMessagesOpen && (
+              <div
+                className="px-3 pb-3 pt-1 border-t max-h-[min(55vh,420px)] flex flex-col gap-3"
+                style={{ borderColor: '#e0f2f1', background: 'rgba(248, 250, 252, 0.5)' }}
+              >
+                <div className="flex-1 overflow-y-auto space-y-2 min-h-[120px] pr-0.5">
+                  {portalMessages.length === 0 ? (
+                    <p className="text-xs text-slate-400 text-center py-6">אין הודעות עדיין</p>
+                  ) : (
+                    [...portalMessages]
+                      .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+                      .map((msg) => {
+                        const fromMe = msg.fromPatient && !msg.aiClinicalAlert;
+                        const isAi = !!msg.aiClinicalAlert;
+                        const tier = msg.clinicalSafetyTier;
+                        const alignEnd = fromMe;
+                        const alertStyle =
+                          isAi && tier === 'emergency'
+                            ? { background: '#fef2f2', borderColor: '#f87171' }
+                            : isAi && tier === 'high_priority'
+                              ? { background: '#fffbeb', borderColor: '#fbbf24' }
+                              : isAi
+                                ? { background: '#eef2ff', borderColor: '#a5b4fc' }
+                                : fromMe
+                                  ? { background: '#f0fdfa', borderColor: '#a7f3d0' }
+                                  : { background: '#ffffff', borderColor: '#e2e8f0' };
+                        const senderLabel = isAi
+                          ? tier === 'emergency'
+                            ? 'עדכון דחוף'
+                            : tier === 'high_priority'
+                              ? 'עדכון בטיחות'
+                              : 'עדכון מהמערכת'
+                          : fromMe
+                            ? 'אני'
+                            : mockTherapist.name;
+                        return (
+                          <div
+                            key={msg.id}
+                            className={`flex ${alignEnd ? 'justify-end' : 'justify-start'}`}
+                          >
+                            <div
+                              className="max-w-[88%] rounded-2xl px-3 py-2.5 border shadow-sm"
+                              style={alertStyle}
+                            >
+                              <div className="flex items-center gap-1.5 mb-1">
+                                {isAi ? (
+                                  <Bot className="w-3.5 h-3.5 text-indigo-600" />
+                                ) : (
+                                  <User className="w-3.5 h-3.5 text-teal-600" />
+                                )}
+                                <span className="text-[10px] font-semibold text-slate-500">
+                                  {senderLabel}
+                                </span>
+                              </div>
+                              <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                                {msg.content}
+                              </p>
+                              <div className="flex items-center gap-1 mt-1">
+                                <Clock className="w-3 h-3 text-slate-300" />
+                                <span className="text-[10px] text-slate-400">
+                                  {new Date(msg.timestamp).toLocaleString('he-IL', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
+                <div className="flex gap-2 items-end border-t pt-3" style={{ borderColor: '#e0f2f1' }}>
+                  <textarea
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    placeholder={`הודעה ל־${mockTherapist.name.split(' ')[0]}…`}
+                    rows={2}
+                    className="flex-1 resize-none rounded-xl border border-teal-200/90 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-400/40"
+                    style={{ background: '#fafefd' }}
+                  />
+                  <button
+                    type="button"
+                    disabled={!messageText.trim()}
+                    onClick={() => {
+                      if (!selectedPatient || !messageText.trim()) return;
+                      sendPatientMessage(selectedPatient.id, messageText.trim());
+                      setMessageText('');
+                    }}
+                    className="shrink-0 h-10 w-10 rounded-xl flex items-center justify-center text-white disabled:opacity-40"
+                    style={{ background: 'linear-gradient(135deg, #0d9488, #059669)' }}
+                    aria-label="שלח הודעה"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
             )}
           </section>
         )}
@@ -314,60 +546,58 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
           </div>
         )}
 
-        {!isPortal && (
-          <div
-            className="rounded-2xl p-4 mb-5 border"
-            style={{
-              borderColor: '#a7f3d0',
-              background: 'linear-gradient(135deg, #f0fdfa, #ffffff)',
-            }}
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="w-4 h-4 text-teal-600" />
-              <span className="text-sm font-semibold text-teal-900">התקדמות</span>
-            </div>
-            <div className="flex justify-between text-sm text-slate-600 mb-1">
-              <span>רמה {selectedPatient.level}</span>
-              <span className="tabular-nums">
-                {xp} / {next} נק׳
-              </span>
-            </div>
-            <div className="h-2 rounded-full bg-teal-100 overflow-hidden mb-3">
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{
-                  width: `${pct}%`,
-                  background: 'linear-gradient(90deg, #14b8a6, #059669)',
-                }}
-              />
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setPainSheetOpen(true)}
-              className="w-full rounded-xl border border-teal-200/90 px-3 py-2.5 flex items-center justify-between gap-2 text-start transition-colors hover:bg-teal-50/80 active:bg-teal-50"
-              style={{ background: 'rgba(255,255,255,0.65)' }}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <Activity className="w-4 h-4 text-teal-600 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-teal-900">מעקב כאב</p>
-                  <p className="text-[11px] text-slate-500 truncate">
-                    ממוצע {selectedPatient.analytics.averageOverallPain.toFixed(1)}/10
-                    {lastPainRecord != null && (
-                      <span className="text-slate-600">
-                        {' '}
-                        · אחרון {lastPainRecord.painLevel}/10
-                      </span>
-                    )}
-                    {lastPainRecord == null && ' · עדיין אין דיווחים — לחצו לפרטים'}
-                  </p>
-                </div>
-              </div>
-              <span className="text-xs font-medium text-teal-700 shrink-0">גרף</span>
-            </button>
+        <div
+          className="rounded-2xl p-4 mb-5 border"
+          style={{
+            borderColor: '#a7f3d0',
+            background: 'linear-gradient(135deg, #f0fdfa, #ffffff)',
+          }}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles className="w-4 h-4 text-teal-600" />
+            <span className="text-sm font-semibold text-teal-900">התקדמות</span>
           </div>
-        )}
+          <div className="flex justify-between text-sm text-slate-600 mb-1">
+            <span>רמה {selectedPatient.level}</span>
+            <span className="tabular-nums">
+              {xp} / {next} נק׳
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-teal-100 overflow-hidden mb-3">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${pct}%`,
+                background: 'linear-gradient(90deg, #14b8a6, #059669)',
+              }}
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setPainSheetOpen(true)}
+            className="w-full rounded-xl border border-teal-200/90 px-3 py-2.5 flex items-center justify-between gap-2 text-start transition-colors hover:bg-teal-50/80 active:bg-teal-50"
+            style={{ background: 'rgba(255,255,255,0.65)' }}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Activity className="w-4 h-4 text-teal-600 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-teal-900">מעקב כאב</p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  ממוצע {selectedPatient.analytics.averageOverallPain.toFixed(1)}/10
+                  {lastPainRecord != null && (
+                    <span className="text-slate-600">
+                      {' '}
+                      · אחרון {lastPainRecord.painLevel}/10
+                    </span>
+                  )}
+                  {lastPainRecord == null && ' · עדיין אין דיווחים — לחצו לפרטים'}
+                </p>
+              </div>
+            </div>
+            <span className="text-xs font-medium text-teal-700 shrink-0">גרף</span>
+          </button>
+        </div>
 
         <ClinicalMonthCalendar dayMap={patientDayMap} clinicalToday={clinicalToday} />
 
@@ -450,6 +680,7 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
         patient={selectedPatient}
         exerciseCount={exercises.length}
         exercises={exercises}
+        variant={isPortal ? 'portal' : 'default'}
         onSubmitGuardianRepsRequest={(exerciseId, exerciseName, fromReps, toReps) =>
           submitGuardianRepsIncreaseRequest(
             selectedPatient.id,
@@ -460,18 +691,18 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
           )
         }
         onTherapistClinicalAlert={(detail) => sendAiClinicalAlert(selectedPatient.id, detail)}
-        hidden={!!detailFor || !!reportFor || exerciseSafetyLocked}
+        hidden={
+          !!detailFor || !!reportFor || exerciseSafetyLocked || (isPortal && patientMustChangePassword)
+        }
       />
 
-      {!isPortal && (
-        <PatientPainProgressSheet
-          open={painSheetOpen}
-          onClose={() => setPainSheetOpen(false)}
-          painHistory={selectedPatient.analytics.painHistory}
-          sessionHistory={selectedPatient.analytics.sessionHistory}
-          aiNarrative={painReportNarrative}
-        />
-      )}
+      <PatientPainProgressSheet
+        open={painSheetOpen}
+        onClose={() => setPainSheetOpen(false)}
+        painHistory={selectedPatient.analytics.painHistory}
+        sessionHistory={selectedPatient.analytics.sessionHistory}
+        aiNarrative={painReportNarrative}
+      />
 
       {/* Floating message to therapist (בפורטל מטופל — רק ממסך חירום) */}
       {!isPortal && !detailFor && !reportFor && (
@@ -575,9 +806,176 @@ export default function PatientDailyView({ variant = 'default' }: PatientDailyVi
           setMessageText(
             'דחוף: דיווחתי על תסמינים שעלולים לחייב בדיקה רפואית דחופה. נא ליצור קשר בהקדם.'
           );
-          setMessageOpen(true);
+          if (isPortal) {
+            setPortalMessagesOpen(true);
+          } else {
+            setMessageOpen(true);
+          }
         }}
       />
+
+      {isPortal && sessionRole === 'patient' && patientMustChangePassword && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          style={{ background: 'rgba(15, 118, 110, 0.35)' }}
+          dir="rtl"
+        >
+          <div
+            className="w-full max-w-md rounded-3xl border shadow-2xl p-6"
+            style={{ background: '#ffffff', borderColor: '#99f6e4' }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pw-gate-title"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <KeyRound className="w-6 h-6 text-teal-600" />
+              <h2 id="pw-gate-title" className="text-lg font-bold text-slate-800">
+                עדכון סיסמה נדרש
+              </h2>
+            </div>
+            <p className="text-sm text-slate-600 leading-relaxed mb-4">
+              זו הכניסה הראשונה שלך לפורטל. לבטיחות, בחר סיסמה אישית חדשה (לפחות 6 תווים).
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">סיסמה נוכחית</label>
+                <input
+                  type="password"
+                  value={pwCurrent}
+                  onChange={(e) => setPwCurrent(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                  autoComplete="current-password"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">סיסמה חדשה</label>
+                <input
+                  type="password"
+                  value={pwNew}
+                  onChange={(e) => setPwNew(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                  autoComplete="new-password"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">אימות סיסמה</label>
+                <input
+                  type="password"
+                  value={pwConfirm}
+                  onChange={(e) => setPwConfirm(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                  autoComplete="new-password"
+                />
+              </div>
+            </div>
+            {pwFormError && (
+              <p className="mt-3 text-sm text-red-600">{pwFormError}</p>
+            )}
+            <button
+              type="button"
+              onClick={submitPasswordChange}
+              className="mt-5 w-full py-3 rounded-2xl font-semibold text-white"
+              style={{ background: 'linear-gradient(135deg, #0d9488, #059669)' }}
+            >
+              שמירה והמשך
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isPortal &&
+        sessionRole === 'patient' &&
+        !patientMustChangePassword &&
+        passwordModalOpen && (
+          <div
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+            style={{ background: 'rgba(15, 118, 110, 0.3)' }}
+            dir="rtl"
+            onClick={() => {
+              setPasswordModalOpen(false);
+              setPwCurrent('');
+              setPwNew('');
+              setPwConfirm('');
+              setPwFormError(null);
+            }}
+            role="presentation"
+          >
+            <div
+              className="w-full max-w-md rounded-3xl border shadow-2xl p-6"
+              style={{ background: '#ffffff', borderColor: '#99f6e4' }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="pw-opt-title"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="w-5 h-5 text-teal-600" />
+                  <h2 id="pw-opt-title" className="text-base font-bold text-slate-800">
+                    שינוי סיסמה
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPasswordModalOpen(false);
+                    setPwCurrent('');
+                    setPwNew('');
+                    setPwConfirm('');
+                    setPwFormError(null);
+                  }}
+                  className="p-2 rounded-xl text-slate-500 hover:bg-slate-100"
+                  aria-label="סגור"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">סיסמה נוכחית</label>
+                  <input
+                    type="password"
+                    value={pwCurrent}
+                    onChange={(e) => setPwCurrent(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                    autoComplete="current-password"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">סיסמה חדשה</label>
+                  <input
+                    type="password"
+                    value={pwNew}
+                    onChange={(e) => setPwNew(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">אימות סיסמה</label>
+                  <input
+                    type="password"
+                    value={pwConfirm}
+                    onChange={(e) => setPwConfirm(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                    autoComplete="new-password"
+                  />
+                </div>
+              </div>
+              {pwFormError && (
+                <p className="mt-3 text-sm text-red-600">{pwFormError}</p>
+              )}
+              <button
+                type="button"
+                onClick={submitPasswordChange}
+                className="mt-5 w-full py-3 rounded-2xl font-semibold text-white"
+                style={{ background: 'linear-gradient(135deg, #0d9488, #059669)' }}
+              >
+                עדכון סיסמה
+              </button>
+            </div>
+          </div>
+        )}
     </div>
   );
 }

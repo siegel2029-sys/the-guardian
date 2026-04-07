@@ -407,7 +407,14 @@ export function PatientProvider({
   const sendTherapistReply = useCallback((patientId: string, content: string) => {
     setMessages((prev) => [
       ...prev,
-      { id: `msg-${Date.now()}`, patientId, content, timestamp: new Date().toISOString(), isRead: true, fromPatient: false },
+      {
+        id: `msg-${Date.now()}`,
+        patientId,
+        content,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        fromPatient: false,
+      },
     ]);
   }, []);
 
@@ -967,7 +974,7 @@ export function PatientProvider({
     };
     setPatients((prev) => [...prev, newPatient]);
     setExercisePlans((prev) => [...prev, { patientId, exercises: [] }]);
-    addPatientAccount(loginId, patientId, password);
+    addPatientAccount(loginId, patientId, password, { mustChangePassword: true });
     setSelectedPatientId(patientId);
     setActiveSection('overview');
     return { loginId, password, patientId };

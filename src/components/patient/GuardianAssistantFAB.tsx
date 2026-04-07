@@ -23,6 +23,8 @@ interface GuardianAssistantFABProps {
   /** התראת AI קלינית לתיבת המטפל */
   onTherapistClinicalAlert?: (detailHebrew?: string) => void;
   hidden?: boolean;
+  /** ניסוח רך לפורטל מטופל (ללא מונחי דשבורד מטפל) */
+  variant?: 'default' | 'portal';
 }
 
 export default function GuardianAssistantFAB({
@@ -32,7 +34,9 @@ export default function GuardianAssistantFAB({
   onSubmitGuardianRepsRequest,
   onTherapistClinicalAlert,
   hidden,
+  variant = 'default',
 }: GuardianAssistantFABProps) {
+  const isPortal = variant === 'portal';
   const { screenAndHandleEmergencyText } = usePatient();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
@@ -60,7 +64,9 @@ export default function GuardianAssistantFAB({
         {
           role: 'assistant',
           text:
-            'זוהתה התאמה לתסמינים שדורשים בדיקה דחופה. הופיעה הודעת חירום במערכת — אל תמשיך בתרגול עד שמטפל או גורם רפואי ינחה אותך. אם המצב מחמיר, התקשרו ל־101.',
+            isPortal
+              ? 'זוהתה התאמה לתסמינים שדורשים בדיקה דחופה. הופיעה הודעה במערכת — אל תמשיך בתרגול עד שתקבל הנחיה מצוות הטיפול. אם המצב מחמיר, התקשרו ל־101.'
+              : 'זוהתה התאמה לתסמינים שדורשים בדיקה דחופה. הופיעה הודעת חירום במערכת — אל תמשיך בתרגול עד שמטפל או גורם רפואי ינחה אותך. אם המצב מחמיר, התקשרו ל־101.',
         },
       ]);
       setPendingOffer(null);
@@ -77,7 +83,9 @@ export default function GuardianAssistantFAB({
           onTherapistClinicalAlert?.(analysis.therapistAlertDetailHebrew);
         }
         const extra = analysis.suggestTherapistClinicalAlert
-          ? '\n\nעדכנתי את המטפל בהתראה במערכת — נדרשת החלטה מקצועית.'
+          ? isPortal
+            ? '\n\nעדכנתי את צוות הטיפול — יחזרו אליך בהתאם.'
+            : '\n\nעדכנתי את המטפל בהתראה במערכת — נדרשת החלטה מקצועית.'
           : '';
         setMessages((m) => [
           ...m,
@@ -104,7 +112,9 @@ export default function GuardianAssistantFAB({
         { role: 'user', text },
         {
           role: 'assistant',
-          text: 'מצוין! שלחתי בקשה למטפל שלך. הוא יראה אותה תחת «אישורים ממתינים» ויוכל לאשר או לדחות — רק אחרי אישורו יתעדכנו החזרות בתוכנית.',
+            text: isPortal
+              ? 'מצוין! שלחתי בקשה לצוות הטיפול. אחרי אישור מקצועי יתעדכנו החזרות בתוכנית שלך.'
+              : 'מצוין! שלחתי בקשה למטפל שלך. הוא יראה אותה תחת «אישורים ממתינים» ויוכל לאשר או לדחות — רק אחרי אישורו יתעדכנו החזרות בתוכנית.',
         },
       ]);
       setPendingOffer(null);
@@ -136,7 +146,7 @@ export default function GuardianAssistantFAB({
           background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
           boxShadow: '0 12px 28px -8px rgba(79, 70, 229, 0.55)',
         }}
-        aria-label="עוזר Guardian"
+        aria-label={isPortal ? 'עוזר דיגיטלי' : 'עוזר Guardian'}
       >
         <Bot className="w-7 h-7" />
       </button>
@@ -173,10 +183,12 @@ export default function GuardianAssistantFAB({
                 </div>
                 <div className="min-w-0">
                   <h2 id="guardian-title" className="text-sm font-bold text-indigo-950 truncate">
-                    עוזר Guardian
+                    {isPortal ? 'העוזר הדיגיטלי' : 'עוזר Guardian'}
                   </h2>
                   <p className="text-[11px] text-indigo-600/90">
-                    ניתוח כאב, רצף והתאמת עומס (ללא תחליף למטפל)
+                    {isPortal
+                      ? 'הבנת התרגול והתקדמות — תמיד לצד צוות הטיפול שלך'
+                      : 'ניתוח כאב, רצף והתאמת עומס (ללא תחליף למטפל)'}
                   </p>
                 </div>
               </div>
@@ -215,7 +227,9 @@ export default function GuardianAssistantFAB({
               ))}
               {pendingOffer && (
                 <p className="text-[11px] text-indigo-700 text-center px-2">
-                  אם תרצו לשלוח בקשה למטפל — ענו «כן» או «שלח».
+                  {isPortal
+                    ? 'לשליחת בקשה לצוות הטיפול — ענו «כן» או «שלח».'
+                    : 'אם תרצו לשלוח בקשה למטפל — ענו «כן» או «שלח».'}
                 </p>
               )}
               <div ref={endRef} />
@@ -227,7 +241,9 @@ export default function GuardianAssistantFAB({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder="שאלה או «כן» לאישור שליחה למטפל…"
+                placeholder={
+                  isPortal ? 'שאלה או «כן» לשליחה לצוות הטיפול…' : 'שאלה או «כן» לאישור שליחה למטפל…'
+                }
                 className="flex-1 min-w-0 rounded-2xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
                 style={{ background: '#fafafa' }}
               />
