@@ -1,12 +1,21 @@
 import * as THREE from 'three';
 
+export type MuscleFiberIntensity = 'strengthening' | 'strong';
+
 /**
- * יוצר מפת נורמל פרוצדורלית (סיבי שריר) + מפת מחוספסות עדינה — ללא נכסים חיצוניים.
+ * יוצר מפת נורמל פרוצדורלית (סיבי שריר) + מפת מחוספסות — ללא נכסים חיצוניים.
+ * `strong` — סיבים עמוקים יותר (ירכיים / בטן / דו-ראשי) לשלב כוח גבוה.
  */
-export function createMuscleFiberTextures(size = 256): {
+export function createMuscleFiberTextures(
+  size = 256,
+  intensity: MuscleFiberIntensity = 'strengthening'
+): {
   normalMap: THREE.CanvasTexture;
   roughnessMap: THREE.CanvasTexture;
 } {
+  const amp = intensity === 'strong' ? 1.42 : 1;
+  const freq = intensity === 'strong' ? 1.12 : 1;
+
   const h: Float32Array = new Float32Array(size * size);
 
   for (let y = 0; y < size; y++) {
@@ -14,11 +23,13 @@ export function createMuscleFiberTextures(size = 256): {
       const nx = x / size;
       const ny = y / size;
       const striations =
-        Math.sin(nx * Math.PI * 70) * 0.28 +
-        Math.sin(ny * Math.PI * 45 + nx * Math.PI * 28) * 0.22 +
-        Math.sin((nx + ny) * Math.PI * 55) * 0.12;
+        (Math.sin(nx * Math.PI * 70 * freq) * 0.28 +
+          Math.sin(ny * Math.PI * 45 * freq + nx * Math.PI * 28) * 0.22 +
+          Math.sin((nx + ny) * Math.PI * 55 * freq) * 0.12) *
+        amp;
       const grain =
-        Math.sin(nx * 523.7 + ny * 311.3) * 0.08 + Math.sin(nx * 199 + ny * 401) * 0.06;
+        (Math.sin(nx * 523.7 + ny * 311.3) * 0.08 + Math.sin(nx * 199 + ny * 401) * 0.06) *
+        (intensity === 'strong' ? 0.85 : 1);
       h[y * size + x] = striations + grain;
     }
   }

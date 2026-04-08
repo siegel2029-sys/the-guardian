@@ -24,10 +24,9 @@ import {
   createGlute,
 } from './geometry/muscleGeometry';
 import { getLevelTier } from '../../body/levelTier';
-import { getAnatomicalStage } from '../../body/anatomicalEvolution';
-import type { AnatomicalStage } from '../../body/anatomicalEvolution';
+import { getMuscleEvolutionStage } from '../../body/anatomicalEvolution';
+import type { MuscleEvolutionStage } from '../../body/anatomicalEvolution';
 import { createMuscleFiberTextures } from './proceduralMuscleTextures';
-import VascularNeuralEvolution from './VascularNeuralEvolution';
 import EquippedGearAttachments from './equippedGear/EquippedGearAttachments';
 import type { EquippedGearSnapshot } from '../../config/gearCatalog';
 
@@ -60,22 +59,25 @@ interface BaseProps {
   rotation?: [number, number, number];
   level: number;
   goldSkin?: boolean;
-  anatomicalStage: AnatomicalStage;
+  muscleStage: MuscleEvolutionStage;
 }
 
-function BaseSegment({ geometry, position, rotation, level, goldSkin, anatomicalStage }: BaseProps) {
+function BaseSegment({ geometry, position, rotation, level, goldSkin, muscleStage }: BaseProps) {
   const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
   const baseColor = goldSkin ? GOLD_SKIN : BASE_SKIN;
 
-  if (!goldSkin && anatomicalStage === 'skeletal') {
+  if (!goldSkin && muscleStage === 'recovery') {
     return (
-      <group position={position} rotation={rot}>
+      <group position={position} rotation={rot} scale={[0.96, 0.97, 0.96]}>
         <mesh geometry={geometry} castShadow receiveShadow>
           <meshStandardMaterial
-            color="#d3dde5"
-            roughness={0.93}
-            metalness={0.03}
-            envMapIntensity={0.3}
+            color="#cbd5e1"
+            roughness={0.94}
+            metalness={0.02}
+            envMapIntensity={0.28}
+            transparent
+            opacity={0.88}
+            depthWrite
           />
         </mesh>
       </group>
@@ -334,8 +336,11 @@ export default function AnatomyModel({
     [strengthenedAreasToday]
   );
 
-  const anatomicalStage = useMemo(() => getAnatomicalStage(level), [level]);
-  const muscleMaps = useMemo(() => createMuscleFiberTextures(256), []);
+  const muscleStage = useMemo(() => getMuscleEvolutionStage(level), [level]);
+  const muscleMaps = useMemo(
+    () => createMuscleFiberTextures(256, muscleStage === 'strong' ? 'strong' : 'strengthening'),
+    [muscleStage]
+  );
 
   useEffect(() => {
     return () => {
@@ -378,7 +383,7 @@ export default function AnatomyModel({
       xp,
       xpForNextLevel,
       streak,
-      anatomicalStage,
+      muscleStage: muscleStage,
       muscleNormalMap: muscleMaps.normalMap,
       muscleRoughnessMap: muscleMaps.roughnessMap,
       onAreaClick: area ? onAreaClick : undefined,
@@ -402,9 +407,9 @@ export default function AnatomyModel({
       )}
 
       {/* ══ HEAD ═══════════════════════════════════════════════ */}
-      <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
-      <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
-      <BaseSegment geometry={geos.ear}  position={[-0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
+      <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
+      <BaseSegment geometry={geos.ear}  position={[-0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
       <HeadFaceFeatures level={level} />
 
       {/* ══ NECK ═══════════════════════════════════════════════ */}
@@ -420,55 +425,43 @@ export default function AnatomyModel({
       <MuscleSegment {...S('back_upper')} geometry={geos.upperTorso} position={[0, 0.98, 0]} />
       <MuscleSegment {...S('back_lower')} geometry={geos.lowerTorso} position={[0, 0.54, 0]} />
       {/* Pelvis bridge (non-interactive) */}
-      <BaseSegment geometry={geos.pelvis} position={[0, 0.24, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment geometry={geos.pelvis} position={[0, 0.24, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
 
       {/* ══ LEFT ARM (+x) ══════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.upperArmL} position={[ 0.56, 0.90, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment    geometry={geos.upperArmL} position={[ 0.56, 0.90, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
       <MuscleSegment {...S('elbow_left')}  geometry={geos.elbowL}    position={[ 0.58, 0.60, 0]} />
-      <BaseSegment    geometry={geos.forearmL}  position={[ 0.56, 0.21, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment    geometry={geos.forearmL}  position={[ 0.56, 0.21, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
       <MuscleSegment {...S('wrist_left')}  geometry={geos.wristL}    position={[ 0.57,-0.04, 0]} />
-      <BaseSegment    geometry={geos.handL}     position={[ 0.57,-0.22, 0.02]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment    geometry={geos.handL}     position={[ 0.57,-0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
 
       {/* ══ RIGHT ARM (-x) ═════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.upperArmR} position={[-0.56, 0.90, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment    geometry={geos.upperArmR} position={[-0.56, 0.90, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
       <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR}    position={[-0.58, 0.60, 0]} />
-      <BaseSegment    geometry={geos.forearmR}  position={[-0.56, 0.21, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment    geometry={geos.forearmR}  position={[-0.56, 0.21, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
       <MuscleSegment {...S('wrist_right')} geometry={geos.wristR}    position={[-0.57,-0.04, 0]} />
-      <BaseSegment    geometry={geos.handR}     position={[-0.57,-0.22, 0.02]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment    geometry={geos.handR}     position={[-0.57,-0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
 
       {/* ══ HIPS ═══════════════════════════════════════════════ */}
       <MuscleSegment {...S('hip_left')}  geometry={geos.gluteL} position={[ 0.24, 0.14, 0]} />
       <MuscleSegment {...S('hip_right')} geometry={geos.gluteR} position={[-0.24, 0.14, 0]} />
 
       {/* ══ LEFT LEG (+x) ══════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.thighL}  position={[ 0.24,-0.27, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment    geometry={geos.thighL}  position={[ 0.24,-0.27, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
       <MuscleSegment {...S('knee_left')}  geometry={geos.kneeL}  position={[ 0.24,-0.62, 0]} />
-      <BaseSegment    geometry={geos.shinL}   position={[ 0.24,-0.98, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment    geometry={geos.shinL}   position={[ 0.24,-0.98, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
       <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[ 0.24,-1.33, 0]} />
-      <BaseSegment    geometry={geos.footL}   position={[ 0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment    geometry={geos.footL}   position={[ 0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
 
       {/* ══ RIGHT LEG (-x) ═════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.thighR}  position={[-0.24,-0.27, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment    geometry={geos.thighR}  position={[-0.24,-0.27, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
       <MuscleSegment {...S('knee_right')} geometry={geos.kneeR}  position={[-0.24,-0.62, 0]} />
-      <BaseSegment    geometry={geos.shinR}   position={[-0.24,-0.98, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment    geometry={geos.shinR}   position={[-0.24,-0.98, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
       <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[-0.24,-1.33, 0]} />
-      <BaseSegment    geometry={geos.footR}   position={[-0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
+      <BaseSegment    geometry={geos.footR}   position={[-0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
 
       {/* ══ CALF detail (overlaid on shins for back muscle detail) */}
-      <BaseSegment geometry={geos.calfL} position={[ 0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
-      <BaseSegment geometry={geos.calfR} position={[-0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} anatomicalStage={anatomicalStage} />
-
-      <VascularNeuralEvolution stage={anatomicalStage} />
-
-      {anatomicalStage === 'neural' && (
-        <pointLight
-          position={[0, 1.05, 0.75]}
-          intensity={0.42}
-          color="#a5f3fc"
-          distance={2.6}
-          decay={2}
-        />
-      )}
+      <BaseSegment geometry={geos.calfL} position={[ 0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
+      <BaseSegment geometry={geos.calfR} position={[-0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
 
       <EquippedGearAttachments equipped={equippedGear} />
         </group>

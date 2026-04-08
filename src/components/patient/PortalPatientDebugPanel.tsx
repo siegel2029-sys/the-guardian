@@ -42,21 +42,21 @@ export default function PortalPatientDebugPanel() {
           }}
         >
           <p className="text-[9px] text-slate-400 leading-snug mb-1">
-            אבולוציה אנטומית + חנות (רק dev)
+            אבולוציית שריר (רק dev) + חנות
           </p>
           <button
             type="button"
             className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600"
             onClick={() =>
               updatePatient(pid, {
-                level: 1 as ExerciseLevel,
+                level: 2 as ExerciseLevel,
                 xp: 0,
                 xpForNextLevel: 500,
                 currentStreak: 0,
               })
             }
           >
-            רמה 1 (שלד)
+            רמה 2 — רזה / חלש
           </button>
           <button
             type="button"
@@ -69,11 +69,11 @@ export default function PortalPatientDebugPanel() {
               })
             }
           >
-            רמה 5 (שריר + מפות)
+            רמה 5 — מוגדר / פעיל
           </button>
           <button
             type="button"
-            className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-violet-900 text-violet-100 hover:bg-violet-800"
+            className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-cyan-900 text-cyan-100 hover:bg-cyan-800"
             onClick={() =>
               updatePatient(pid, {
                 level: 10 as ExerciseLevel,
@@ -82,7 +82,7 @@ export default function PortalPatientDebugPanel() {
               })
             }
           >
-            רמה 10 (כלי דם + עצבוב)
+            רמה 10 — חזק / עוצמה
           </button>
           <button
             type="button"

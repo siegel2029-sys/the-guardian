@@ -5,10 +5,13 @@ import * as THREE from 'three';
 import type { BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { getLevelTier } from '../../body/levelTier';
-import type { AnatomicalStage } from '../../body/anatomicalEvolution';
+import type { MuscleEvolutionStage } from '../../body/anatomicalEvolution';
 import {
-  anatomicalStageUsesMuscleTextures,
-  getAnatomicalStage,
+  getMuscleEvolutionStage,
+  muscleStageHealthyGlowExtra,
+  muscleStageNormalScaleMul,
+  muscleStageUsesFiberNormalMap,
+  muscleStageVolumeBoost,
 } from '../../body/anatomicalEvolution';
 
 const MUSCLE_NORMAL_STD = new THREE.Vector2(0.42, 0.42);
@@ -34,8 +37,8 @@ export interface MuscleSegmentProps {
   xpForNextLevel?: number;
   /** Current streak — reserved (streak VFX live on BodyMap3D) */
   streak?: number;
-  /** שלבי אבולוציה אנטומית (שריר / כלי דם / עצבוב) */
-  anatomicalStage?: AnatomicalStage;
+  /** שלבי נפח שריר: התאוששות → חיזוק → כוח */
+  muscleStage?: MuscleEvolutionStage;
   muscleNormalMap?: THREE.Texture | null;
   muscleRoughnessMap?: THREE.Texture | null;
   onAreaClick?: (area: BodyArea) => void;
@@ -62,9 +65,9 @@ interface MatProps {
 }
 
 function strongPalette(area: BodyArea): { color: string; emissive: string } {
-  const gold = (area.charCodeAt(0) + area.length) % 2 === 0;
-  if (gold) return { color: '#e8c547', emissive: '#b8860b' };
-  return { color: '#38bdf8', emissive: '#0284c7' };
+  const tealSide = (area.charCodeAt(0) + area.length) % 2 === 0;
+  if (tealSide) return { color: '#5eead4', emissive: '#0d9488' };
+  return { color: '#ef4444', emissive: '#7f1d1d' };
 }
 
 function recoveredChromeExtras(): Pick<
@@ -110,12 +113,14 @@ function computeMatProps(
   strengthenedToday: boolean,
   isHovered: boolean,
   level: number,
-  stage: AnatomicalStage
+  stage: MuscleEvolutionStage
 ): MatProps {
   const tier = getLevelTier(level);
   const lf = Math.min(Math.max(level, 1), 10) / 10;
   const hv = isHovered ? 0.06 : 0;
   const envAccent = clinicalLocked || selfCareSelected ? 2.15 : 1.42;
+  const volBoost = muscleStageVolumeBoost(stage);
+  const glowX = muscleStageHealthyGlowExtra(stage);
 
   const strongPal =
     strengthenedToday && !isHighPain && selfCareSelected && area
@@ -157,10 +162,10 @@ function computeMatProps(
   if (clinicalLocked) {
     const chrome = tier === 'recovered' ? recoveredChromeExtras() : activeMatteTeal();
     return basePhysical({
-      color: '#ff6b6b',
-      emissive: '#ff1744',
-      emissiveIntensity: 1.35 + hv * 0.85,
-      targetScale: 1.045 + (isHovered ? 0.025 : 0),
+      color: '#dc2626',
+      emissive: '#7f1d1d',
+      emissiveIntensity: 1.35 + hv * 0.85 + glowX * 0.25,
+      targetScale: 1.045 + (isHovered ? 0.025 : 0) + volBoost,
       ...chrome,
       metalness: tier === 'recovered' ? chrome.metalness * 0.85 : 0.28,
       roughness: tier === 'recovered' ? chrome.roughness + 0.06 : 0.24,
@@ -174,7 +179,7 @@ function computeMatProps(
         color: strongPal.color,
         emissive: strongPal.emissive,
         emissiveIntensity: 1.52 + hv * 0.95,
-        targetScale: 1.08 + (isHovered ? 0.035 : 0),
+        targetScale: 1.08 + (isHovered ? 0.035 : 0) + volBoost,
         metalness: 0.42,
         roughness: 0.2,
         clearcoat: 0.68,
@@ -186,10 +191,10 @@ function computeMatProps(
       });
     }
     const green = basePhysical({
-      color: '#6bff8f',
-      emissive: '#39ff14',
-      emissiveIntensity: 1.28 + hv * 0.9,
-      targetScale: 1.065 + (isHovered ? 0.035 : 0),
+      color: '#2dd4bf',
+      emissive: '#0f766e',
+      emissiveIntensity: 1.22 + hv * 0.85 + glowX,
+      targetScale: 1.065 + (isHovered ? 0.035 : 0) + volBoost,
       roughness: tier === 'injured' ? 0.42 : 0.24,
       metalness: tier === 'injured' ? 0.12 : 0.22,
       clearcoat: tier === 'injured' ? 0.2 : 0.52,
@@ -231,7 +236,7 @@ function computeMatProps(
   }
 
   if (
-    stage === 'skeletal' &&
+    stage === 'recovery' &&
     area &&
     !clinicalLocked &&
     !selfCareSelected &&
@@ -239,25 +244,25 @@ function computeMatProps(
   ) {
     return {
       useStandardMaterial: true,
-      color: isPrimary ? '#d8e0e8' : '#c9d4dd',
-      emissive: '#1e293b',
-      emissiveIntensity: 0.035 + hv * 0.5,
-      roughness: 0.92,
-      metalness: 0.035,
+      color: isPrimary ? '#bae6fd' : '#94a3b8',
+      emissive: '#0e7490',
+      emissiveIntensity: 0.06 + hv * 0.45,
+      roughness: 0.9,
+      metalness: 0.04,
       clearcoat: 0,
       clearcoatRoughness: 0.5,
-      envMapIntensity: 0.4,
+      envMapIntensity: 0.45,
       iridescence: 0,
       iridescenceIOR: 1,
       iridescenceThicknessRange: [0, 0],
-      transparent: false,
-      opacity: 1,
-      depthWrite: true,
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false,
       targetScale:
-        1 +
-        (isPrimary ? 0.05 : 0.02) +
-        (isHovered ? 0.04 : 0) +
-        (isSelected ? 0.03 : 0),
+        0.98 +
+        (isPrimary ? 0.04 : 0.015) +
+        (isHovered ? 0.03 : 0) +
+        (isSelected ? 0.025 : 0),
     };
   }
 
@@ -284,19 +289,19 @@ function computeMatProps(
     }
     const m = activeMatteTeal();
     return basePhysical({
-      color: isHovered ? '#9fdbef' : '#7ec8de',
-      emissive: '#000000',
-      emissiveIntensity: 0,
-      targetScale: 1 + (isHovered ? 0.03 : 0),
+      color: isHovered ? '#7dd3fc' : '#5eead4',
+      emissive: '#0f172a',
+      emissiveIntensity: stage === 'strong' ? 0.04 : 0,
+      targetScale: 1 + (isHovered ? 0.03 : 0) + volBoost * 0.4,
       ...m,
       roughness: m.roughness + 0.04,
     });
   }
 
-  const colorStops = ['#5eead4', '#2dd4bf', '#14b8a6', '#0d9488', '#0f766e'];
+  const colorStops = ['#991b1b', '#b91c1c', '#dc2626', '#14b8a6', '#2dd4bf'];
   const ci = Math.min(Math.floor(lf * 5), 4);
-  const baseColor = isSelected ? '#99f6e4' : colorStops[ci];
-  const baseEmissive = '#0d9488';
+  const baseColor = isSelected ? '#5eead4' : colorStops[ci];
+  const baseEmissive = ci <= 2 ? '#450a0a' : '#0f766e';
 
   if (tier === 'injured') {
     return {
@@ -328,12 +333,14 @@ function computeMatProps(
     return basePhysical({
       color: baseColor,
       emissive: baseEmissive,
-      emissiveIntensity: lf * (isPrimary ? 0.48 : 0.26) + hv + (isSelected ? 0.12 : 0),
+      emissiveIntensity:
+        lf * (isPrimary ? 0.48 : 0.26) + hv + (isSelected ? 0.12 : 0) + glowX,
       targetScale:
         1 +
         (isPrimary ? lf * 0.18 : lf * 0.07) +
         (isHovered ? 0.05 : 0) +
-        (isSelected ? 0.04 : 0),
+        (isSelected ? 0.04 : 0) +
+        volBoost,
       ...m,
     });
   }
@@ -342,12 +349,14 @@ function computeMatProps(
   return basePhysical({
     color: baseColor,
     emissive: baseEmissive,
-    emissiveIntensity: lf * (isPrimary ? 0.62 : 0.38) + hv + 0.08 + (isSelected ? 0.12 : 0),
+    emissiveIntensity:
+      lf * (isPrimary ? 0.62 : 0.38) + hv + 0.08 + (isSelected ? 0.12 : 0) + glowX,
     targetScale:
       1 +
       (isPrimary ? lf * 0.2 : lf * 0.09) +
       (isHovered ? 0.05 : 0) +
-      (isSelected ? 0.04 : 0),
+      (isSelected ? 0.04 : 0) +
+      volBoost,
     ...c,
   });
 }
@@ -372,7 +381,7 @@ export default function MuscleSegment({
   xp: _xp,
   xpForNextLevel: _xn,
   streak: _st,
-  anatomicalStage: anatomicalStageProp,
+  muscleStage: muscleStageProp,
   muscleNormalMap = null,
   muscleRoughnessMap = null,
   onAreaClick,
@@ -382,7 +391,7 @@ export default function MuscleSegment({
   void _xn;
   void _st;
 
-  const anatomicalStage = anatomicalStageProp ?? getAnatomicalStage(level);
+  const muscleStage = muscleStageProp ?? getMuscleEvolutionStage(level);
 
   const meshRef = useRef<THREE.Mesh>(null);
   const stdRef = useRef<THREE.MeshStandardMaterial>(null);
@@ -402,7 +411,7 @@ export default function MuscleSegment({
         strengthenedToday,
         hovered,
         level,
-        anatomicalStage
+        muscleStage
       ),
     [
       area,
@@ -415,14 +424,24 @@ export default function MuscleSegment({
       strengthenedToday,
       hovered,
       level,
-      anatomicalStage,
+      muscleStage,
     ]
   );
 
   const useMuscleMaps =
-    anatomicalStageUsesMuscleTextures(anatomicalStage) &&
+    muscleStageUsesFiberNormalMap(muscleStage) &&
     muscleNormalMap != null &&
     muscleRoughnessMap != null;
+
+  const normalMul = muscleStageNormalScaleMul(muscleStage);
+  const normalStdScaled = useMemo(
+    () => new THREE.Vector2(MUSCLE_NORMAL_STD.x * normalMul, MUSCLE_NORMAL_STD.y * normalMul),
+    [normalMul]
+  );
+  const normalPhysScaled = useMemo(
+    () => new THREE.Vector2(MUSCLE_NORMAL_PHYS.x * normalMul, MUSCLE_NORMAL_PHYS.y * normalMul),
+    [normalMul]
+  );
 
   useFrame(() => {
     const mesh = meshRef.current;
@@ -521,7 +540,7 @@ export default function MuscleSegment({
             depthWrite={mp.depthWrite}
             normalMap={useMuscleMaps ? muscleNormalMap ?? undefined : undefined}
             roughnessMap={useMuscleMaps ? muscleRoughnessMap ?? undefined : undefined}
-            normalScale={useMuscleMaps ? MUSCLE_NORMAL_STD : undefined}
+            normalScale={useMuscleMaps ? normalStdScaled : undefined}
           />
         ) : (
           <meshPhysicalMaterial
@@ -542,7 +561,7 @@ export default function MuscleSegment({
             depthWrite={mp.depthWrite}
             normalMap={useMuscleMaps ? muscleNormalMap ?? undefined : undefined}
             roughnessMap={useMuscleMaps ? muscleRoughnessMap ?? undefined : undefined}
-            normalScale={useMuscleMaps ? MUSCLE_NORMAL_PHYS : undefined}
+            normalScale={useMuscleMaps ? normalPhysScaled : undefined}
           />
         )}
 
