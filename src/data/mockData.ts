@@ -162,10 +162,24 @@ export const mockMessages: Message[] = [
 ];
 
 // ── Global Exercise Library ───────────────────────────────────────
+// ניתן לשייך לכל תרגיל `videoUrl`: קישור YouTube/Vimeo או קובץ MP4 ישיר — יוצג במודאל האימון.
 
 export const EXERCISE_LIBRARY: Exercise[] = [
   // Lower back
-  { id: 'lib-bridge',      name: 'גשר אגן',            muscleGroup: 'גב תחתון', targetArea: 'back_lower',     sets: 3, reps: 12,        difficulty: 2, type: 'clinical',  instructions: 'שכב על הגב. הרם האגן עד יישור קו. החזק 2 שנ\' ורד.',              xpReward: 30, videoPlaceholder: 'גשר אגן – הדגמה' },
+  {
+    id: 'lib-bridge',
+    name: 'גשר אגן',
+    muscleGroup: 'גב תחתון',
+    targetArea: 'back_lower',
+    sets: 3,
+    reps: 12,
+    difficulty: 2,
+    type: 'clinical',
+    instructions: 'שכב על הגב. הרם האגן עד יישור קו. החזק 2 שנ\' ורד.',
+    xpReward: 30,
+    videoPlaceholder: 'גשר אגן – הדגמה',
+    videoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+  },
   { id: 'lib-plank',       name: 'פלאנק',               muscleGroup: 'ליבה',     targetArea: 'back_lower',     sets: 3, holdSeconds: 20,  difficulty: 3, type: 'clinical',  instructions: 'עמוד על אמות ידיים. גוף ישר. אל תניח האגן לצנוח.',               xpReward: 40, videoPlaceholder: 'פלאנק – הדגמה' },
   { id: 'lib-superman',    name: 'שחייה יבשה',          muscleGroup: 'גב תחתון', targetArea: 'back_lower',     sets: 3, reps: 10,        difficulty: 3, type: 'clinical',  instructions: 'שכב על הבטן. הרם יד ורגל נגדית.',                                xpReward: 35, videoPlaceholder: 'שחייה יבשה – הדגמה' },
   { id: 'lib-pelvic-tilt', name: 'הטיית אגן',           muscleGroup: 'גב תחתון', targetArea: 'back_lower',     sets: 3, reps: 15,        difficulty: 1, type: 'standard', instructions: 'שכב עם ברכיים כפופות. לחץ גב תחתון לרצפה.',                      xpReward: 20, videoPlaceholder: 'הטיית אגן – הדגמה' },
@@ -206,7 +220,7 @@ export const mockExercisePlans: ExercisePlan[] = [
   {
     patientId: 'patient-001',
     exercises: [
-      pe({ id: 'ex-001-1', name: 'גשר אגן',        muscleGroup: getMuscleGroupLabel('back_lower'), targetArea: 'back_lower', sets: 3, reps: 12,        difficulty: 2, type: 'clinical',  instructions: 'שכב על הגב. הרם האגן עד יישור קו. החזק 2 שנ\'.',             xpReward: 30, videoPlaceholder: 'גשר אגן – הדגמה'        }, 12, 3),
+      pe({ id: 'ex-001-1', name: 'גשר אגן',        muscleGroup: getMuscleGroupLabel('back_lower'), targetArea: 'back_lower', sets: 3, reps: 12,        difficulty: 2, type: 'clinical',  instructions: 'שכב על הגב. הרם האגן עד יישור קו. החזק 2 שנ\'.',             xpReward: 30, videoPlaceholder: 'גשר אגן – הדגמה', videoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4' }, 12, 3),
       pe({ id: 'ex-001-2', name: 'מתיחת ברך לחזה', muscleGroup: getMuscleGroupLabel('back_lower'), targetArea: 'back_lower', sets: 2, holdSeconds: 30, difficulty: 1, type: 'clinical',  instructions: 'שכב על הגב. משוך ברך לחזה. החלף רגליים.',                   xpReward: 20, videoPlaceholder: 'מתיחת ברך – הדגמה'       }, 0,  2),
       pe({ id: 'ex-001-3', name: 'פלאנק',          muscleGroup: 'ליבה',                            targetArea: 'back_lower', sets: 3, holdSeconds: 20, difficulty: 3, type: 'clinical',  instructions: 'עמוד על אמות ידיים. גוף ישר.',                               xpReward: 40, videoPlaceholder: 'פלאנק – הדגמה'           }, 0,  3),
       pe({ id: 'ex-001-4', name: 'הטיית אגן',      muscleGroup: getMuscleGroupLabel('back_lower'), targetArea: 'back_lower', sets: 3, reps: 15,        difficulty: 1, type: 'standard', instructions: 'שכב. לחץ גב תחתון לרצפה. שחרר לאט.',                        xpReward: 20, videoPlaceholder: 'הטיית אגן – הדגמה'       }, 15, 3),

@@ -7,6 +7,7 @@ import type {
   SafetyAlert,
   BodyArea,
   SelfCareSessionReport,
+  PatientExerciseFinishReport,
 } from '../types';
 import { invalidatePersistedBootstrapCache } from '../bootstrap/invalidateBootstrap';
 
@@ -26,6 +27,8 @@ export type PersistedPatientStateV1 = {
   selfCareZonesByPatientId?: Record<string, BodyArea[]>;
   /** דיווחי תרגילי כוח/פרהאב — לפי מזהה מטופל */
   selfCareReportsByPatientId?: Record<string, SelfCareSessionReport[]>;
+  /** דיווחי סיום תרגול (מודאל) — לאנליטיקה למטפל */
+  patientExerciseFinishReportsByPatientId?: Record<string, PatientExerciseFinishReport[]>;
 };
 
 export function loadPersistedPatientState(): PersistedPatientStateV1 | null {

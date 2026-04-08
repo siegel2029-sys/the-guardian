@@ -63,31 +63,31 @@ function computeMatProps(
     };
   }
 
-  // ── Clinical rehab zone (therapist) — red, not toggled by patient ──
+  // ── Clinical rehab zone (therapist) — neon red ────────────────
   if (clinicalLocked) {
     return {
-      color: '#f87171',
-      emissive: '#991b1b',
-      emissiveIntensity: 0.52 + hv * 0.5,
-      roughness: 0.42,
-      metalness: 0.12,
-      clearcoat: 0.22,
-      clearcoatRoughness: 0.45,
-      targetScale: 1.0 + (isHovered ? 0.02 : 0),
+      color: '#ff6b6b',
+      emissive: '#ff1744',
+      emissiveIntensity: 1.35 + hv * 0.85,
+      roughness: 0.22,
+      metalness: 0.28,
+      clearcoat: 0.55,
+      clearcoatRoughness: 0.28,
+      targetScale: 1.045 + (isHovered ? 0.025 : 0),
     };
   }
 
-  // ── Self-care multi-select — green ───────────────────────────
+  // ── Self-care multi-select — neon green ─────────────────────
   if (selfCareSelected) {
     return {
-      color: '#4ade80',
-      emissive: '#14532d',
-      emissiveIntensity: 0.58 + hv,
-      roughness: 0.38,
-      metalness: 0.1,
-      clearcoat: 0.2,
-      clearcoatRoughness: 0.48,
-      targetScale: 1.04 + (isHovered ? 0.03 : 0),
+      color: '#6bff8f',
+      emissive: '#39ff14',
+      emissiveIntensity: 1.28 + hv * 0.9,
+      roughness: 0.24,
+      metalness: 0.22,
+      clearcoat: 0.52,
+      clearcoatRoughness: 0.3,
+      targetScale: 1.065 + (isHovered ? 0.035 : 0),
     };
   }
 
@@ -276,7 +276,7 @@ export default function MuscleSegment({
         metalness={mp.metalness}
         clearcoat={mp.clearcoat}
         clearcoatRoughness={mp.clearcoatRoughness}
-        envMapIntensity={1.4}
+        envMapIntensity={clinicalLocked || selfCareSelected ? 2.15 : 1.4}
       />
 
       {children}

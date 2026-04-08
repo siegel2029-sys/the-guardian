@@ -93,6 +93,19 @@ export interface SelfCareSessionReport {
   loggedAt: string;
 }
 
+/** דיווח סיום תרגול מתוך מודאל האימון — לאנליטיקה למטפל */
+export interface PatientExerciseFinishReport {
+  id: string;
+  patientId: string;
+  exerciseId: string;
+  /** תווית אזור גוף (עברית), לתצוגת דשבורד */
+  zoneName: string;
+  difficultyScore: 1 | 2 | 3 | 4 | 5;
+  timestamp: string;
+  /** true = תרגיל מאזור שיקום אדום (מטפל) */
+  isClinical: boolean;
+}
+
 export interface Patient {
   id: string;
   /** מטפל אחראי — סינון דשבורד ורישום מטופלים חדשים */

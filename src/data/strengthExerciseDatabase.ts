@@ -12,8 +12,8 @@ export interface StrengthExerciseLevelDef {
   /** When true, UI shows reps as seconds (ש״) not חזרות */
   repsAreSeconds?: boolean;
   instructions: string;
-  /** Direct file for `<video>` loop */
-  demoVideoUrl: string;
+  /** YouTube / Vimeo / MP4 — אותו שדה כמו בתרגילי שיקום */
+  videoUrl: string;
   /** נק׳ XP כמו בתרגילי שיקום (אחרי טיימר + דיווח) */
   xpReward: number;
 }
@@ -43,7 +43,7 @@ function L(
     reps,
     repsAreSeconds,
     instructions,
-    demoVideoUrl: DEMO_MP4,
+    videoUrl: DEMO_MP4,
     xpReward,
   };
 }

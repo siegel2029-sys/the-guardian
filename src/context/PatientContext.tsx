@@ -13,6 +13,7 @@ import type {
   PatientExercise, AiSuggestion, Exercise, PainLevel, ExerciseSession, AiSuggestionSource,
   SafetyAlert, ClinicalSafetyTier, DailyHistoryEntry, BodyArea,
   SelfCareSessionReport,
+  PatientExerciseFinishReport,
 } from '../types';
 import { bodyAreaLabels } from '../types';
 import {
@@ -40,6 +41,7 @@ import {
 } from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 import { bodyAreaIsClinicalFocus } from '../body/bodyPickMapping';
+import { sendDataToTherapist } from '../utils/therapistAnalytics';
 
 function buildEmptySession(patientId: string, clinicalDate: string): DailySession {
   return { patientId, date: clinicalDate, completedIds: [], sessionXp: 0 };
@@ -198,6 +200,14 @@ interface PatientContextValue {
   ) => void;
   getSelfCareReportsForPatient: (patientId: string) => SelfCareSessionReport[];
   getSelfCareReportsForClinicalDay: (patientId: string, clinicalDate: string) => SelfCareSessionReport[];
+
+  /** דיווחי סיום מתוך מודאל האימון (נשמרים ב-localStorage) */
+  patientExerciseFinishReportsByPatientId: Record<string, PatientExerciseFinishReport[]>;
+  appendPatientExerciseFinishReport: (
+    patientId: string,
+    entry: Omit<PatientExerciseFinishReport, 'id' | 'patientId' | 'timestamp'>
+  ) => void;
+  getPatientExerciseFinishReports: (patientId: string) => PatientExerciseFinishReport[];
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -308,6 +318,10 @@ export function PatientProvider({
   const [selfCareReportsByPatientId, setSelfCareReportsByPatientId] = useState<
     Record<string, SelfCareSessionReport[]>
   >(() => readPersistedOnce().patient?.selfCareReportsByPatientId ?? {});
+  const [patientExerciseFinishReportsByPatientId, setPatientExerciseFinishReportsByPatientId] =
+    useState<Record<string, PatientExerciseFinishReport[]>>(
+      () => readPersistedOnce().patient?.patientExerciseFinishReportsByPatientId ?? {}
+    );
 
   const isPatientSessionLocked = restrictPatientSessionId != null && restrictPatientSessionId !== '';
 
@@ -354,6 +368,7 @@ export function PatientProvider({
       exerciseSafetyLockedPatientIds,
       selfCareZonesByPatientId,
       selfCareReportsByPatientId,
+      patientExerciseFinishReportsByPatientId,
     });
   }, [
     allPatients,
@@ -366,6 +381,7 @@ export function PatientProvider({
     exerciseSafetyLockedPatientIds,
     selfCareZonesByPatientId,
     selfCareReportsByPatientId,
+    patientExerciseFinishReportsByPatientId,
   ]);
 
   const applyExternalSnapshot = useCallback(
@@ -379,6 +395,9 @@ export function PatientProvider({
       setExerciseSafetyLockedPatientIds(data.exerciseSafetyLockedPatientIds ?? {});
       setSelfCareZonesByPatientId(data.selfCareZonesByPatientId ?? {});
       setSelfCareReportsByPatientId(data.selfCareReportsByPatientId ?? {});
+      setPatientExerciseFinishReportsByPatientId(
+        data.patientExerciseFinishReportsByPatientId ?? {}
+      );
       if (!restrictPatientSessionId) {
         setSelectedPatientId(data.selectedPatientId ?? '');
       }
@@ -724,7 +743,7 @@ export function PatientProvider({
     ) => {
       const clinicalDay = getClinicalDate();
       const prior = dailySessions.find((s) => s.patientId === patientId && s.date === clinicalDay);
-      if (prior?.completedIds.includes(exerciseId)) return;
+      const wasRepeatCompletion = prior?.completedIds.includes(exerciseId) ?? false;
 
       const pain = clampPain(painLevel);
       const effort = clampEffort(effortRating);
@@ -735,7 +754,6 @@ export function PatientProvider({
 
       setDailySessions((prev) => {
         const existing = prev.find((s) => s.patientId === patientId && s.date === clinicalDay);
-        if (existing?.completedIds.includes(exerciseId)) return prev;
         if (!existing) {
           return [
             ...prev,
@@ -751,7 +769,9 @@ export function PatientProvider({
           s.patientId === patientId && s.date === clinicalDay
             ? {
                 ...s,
-                completedIds: [...s.completedIds, exerciseId],
+                completedIds: s.completedIds.includes(exerciseId)
+                  ? s.completedIds
+                  : [...s.completedIds, exerciseId],
                 sessionXp: s.sessionXp + xpReward,
               }
             : s
@@ -806,21 +826,35 @@ export function PatientProvider({
             ];
           } else {
             const cur = sh[todayIdx];
-            const n = cur.exercisesCompleted + 1;
-            const avgDiff = Math.round(
-              (cur.difficultyRating * cur.exercisesCompleted + effort) / n
-            );
-            newSessionHistory = sh.map((s, i) =>
-              i === todayIdx
-                ? {
-                    ...s,
-                    exercisesCompleted: n,
-                    totalExercises: Math.max(s.totalExercises, totalInPlan || 1),
-                    difficultyRating: avgDiff,
-                    xpEarned: s.xpEarned + xpReward,
-                  }
-                : s
-            );
+            if (!wasRepeatCompletion) {
+              const n = cur.exercisesCompleted + 1;
+              const avgDiff = Math.round(
+                (cur.difficultyRating * cur.exercisesCompleted + effort) / n
+              );
+              newSessionHistory = sh.map((s, i) =>
+                i === todayIdx
+                  ? {
+                      ...s,
+                      exercisesCompleted: n,
+                      totalExercises: Math.max(s.totalExercises, totalInPlan || 1),
+                      difficultyRating: avgDiff,
+                      xpEarned: s.xpEarned + xpReward,
+                    }
+                  : s
+              );
+            } else {
+              newSessionHistory = sh.map((s, i) =>
+                i === todayIdx
+                  ? {
+                      ...s,
+                      exercisesCompleted: cur.exercisesCompleted,
+                      totalExercises: Math.max(s.totalExercises, totalInPlan || 1),
+                      difficultyRating: Math.round((cur.difficultyRating + effort) / 2),
+                      xpEarned: s.xpEarned + xpReward,
+                    }
+                  : s
+              );
+            }
           }
 
           const sessionDiffAvg =
@@ -1333,6 +1367,34 @@ export function PatientProvider({
     [selfCareReportsByPatientId]
   );
 
+  const appendPatientExerciseFinishReport = useCallback(
+    (
+      patientId: string,
+      entry: Omit<PatientExerciseFinishReport, 'id' | 'patientId' | 'timestamp'>
+    ) => {
+      const full: PatientExerciseFinishReport = {
+        ...entry,
+        id: `fin-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        patientId,
+        timestamp: new Date().toISOString(),
+      };
+      sendDataToTherapist(full);
+      setPatientExerciseFinishReportsByPatientId((prev) => ({
+        ...prev,
+        [patientId]: [...(prev[patientId] ?? []), full],
+      }));
+    },
+    []
+  );
+
+  const getPatientExerciseFinishReports = useCallback(
+    (patientId: string) =>
+      [...(patientExerciseFinishReportsByPatientId[patientId] ?? [])].sort((a, b) =>
+        b.timestamp.localeCompare(a.timestamp)
+      ),
+    [patientExerciseFinishReportsByPatientId]
+  );
+
   const resetPatientExercisePlan = useCallback((patientId: string) => {
     setExercisePlans((prev) =>
       prev.some((ep) => ep.patientId === patientId)
@@ -1407,6 +1469,9 @@ export function PatientProvider({
         logSelfCareSession,
         getSelfCareReportsForPatient,
         getSelfCareReportsForClinicalDay,
+        patientExerciseFinishReportsByPatientId,
+        appendPatientExerciseFinishReport,
+        getPatientExerciseFinishReports,
       }}
     >
       {children}

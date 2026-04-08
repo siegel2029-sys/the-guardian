@@ -1,4 +1,3 @@
-import { useRef, useCallback } from 'react';
 import {
   Play,
   CheckCircle2,
@@ -27,16 +26,14 @@ export interface PortalExerciseCardProps {
   subtitle: string;
   xpReward: number;
   videoUrl: string | null;
-  effortValue: 1 | 2 | 3 | 4 | 5;
-  onEffortChange: (n: 1 | 2 | 3 | 4 | 5) => void;
-  onOpenVideo: () => void;
+  /** פותח את ממשק האימון המלא (וידאו, טיימר, מאמץ — הכל במודאל) */
+  onOpenTraining: () => void;
   disabled?: boolean;
   /** rehab */
   typeKey?: string;
   isCustomExercise?: boolean;
   onOpenDetails?: () => void;
   /** self-care */
-  instructions?: string;
   levelLine?: string;
   canAdvance?: boolean;
   onAdvance?: () => void;
@@ -50,39 +47,16 @@ export default function PortalExerciseCard({
   subtitle,
   xpReward,
   videoUrl,
-  effortValue,
-  onEffortChange,
-  onOpenVideo,
+  onOpenTraining,
   disabled = false,
   typeKey,
   isCustomExercise,
   onOpenDetails,
-  instructions,
   levelLine,
   canAdvance,
   onAdvance,
 }: PortalExerciseCardProps) {
-  const previewRef = useRef<HTMLVideoElement>(null);
   const hasVideo = Boolean(videoUrl);
-
-  const playPreview = useCallback(() => {
-    if (isCompleted || disabled || !hasVideo || !previewRef.current) return;
-    const v = previewRef.current;
-    v.muted = true;
-    v.loop = true;
-    v.play().catch(() => {});
-  }, [isCompleted, disabled, hasVideo]);
-
-  const stopPreview = useCallback(() => {
-    if (!previewRef.current) return;
-    const v = previewRef.current;
-    v.pause();
-    try {
-      v.currentTime = 0;
-    } catch {
-      /* ignore */
-    }
-  }, []);
 
   const type =
     variant === 'rehab' && !isCustomExercise && typeKey
@@ -117,10 +91,8 @@ export default function PortalExerciseCard({
       <div className="flex items-center gap-2 py-2 pr-2 pl-2">
         <button
           type="button"
-          disabled={isCompleted || disabled}
-          onClick={onOpenVideo}
-          onMouseEnter={playPreview}
-          onMouseLeave={stopPreview}
+          disabled={disabled}
+          onClick={onOpenTraining}
           className="shrink-0 rounded-lg overflow-hidden border relative cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
           style={{
             width: THUMB_W,
@@ -128,16 +100,14 @@ export default function PortalExerciseCard({
             borderColor: '#99f6e4',
             background: '#ecfdf5',
           }}
-          aria-label="פתח הדגמה במסך מלא"
+          aria-label="פתח ממשק אימון"
         >
           {hasVideo ? (
             <video
-              ref={previewRef}
               className="absolute inset-0 w-full h-full object-cover pointer-events-none"
               src={videoUrl ?? undefined}
               muted
               playsInline
-              loop
               preload="metadata"
             />
           ) : (
@@ -168,13 +138,18 @@ export default function PortalExerciseCard({
           <div className="flex items-center gap-1.5 min-w-0">
             <h4
               className="text-xs font-semibold leading-tight truncate"
-              style={{
-                color: isCompleted ? '#64748b' : '#0f172a',
-                textDecoration: isCompleted ? 'line-through' : 'none',
-              }}
+              style={{ color: isCompleted ? '#475569' : '#0f172a' }}
             >
               {title}
             </h4>
+            {isCompleted ? (
+              <span
+                className="text-[8px] font-bold px-1 py-0 rounded shrink-0 leading-none whitespace-nowrap"
+                style={{ background: '#d1fae5', color: '#047857' }}
+              >
+                הושלם היום
+              </span>
+            ) : null}
             {variant === 'rehab' && isCustomExercise && (
               <Sparkles className="w-3 h-3 shrink-0 text-orange-500" aria-label="מותאם" />
             )}
@@ -210,8 +185,8 @@ export default function PortalExerciseCard({
         </div>
       </div>
 
-      <div className="px-2.5 pb-2.5 space-y-2.5">
-        {variant === 'rehab' && onOpenDetails && !isCompleted && !disabled && (
+      <div className="px-2.5 pb-2.5 space-y-2">
+        {variant === 'rehab' && onOpenDetails && !disabled && (
           <button
             type="button"
             onClick={onOpenDetails}
@@ -219,9 +194,6 @@ export default function PortalExerciseCard({
           >
             הוראות מלאות
           </button>
-        )}
-        {variant === 'selfCare' && instructions && (
-          <p className="text-[10px] text-slate-600 leading-relaxed pr-1">{instructions}</p>
         )}
 
         {variant === 'selfCare' && onAdvance != null && (
@@ -244,28 +216,9 @@ export default function PortalExerciseCard({
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] text-slate-500">דיווח מאמץ:</span>
-          {([1, 2, 3, 4, 5] as const).map((n) => (
-            <button
-              key={n}
-              type="button"
-              disabled={isCompleted || disabled}
-              onClick={() => onEffortChange(n)}
-              className="min-w-[1.75rem] h-7 rounded-xl text-[11px] font-bold border border-teal-300 bg-teal-50 text-teal-900 hover:bg-teal-200/80 transition-colors shadow-sm disabled:opacity-45"
-              style={
-                effortValue === n
-                  ? {
-                      boxShadow: '0 0 0 2px rgba(13, 148, 136, 0.35)',
-                      fontWeight: 900,
-                    }
-                  : undefined
-              }
-            >
-              {n}
-            </button>
-          ))}
-        </div>
+        <p className="text-[10px] text-slate-500 pr-1 leading-snug">
+          וידאו, טיימר 30 שניות ומאמץ — בתוך מסך האימון בלחיצה על התמונה.
+        </p>
       </div>
     </div>
   );

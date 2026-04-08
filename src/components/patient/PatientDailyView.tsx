@@ -20,7 +20,9 @@ import BodyMap3D from '../body-map/BodyMap3D';
 import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseDetailModal from './ExerciseDetailModal';
 import PortalExerciseCard from './PortalExerciseCard';
-import ExerciseVideoTimerModal from './ExerciseVideoTimerModal';
+import ExerciseVideoTimerModal, {
+  type ExerciseTrainingCompletePayload,
+} from './ExerciseVideoTimerModal';
 import GuardianAssistantFAB from './GuardianAssistantFAB';
 import { formatTime } from '../dashboard/ManagePlanModal';
 import type { StrengthExerciseLevelDef } from '../../data/strengthExerciseDatabase';
@@ -79,6 +81,7 @@ export default function PatientDailyView() {
     toggleSelfCareZone,
     logSelfCareSession,
     grantPatientCoins,
+    appendPatientExerciseFinishReport,
   } = usePatient();
 
   const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
@@ -101,12 +104,15 @@ export default function PatientDailyView() {
   const [loginIdError, setLoginIdError] = useState<string | null>(null);
   const [exerciseVideoModal, setExerciseVideoModal] = useState<
     | null
-    | { kind: 'rehab'; exercise: PatientExercise }
-    | { kind: 'selfCare'; bodyArea: BodyArea; exercise: StrengthExerciseLevelDef }
+    | { kind: 'rehab'; exercise: PatientExercise; xpAward: number; coinsAward: number }
+    | {
+        kind: 'selfCare';
+        bodyArea: BodyArea;
+        exercise: StrengthExerciseLevelDef;
+        xpAward: number;
+        coinsAward: number;
+      }
   >(null);
-  const [effortByExerciseId, setEffortByExerciseId] = useState<
-    Record<string, 1 | 2 | 3 | 4 | 5>
-  >({});
 
   const careGiverName = useMemo(
     () => (selectedPatient ? getTherapistDisplayName(selectedPatient.therapistId) : ''),
@@ -206,14 +212,52 @@ export default function PatientDailyView() {
     return [...rehab, ...strengthMissionRows];
   }, [clinicalRehabExercises, strengthMissionRows]);
 
-  const getEffort = (id: string): 1 | 2 | 3 | 4 | 5 => effortByExerciseId[id] ?? 3;
-
-  const setEffortFor = (id: string, n: 1 | 2 | 3 | 4 | 5) => {
-    setEffortByExerciseId((prev) => ({ ...prev, [id]: n }));
-  };
-
   /** ~35% of awarded XP as coins (same curve for rehab & self-care on actual XP granted). */
   const coinsForAwardedXp = (xp: number) => Math.max(1, Math.round(xp * 0.35));
+
+  const handleTrainingComplete = (payload: ExerciseTrainingCompletePayload) => {
+    const m = exerciseVideoModal;
+    if (!selectedPatient || !m) return;
+    if (m.kind === 'selfCare') {
+      submitExerciseReport(selectedPatient.id, m.exercise.id, 0, payload.effort, m.xpAward, {
+        skipPainHistory: true,
+      });
+      grantPatientCoins(selectedPatient.id, m.coinsAward);
+      logSelfCareSession(
+        selectedPatient.id,
+        m.exercise.id,
+        m.exercise.name,
+        payload.effort
+      );
+      appendPatientExerciseFinishReport(selectedPatient.id, {
+        exerciseId: m.exercise.id,
+        zoneName: bodyAreaLabels[m.bodyArea],
+        difficultyScore: payload.effort,
+        isClinical: false,
+      });
+      if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
+      else setLoadSafetyNudge(null);
+    } else {
+      const pain = payload.painLevel ?? 3;
+      submitExerciseReport(
+        selectedPatient.id,
+        m.exercise.id,
+        pain,
+        payload.effort,
+        m.xpAward
+      );
+      grantPatientCoins(selectedPatient.id, m.coinsAward);
+      appendPatientExerciseFinishReport(selectedPatient.id, {
+        exerciseId: m.exercise.id,
+        zoneName: bodyAreaLabels[m.exercise.targetArea],
+        difficultyScore: payload.effort,
+        isClinical: true,
+      });
+      if (pain >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
+      else if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
+      else setLoadSafetyNudge(null);
+    }
+  };
 
   const handleAvatarZoneClick = (area: BodyArea) => {
     if (!selectedPatient) return;
@@ -243,7 +287,6 @@ export default function PatientDailyView() {
   }, [selectedPatient, exercises]);
 
   const openExerciseDetail = (ex: PatientExercise) => {
-    if (completedSet.has(ex.id)) return;
     setDetailFor(ex);
   };
 
@@ -782,9 +825,14 @@ export default function PatientDailyView() {
                         subtitle={`${displaySets}× ${repsShort} · ${ex.muscleGroup} · שיקום`}
                         xpReward={ex.xpReward}
                         videoUrl={ex.videoUrl ?? null}
-                        effortValue={getEffort(ex.id)}
-                        onEffortChange={(n) => setEffortFor(ex.id, n)}
-                        onOpenVideo={() => setExerciseVideoModal({ kind: 'rehab', exercise: ex })}
+                        onOpenTraining={() =>
+                          setExerciseVideoModal({
+                            kind: 'rehab',
+                            exercise: ex,
+                            xpAward: ex.xpReward,
+                            coinsAward: coinsForAwardedXp(ex.xpReward),
+                          })
+                        }
                         onOpenDetails={() => openExerciseDetail(ex)}
                         disabled={exerciseSafetyLocked}
                         typeKey={ex.type}
@@ -795,6 +843,7 @@ export default function PatientDailyView() {
                 }
                 const { area, exercise: ex } = row;
                 const selfXp = Math.max(1, Math.floor(ex.xpReward * 0.5));
+                const selfCoins = coinsForAwardedXp(selfXp);
                 const sid = ex.id;
                 const done = completedSet.has(sid);
                 const repsLine = ex.repsAreSeconds
@@ -809,14 +858,17 @@ export default function PatientDailyView() {
                       title={ex.name}
                       subtitle={`${repsLine} · ${bodyAreaLabels[area]} · כוח (½ XP)`}
                       xpReward={selfXp}
-                      videoUrl={ex.demoVideoUrl}
-                      effortValue={getEffort(sid)}
-                      onEffortChange={(n) => setEffortFor(sid, n)}
-                      onOpenVideo={() =>
-                        setExerciseVideoModal({ kind: 'selfCare', bodyArea: area, exercise: ex })
+                      videoUrl={ex.videoUrl}
+                      onOpenTraining={() =>
+                        setExerciseVideoModal({
+                          kind: 'selfCare',
+                          bodyArea: area,
+                          exercise: ex,
+                          xpAward: selfXp,
+                          coinsAward: selfCoins,
+                        })
                       }
                       disabled={exerciseSafetyLocked}
-                      instructions={ex.instructions}
                     />
                   </li>
                 );
@@ -875,56 +927,25 @@ export default function PatientDailyView() {
         initialEffort={reportInitialEffort}
       />
 
-      <ExerciseVideoTimerModal
-        open={exerciseVideoModal != null}
-        title={
-          exerciseVideoModal?.kind === 'rehab'
-            ? exerciseVideoModal.exercise.name
-            : exerciseVideoModal?.kind === 'selfCare'
-              ? exerciseVideoModal.exercise.name
-              : ''
-        }
-        videoUrl={
-          exerciseVideoModal?.kind === 'rehab'
-            ? exerciseVideoModal.exercise.videoUrl ?? ''
-            : exerciseVideoModal?.kind === 'selfCare'
-              ? exerciseVideoModal.exercise.demoVideoUrl
-              : ''
-        }
-        description={
-          exerciseVideoModal?.kind === 'rehab'
-            ? exerciseVideoModal.exercise.instructions
-            : exerciseVideoModal?.kind === 'selfCare'
-              ? exerciseVideoModal.exercise.instructions
-              : null
-        }
-        primeSeconds={30}
-        onClose={() => setExerciseVideoModal(null)}
-        onMarkDone={() => {
-          const m = exerciseVideoModal;
-          if (!selectedPatient || !m) return;
-          if (m.kind === 'rehab') {
-            setReportInitialEffort(getEffort(m.exercise.id));
-            setReportFor(m.exercise);
-          } else {
-            const effort = getEffort(m.exercise.id);
-            const xp = Math.max(1, Math.floor(m.exercise.xpReward * 0.5));
-            submitExerciseReport(selectedPatient.id, m.exercise.id, 0, effort, xp, {
-              skipPainHistory: true,
-            });
-            grantPatientCoins(selectedPatient.id, coinsForAwardedXp(xp));
-            logSelfCareSession(
-              selectedPatient.id,
-              m.exercise.id,
-              m.exercise.name,
-              effort
-            );
-            if (effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
-            else setLoadSafetyNudge(null);
+      {exerciseVideoModal != null && (
+        <ExerciseVideoTimerModal
+          key={`${exerciseVideoModal.kind}-${exerciseVideoModal.exercise.id}`}
+          open
+          title={exerciseVideoModal.exercise.name}
+          videoUrl={
+            exerciseVideoModal.kind === 'rehab'
+              ? exerciseVideoModal.exercise.videoUrl ?? ''
+              : exerciseVideoModal.exercise.videoUrl
           }
-          setExerciseVideoModal(null);
-        }}
-      />
+          description={exerciseVideoModal.exercise.instructions}
+          variant={exerciseVideoModal.kind === 'rehab' ? 'rehab' : 'selfCare'}
+          xpAward={exerciseVideoModal.xpAward}
+          coinsAward={exerciseVideoModal.coinsAward}
+          primeSeconds={30}
+          onClose={() => setExerciseVideoModal(null)}
+          onComplete={handleTrainingComplete}
+        />
+      )}
 
       <EmergencyStopModal
         open={
