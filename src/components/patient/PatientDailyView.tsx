@@ -12,19 +12,11 @@ import {
   Bot,
   Clock,
   KeyRound,
-  Stethoscope,
-  Leaf,
-  ChevronDown,
-  ChevronUp,
-  ExternalLink,
-  Dumbbell,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
 import { getTherapistDisplayName } from '../../context/authPersistence';
 import BodyMap3D from '../body-map/BodyMap3D';
-import InteractiveBodyAvatar from './InteractiveBodyAvatar';
-import { getSelfCareExercisesForArea } from '../../data/selfCareExercises';
 import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseDetailModal from './ExerciseDetailModal';
 import PatientExerciseCard from './PatientExerciseCard';
@@ -80,8 +72,6 @@ export default function PatientDailyView() {
     dailyHistoryByPatient,
     getSelfCareZones,
     toggleSelfCareZone,
-    logSelfCareSession,
-    getSelfCareReportsForClinicalDay,
   } = usePatient();
 
   const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
@@ -100,7 +90,6 @@ export default function PatientDailyView() {
   const [newLoginIdInput, setNewLoginIdInput] = useState('');
   const [loginIdCurrentPw, setLoginIdCurrentPw] = useState('');
   const [loginIdError, setLoginIdError] = useState<string | null>(null);
-  const [map3dOpen, setMap3dOpen] = useState(false);
   const [avatarFocusArea, setAvatarFocusArea] = useState<BodyArea | null>(null);
   const [avatarMode, setAvatarMode] = useState<'clinical' | 'selfcare' | null>(null);
 
@@ -167,11 +156,6 @@ export default function PatientDailyView() {
   const exerciseSafetyLocked = selectedPatient
     ? isPatientExerciseSafetyLocked(selectedPatient.id)
     : false;
-
-  const selfCareZones = selectedPatient ? getSelfCareZones(selectedPatient.id) : [];
-  const selfCareToday = selectedPatient
-    ? getSelfCareReportsForClinicalDay(selectedPatient.id, clinicalToday)
-    : [];
 
   useEffect(() => {
     if (!selectedPatient) return;
@@ -405,9 +389,7 @@ export default function PatientDailyView() {
                   level={selectedPatient.level}
                   selectedArea={filterArea}
                   minHeightPx={260}
-                  onAreaClick={(area) =>
-                    setFilterArea((prev) => (prev === area ? null : area))
-                  }
+                  onAreaClick={handleAvatarZoneClick}
                 />
               </div>
             </div>

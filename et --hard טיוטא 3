@@ -1,0 +1,32 @@
+[33m908f507[m[33m ([m[1;36mHEAD[m[33m, [m[1;32mmain[m[33m)[m Enhance PatientDailyView and ClinicalReportsPanel components by integrating self-care zones and reporting features, improving patient engagement through interactive body mapping and detailed self-care exercise tracking.
+[33m1963927[m Introduce self-care exercise and session reporting types, and enhance PatientContext and PatientDailyView components to manage self-care zones and reports, improving patient engagement and tracking of self-care activities.
+[33m43e262e[m טיוטא 3
+[33mb041b96[m Update PatientContext to include AiSuggestionSource type, enhancing type definitions for improved clarity and functionality.
+[33m2b68054[m Enhance PatientOverview component by integrating clinical insights and unread message tracking, improving patient engagement and safety alert visibility.
+[33mfa18f8c[m Refactor Header and Sidebar components to update Hebrew translations, enhancing clarity and consistency in navigation labels.
+[33m96fbcf5[m Update Hebrew translations in Header and Sidebar components for enhanced clarity and consistency in navigation labels.
+[33mf9cef2c[m Update Hebrew translations in Header and Sidebar components for improved clarity and consistency in navigation labels.
+[33m0fb0859[m Refactor Header and Sidebar components to improve Hebrew translations, enhancing clarity and consistency in navigation labels.
+[33md76b3d4[m Update Hebrew translations in Header and Sidebar components for improved clarity and consistency in navigation labels.
+[33m4e0a1a1[m Enhance PatientContext by adding therapist note management and clinical assessment engine functionality, improving patient suggestion handling based on therapist input.
+[33m7838c76[m Enhance PatientContext by adding therapist note management and clinical assessment engine functionality, improving patient suggestion handling based on therapist input.
+[33m8e66b8f[m Refactor PatientDailyView to optimize session handling and enhance component rendering based on user authentication, further improving the overall user experience.
+[33m067f8a1[m Enhance PatientDailyView with improved session handling and conditional rendering based on user authentication status, further refining the user experience.
+[33m2d09839[m Refactor navigation and patient management components to support updated dashboard structure, enhance patient account creation, and improve messaging functionality for a better user experience.
+[33m9fd8e1d[m Refactor authentication and patient context to support therapist-specific patient management, enhance session handling, and improve user experience with updated profile settings and login ID management.
+[33m6723d1b[m Refactor PatientDailyView to improve session handling and enhance user experience with better component rendering based on authentication status.
+[33mf83005e[m Enhance authentication persistence by introducing patient password change functionality, refining patient account management, and improving session handling in AuthContext and PatientDailyView components.
+[33ma72af53[m Integrate portal credentials management in PatientOverview, enhance authentication persistence, and improve initial clinical profile setup for new patients.
+[33mcc93578[m Refactor PatientDailyView to conditionally render components based on portal status, improving user experience and maintaining functionality.
+[33m57a92a1[m Enhance PatientDailyView component with portal variant support and improved logout navigation
+[33m242d430[m Implement routing for authentication and patient access, enhancing navigation and user experience
+[33mcfec1e2[m Refactor content structure and enhance clarity for improved user experience
+[33m78caabf[m Refactor authentication and patient context to utilize unified persistence method for improved state management
+[33m038d508[m Further enhance content clarity and organization
+[33mc7b040c[m Improve content flow and readability
+[33mf7f1973[m Refine content organization and enhance readability
+[33ma742fa6[m Enhance content structure and improve clarity
+[33m45c5307[m Refactor and update content for clarity and coherence
+[33m4706f53[m COMMIT
+[33mc6c42c5[m טיוטא 2
+[33m5f7197f[m טיוטא 1
