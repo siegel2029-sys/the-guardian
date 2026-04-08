@@ -33,6 +33,13 @@ export type PersistedPatientStateV1 = {
    * רמת קושי לתרגילי כוח (אזור ירוק): 0 = קל (רמה 1), 1 = בינוני (2), 2 = קשה (3)
    */
   selfCareStrengthTierByPatientId?: Record<string, Partial<Record<BodyArea, 0 | 1 | 2>>>;
+  /**
+   * פרסים יומיים / מאמרים — מזהי מאמרים שנקראו, ותאריך קליני שבו ניתן בונוס כניסה יומית
+   */
+  patientRewardMetaByPatientId?: Record<
+    string,
+    { readArticleIds: string[]; lastLoginBonusClinicalDate: string | null }
+  >;
 };
 
 export function loadPersistedPatientState(): PersistedPatientStateV1 | null {

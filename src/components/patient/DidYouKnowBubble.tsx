@@ -1,14 +1,23 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { Lightbulb, X, ExternalLink } from 'lucide-react';
+import { Lightbulb, X, ExternalLink, Gift } from 'lucide-react';
 import type { Patient } from '../../types';
 import { selectContextualClinicalTip } from '../../ai/patientProgressReasoning';
+import { PATIENT_REWARDS } from '../../config/patientRewards';
+
+const ARTICLE_DWELL_MS = 30_000;
 
 interface DidYouKnowBubbleProps {
   patient: Patient;
-  onKnowledgeComplete: () => void;
+  /** @returns true אם ניתן פרס (קריאה ראשונה למאמר) */
+  onCollectReward: (articleId: string) => boolean;
+  hasReadArticle: (patientId: string, articleId: string) => boolean;
 }
 
-export default function DidYouKnowBubble({ patient, onKnowledgeComplete }: DidYouKnowBubbleProps) {
+export default function DidYouKnowBubble({
+  patient,
+  onCollectReward,
+  hasReadArticle,
+}: DidYouKnowBubbleProps) {
   const tip = useMemo(
     () => selectContextualClinicalTip(patient),
     [patient.id, patient.primaryBodyArea, patient.analytics.painHistory.length]
@@ -16,10 +25,12 @@ export default function DidYouKnowBubble({ patient, onKnowledgeComplete }: DidYo
 
   const [modalOpen, setModalOpen] = useState(false);
   const claimKeyRef = useRef<string | null>(null);
-  /** מפתח טיפ שממתין לחזרה מלשונית המאמר (visibility) */
   const pendingReturnKeyRef = useRef<string | null>(null);
+  const dwellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const rewardKey = `${patient.id}:${tip.id}`;
+  const { xp: rxp, coins: rcoins } = PATIENT_REWARDS.ARTICLE_READ;
+  const alreadyClaimed = hasReadArticle(patient.id, tip.id);
 
   useEffect(() => {
     claimKeyRef.current = null;
@@ -28,10 +39,10 @@ export default function DidYouKnowBubble({ patient, onKnowledgeComplete }: DidYo
 
   const grantOnce = useCallback(() => {
     if (claimKeyRef.current === rewardKey) return;
-    claimKeyRef.current = rewardKey;
+    const granted = onCollectReward(tip.id);
+    if (granted) claimKeyRef.current = rewardKey;
     pendingReturnKeyRef.current = null;
-    onKnowledgeComplete();
-  }, [rewardKey, onKnowledgeComplete]);
+  }, [rewardKey, onCollectReward, tip.id]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -43,14 +54,38 @@ export default function DidYouKnowBubble({ patient, onKnowledgeComplete }: DidYo
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [rewardKey, grantOnce]);
 
+  useEffect(() => {
+    if (!modalOpen || alreadyClaimed) {
+      if (dwellTimerRef.current) {
+        clearTimeout(dwellTimerRef.current);
+        dwellTimerRef.current = null;
+      }
+      return;
+    }
+    dwellTimerRef.current = setTimeout(() => {
+      dwellTimerRef.current = null;
+      onCollectReward(tip.id);
+    }, ARTICLE_DWELL_MS);
+    return () => {
+      if (dwellTimerRef.current) {
+        clearTimeout(dwellTimerRef.current);
+        dwellTimerRef.current = null;
+      }
+    };
+  }, [modalOpen, alreadyClaimed, onCollectReward, tip.id]);
+
   const openArticleInNewTab = () => {
     pendingReturnKeyRef.current = rewardKey;
     window.open(tip.articleUrl, '_blank', 'noopener,noreferrer');
   };
 
   const handleCompleteReadInModal = () => {
-    grantOnce();
+    onCollectReward(tip.id);
     setModalOpen(false);
+  };
+
+  const handleCollectFromCard = () => {
+    onCollectReward(tip.id);
   };
 
   return (
@@ -89,9 +124,25 @@ export default function DidYouKnowBubble({ patient, onKnowledgeComplete }: DidYo
               >
                 תקציר במסך
               </button>
+              <button
+                type="button"
+                onClick={handleCollectFromCard}
+                disabled={alreadyClaimed}
+                className="text-xs font-bold text-white px-3 py-1.5 rounded-xl border border-emerald-600 disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center gap-1.5 transition-opacity"
+                style={{
+                  background: alreadyClaimed
+                    ? 'linear-gradient(135deg, #64748b, #475569)'
+                    : 'linear-gradient(135deg, #059669, #0d9488)',
+                  boxShadow: alreadyClaimed ? 'none' : '0 4px 14px -4px rgba(13,148,136,0.5)',
+                }}
+              >
+                <Gift className="w-3.5 h-3.5 shrink-0" />
+                {alreadyClaimed ? 'הפרס נאסף' : `אסוף פרס +${rxp} XP · ${rcoins} מטבעות`}
+              </button>
             </div>
             <p className="text-[10px] text-amber-800/80 mt-2 leading-relaxed">
-              פתחו את הקישור, קראו, וחזרו לכאן — יינתנו אוטומטית נקודות ניסיון ומטבעות למידה (פעם אחת לכל כרטיס).
+              פתיחת &quot;תקציר במסך&quot; ל־30 שניות מעניקה אוטומטית את הפרס (פעם אחת לכל כרטיס). אפשר גם לפתוח
+              קישור ולחזור — או ללחוץ &quot;אסוף פרס&quot;.
             </p>
           </div>
         </div>
@@ -135,6 +186,11 @@ export default function DidYouKnowBubble({ patient, onKnowledgeComplete }: DidYo
             <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
               <p className="text-sm font-semibold text-slate-800">{tip.headline}</p>
               <p className="text-sm text-slate-600 leading-relaxed">{tip.explanation}</p>
+              {!alreadyClaimed && (
+                <p className="text-[11px] text-teal-800 font-medium bg-teal-50 border border-teal-100 rounded-xl px-3 py-2">
+                  השארו במסך הזה כ־30 שנ׳ — הפרס יינתן אוטומטית, או לחצו למטה לאיסוף מיידי.
+                </p>
+              )}
               <div
                 className="rounded-2xl border border-teal-100 p-3"
                 style={{ background: '#f0fdfa' }}
@@ -159,13 +215,18 @@ export default function DidYouKnowBubble({ patient, onKnowledgeComplete }: DidYo
               <button
                 type="button"
                 onClick={handleCompleteReadInModal}
-                className="w-full py-3 rounded-2xl text-sm font-bold text-white"
+                disabled={alreadyClaimed}
+                className="w-full py-3 rounded-2xl text-sm font-bold text-white disabled:opacity-45 disabled:cursor-not-allowed"
                 style={{
-                  background: 'linear-gradient(135deg, #0d9488, #059669)',
-                  boxShadow: '0 8px 20px -6px rgba(13, 148, 136, 0.45)',
+                  background: alreadyClaimed
+                    ? 'linear-gradient(135deg, #64748b, #475569)'
+                    : 'linear-gradient(135deg, #0d9488, #059669)',
+                  boxShadow: alreadyClaimed ? 'none' : '0 8px 20px -6px rgba(13, 148, 136, 0.45)',
                 }}
               >
-                סיימתי לקרוא — +5 מטבעות ו-+5 נק׳ ניסיון
+                {alreadyClaimed
+                  ? 'הפרס כבר נאסף לכרטיס זה'
+                  : `סיימתי לקרוא — +${rxp} XP · +${rcoins} מטבעות`}
               </button>
             </div>
           </div>

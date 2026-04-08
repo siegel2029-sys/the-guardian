@@ -6,6 +6,7 @@ import {
   useCallback,
   useMemo,
   useEffect,
+  useRef,
   type ReactNode,
 } from 'react';
 import type {
@@ -43,6 +44,11 @@ import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 import { bodyAreaIsClinicalFocus } from '../body/bodyPickMapping';
 import { sendDataToTherapist } from '../utils/therapistAnalytics';
 import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../data/exerciseVideoDefaults';
+import {
+  PATIENT_REWARDS,
+  exerciseBaseXp,
+  getStreakXpMultiplier,
+} from '../config/patientRewards';
 
 function buildEmptySession(patientId: string, clinicalDate: string): DailySession {
   return { patientId, date: clinicalDate, completedIds: [], sessionXp: 0 };
@@ -56,6 +62,43 @@ function clampPain(n: number): PainLevel {
 function clampEffort(n: number): 1 | 2 | 3 | 4 | 5 {
   const r = Math.round(Math.min(5, Math.max(1, n)));
   return r as 1 | 2 | 3 | 4 | 5;
+}
+
+const MAX_LEVEL = 10;
+
+function applyXpCoinsLevelUp(p: Patient, xpDelta: number, coinsDelta: number): Patient {
+  let { xp, level, xpForNextLevel, coins } = p;
+  coins += coinsDelta;
+  xp += xpDelta;
+  while (xp >= xpForNextLevel && level < MAX_LEVEL) {
+    xp -= xpForNextLevel;
+    level += 1;
+    xpForNextLevel = Math.floor(xpForNextLevel * 1.15);
+  }
+  return {
+    ...p,
+    coins,
+    xp,
+    level: level as Patient['level'],
+    xpForNextLevel,
+  };
+}
+
+export type PatientRewardFeedback = {
+  id: number;
+  xpAdded: number;
+  coinsAdded: number;
+  streakBonusXp?: number;
+  message?: string;
+};
+
+type PatientRewardMeta = {
+  readArticleIds: string[];
+  lastLoginBonusClinicalDate: string | null;
+};
+
+function defaultPatientRewardMeta(): PatientRewardMeta {
+  return { readArticleIds: [], lastLoginBonusClinicalDate: null };
 }
 
 // ── Context shape ────────────────────────────────────────────────
@@ -161,8 +204,17 @@ interface PatientContextValue {
 
   /** בונוס למידה (מטבעות) בתצוגת מטופל */
   grantPatientCoins: (patientId: string, amount: number) => void;
-  /** הידעת? — מטבעות + XP אחרי השלמת קריאה */
-  grantPatientKnowledgeReward: (patientId: string) => void;
+  /**
+   * מאמר / הידעת — פרס חד-פעמי לכל articleId (שמור ב-localStorage).
+   * @returns true אם ניתן פרס עכשיו, false אם כבר נוצל
+   */
+  markArticleAsRead: (patientId: string, articleId: string) => boolean;
+  hasReadArticle: (patientId: string, articleId: string) => boolean;
+  /** בונוס XP לכניסה ראשונה ביום קליני (חד-פעמי ליום) */
+  claimDailyLoginBonusIfNeeded: (patientId: string) => boolean;
+  /** אות להצגת אנימציית פרס בכותרת הפורטל */
+  rewardFeedback: PatientRewardFeedback | null;
+  clearRewardFeedback: () => void;
 
   /** אזור גוף + תוכנית התחלתית מספרייה (אונבורדינג מטופל חדש/ממתין) */
   applyInitialClinicalProfile: (
@@ -331,6 +383,23 @@ export function PatientProvider({
     Record<string, Partial<Record<BodyArea, 0 | 1 | 2>>>
   >(() => readPersistedOnce().patient?.selfCareStrengthTierByPatientId ?? {});
 
+  const [patientRewardMetaByPatientId, setPatientRewardMetaByPatientId] = useState<
+    Record<string, PatientRewardMeta>
+  >(() => {
+    const raw = readPersistedOnce().patient?.patientRewardMetaByPatientId ?? {};
+    const out: Record<string, PatientRewardMeta> = {};
+    for (const [pid, v] of Object.entries(raw)) {
+      out[pid] = {
+        readArticleIds: [...(v?.readArticleIds ?? [])],
+        lastLoginBonusClinicalDate: v?.lastLoginBonusClinicalDate ?? null,
+      };
+    }
+    return out;
+  });
+
+  const [rewardFeedback, setRewardFeedback] = useState<PatientRewardFeedback | null>(null);
+  const rewardFeedbackIdRef = useRef(0);
+
   const isPatientSessionLocked = restrictPatientSessionId != null && restrictPatientSessionId !== '';
 
   useEffect(() => {
@@ -378,6 +447,7 @@ export function PatientProvider({
       selfCareReportsByPatientId,
       patientExerciseFinishReportsByPatientId,
       selfCareStrengthTierByPatientId,
+      patientRewardMetaByPatientId,
     });
   }, [
     allPatients,
@@ -392,6 +462,7 @@ export function PatientProvider({
     selfCareReportsByPatientId,
     patientExerciseFinishReportsByPatientId,
     selfCareStrengthTierByPatientId,
+    patientRewardMetaByPatientId,
   ]);
 
   const applyExternalSnapshot = useCallback(
@@ -409,6 +480,15 @@ export function PatientProvider({
         data.patientExerciseFinishReportsByPatientId ?? {}
       );
       setSelfCareStrengthTierByPatientId(data.selfCareStrengthTierByPatientId ?? {});
+      const prm = data.patientRewardMetaByPatientId ?? {};
+      const nextMeta: Record<string, PatientRewardMeta> = {};
+      for (const [pid, v] of Object.entries(prm)) {
+        nextMeta[pid] = {
+          readArticleIds: [...(v?.readArticleIds ?? [])],
+          lastLoginBonusClinicalDate: v?.lastLoginBonusClinicalDate ?? null,
+        };
+      }
+      setPatientRewardMetaByPatientId(nextMeta);
       if (!restrictPatientSessionId) {
         setSelectedPatientId(data.selectedPatientId ?? '');
       }
@@ -744,6 +824,99 @@ export function PatientProvider({
     [clinicalTick]
   );
 
+  const pushRewardFeedback = useCallback(
+    (xpAdded: number, coinsAdded: number, streakBonusXp?: number, message?: string) => {
+      rewardFeedbackIdRef.current += 1;
+      setRewardFeedback({
+        id: rewardFeedbackIdRef.current,
+        xpAdded,
+        coinsAdded,
+        streakBonusXp: streakBonusXp && streakBonusXp > 0 ? streakBonusXp : undefined,
+        message,
+      });
+    },
+    []
+  );
+
+  const clearRewardFeedback = useCallback(() => setRewardFeedback(null), []);
+
+  const grantPatientCoins = useCallback(
+    (patientId: string, amount: number) => {
+      if (amount <= 0) return;
+      setAllPatients((prev) =>
+        prev.map((p) => (p.id === patientId ? { ...p, coins: p.coins + amount } : p))
+      );
+      pushRewardFeedback(0, amount);
+    },
+    [pushRewardFeedback]
+  );
+
+  const markArticleAsRead = useCallback(
+    (patientId: string, articleId: string) => {
+      const { xp: rxp, coins: rcoins } = PATIENT_REWARDS.ARTICLE_READ;
+      let granted = false;
+      setPatientRewardMetaByPatientId((prev) => {
+        const cur = prev[patientId] ?? defaultPatientRewardMeta();
+        if (cur.readArticleIds.includes(articleId)) {
+          return prev;
+        }
+        granted = true;
+        return {
+          ...prev,
+          [patientId]: {
+            ...cur,
+            readArticleIds: [...cur.readArticleIds, articleId],
+          },
+        };
+      });
+      if (!granted) return false;
+      setAllPatients((prev) =>
+        prev.map((p) =>
+          p.id === patientId ? applyXpCoinsLevelUp(p, rxp, rcoins) : p
+        )
+      );
+      pushRewardFeedback(rxp, rcoins, undefined, 'מאמר נקרא');
+      return true;
+    },
+    [pushRewardFeedback]
+  );
+
+  const hasReadArticle = useCallback(
+    (patientId: string, articleId: string) =>
+      (patientRewardMetaByPatientId[patientId]?.readArticleIds ?? []).includes(articleId),
+    [patientRewardMetaByPatientId]
+  );
+
+  const claimDailyLoginBonusIfNeeded = useCallback(
+    (patientId: string) => {
+      const clinicalDay = getClinicalDate();
+      const { xp: bxp } = PATIENT_REWARDS.FIRST_LOGIN_OF_DAY;
+      if (bxp <= 0) return false;
+      let granted = false;
+      setPatientRewardMetaByPatientId((prev) => {
+        const cur = prev[patientId] ?? defaultPatientRewardMeta();
+        if (cur.lastLoginBonusClinicalDate === clinicalDay) {
+          return prev;
+        }
+        granted = true;
+        return {
+          ...prev,
+          [patientId]: {
+            ...cur,
+            lastLoginBonusClinicalDate: clinicalDay,
+          },
+        };
+      });
+      if (!granted) return false;
+      setAllPatients((prev) =>
+        prev.map((p) => (p.id === patientId ? applyXpCoinsLevelUp(p, bxp, 0) : p))
+      );
+      pushRewardFeedback(bxp, 0, undefined, 'כניסה יומית');
+      return true;
+    },
+    [pushRewardFeedback]
+  );
+
   const submitExerciseReport = useCallback(
     (
       patientId: string,
@@ -757,12 +930,37 @@ export function PatientProvider({
       const prior = dailySessions.find((s) => s.patientId === patientId && s.date === clinicalDay);
       const wasRepeatCompletion = prior?.completedIds.includes(exerciseId) ?? false;
 
+      const patientBefore = allPatients.find((x) => x.id === patientId);
+      if (!patientBefore) return;
+
       const pain = clampPain(painLevel);
       const effort = clampEffort(effortRating);
       const plan = exercisePlans.find((ep) => ep.patientId === patientId);
       const totalInPlan = plan?.exercises.length ?? 0;
       const firstOfDay = !prior || prior.completedIds.length === 0;
       const clinicalYesterday = getClinicalYesterday();
+
+      let nextStreak = patientBefore.currentStreak;
+      if (firstOfDay) {
+        if (patientBefore.lastSessionDate === clinicalYesterday) {
+          nextStreak = patientBefore.currentStreak + 1;
+        } else if (patientBefore.lastSessionDate !== clinicalDay) {
+          nextStreak = 1;
+        }
+      }
+
+      const baseXp = exerciseBaseXp(xpReward);
+      const streakMult = getStreakXpMultiplier(nextStreak);
+      const xpGain = Math.round(baseXp * streakMult);
+      const streakBonusXp = Math.max(0, xpGain - baseXp);
+      const coinsGain = PATIENT_REWARDS.EXERCISE_COMPLETE.coins;
+
+      pushRewardFeedback(
+        xpGain,
+        coinsGain,
+        streakBonusXp > 0 ? streakBonusXp : undefined,
+        streakBonusXp > 0 ? `בונוס רצף ×${streakMult}` : undefined
+      );
 
       setDailySessions((prev) => {
         const existing = prev.find((s) => s.patientId === patientId && s.date === clinicalDay);
@@ -773,7 +971,7 @@ export function PatientProvider({
               patientId,
               date: clinicalDay,
               completedIds: [exerciseId],
-              sessionXp: xpReward,
+              sessionXp: xpGain,
             },
           ];
         }
@@ -784,7 +982,7 @@ export function PatientProvider({
                 completedIds: s.completedIds.includes(exerciseId)
                   ? s.completedIds
                   : [...s.completedIds, exerciseId],
-                sessionXp: s.sessionXp + xpReward,
+                sessionXp: s.sessionXp + xpGain,
               }
             : s
         );
@@ -833,7 +1031,7 @@ export function PatientProvider({
                 exercisesCompleted: 1,
                 totalExercises: Math.max(1, totalInPlan),
                 difficultyRating: effort,
-                xpEarned: xpReward,
+                xpEarned: xpGain,
               },
             ];
           } else {
@@ -850,7 +1048,7 @@ export function PatientProvider({
                       exercisesCompleted: n,
                       totalExercises: Math.max(s.totalExercises, totalInPlan || 1),
                       difficultyRating: avgDiff,
-                      xpEarned: s.xpEarned + xpReward,
+                      xpEarned: s.xpEarned + xpGain,
                     }
                   : s
               );
@@ -862,7 +1060,7 @@ export function PatientProvider({
                       exercisesCompleted: cur.exercisesCompleted,
                       totalExercises: Math.max(s.totalExercises, totalInPlan || 1),
                       difficultyRating: Math.round((cur.difficultyRating + effort) / 2),
-                      xpEarned: s.xpEarned + xpReward,
+                      xpEarned: s.xpEarned + xpGain,
                     }
                   : s
               );
@@ -872,15 +1070,6 @@ export function PatientProvider({
           const sessionDiffAvg =
             newSessionHistory.reduce((sum, s) => sum + s.difficultyRating, 0) /
             newSessionHistory.length;
-
-          let { xp, level, xpForNextLevel } = p;
-          xp += xpReward;
-          const MAX_LEVEL = 10;
-          while (xp >= xpForNextLevel && level < MAX_LEVEL) {
-            xp -= xpForNextLevel;
-            level += 1;
-            xpForNextLevel = Math.floor(xpForNextLevel * 1.15);
-          }
 
           let { currentStreak, longestStreak, lastSessionDate } = p;
           if (firstOfDay) {
@@ -897,12 +1086,11 @@ export function PatientProvider({
             ? p.analytics.totalSessions + 1
             : p.analytics.totalSessions;
 
+          const leveled = applyXpCoinsLevelUp(p, xpGain, coinsGain);
+
           return {
-            ...p,
+            ...leveled,
             hasRedFlag: p.hasRedFlag || triggersClinicalAlert,
-            xp,
-            level: level as Patient['level'],
-            xpForNextLevel,
             lastSessionDate,
             currentStreak,
             longestStreak,
@@ -980,7 +1168,7 @@ export function PatientProvider({
         }
       }
     },
-    [exercisePlans, dailySessions, sendAiClinicalAlert, clinicalTick]
+    [exercisePlans, dailySessions, sendAiClinicalAlert, clinicalTick, allPatients, pushRewardFeedback]
   );
 
   // ── AI Suggestions ─────────────────────────────────────────────
@@ -1159,39 +1347,6 @@ export function PatientProvider({
     return { loginId, password, patientId };
   }, [therapistScopeId]);
 
-  const grantPatientCoins = useCallback((patientId: string, amount: number) => {
-    if (amount <= 0) return;
-    setAllPatients((prev) =>
-      prev.map((p) => (p.id === patientId ? { ...p, coins: p.coins + amount } : p))
-    );
-  }, []);
-
-  const grantPatientKnowledgeReward = useCallback((patientId: string) => {
-    const COINS = 5;
-    const XP = 5;
-    setAllPatients((prev) =>
-      prev.map((p) => {
-        if (p.id !== patientId) return p;
-        let { xp, level, xpForNextLevel, coins } = p;
-        coins += COINS;
-        xp += XP;
-        const MAX_LEVEL = 10;
-        while (xp >= xpForNextLevel && level < MAX_LEVEL) {
-          xp -= xpForNextLevel;
-          level += 1;
-          xpForNextLevel = Math.floor(xpForNextLevel * 1.15);
-        }
-        return {
-          ...p,
-          coins,
-          xp,
-          level: level as Patient['level'],
-          xpForNextLevel,
-        };
-      })
-    );
-  }, []);
-
   const updateTherapistNotes = useCallback((patientId: string, notes: string) => {
     setAllPatients((prev) =>
       prev.map((p) => (p.id === patientId ? { ...p, therapistNotes: notes } : p))
@@ -1312,6 +1467,11 @@ export function PatientProvider({
     });
     setSelectedPatientId((cur) => (cur === patientId ? '' : cur));
     setEmergencyModalPatientId((cur) => (cur === patientId ? null : cur));
+    setPatientRewardMetaByPatientId((prev) => {
+      const next = { ...prev };
+      delete next[patientId];
+      return next;
+    });
   }, []);
 
   const getSelfCareZones = useCallback(
@@ -1485,7 +1645,11 @@ export function PatientProvider({
         therapistDeclineAiSuggestion,
         submitGuardianRepsIncreaseRequest,
         grantPatientCoins,
-        grantPatientKnowledgeReward,
+        markArticleAsRead,
+        hasReadArticle,
+        claimDailyLoginBonusIfNeeded,
+        rewardFeedback,
+        clearRewardFeedback,
         applyInitialClinicalProfile,
         updateTherapistNotes,
         runClinicalAssessmentEngine,

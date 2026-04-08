@@ -42,4 +42,25 @@
     direction: rtl;
     text-align: right;
   }
+
+  @keyframes portal-reward-float {
+    0% {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    14% {
+      opacity: 1;
+    }
+    72% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-24px);
+    }
+  }
+
+  .animate-portal-reward-float {
+    animation: portal-reward-float 2.15s ease-out forwards;
+  }
 }

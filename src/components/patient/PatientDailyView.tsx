@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -45,6 +45,7 @@ import {
   PAIN_SURGE_PATIENT_COPY,
   DIFFICULTY_MAX_PATIENT_COPY,
 } from '../../safety/clinicalEmergencyScreening';
+import { PATIENT_REWARDS } from '../../config/patientRewards';
 
 /** תצוגת יום למטופל — מוצגת רק ב־/patient-portal (מפת גוף, תרגילים, לוח שנה). */
 export default function PatientDailyView() {
@@ -69,7 +70,11 @@ export default function PatientDailyView() {
     getPendingAiSuggestions,
     patientAgreeToAiSuggestion,
     patientDeclineAiSuggestion,
-    grantPatientKnowledgeReward,
+    markArticleAsRead,
+    hasReadArticle,
+    claimDailyLoginBonusIfNeeded,
+    rewardFeedback,
+    clearRewardFeedback,
     submitGuardianRepsIncreaseRequest,
     sendAiClinicalAlert,
     emergencyModalPatientId,
@@ -81,7 +86,6 @@ export default function PatientDailyView() {
     getSelfCareZones,
     toggleSelfCareZone,
     logSelfCareSession,
-    grantPatientCoins,
     appendPatientExerciseFinishReport,
     getPatientExerciseFinishReports,
     getSelfCareStrengthTier,
@@ -185,6 +189,33 @@ export default function PatientDailyView() {
     return getStrengthenedBodyAreasToday(getPatientExerciseFinishReports(selectedPatient.id));
   }, [selectedPatient, getPatientExerciseFinishReports]);
 
+  const prevPatientIdRef = useRef<string | undefined>(undefined);
+  const [coinKick, setCoinKick] = useState(false);
+
+  useEffect(() => {
+    const pid = selectedPatient?.id;
+    if (prevPatientIdRef.current !== undefined && pid !== prevPatientIdRef.current) {
+      clearRewardFeedback();
+    }
+    prevPatientIdRef.current = pid;
+  }, [selectedPatient?.id, clearRewardFeedback]);
+
+  useEffect(() => {
+    if (!selectedPatient) return;
+    claimDailyLoginBonusIfNeeded(selectedPatient.id);
+  }, [selectedPatient, clinicalToday, claimDailyLoginBonusIfNeeded]);
+
+  useEffect(() => {
+    if (!rewardFeedback) return;
+    setCoinKick(true);
+    const t0 = window.setTimeout(() => setCoinKick(false), 720);
+    const t1 = window.setTimeout(() => clearRewardFeedback(), 2400);
+    return () => {
+      clearTimeout(t0);
+      clearTimeout(t1);
+    };
+  }, [rewardFeedback?.id, clearRewardFeedback]);
+
   const clinicalRehabExercises = useMemo(() => {
     if (!selectedPatient) return [];
     const p = selectedPatient.primaryBodyArea;
@@ -225,9 +256,6 @@ export default function PatientDailyView() {
     return [...rehab, ...strengthMissionRows];
   }, [clinicalRehabExercises, strengthMissionRows]);
 
-  /** ~35% of awarded XP as coins (same curve for rehab & self-care on actual XP granted). */
-  const coinsForAwardedXp = (xp: number) => Math.max(1, Math.round(xp * 0.35));
-
   const handleTrainingComplete = (payload: ExerciseTrainingCompletePayload) => {
     const m = exerciseVideoModal;
     if (!selectedPatient || !m) return;
@@ -238,7 +266,6 @@ export default function PatientDailyView() {
       submitExerciseReport(selectedPatient.id, m.exercise.id, payload.painLevel, payload.effort, m.xpAward, {
         skipPainHistory: true,
       });
-      grantPatientCoins(selectedPatient.id, m.coinsAward);
       logSelfCareSession(
         selectedPatient.id,
         m.exercise.id,
@@ -266,7 +293,6 @@ export default function PatientDailyView() {
         payload.effort,
         m.xpAward
       );
-      grantPatientCoins(selectedPatient.id, m.coinsAward);
       appendPatientExerciseFinishReport(selectedPatient.id, {
         exerciseId: m.exercise.id,
         exerciseName: m.exercise.name,
@@ -333,7 +359,6 @@ export default function PatientDailyView() {
       effortRating,
       xp
     );
-    grantPatientCoins(selectedPatient.id, coinsForAwardedXp(xp));
     if (painLevel >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
     else if (effortRating === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
     else setLoadSafetyNudge(null);
@@ -395,7 +420,7 @@ export default function PatientDailyView() {
       dir="rtl"
     >
       <header
-        className="sticky top-0 z-20 px-4 pt-4 pb-3 border-b flex items-center gap-3"
+        className="sticky top-0 z-20 px-4 pt-4 pb-3 border-b flex items-center gap-3 relative overflow-visible"
         style={{
           borderColor: '#99f6e4',
           background: 'rgba(255,255,255,0.92)',
@@ -436,16 +461,50 @@ export default function PatientDailyView() {
           <p className="text-xs text-teal-600 font-medium">הפורטל האישי שלך</p>
           <p className="text-base font-semibold text-slate-800 truncate">{selectedPatient.name}</p>
         </div>
-        <div
-          className="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-xl text-xs font-bold text-teal-900"
-          style={{
-            background: 'rgba(240, 253, 250, 0.95)',
-            border: '1px solid #99f6e4',
-          }}
-          title="מטבעות למידה"
-        >
-          <Coins className="w-4 h-4 text-teal-600" />
-          {selectedPatient.coins}
+        <div className="relative shrink-0 flex flex-col items-end">
+          {rewardFeedback && (
+            <div
+              key={rewardFeedback.id}
+              className="absolute top-full left-0 mt-1 flex flex-col items-start gap-0.5 pointer-events-none z-30"
+            >
+              {rewardFeedback.xpAdded > 0 && (
+                <span className="text-xs font-black text-teal-600 tabular-nums drop-shadow-sm animate-portal-reward-float">
+                  +{rewardFeedback.xpAdded} XP
+                </span>
+              )}
+              {rewardFeedback.streakBonusXp != null && rewardFeedback.streakBonusXp > 0 && (
+                <span
+                  className="text-[10px] font-bold text-orange-600 tabular-nums animate-portal-reward-float"
+                  style={{ animationDelay: '0.08s' }}
+                >
+                  רצף +{rewardFeedback.streakBonusXp} XP
+                </span>
+              )}
+              {rewardFeedback.coinsAdded > 0 && (
+                <span
+                  className="text-xs font-black text-amber-600 tabular-nums animate-portal-reward-float"
+                  style={{ animationDelay: '0.14s' }}
+                >
+                  +{rewardFeedback.coinsAdded} מטבעות
+                </span>
+              )}
+            </div>
+          )}
+          <div
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold text-teal-900 transition-transform duration-200 ${
+              coinKick ? 'motion-safe:scale-110' : ''
+            }`}
+            style={{
+              background: 'rgba(240, 253, 250, 0.95)',
+              border: '1px solid #99f6e4',
+            }}
+            title="מטבעות למידה"
+          >
+            <Coins
+              className={`w-4 h-4 text-teal-600 motion-safe:transition-transform ${coinKick ? 'motion-safe:scale-125' : ''}`}
+            />
+            {selectedPatient.coins}
+          </div>
         </div>
       </header>
 
@@ -633,7 +692,8 @@ export default function PatientDailyView() {
         <div className="mb-5 space-y-3">
           <DidYouKnowBubble
             patient={selectedPatient}
-            onKnowledgeComplete={() => grantPatientKnowledgeReward(selectedPatient.id)}
+            onCollectReward={(articleId) => markArticleAsRead(selectedPatient.id, articleId)}
+            hasReadArticle={hasReadArticle}
           />
           <PatientAiSuggestionCards
             suggestions={pendingAiSuggestions}
@@ -863,7 +923,7 @@ export default function PatientDailyView() {
                             kind: 'rehab',
                             exercise: ex,
                             xpAward: ex.xpReward,
-                            coinsAward: coinsForAwardedXp(ex.xpReward),
+                            coinsAward: PATIENT_REWARDS.EXERCISE_COMPLETE.coins,
                           })
                         }
                         onOpenDetails={() => openExerciseDetail(ex)}
@@ -876,7 +936,7 @@ export default function PatientDailyView() {
                 }
                 const { area, exercise: ex, strengthTier } = row;
                 const selfXp = Math.max(1, Math.floor(ex.xpReward * 0.5));
-                const selfCoins = coinsForAwardedXp(selfXp);
+                const selfCoins = PATIENT_REWARDS.EXERCISE_COMPLETE.coins;
                 const sid = ex.id;
                 const done = completedSet.has(sid);
                 const repsLine = ex.repsAreSeconds

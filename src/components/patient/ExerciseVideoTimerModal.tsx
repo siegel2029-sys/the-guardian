@@ -310,6 +310,9 @@ export default function ExerciseVideoTimerModal({
             <div className="rounded-2xl px-6 py-4 border border-teal-500/40 bg-teal-950/40 w-full max-w-sm">
               <p className="text-sm font-semibold text-teal-100/90 mb-2">הרווחת בביצוע הזה</p>
               <p className="text-3xl font-black text-teal-300 tabular-nums leading-none">+{xpAward} XP</p>
+              <p className="text-[11px] text-teal-200/85 mt-1.5 leading-snug">
+                בסיס לפי התרגיל (מינ׳ 50). רצף 3+ ימים: ×1.2 · רצף 5+ ימים: ×1.5 — מחושב בשמירה.
+              </p>
               <p className="text-lg font-bold text-amber-200 tabular-nums mt-2">+{coinsAward} מטבעות</p>
             </div>
             <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
