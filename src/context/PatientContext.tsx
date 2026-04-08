@@ -50,13 +50,24 @@ import {
   exerciseBaseXp,
   getStreakXpMultiplier,
 } from '../config/patientRewards';
-import { GEAR_BY_ID, isGearItemId } from '../config/gearCatalog';
+import {
+  GEAR_BY_ID,
+  isGearItemId,
+  type GearEquipSlot,
+} from '../config/gearCatalog';
+
+export type { GearEquipSlot } from '../config/gearCatalog';
 
 export type PatientGearState = PatientGearPersistedV1;
 
-export type GearPurchaseResult = 'ok' | 'insufficient' | 'already_owned' | 'invalid';
+export type GearPurchaseResult =
+  | 'ok'
+  | 'insufficient'
+  | 'insufficient_xp'
+  | 'already_owned'
+  | 'invalid';
 
-export type GearEquipSlot = 'skin' | 'aura' | 'hands' | 'torso';
+const XP_BOOSTER_MULT = 1.15;
 
 function defaultPatientGear(): PatientGearState {
   return {
@@ -65,6 +76,10 @@ function defaultPatientGear(): PatientGearState {
     equippedAura: null,
     equippedHands: null,
     equippedTorso: null,
+    equippedChestEmblem: null,
+    equippedFeetFx: null,
+    equippedCape: null,
+    equippedPassiveId: null,
     streakShieldCharges: 0,
   };
 }
@@ -76,8 +91,33 @@ function normalizePatientGear(v: Partial<PatientGearState> | undefined): Patient
     equippedAura: v?.equippedAura ?? null,
     equippedHands: v?.equippedHands ?? null,
     equippedTorso: v?.equippedTorso ?? null,
+    equippedChestEmblem: v?.equippedChestEmblem ?? null,
+    equippedFeetFx: v?.equippedFeetFx ?? null,
+    equippedCape: v?.equippedCape ?? null,
+    equippedPassiveId: v?.equippedPassiveId ?? null,
     streakShieldCharges: Math.max(0, v?.streakShieldCharges ?? 0),
   };
+}
+
+function gearSlotToStateKey(slot: GearEquipSlot): keyof PatientGearState | null {
+  switch (slot) {
+    case 'skin':
+      return 'equippedSkin';
+    case 'aura':
+      return 'equippedAura';
+    case 'hands':
+      return 'equippedHands';
+    case 'torso':
+      return 'equippedTorso';
+    case 'chest':
+      return 'equippedChestEmblem';
+    case 'feet':
+      return 'equippedFeetFx';
+    case 'cape':
+      return 'equippedCape';
+    default:
+      return null;
+  }
 }
 
 function buildEmptySession(patientId: string, clinicalDate: string): DailySession {
@@ -252,6 +292,8 @@ interface PatientContextValue {
 
   getPatientGear: (patientId: string) => PatientGearState;
   purchaseGearItem: (patientId: string, itemId: string) => GearPurchaseResult;
+  /** כינוי ל־purchaseGearItem (תאימות API) */
+  purchaseItem: (patientId: string, itemId: string) => GearPurchaseResult;
   equipGearItem: (patientId: string, itemId: string) => boolean;
   unequipGearSlot: (patientId: string, slot: GearEquipSlot) => void;
   /** בונוס XP לכניסה ראשונה ביום קליני (חד-פעמי ליום) */
@@ -998,6 +1040,7 @@ export function PatientProvider({
       const entry = GEAR_BY_ID[rawId];
       const patient = allPatients.find((p) => p.id === patientId);
       if (!patient) return 'invalid';
+      if (patient.xp < entry.xpRequired) return 'insufficient_xp';
       if (patient.coins < entry.priceCoins) return 'insufficient';
 
       if (entry.id === 'streak_shield') {
@@ -1050,14 +1093,18 @@ export function PatientProvider({
       if (entry.equipSlot === 'none') return false;
       const g = patientGearByPatientId[patientId] ?? defaultPatientGear();
       if (!g.ownedGearIds.includes(rawId)) return false;
-      const slotKey =
-        entry.equipSlot === 'skin'
-          ? 'equippedSkin'
-          : entry.equipSlot === 'aura'
-            ? 'equippedAura'
-            : entry.equipSlot === 'hands'
-              ? 'equippedHands'
-              : 'equippedTorso';
+      if (entry.equipSlot === 'functional_passive') {
+        setPatientGearByPatientId((prev) => {
+          const cur = prev[patientId] ?? defaultPatientGear();
+          return {
+            ...prev,
+            [patientId]: { ...cur, equippedPassiveId: rawId },
+          };
+        });
+        return true;
+      }
+      const slotKey = gearSlotToStateKey(entry.equipSlot);
+      if (!slotKey) return false;
       setPatientGearByPatientId((prev) => {
         const cur = prev[patientId] ?? defaultPatientGear();
         return {
@@ -1071,14 +1118,19 @@ export function PatientProvider({
   );
 
   const unequipGearSlot = useCallback((patientId: string, slot: GearEquipSlot) => {
-    const key =
-      slot === 'skin'
-        ? 'equippedSkin'
-        : slot === 'aura'
-          ? 'equippedAura'
-          : slot === 'hands'
-            ? 'equippedHands'
-            : 'equippedTorso';
+    if (slot === 'functional_passive') {
+      setPatientGearByPatientId((prev) => {
+        const cur = prev[patientId] ?? defaultPatientGear();
+        return {
+          ...prev,
+          [patientId]: { ...cur, equippedPassiveId: null },
+        };
+      });
+      return;
+    }
+    if (slot === 'none') return;
+    const key = gearSlotToStateKey(slot);
+    if (!key) return;
     setPatientGearByPatientId((prev) => {
       const cur = prev[patientId] ?? defaultPatientGear();
       return {
@@ -1161,8 +1213,14 @@ export function PatientProvider({
 
       const baseXp = exerciseBaseXp(xpReward);
       const streakMult = getStreakXpMultiplier(nextStreak);
-      const xpGain = Math.round(baseXp * streakMult);
-      const streakBonusXp = Math.max(0, xpGain - baseXp);
+      const xpBeforeBoost = Math.round(baseXp * streakMult);
+      const hasXpBoost =
+        gearSnap.equippedPassiveId === 'xp_booster' &&
+        gearSnap.ownedGearIds.includes('xp_booster');
+      const xpGain = hasXpBoost
+        ? Math.round(xpBeforeBoost * XP_BOOSTER_MULT)
+        : xpBeforeBoost;
+      const streakBonusXp = Math.max(0, xpBeforeBoost - baseXp);
       const coinsGain = PATIENT_REWARDS.EXERCISE_COMPLETE.coins;
 
       pushRewardFeedback(
@@ -1909,6 +1967,7 @@ export function PatientProvider({
         hasDailyLoginBonusPending,
         getPatientGear,
         purchaseGearItem,
+        purchaseItem: purchaseGearItem,
         equipGearItem,
         unequipGearSlot,
         claimDailyLoginBonusIfNeeded,

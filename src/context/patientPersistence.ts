@@ -55,6 +55,11 @@ export type PatientGearPersistedV1 = {
   equippedAura: string | null;
   equippedHands: string | null;
   equippedTorso: string | null;
+  equippedChestEmblem: string | null;
+  equippedFeetFx: string | null;
+  equippedCape: string | null;
+  /** פסיבי פונקציונלי (למשל xp_booster) */
+  equippedPassiveId: string | null;
   streakShieldCharges: number;
 };
 

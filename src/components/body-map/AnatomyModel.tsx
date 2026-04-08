@@ -1,4 +1,11 @@
-import { useRef, useMemo, useLayoutEffect, useEffect, type RefObject } from 'react';
+import {
+  useRef,
+  useMemo,
+  useLayoutEffect,
+  useEffect,
+  type RefObject,
+  type ReactNode,
+} from 'react';
 import { useFrame } from '@react-three/fiber';
 import { ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
@@ -21,6 +28,8 @@ import { getAnatomicalStage } from '../../body/anatomicalEvolution';
 import type { AnatomicalStage } from '../../body/anatomicalEvolution';
 import { createMuscleFiberTextures } from './proceduralMuscleTextures';
 import VascularNeuralEvolution from './VascularNeuralEvolution';
+import EquippedGearAttachments from './equippedGear/EquippedGearAttachments';
+import type { EquippedGearSnapshot } from '../../config/gearCatalog';
 
 // ── Static world-position for each area's pulsing glow light ─────
 const AREA_GLOW: Partial<Record<BodyArea, [number, number, number]>> = {
@@ -142,58 +151,17 @@ function useNoRaycast<T extends THREE.Object3D>(ref: RefObject<T | null>) {
   }, []);
 }
 
-function GearNeonAuraShell() {
-  const ref = useRef<THREE.Mesh>(null);
-  useNoRaycast(ref);
-  return (
-    <mesh ref={ref} position={[0, 0.92, 0]} scale={[0.74, 1.08, 0.44]}>
-      <sphereGeometry args={[1.18, 26, 18]} />
-      <meshBasicMaterial
-        color="#22d3ee"
-        wireframe
-        transparent
-        opacity={0.2}
-        depthWrite={false}
-      />
-    </mesh>
-  );
-}
-
-function GearTrainingWeights() {
-  const l = useRef<THREE.Mesh>(null);
-  const r = useRef<THREE.Mesh>(null);
-  useNoRaycast(l);
-  useNoRaycast(r);
-  const box = useMemo(() => new THREE.BoxGeometry(0.1, 0.08, 0.12), []);
-  return (
-    <group>
-      <mesh ref={l} geometry={box} position={[0.62, -0.05, 0.1]} castShadow>
-        <meshStandardMaterial color="#475569" metalness={0.6} roughness={0.35} />
-      </mesh>
-      <mesh ref={r} geometry={box} position={[-0.62, -0.05, 0.1]} castShadow>
-        <meshStandardMaterial color="#475569" metalness={0.6} roughness={0.35} />
-      </mesh>
-    </group>
-  );
-}
-
-function GearProtectiveShield() {
-  const ref = useRef<THREE.Mesh>(null);
-  useNoRaycast(ref);
-  return (
-    <mesh ref={ref} position={[0, 0.78, 0.48]} rotation={[0.08, 0, 0]}>
-      <circleGeometry args={[0.52, 40]} />
-      <meshPhysicalMaterial
-        color="#7dd3fc"
-        transparent
-        opacity={0.2}
-        metalness={0.15}
-        roughness={0.12}
-        side={THREE.DoubleSide}
-        depthWrite={false}
-      />
-    </mesh>
-  );
+/** תנודת idle עדינה — אביזרים וגוף נעים יחד */
+function IdleSwayRoot({ children }: { children: ReactNode }) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => {
+    const g = ref.current;
+    if (!g) return;
+    const t = clock.elapsedTime;
+    g.rotation.y = Math.sin(t * 0.38) * 0.02;
+    g.position.y = Math.sin(t * 0.88) * 0.014;
+  });
+  return <group ref={ref}>{children}</group>;
 }
 
 function HeadFaceFeatures({ level }: { level: number }) {
@@ -338,10 +306,8 @@ interface AnatomyModelProps {
   strengthenedAreasToday?: BodyArea[];
   selectedArea?: BodyArea | null;
   onAreaClick?: (area: BodyArea) => void;
-  gearGoldSkin?: boolean;
-  gearNeonAura?: boolean;
-  gearTrainingWeights?: boolean;
-  gearProtectiveShield?: boolean;
+  /** ציוד מעוצב — מיפוי אנטומי ב־EquippedGearAttachments */
+  equippedGear: EquippedGearSnapshot;
 }
 
 export default function AnatomyModel({
@@ -357,11 +323,9 @@ export default function AnatomyModel({
   strengthenedAreasToday = [],
   selectedArea,
   onAreaClick,
-  gearGoldSkin = false,
-  gearNeonAura = false,
-  gearTrainingWeights = false,
-  gearProtectiveShield = false,
+  equippedGear,
 }: AnatomyModelProps) {
+  const gearGoldSkin = equippedGear.skin === 'gold_skin';
   const geos = useGeometries();
   const primaryLightRef = useRef<THREE.PointLight>(null);
   const clinicalArea = clinicalAreaProp ?? primaryArea;
@@ -423,7 +387,8 @@ export default function AnatomyModel({
 
   return (
     <group>
-      {gearNeonAura && <GearNeonAuraShell />}
+      <IdleSwayRoot>
+        <group>
       {/* Pulsing injury spotlight */}
       {primaryArea && (
         <pointLight
@@ -505,8 +470,9 @@ export default function AnatomyModel({
         />
       )}
 
-      {gearTrainingWeights && <GearTrainingWeights />}
-      {gearProtectiveShield && <GearProtectiveShield />}
+      <EquippedGearAttachments equipped={equippedGear} />
+        </group>
+      </IdleSwayRoot>
 
       {/* ══ GROUND SHADOW ══════════════════════════════════════ */}
       <ContactShadows

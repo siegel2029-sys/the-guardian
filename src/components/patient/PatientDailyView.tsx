@@ -49,7 +49,8 @@ import {
 } from '../../safety/clinicalEmergencyScreening';
 import { PATIENT_REWARDS, exerciseBaseXp } from '../../config/patientRewards';
 import { RewardLabel } from '../ui/RewardLabel';
-import GearStoreSection from './GearStoreSection';
+import GearStoreArmory from './GearStoreArmory';
+import { buildEquippedGearSnapshot } from '../../utils/gearSnapshot';
 import PortalPatientDebugPanel from './PortalPatientDebugPanel';
 
 /** תצוגת יום למטופל — מוצגת רק ב־/patient-portal (מפת גוף, תרגילים, לוח שנה). */
@@ -572,10 +573,7 @@ export default function PatientDailyView() {
                   floatingLevelBadge
                   levelBadgeRevealOnHover
                   avatarScale={0.9}
-                  gearGoldSkin={patientGearState.equippedSkin === 'gold_skin'}
-                  gearNeonAura={patientGearState.equippedAura === 'neon_aura'}
-                  gearTrainingWeights={patientGearState.equippedHands === 'training_weights'}
-                  gearProtectiveShield={patientGearState.equippedTorso === 'protective_shield'}
+                  equippedGear={buildEquippedGearSnapshot(patientGearState)}
                   minHeightPx={520}
                   onAreaClick={handleAvatarZoneClick}
                 />
@@ -1020,9 +1018,10 @@ export default function PatientDailyView() {
         )}
 
         {portalTab === 'gear' && selectedPatient && (
-          <GearStoreSection
+          <GearStoreArmory
             patientId={selectedPatient.id}
             coins={selectedPatient.coins}
+            patientXp={selectedPatient.xp}
             gear={patientGearState}
             purchaseGearItem={purchaseGearItem}
             equipGearItem={equipGearItem}

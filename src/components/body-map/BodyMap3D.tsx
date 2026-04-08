@@ -5,6 +5,7 @@ import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import AnatomyModel from './AnatomyModel';
 import type { BodyArea } from '../../types';
+import { EMPTY_EQUIPPED_GEAR, type EquippedGearSnapshot } from '../../config/gearCatalog';
 
 export interface BodyMap3DProps {
   activeAreas: BodyArea[];
@@ -39,11 +40,8 @@ export interface BodyMap3DProps {
   onAreaClick?: (area: BodyArea) => void;
   /** Default 500. Use a lower value for compact / mobile patient layouts. */
   minHeightPx?: number;
-  /** ציוד מחנות — ויזואליה על המודל */
-  gearGoldSkin?: boolean;
-  gearNeonAura?: boolean;
-  gearTrainingWeights?: boolean;
-  gearProtectiveShield?: boolean;
+  /** ציוד מעוגן אנטומית — מטופל; דשבורד מטפל משאיר ריק */
+  equippedGear?: EquippedGearSnapshot;
 }
 
 // ── View presets ──────────────────────────────────────────────────
@@ -222,11 +220,10 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     selectedArea,
     onAreaClick,
     minHeightPx = 500,
-    gearGoldSkin = false,
-    gearNeonAura = false,
-    gearTrainingWeights = false,
-    gearProtectiveShield = false,
+    equippedGear: equippedGearProp,
   } = props;
+
+  const equippedGear = equippedGearProp ?? EMPTY_EQUIPPED_GEAR;
 
   const streakVal = streak ?? streakForGlow ?? 0;
   const streakEnergy = streakVal >= 3;
@@ -324,10 +321,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                 strengthenedAreasToday={strengthenedAreasToday}
                 selectedArea={selectedArea}
                 onAreaClick={onAreaClick}
-                gearGoldSkin={gearGoldSkin}
-                gearNeonAura={gearNeonAura}
-                gearTrainingWeights={gearTrainingWeights}
-                gearProtectiveShield={gearProtectiveShield}
+                equippedGear={equippedGear}
               />
 
               {floatingLevelBadge && showLevelChrome && (
