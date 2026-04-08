@@ -16,6 +16,7 @@ import PatientAvatarStateCard from './clinical/PatientAvatarStateCard';
 import AiProgressInsightCard from './clinical/AiProgressInsightCard';
 import TherapistQuickChat from './clinical/TherapistQuickChat';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
+import AiClinicalInsightsCard from './clinical/AiClinicalInsightsCard';
 import PatientDataManagement from './clinical/PatientDataManagement';
 import { bodyAreaLabels } from '../../types';
 
@@ -37,10 +38,14 @@ export default function PatientOverview() {
     getPatientMessages,
     messages,
     clinicalToday,
+    dailyHistoryByPatient,
     safetyAlerts,
     isPatientExerciseSafetyLocked,
     clearPatientExerciseSafetyLock,
     applyInitialClinicalProfile,
+    getSelfCareZones,
+    getSelfCareReportsForPatient,
+    getPatientExerciseFinishReports,
   } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
   const [showClinicalModal, setShowClinicalModal] = useState(false);
@@ -242,6 +247,16 @@ export default function PatientOverview() {
             <AiProgressInsightCard insight={insight} />
           </div>
         )}
+
+        <AiClinicalInsightsCard
+          patient={p}
+          clinicalToday={clinicalToday}
+          plan={plan}
+          dailyHistoryForPatient={dailyHistoryByPatient[p.id]}
+          selfSelectedZones={getSelfCareZones(p.id)}
+          selfCareReports={getSelfCareReportsForPatient(p.id)}
+          finishReports={getPatientExerciseFinishReports(p.id)}
+        />
 
         <div className="mb-5">
           <TherapistQuickChat patientId={p.id} patientName={p.name} />

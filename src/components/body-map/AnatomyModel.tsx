@@ -1,4 +1,4 @@
-import { useRef, useMemo } from 'react';
+import { useRef, useMemo, useLayoutEffect, type RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
@@ -57,6 +57,92 @@ function BaseSegment({ geometry, position, rotation }: BaseProps) {
         envMapIntensity={1.2}
       />
     </mesh>
+  );
+}
+
+/** Minimal face markers on +Z (camera-facing); does not replace head mesh. Raycast disabled so picks pass through. */
+const FACE_EYE_COLOR = '#2a4554';
+const FACE_MOUTH_COLOR = '#3a5666';
+
+function useNoRaycast<T extends THREE.Object3D>(ref: RefObject<T | null>) {
+  useLayoutEffect(() => {
+    const o = ref.current;
+    if (!o) return;
+    o.raycast = () => {};
+  }, []);
+}
+
+function HeadFaceFeatures() {
+  const headCenterY = 1.73;
+  const headRadius = 0.225;
+  /** Surface Z ≈ +headRadius; features sit slightly inside to avoid z-fighting with head sphere */
+  const faceZ = headRadius - 0.012;
+
+  const eyeGeo = useMemo(() => new THREE.SphereGeometry(0.021, 10, 8), []);
+  const mouthTubeGeo = useMemo(() => {
+    const curve = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(-0.064, -0.078, faceZ),
+      new THREE.Vector3(0, -0.095, faceZ + 0.004),
+      new THREE.Vector3(0.064, -0.078, faceZ)
+    );
+    return new THREE.TubeGeometry(curve, 14, 0.0075, 6, false);
+  }, [faceZ]);
+
+  const eyeLRef = useRef<THREE.Mesh>(null);
+  const eyeRRef = useRef<THREE.Mesh>(null);
+  const mouthRef = useRef<THREE.Mesh>(null);
+  useNoRaycast(eyeLRef);
+  useNoRaycast(eyeRRef);
+  useNoRaycast(mouthRef);
+
+  const eyeY = 0.046;
+  const eyeX = 0.056;
+
+  return (
+    <group position={[0, headCenterY, 0]}>
+      <mesh
+        ref={eyeLRef}
+        geometry={eyeGeo}
+        position={[eyeX, eyeY, faceZ]}
+        castShadow={false}
+        receiveShadow={false}
+      >
+        <meshPhysicalMaterial
+          color={FACE_EYE_COLOR}
+          roughness={0.48}
+          metalness={0.06}
+          clearcoat={0.12}
+          clearcoatRoughness={0.45}
+          envMapIntensity={0.85}
+        />
+      </mesh>
+      <mesh
+        ref={eyeRRef}
+        geometry={eyeGeo}
+        position={[-eyeX, eyeY, faceZ]}
+        castShadow={false}
+        receiveShadow={false}
+      >
+        <meshPhysicalMaterial
+          color={FACE_EYE_COLOR}
+          roughness={0.48}
+          metalness={0.06}
+          clearcoat={0.12}
+          clearcoatRoughness={0.45}
+          envMapIntensity={0.85}
+        />
+      </mesh>
+      <mesh ref={mouthRef} geometry={mouthTubeGeo} castShadow={false} receiveShadow={false}>
+        <meshPhysicalMaterial
+          color={FACE_MOUTH_COLOR}
+          roughness={0.55}
+          metalness={0.05}
+          clearcoat={0.08}
+          clearcoatRoughness={0.5}
+          envMapIntensity={0.8}
+        />
+      </mesh>
+    </group>
   );
 }
 
@@ -179,6 +265,7 @@ export default function AnatomyModel({
       <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} />
       <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} />
       <BaseSegment geometry={geos.ear}  position={[-0.235, 1.73, 0]} />
+      <HeadFaceFeatures />
 
       {/* ══ NECK ═══════════════════════════════════════════════ */}
       <MuscleSegment {...S('neck')} geometry={geos.neck} position={[0, 1.48, 0]} />
