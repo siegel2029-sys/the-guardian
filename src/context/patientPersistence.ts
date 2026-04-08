@@ -38,8 +38,24 @@ export type PersistedPatientStateV1 = {
    */
   patientRewardMetaByPatientId?: Record<
     string,
-    { readArticleIds: string[]; lastLoginBonusClinicalDate: string | null }
+    {
+      readArticleIds: string[];
+      lastLoginBonusClinicalDate: string | null;
+      articleLinkOpenedIds?: string[];
+    }
   >;
+  /** ציוד ויזואלי / מגן רצף — לפי מזהה מטופל */
+  patientGearByPatientId?: Record<string, PatientGearPersistedV1>;
+};
+
+/** נתוני ציוד שנשמרים ב־localStorage */
+export type PatientGearPersistedV1 = {
+  ownedGearIds: string[];
+  equippedSkin: string | null;
+  equippedAura: string | null;
+  equippedHands: string | null;
+  equippedTorso: string | null;
+  streakShieldCharges: number;
 };
 
 export function loadPersistedPatientState(): PersistedPatientStateV1 | null {

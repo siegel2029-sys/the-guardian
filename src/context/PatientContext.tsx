@@ -27,13 +27,14 @@ import {
   DIFFICULTY_MAX_PATIENT_COPY,
   type EmergencyScreenResult,
 } from '../safety/clinicalEmergencyScreening';
-import { getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
+import { getClinicalDate, getClinicalYesterday, addClinicalDays } from '../utils/clinicalCalendar';
 import { computeClinicalProgressInsight } from '../ai/clinicalCommandInsight';
 import { mergeHistoryFromSessions } from '../utils/dailyHistory';
 import {
   savePersistedPatientState,
   PATIENT_STATE_STORAGE_KEY,
   type PersistedPatientStateV1,
+  type PatientGearPersistedV1,
 } from './patientPersistence';
 import {
   addPatientAccount,
@@ -49,6 +50,35 @@ import {
   exerciseBaseXp,
   getStreakXpMultiplier,
 } from '../config/patientRewards';
+import { GEAR_BY_ID, isGearItemId } from '../config/gearCatalog';
+
+export type PatientGearState = PatientGearPersistedV1;
+
+export type GearPurchaseResult = 'ok' | 'insufficient' | 'already_owned' | 'invalid';
+
+export type GearEquipSlot = 'skin' | 'aura' | 'hands' | 'torso';
+
+function defaultPatientGear(): PatientGearState {
+  return {
+    ownedGearIds: [],
+    equippedSkin: null,
+    equippedAura: null,
+    equippedHands: null,
+    equippedTorso: null,
+    streakShieldCharges: 0,
+  };
+}
+
+function normalizePatientGear(v: Partial<PatientGearState> | undefined): PatientGearState {
+  return {
+    ownedGearIds: [...(v?.ownedGearIds ?? [])],
+    equippedSkin: v?.equippedSkin ?? null,
+    equippedAura: v?.equippedAura ?? null,
+    equippedHands: v?.equippedHands ?? null,
+    equippedTorso: v?.equippedTorso ?? null,
+    streakShieldCharges: Math.max(0, v?.streakShieldCharges ?? 0),
+  };
+}
 
 function buildEmptySession(patientId: string, clinicalDate: string): DailySession {
   return { patientId, date: clinicalDate, completedIds: [], sessionXp: 0 };
@@ -95,10 +125,12 @@ export type PatientRewardFeedback = {
 type PatientRewardMeta = {
   readArticleIds: string[];
   lastLoginBonusClinicalDate: string | null;
+  /** מאמרים שפתחו את הקישור החיצוני (נדרש לפני איסוף פרס) */
+  articleLinkOpenedIds: string[];
 };
 
 function defaultPatientRewardMeta(): PatientRewardMeta {
-  return { readArticleIds: [], lastLoginBonusClinicalDate: null };
+  return { readArticleIds: [], lastLoginBonusClinicalDate: null, articleLinkOpenedIds: [] };
 }
 
 // ── Context shape ────────────────────────────────────────────────
@@ -206,10 +238,22 @@ interface PatientContextValue {
   grantPatientCoins: (patientId: string, amount: number) => void;
   /**
    * מאמר / הידעת — פרס חד-פעמי לכל articleId (שמור ב-localStorage).
-   * @returns true אם ניתן פרס עכשיו, false אם כבר נוצל
+   * דורש שפתיחת הקישור נרשמה ו־readerConfirmed (תיבת סימון).
    */
-  markArticleAsRead: (patientId: string, articleId: string) => boolean;
+  markArticleAsRead: (
+    patientId: string,
+    articleId: string,
+    options?: { readerConfirmed?: boolean }
+  ) => boolean;
   hasReadArticle: (patientId: string, articleId: string) => boolean;
+  recordArticleLinkOpened: (patientId: string, articleId: string) => void;
+  hasArticleLinkOpened: (patientId: string, articleId: string) => boolean;
+  hasDailyLoginBonusPending: (patientId: string) => boolean;
+
+  getPatientGear: (patientId: string) => PatientGearState;
+  purchaseGearItem: (patientId: string, itemId: string) => GearPurchaseResult;
+  equipGearItem: (patientId: string, itemId: string) => boolean;
+  unequipGearSlot: (patientId: string, slot: GearEquipSlot) => void;
   /** בונוס XP לכניסה ראשונה ביום קליני (חד-פעמי ליום) */
   claimDailyLoginBonusIfNeeded: (patientId: string) => boolean;
   /** אות להצגת אנימציית פרס בכותרת הפורטל */
@@ -392,7 +436,19 @@ export function PatientProvider({
       out[pid] = {
         readArticleIds: [...(v?.readArticleIds ?? [])],
         lastLoginBonusClinicalDate: v?.lastLoginBonusClinicalDate ?? null,
+        articleLinkOpenedIds: [...(v?.articleLinkOpenedIds ?? [])],
       };
+    }
+    return out;
+  });
+
+  const [patientGearByPatientId, setPatientGearByPatientId] = useState<
+    Record<string, PatientGearState>
+  >(() => {
+    const raw = readPersistedOnce().patient?.patientGearByPatientId ?? {};
+    const out: Record<string, PatientGearState> = {};
+    for (const [pid, v] of Object.entries(raw)) {
+      out[pid] = normalizePatientGear(v);
     }
     return out;
   });
@@ -448,6 +504,7 @@ export function PatientProvider({
       patientExerciseFinishReportsByPatientId,
       selfCareStrengthTierByPatientId,
       patientRewardMetaByPatientId,
+      patientGearByPatientId,
     });
   }, [
     allPatients,
@@ -463,6 +520,7 @@ export function PatientProvider({
     patientExerciseFinishReportsByPatientId,
     selfCareStrengthTierByPatientId,
     patientRewardMetaByPatientId,
+    patientGearByPatientId,
   ]);
 
   const applyExternalSnapshot = useCallback(
@@ -486,9 +544,16 @@ export function PatientProvider({
         nextMeta[pid] = {
           readArticleIds: [...(v?.readArticleIds ?? [])],
           lastLoginBonusClinicalDate: v?.lastLoginBonusClinicalDate ?? null,
+          articleLinkOpenedIds: [...(v?.articleLinkOpenedIds ?? [])],
         };
       }
       setPatientRewardMetaByPatientId(nextMeta);
+      const pg = data.patientGearByPatientId ?? {};
+      const nextGear: Record<string, PatientGearState> = {};
+      for (const [pid, v] of Object.entries(pg)) {
+        nextGear[pid] = normalizePatientGear(v);
+      }
+      setPatientGearByPatientId(nextGear);
       if (!restrictPatientSessionId) {
         setSelectedPatientId(data.selectedPatientId ?? '');
       }
@@ -852,14 +917,14 @@ export function PatientProvider({
   );
 
   const markArticleAsRead = useCallback(
-    (patientId: string, articleId: string) => {
+    (patientId: string, articleId: string, options?: { readerConfirmed?: boolean }) => {
+      if (!options?.readerConfirmed) return false;
       const { xp: rxp, coins: rcoins } = PATIENT_REWARDS.ARTICLE_READ;
       let granted = false;
       setPatientRewardMetaByPatientId((prev) => {
         const cur = prev[patientId] ?? defaultPatientRewardMeta();
-        if (cur.readArticleIds.includes(articleId)) {
-          return prev;
-        }
+        if (cur.readArticleIds.includes(articleId)) return prev;
+        if (!cur.articleLinkOpenedIds.includes(articleId)) return prev;
         granted = true;
         return {
           ...prev,
@@ -886,6 +951,135 @@ export function PatientProvider({
       (patientRewardMetaByPatientId[patientId]?.readArticleIds ?? []).includes(articleId),
     [patientRewardMetaByPatientId]
   );
+
+  const recordArticleLinkOpened = useCallback((patientId: string, articleId: string) => {
+    setPatientRewardMetaByPatientId((prev) => {
+      const cur = prev[patientId] ?? defaultPatientRewardMeta();
+      if (cur.articleLinkOpenedIds.includes(articleId)) return prev;
+      return {
+        ...prev,
+        [patientId]: {
+          ...cur,
+          articleLinkOpenedIds: [...cur.articleLinkOpenedIds, articleId],
+        },
+      };
+    });
+  }, []);
+
+  const hasArticleLinkOpened = useCallback(
+    (patientId: string, articleId: string) =>
+      (patientRewardMetaByPatientId[patientId]?.articleLinkOpenedIds ?? []).includes(articleId),
+    [patientRewardMetaByPatientId]
+  );
+
+  const hasDailyLoginBonusPending = useCallback(
+    (patientId: string) => {
+      const day = getClinicalDate();
+      return (patientRewardMetaByPatientId[patientId]?.lastLoginBonusClinicalDate ?? null) !== day;
+    },
+    [patientRewardMetaByPatientId]
+  );
+
+  const getPatientGear = useCallback(
+    (patientId: string) => patientGearByPatientId[patientId] ?? defaultPatientGear(),
+    [patientGearByPatientId]
+  );
+
+  const purchaseGearItem = useCallback(
+    (patientId: string, rawId: string): GearPurchaseResult => {
+      if (!isGearItemId(rawId)) return 'invalid';
+      const entry = GEAR_BY_ID[rawId];
+      const patient = allPatients.find((p) => p.id === patientId);
+      if (!patient) return 'invalid';
+      if (patient.coins < entry.priceCoins) return 'insufficient';
+
+      if (entry.id === 'streak_shield') {
+        setAllPatients((prev) =>
+          prev.map((p) =>
+            p.id === patientId ? { ...p, coins: p.coins - entry.priceCoins } : p
+          )
+        );
+        setPatientGearByPatientId((prev) => {
+          const cur = prev[patientId] ?? defaultPatientGear();
+          return {
+            ...prev,
+            [patientId]: {
+              ...cur,
+              streakShieldCharges: cur.streakShieldCharges + 1,
+            },
+          };
+        });
+        return 'ok';
+      }
+
+      const owned = patientGearByPatientId[patientId]?.ownedGearIds ?? [];
+      if (owned.includes(rawId)) return 'already_owned';
+
+      setAllPatients((prev) =>
+        prev.map((p) =>
+          p.id === patientId ? { ...p, coins: p.coins - entry.priceCoins } : p
+        )
+      );
+      setPatientGearByPatientId((prev) => {
+        const cur = prev[patientId] ?? defaultPatientGear();
+        if (cur.ownedGearIds.includes(rawId)) return prev;
+        return {
+          ...prev,
+          [patientId]: {
+            ...cur,
+            ownedGearIds: [...cur.ownedGearIds, rawId],
+          },
+        };
+      });
+      return 'ok';
+    },
+    [allPatients, patientGearByPatientId]
+  );
+
+  const equipGearItem = useCallback(
+    (patientId: string, rawId: string): boolean => {
+      if (!isGearItemId(rawId)) return false;
+      const entry = GEAR_BY_ID[rawId];
+      if (entry.equipSlot === 'none') return false;
+      const g = patientGearByPatientId[patientId] ?? defaultPatientGear();
+      if (!g.ownedGearIds.includes(rawId)) return false;
+      const slotKey =
+        entry.equipSlot === 'skin'
+          ? 'equippedSkin'
+          : entry.equipSlot === 'aura'
+            ? 'equippedAura'
+            : entry.equipSlot === 'hands'
+              ? 'equippedHands'
+              : 'equippedTorso';
+      setPatientGearByPatientId((prev) => {
+        const cur = prev[patientId] ?? defaultPatientGear();
+        return {
+          ...prev,
+          [patientId]: { ...cur, [slotKey]: rawId },
+        };
+      });
+      return true;
+    },
+    [patientGearByPatientId]
+  );
+
+  const unequipGearSlot = useCallback((patientId: string, slot: GearEquipSlot) => {
+    const key =
+      slot === 'skin'
+        ? 'equippedSkin'
+        : slot === 'aura'
+          ? 'equippedAura'
+          : slot === 'hands'
+            ? 'equippedHands'
+            : 'equippedTorso';
+    setPatientGearByPatientId((prev) => {
+      const cur = prev[patientId] ?? defaultPatientGear();
+      return {
+        ...prev,
+        [patientId]: { ...cur, [key]: null },
+      };
+    });
+  }, []);
 
   const claimDailyLoginBonusIfNeeded = useCallback(
     (patientId: string) => {
@@ -939,12 +1133,21 @@ export function PatientProvider({
       const totalInPlan = plan?.exercises.length ?? 0;
       const firstOfDay = !prior || prior.completedIds.length === 0;
       const clinicalYesterday = getClinicalYesterday();
+      const clinicalTwoDaysAgo = addClinicalDays(clinicalDay, -2);
+      const gearSnap = patientGearByPatientId[patientId] ?? defaultPatientGear();
 
       let nextStreak = patientBefore.currentStreak;
+      let consumeStreakShield = false;
       if (firstOfDay) {
-        if (patientBefore.lastSessionDate === clinicalYesterday) {
+        const last = patientBefore.lastSessionDate;
+        if (last === clinicalYesterday) {
           nextStreak = patientBefore.currentStreak + 1;
-        } else if (patientBefore.lastSessionDate !== clinicalDay) {
+        } else if (last === clinicalDay) {
+          nextStreak = patientBefore.currentStreak;
+        } else if (last === clinicalTwoDaysAgo && gearSnap.streakShieldCharges > 0) {
+          nextStreak = patientBefore.currentStreak + 1;
+          consumeStreakShield = true;
+        } else if (last !== clinicalDay) {
           nextStreak = 1;
         }
       }
@@ -1071,13 +1274,10 @@ export function PatientProvider({
             newSessionHistory.reduce((sum, s) => sum + s.difficultyRating, 0) /
             newSessionHistory.length;
 
-          let { currentStreak, longestStreak, lastSessionDate } = p;
+          let { longestStreak, lastSessionDate } = p;
+          let currentStreak = p.currentStreak;
           if (firstOfDay) {
-            if (lastSessionDate === clinicalYesterday) {
-              currentStreak += 1;
-            } else if (lastSessionDate !== clinicalDay) {
-              currentStreak = 1;
-            }
+            currentStreak = nextStreak;
             longestStreak = Math.max(longestStreak, currentStreak);
           }
           lastSessionDate = clinicalDay;
@@ -1105,6 +1305,19 @@ export function PatientProvider({
           };
         })
       );
+
+      if (consumeStreakShield) {
+        setPatientGearByPatientId((gPrev) => {
+          const cur = gPrev[patientId] ?? defaultPatientGear();
+          return {
+            ...gPrev,
+            [patientId]: {
+              ...cur,
+              streakShieldCharges: Math.max(0, cur.streakShieldCharges - 1),
+            },
+          };
+        });
+      }
 
       const planAfter = exercisePlans.find((ep) => ep.patientId === patientId);
       if (pain >= 7) {
@@ -1168,7 +1381,15 @@ export function PatientProvider({
         }
       }
     },
-    [exercisePlans, dailySessions, sendAiClinicalAlert, clinicalTick, allPatients, pushRewardFeedback]
+    [
+      exercisePlans,
+      dailySessions,
+      sendAiClinicalAlert,
+      clinicalTick,
+      allPatients,
+      pushRewardFeedback,
+      patientGearByPatientId,
+    ]
   );
 
   // ── AI Suggestions ─────────────────────────────────────────────
@@ -1472,6 +1693,11 @@ export function PatientProvider({
       delete next[patientId];
       return next;
     });
+    setPatientGearByPatientId((prev) => {
+      const next = { ...prev };
+      delete next[patientId];
+      return next;
+    });
   }, []);
 
   const getSelfCareZones = useCallback(
@@ -1647,6 +1873,13 @@ export function PatientProvider({
         grantPatientCoins,
         markArticleAsRead,
         hasReadArticle,
+        recordArticleLinkOpened,
+        hasArticleLinkOpened,
+        hasDailyLoginBonusPending,
+        getPatientGear,
+        purchaseGearItem,
+        equipGearItem,
+        unequipGearSlot,
         claimDailyLoginBonusIfNeeded,
         rewardFeedback,
         clearRewardFeedback,

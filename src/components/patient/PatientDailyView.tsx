@@ -13,6 +13,8 @@ import {
   Bot,
   Clock,
   KeyRound,
+  Home,
+  ShoppingBag,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
@@ -45,7 +47,9 @@ import {
   PAIN_SURGE_PATIENT_COPY,
   DIFFICULTY_MAX_PATIENT_COPY,
 } from '../../safety/clinicalEmergencyScreening';
-import { PATIENT_REWARDS } from '../../config/patientRewards';
+import { PATIENT_REWARDS, exerciseBaseXp } from '../../config/patientRewards';
+import { RewardLabel } from '../ui/RewardLabel';
+import GearStoreSection from './GearStoreSection';
 
 /** תצוגת יום למטופל — מוצגת רק ב־/patient-portal (מפת גוף, תרגילים, לוח שנה). */
 export default function PatientDailyView() {
@@ -72,6 +76,13 @@ export default function PatientDailyView() {
     patientDeclineAiSuggestion,
     markArticleAsRead,
     hasReadArticle,
+    recordArticleLinkOpened,
+    hasArticleLinkOpened,
+    hasDailyLoginBonusPending,
+    getPatientGear,
+    purchaseGearItem,
+    equipGearItem,
+    unequipGearSlot,
     claimDailyLoginBonusIfNeeded,
     rewardFeedback,
     clearRewardFeedback,
@@ -107,6 +118,7 @@ export default function PatientDailyView() {
   const [pwConfirm, setPwConfirm] = useState('');
   const [pwFormError, setPwFormError] = useState<string | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [portalTab, setPortalTab] = useState<'home' | 'gear'>('home');
   const [newLoginIdInput, setNewLoginIdInput] = useState('');
   const [loginIdCurrentPw, setLoginIdCurrentPw] = useState('');
   const [loginIdError, setLoginIdError] = useState<string | null>(null);
@@ -412,6 +424,7 @@ export default function PatientDailyView() {
   const xp = selectedPatient.xp;
   const next = selectedPatient.xpForNextLevel;
   const pct = Math.min(100, Math.round((xp / next) * 100));
+  const patientGearState = getPatientGear(selectedPatient.id);
 
   return (
     <div
@@ -460,6 +473,15 @@ export default function PatientDailyView() {
         <div className="flex-1 min-w-0 text-end">
           <p className="text-xs text-teal-600 font-medium">הפורטל האישי שלך</p>
           <p className="text-base font-semibold text-slate-800 truncate">{selectedPatient.name}</p>
+          {hasDailyLoginBonusPending(selectedPatient.id) && (
+            <div className="flex justify-end mt-1">
+              <RewardLabel
+                xp={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.xp}
+                coins={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.coins}
+              />
+              <span className="text-[9px] text-slate-500 mr-1.5 self-center">כניסה יומית</span>
+            </div>
+          )}
         </div>
         <div className="relative shrink-0 flex flex-col items-end">
           {rewardFeedback && (
@@ -508,8 +530,8 @@ export default function PatientDailyView() {
         </div>
       </header>
 
-      <div className="flex-1 px-4 py-4 pb-28">
-        {!!selectedPatient && (
+      <div className="flex-1 px-4 py-4 pb-36">
+        {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
             <div className="flex items-center justify-between mb-2 px-0.5">
               <h2 className="text-base font-bold text-slate-800">מפת הגוף שלי</h2>
@@ -547,6 +569,12 @@ export default function PatientDailyView() {
                   streak={selectedPatient.currentStreak}
                   strengthenedAreasToday={strengthenedAreasToday}
                   floatingLevelBadge
+                  levelBadgeRevealOnHover
+                  avatarScale={0.9}
+                  gearGoldSkin={patientGearState.equippedSkin === 'gold_skin'}
+                  gearNeonAura={patientGearState.equippedAura === 'neon_aura'}
+                  gearTrainingWeights={patientGearState.equippedHands === 'training_weights'}
+                  gearProtectiveShield={patientGearState.equippedTorso === 'protective_shield'}
                   minHeightPx={520}
                   onAreaClick={handleAvatarZoneClick}
                 />
@@ -555,7 +583,7 @@ export default function PatientDailyView() {
           </section>
         )}
 
-        {selectedPatient && (
+        {portalTab === 'home' && selectedPatient && (
           <section className="mb-5 rounded-2xl border overflow-hidden" style={{ borderColor: '#99f6e4' }}>
             <button
               type="button"
@@ -689,11 +717,16 @@ export default function PatientDailyView() {
           </section>
         )}
 
+        {portalTab === 'home' && (
         <div className="mb-5 space-y-3">
           <DidYouKnowBubble
             patient={selectedPatient}
-            onCollectReward={(articleId) => markArticleAsRead(selectedPatient.id, articleId)}
+            onCollectReward={(articleId, opts) =>
+              markArticleAsRead(selectedPatient.id, articleId, opts)
+            }
             hasReadArticle={hasReadArticle}
+            hasArticleLinkOpened={hasArticleLinkOpened}
+            onArticleLinkOpened={recordArticleLinkOpened}
           />
           <PatientAiSuggestionCards
             suggestions={pendingAiSuggestions}
@@ -701,8 +734,9 @@ export default function PatientDailyView() {
             onDecline={patientDeclineAiSuggestion}
           />
         </div>
+        )}
 
-        {sessionRole === 'patient' && !patientMustChangePassword && selectedPatient && (
+        {portalTab === 'home' && sessionRole === 'patient' && !patientMustChangePassword && selectedPatient && (
           <section className="mb-5 rounded-2xl border overflow-hidden" style={{ borderColor: '#cbd5e1' }}>
             <button
               type="button"
@@ -781,6 +815,8 @@ export default function PatientDailyView() {
           </section>
         )}
 
+        {portalTab === 'home' && (
+        <>
         <div
           className="rounded-2xl p-4 mb-5 border"
           style={{
@@ -930,6 +966,8 @@ export default function PatientDailyView() {
                         disabled={exerciseSafetyLocked}
                         typeKey={ex.type}
                         isCustomExercise={ex.isCustom}
+                        rewardLabelXp={exerciseBaseXp(ex.xpReward)}
+                        rewardLabelCoins={PATIENT_REWARDS.EXERCISE_COMPLETE.coins}
                       />
                     </li>
                   );
@@ -968,6 +1006,8 @@ export default function PatientDailyView() {
                       onSelfCareStrengthTierChange={(tier) =>
                         setSelfCareStrengthTier(selectedPatient.id, area, tier)
                       }
+                      rewardLabelXp={exerciseBaseXp(selfXp)}
+                      rewardLabelCoins={selfCoins}
                     />
                   </li>
                 );
@@ -975,7 +1015,53 @@ export default function PatientDailyView() {
             </ul>
           </div>
         )}
+        </>
+        )}
+
+        {portalTab === 'gear' && selectedPatient && (
+          <GearStoreSection
+            patientId={selectedPatient.id}
+            coins={selectedPatient.coins}
+            gear={patientGearState}
+            purchaseGearItem={purchaseGearItem}
+            equipGearItem={equipGearItem}
+            unequipGearSlot={unequipGearSlot}
+          />
+        )}
       </div>
+
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-[35] border-t flex justify-center backdrop-blur-md"
+        style={{
+          background: 'rgba(255,255,255,0.94)',
+          borderColor: '#99f6e4',
+          paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
+        }}
+        aria-label="ניווט פורטל"
+      >
+        <div className="flex w-full max-w-lg">
+          <button
+            type="button"
+            onClick={() => setPortalTab('home')}
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-bold transition-colors ${
+              portalTab === 'home' ? 'text-teal-800' : 'text-slate-500'
+            }`}
+          >
+            <Home className="w-5 h-5" />
+            בית
+          </button>
+          <button
+            type="button"
+            onClick={() => setPortalTab('gear')}
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-bold transition-colors ${
+              portalTab === 'gear' ? 'text-violet-800' : 'text-slate-500'
+            }`}
+          >
+            <ShoppingBag className="w-5 h-5" />
+            חנות ציוד
+          </button>
+        </div>
+      </nav>
 
       <GuardianAssistantFAB
         patient={selectedPatient}

@@ -39,26 +39,29 @@ const AREA_GLOW: Partial<Record<BodyArea, [number, number, number]>> = {
 
 // ── Simple non-interactive meshes (base body silhouette) ──────────
 const BASE_SKIN = '#8fb8c8';
+const GOLD_SKIN = '#c9a227';
 
 interface BaseProps {
   geometry: THREE.BufferGeometry;
   position: [number, number, number];
   rotation?: [number, number, number];
   level: number;
+  goldSkin?: boolean;
 }
 
-function BaseSegment({ geometry, position, rotation, level }: BaseProps) {
+function BaseSegment({ geometry, position, rotation, level, goldSkin }: BaseProps) {
   const tier = getLevelTier(level);
   const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
+  const baseColor = goldSkin ? GOLD_SKIN : BASE_SKIN;
 
   if (tier === 'injured') {
     return (
       <group position={position} rotation={rot}>
         <mesh geometry={geometry} castShadow receiveShadow>
           <meshStandardMaterial
-            color="#e8eaef"
+            color={goldSkin ? '#b8941f' : '#e8eaef'}
             roughness={0.92}
-            metalness={0.02}
+            metalness={goldSkin ? 0.35 : 0.02}
             transparent
             opacity={0.6}
             depthWrite={false}
@@ -73,12 +76,12 @@ function BaseSegment({ geometry, position, rotation, level }: BaseProps) {
       <group position={position} rotation={rot}>
         <mesh geometry={geometry} castShadow receiveShadow>
           <meshPhysicalMaterial
-            color={BASE_SKIN}
-            roughness={0.82}
-            metalness={0.05}
-            clearcoat={0.1}
-            clearcoatRoughness={0.62}
-            envMapIntensity={1.22}
+            color={baseColor}
+            roughness={goldSkin ? 0.35 : 0.82}
+            metalness={goldSkin ? 0.65 : 0.05}
+            clearcoat={goldSkin ? 0.55 : 0.1}
+            clearcoatRoughness={0.42}
+            envMapIntensity={goldSkin ? 1.45 : 1.22}
           />
         </mesh>
       </group>
@@ -89,15 +92,15 @@ function BaseSegment({ geometry, position, rotation, level }: BaseProps) {
     <group position={position} rotation={rot}>
       <mesh geometry={geometry} castShadow receiveShadow>
         <meshPhysicalMaterial
-          color={BASE_SKIN}
-          roughness={0.26}
-          metalness={0.55}
-          clearcoat={0.82}
-          clearcoatRoughness={0.24}
-          envMapIntensity={1.85}
-          emissive="#082830"
-          emissiveIntensity={0.06}
-          iridescence={1}
+          color={baseColor}
+          roughness={goldSkin ? 0.22 : 0.26}
+          metalness={goldSkin ? 0.78 : 0.55}
+          clearcoat={goldSkin ? 0.9 : 0.82}
+          clearcoatRoughness={0.2}
+          envMapIntensity={goldSkin ? 1.95 : 1.85}
+          emissive={goldSkin ? '#3d2a06' : '#082830'}
+          emissiveIntensity={goldSkin ? 0.04 : 0.06}
+          iridescence={goldSkin ? 0.35 : 1}
           iridescenceIOR={1.22}
           iridescenceThicknessRange={[120, 420]}
         />
@@ -116,6 +119,60 @@ function useNoRaycast<T extends THREE.Object3D>(ref: RefObject<T | null>) {
     if (!o) return;
     o.raycast = () => {};
   }, []);
+}
+
+function GearNeonAuraShell() {
+  const ref = useRef<THREE.Mesh>(null);
+  useNoRaycast(ref);
+  return (
+    <mesh ref={ref} position={[0, 0.92, 0]} scale={[0.74, 1.08, 0.44]}>
+      <sphereGeometry args={[1.18, 26, 18]} />
+      <meshBasicMaterial
+        color="#22d3ee"
+        wireframe
+        transparent
+        opacity={0.2}
+        depthWrite={false}
+      />
+    </mesh>
+  );
+}
+
+function GearTrainingWeights() {
+  const l = useRef<THREE.Mesh>(null);
+  const r = useRef<THREE.Mesh>(null);
+  useNoRaycast(l);
+  useNoRaycast(r);
+  const box = useMemo(() => new THREE.BoxGeometry(0.1, 0.08, 0.12), []);
+  return (
+    <group>
+      <mesh ref={l} geometry={box} position={[0.62, -0.05, 0.1]} castShadow>
+        <meshStandardMaterial color="#475569" metalness={0.6} roughness={0.35} />
+      </mesh>
+      <mesh ref={r} geometry={box} position={[-0.62, -0.05, 0.1]} castShadow>
+        <meshStandardMaterial color="#475569" metalness={0.6} roughness={0.35} />
+      </mesh>
+    </group>
+  );
+}
+
+function GearProtectiveShield() {
+  const ref = useRef<THREE.Mesh>(null);
+  useNoRaycast(ref);
+  return (
+    <mesh ref={ref} position={[0, 0.78, 0.48]} rotation={[0.08, 0, 0]}>
+      <circleGeometry args={[0.52, 40]} />
+      <meshPhysicalMaterial
+        color="#7dd3fc"
+        transparent
+        opacity={0.2}
+        metalness={0.15}
+        roughness={0.12}
+        side={THREE.DoubleSide}
+        depthWrite={false}
+      />
+    </mesh>
+  );
 }
 
 function HeadFaceFeatures({ level }: { level: number }) {
@@ -260,6 +317,10 @@ interface AnatomyModelProps {
   strengthenedAreasToday?: BodyArea[];
   selectedArea?: BodyArea | null;
   onAreaClick?: (area: BodyArea) => void;
+  gearGoldSkin?: boolean;
+  gearNeonAura?: boolean;
+  gearTrainingWeights?: boolean;
+  gearProtectiveShield?: boolean;
 }
 
 export default function AnatomyModel({
@@ -275,6 +336,10 @@ export default function AnatomyModel({
   strengthenedAreasToday = [],
   selectedArea,
   onAreaClick,
+  gearGoldSkin = false,
+  gearNeonAura = false,
+  gearTrainingWeights = false,
+  gearProtectiveShield = false,
 }: AnatomyModelProps) {
   const geos = useGeometries();
   const primaryLightRef = useRef<THREE.PointLight>(null);
@@ -324,6 +389,7 @@ export default function AnatomyModel({
 
   return (
     <group>
+      {gearNeonAura && <GearNeonAuraShell />}
       {/* Pulsing injury spotlight */}
       {primaryArea && (
         <pointLight
@@ -337,9 +403,9 @@ export default function AnatomyModel({
       )}
 
       {/* ══ HEAD ═══════════════════════════════════════════════ */}
-      <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} level={level} />
-      <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} level={level} />
-      <BaseSegment geometry={geos.ear}  position={[-0.235, 1.73, 0]} level={level} />
+      <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} level={level} goldSkin={gearGoldSkin} />
+      <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} />
+      <BaseSegment geometry={geos.ear}  position={[-0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} />
       <HeadFaceFeatures level={level} />
 
       {/* ══ NECK ═══════════════════════════════════════════════ */}
@@ -355,43 +421,46 @@ export default function AnatomyModel({
       <MuscleSegment {...S('back_upper')} geometry={geos.upperTorso} position={[0, 0.98, 0]} />
       <MuscleSegment {...S('back_lower')} geometry={geos.lowerTorso} position={[0, 0.54, 0]} />
       {/* Pelvis bridge (non-interactive) */}
-      <BaseSegment geometry={geos.pelvis} position={[0, 0.24, 0]} level={level} />
+      <BaseSegment geometry={geos.pelvis} position={[0, 0.24, 0]} level={level} goldSkin={gearGoldSkin} />
 
       {/* ══ LEFT ARM (+x) ══════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.upperArmL} position={[ 0.56, 0.90, 0]} level={level} />
+      <BaseSegment    geometry={geos.upperArmL} position={[ 0.56, 0.90, 0]} level={level} goldSkin={gearGoldSkin} />
       <MuscleSegment {...S('elbow_left')}  geometry={geos.elbowL}    position={[ 0.58, 0.60, 0]} />
-      <BaseSegment    geometry={geos.forearmL}  position={[ 0.56, 0.21, 0]} level={level} />
+      <BaseSegment    geometry={geos.forearmL}  position={[ 0.56, 0.21, 0]} level={level} goldSkin={gearGoldSkin} />
       <MuscleSegment {...S('wrist_left')}  geometry={geos.wristL}    position={[ 0.57,-0.04, 0]} />
-      <BaseSegment    geometry={geos.handL}     position={[ 0.57,-0.22, 0.02]} level={level} />
+      <BaseSegment    geometry={geos.handL}     position={[ 0.57,-0.22, 0.02]} level={level} goldSkin={gearGoldSkin} />
 
       {/* ══ RIGHT ARM (-x) ═════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.upperArmR} position={[-0.56, 0.90, 0]} level={level} />
+      <BaseSegment    geometry={geos.upperArmR} position={[-0.56, 0.90, 0]} level={level} goldSkin={gearGoldSkin} />
       <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR}    position={[-0.58, 0.60, 0]} />
-      <BaseSegment    geometry={geos.forearmR}  position={[-0.56, 0.21, 0]} level={level} />
+      <BaseSegment    geometry={geos.forearmR}  position={[-0.56, 0.21, 0]} level={level} goldSkin={gearGoldSkin} />
       <MuscleSegment {...S('wrist_right')} geometry={geos.wristR}    position={[-0.57,-0.04, 0]} />
-      <BaseSegment    geometry={geos.handR}     position={[-0.57,-0.22, 0.02]} level={level} />
+      <BaseSegment    geometry={geos.handR}     position={[-0.57,-0.22, 0.02]} level={level} goldSkin={gearGoldSkin} />
 
       {/* ══ HIPS ═══════════════════════════════════════════════ */}
       <MuscleSegment {...S('hip_left')}  geometry={geos.gluteL} position={[ 0.24, 0.14, 0]} />
       <MuscleSegment {...S('hip_right')} geometry={geos.gluteR} position={[-0.24, 0.14, 0]} />
 
       {/* ══ LEFT LEG (+x) ══════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.thighL}  position={[ 0.24,-0.27, 0]} level={level} />
+      <BaseSegment    geometry={geos.thighL}  position={[ 0.24,-0.27, 0]} level={level} goldSkin={gearGoldSkin} />
       <MuscleSegment {...S('knee_left')}  geometry={geos.kneeL}  position={[ 0.24,-0.62, 0]} />
-      <BaseSegment    geometry={geos.shinL}   position={[ 0.24,-0.98, 0]} level={level} />
+      <BaseSegment    geometry={geos.shinL}   position={[ 0.24,-0.98, 0]} level={level} goldSkin={gearGoldSkin} />
       <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[ 0.24,-1.33, 0]} />
-      <BaseSegment    geometry={geos.footL}   position={[ 0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} />
+      <BaseSegment    geometry={geos.footL}   position={[ 0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} />
 
       {/* ══ RIGHT LEG (-x) ═════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.thighR}  position={[-0.24,-0.27, 0]} level={level} />
+      <BaseSegment    geometry={geos.thighR}  position={[-0.24,-0.27, 0]} level={level} goldSkin={gearGoldSkin} />
       <MuscleSegment {...S('knee_right')} geometry={geos.kneeR}  position={[-0.24,-0.62, 0]} />
-      <BaseSegment    geometry={geos.shinR}   position={[-0.24,-0.98, 0]} level={level} />
+      <BaseSegment    geometry={geos.shinR}   position={[-0.24,-0.98, 0]} level={level} goldSkin={gearGoldSkin} />
       <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[-0.24,-1.33, 0]} />
-      <BaseSegment    geometry={geos.footR}   position={[-0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} />
+      <BaseSegment    geometry={geos.footR}   position={[-0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} />
 
       {/* ══ CALF detail (overlaid on shins for back muscle detail) */}
-      <BaseSegment geometry={geos.calfL} position={[ 0.24,-1.00, 0]} level={level} />
-      <BaseSegment geometry={geos.calfR} position={[-0.24,-1.00, 0]} level={level} />
+      <BaseSegment geometry={geos.calfL} position={[ 0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} />
+      <BaseSegment geometry={geos.calfR} position={[-0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} />
+
+      {gearTrainingWeights && <GearTrainingWeights />}
+      {gearProtectiveShield && <GearProtectiveShield />}
 
       {/* ══ GROUND SHADOW ══════════════════════════════════════ */}
       <ContactShadows

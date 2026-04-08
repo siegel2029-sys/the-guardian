@@ -4,6 +4,8 @@ import { Shield, Eye, EyeOff, Mail, Lock, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { SEED_PATIENT_PORTAL_PASSWORD } from '../../context/authPersistence';
 import { mockTherapist, mockTherapistB, MOCK_THERAPIST_B_PASSWORD } from '../../data/mockData';
+import { PATIENT_REWARDS } from '../../config/patientRewards';
+import { RewardLabel } from '../ui/RewardLabel';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -56,9 +58,16 @@ export default function LoginPage() {
         {/* Login Card */}
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-teal-100">
           <h2 className="text-xl font-semibold text-slate-800 mb-1 text-right">ברוכים הבאים</h2>
-          <p className="text-slate-500 text-sm mb-6 text-right">
+          <p className="text-slate-500 text-sm mb-3 text-right">
             מטפלים: דוא״ל מקצועי. מטופלים: מזהה גישה (למשל PT-…) שקיבלתם מהמטפל.
           </p>
+          <div className="flex flex-wrap items-center justify-end gap-2 mb-6" dir="rtl">
+            <span className="text-[11px] text-slate-500">מטופלים — בונוס כניסה יומית בפורטל:</span>
+            <RewardLabel
+              xp={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.xp}
+              coins={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.coins}
+            />
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-5" dir="rtl">
             {/* Email / Patient ID Field */}

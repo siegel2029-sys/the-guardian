@@ -9,6 +9,7 @@ import {
   Minus,
   Plus,
 } from 'lucide-react';
+import { RewardLabel } from '../ui/RewardLabel';
 
 const THUMB_W = 64;
 const THUMB_H = 40;
@@ -38,6 +39,9 @@ export interface PortalExerciseCardProps {
   videoUrl: string | null;
   /** פותח את ממשק האימון המלא (וידאו, טיימר, מאמץ — הכל במודאל) */
   onOpenTraining: () => void;
+  /** תצוגת פרס שקופה (בסיס XP + מטבעות לדיווח) */
+  rewardLabelXp?: number;
+  rewardLabelCoins?: number;
   disabled?: boolean;
   /** rehab */
   typeKey?: string;
@@ -61,6 +65,8 @@ export default function PortalExerciseCard({
   xpReward,
   videoUrl,
   onOpenTraining,
+  rewardLabelXp,
+  rewardLabelCoins,
   disabled = false,
   typeKey,
   isCustomExercise,
@@ -214,6 +220,11 @@ export default function PortalExerciseCard({
           <p className="text-[10px] text-slate-500 truncate mt-0.5 leading-tight">{subtitle}</p>
           {variant === 'selfCare' && levelLine && (
             <p className="text-[9px] text-teal-800/90 font-semibold mt-0.5">{levelLine}</p>
+          )}
+          {(rewardLabelXp != null || rewardLabelCoins != null) && (
+            <div className="mt-1">
+              <RewardLabel xp={rewardLabelXp} coins={rewardLabelCoins} />
+            </div>
           )}
         </div>
 

@@ -63,4 +63,23 @@
   .animate-portal-reward-float {
     animation: portal-reward-float 2.15s ease-out forwards;
   }
+
+  @keyframes article-reward-success {
+    0% {
+      opacity: 0;
+      transform: scale(0.92);
+    }
+    18% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.02);
+    }
+  }
+
+  .animate-article-reward-success {
+    animation: article-reward-success 1.35s ease-out forwards;
+  }
 }

@@ -29,10 +29,21 @@ export interface BodyMap3DProps {
   strengthenedAreasToday?: BodyArea[];
   /** When true, show level badge in 3D next to the head (e.g. patient portal) */
   floatingLevelBadge?: boolean;
+  /**
+   * When true (with floatingLevelBadge), level/XP badge is hidden until hover on the avatar area.
+   */
+  levelBadgeRevealOnHover?: boolean;
+  /** Scale of the avatar rig inside the canvas (e.g. 0.9 for more margin). */
+  avatarScale?: number;
   selectedArea?: BodyArea | null;
   onAreaClick?: (area: BodyArea) => void;
   /** Default 500. Use a lower value for compact / mobile patient layouts. */
   minHeightPx?: number;
+  /** ציוד מחנות — ויזואליה על המודל */
+  gearGoldSkin?: boolean;
+  gearNeonAura?: boolean;
+  gearTrainingWeights?: boolean;
+  gearProtectiveShield?: boolean;
 }
 
 // ── View presets ──────────────────────────────────────────────────
@@ -206,9 +217,15 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     streakForGlow,
     strengthenedAreasToday = [],
     floatingLevelBadge = false,
+    levelBadgeRevealOnHover = false,
+    avatarScale = 1,
     selectedArea,
     onAreaClick,
     minHeightPx = 500,
+    gearGoldSkin = false,
+    gearNeonAura = false,
+    gearTrainingWeights = false,
+    gearProtectiveShield = false,
   } = props;
 
   const streakVal = streak ?? streakForGlow ?? 0;
@@ -220,8 +237,11 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       : null;
 
   const [activeView, setActiveView] = useState<ViewPreset | null>('front');
+  const [avatarHovered, setAvatarHovered] = useState(false);
   const cameraTargetRef = useRef<THREE.Vector3 | null>(VIEW_POSITIONS.front.clone());
   const orbitActiveRef = useRef(false);
+
+  const showLevelChrome = !levelBadgeRevealOnHover || avatarHovered;
 
   const handleView = useCallback((v: ViewPreset) => {
     cameraTargetRef.current = VIEW_POSITIONS[v].clone();
@@ -239,6 +259,8 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         borderRadius: '16px',
         overflow: 'hidden',
       }}
+      onMouseEnter={() => setAvatarHovered(true)}
+      onMouseLeave={() => setAvatarHovered(false)}
     >
       <Canvas
         camera={{ position: [0, 1, 5], fov: 45, near: 0.08, far: 45 }}
@@ -287,66 +309,72 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         <Environment preset="studio" />
 
         <Suspense fallback={<Loader />}>
-          <StreakEnergyFloat enabled={streakEnergy}>
-            <AnatomyModel
-              activeAreas={activeAreas}
-              primaryArea={primaryArea}
-              clinicalArea={clinicalArea ?? primaryArea}
-              selfCareSelectedAreas={selfCareSelectedAreas}
-              painByArea={painByArea}
-              level={level}
-              xp={xp}
-              xpForNextLevel={xpForNextLevel}
-              streak={streakVal}
-              strengthenedAreasToday={strengthenedAreasToday}
-              selectedArea={selectedArea}
-              onAreaClick={onAreaClick}
-            />
+          <group scale={avatarScale}>
+            <StreakEnergyFloat enabled={streakEnergy}>
+              <AnatomyModel
+                activeAreas={activeAreas}
+                primaryArea={primaryArea}
+                clinicalArea={clinicalArea ?? primaryArea}
+                selfCareSelectedAreas={selfCareSelectedAreas}
+                painByArea={painByArea}
+                level={level}
+                xp={xp}
+                xpForNextLevel={xpForNextLevel}
+                streak={streakVal}
+                strengthenedAreasToday={strengthenedAreasToday}
+                selectedArea={selectedArea}
+                onAreaClick={onAreaClick}
+                gearGoldSkin={gearGoldSkin}
+                gearNeonAura={gearNeonAura}
+                gearTrainingWeights={gearTrainingWeights}
+                gearProtectiveShield={gearProtectiveShield}
+              />
 
-            {floatingLevelBadge && (
-              <Html
-                position={[0.34, 1.9, 0.14]}
-                center
-                distanceFactor={8.5}
-                style={{ pointerEvents: 'none' }}
-                zIndexRange={[100, 0]}
-              >
-                <div
-                  style={{
-                    background: 'linear-gradient(145deg,#0f766e,#14b8a6)',
-                    color: '#fff',
-                    borderRadius: 12,
-                    padding: '4px 11px',
-                    fontSize: 12,
-                    fontWeight: 800,
-                    fontFamily: '"Arial Hebrew", Arial, sans-serif',
-                    boxShadow:
-                      '0 0 14px rgba(20,184,166,0.55), 0 2px 10px rgba(13,148,136,0.35)',
-                    border: '1px solid rgba(255,255,255,0.35)',
-                    direction: 'ltr',
-                    textAlign: 'center',
-                  }}
+              {floatingLevelBadge && showLevelChrome && (
+                <Html
+                  position={[0.34, 1.9, 0.14]}
+                  center
+                  distanceFactor={8.5}
+                  style={{ pointerEvents: 'none' }}
+                  zIndexRange={[100, 0]}
                 >
-                  <div>Lv.{level}</div>
-                  {xpPct != null && (
-                    <div
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        opacity: 0.92,
-                        marginTop: 2,
-                        letterSpacing: 0.2,
-                      }}
-                    >
-                      {xpPct}% XP
-                    </div>
-                  )}
-                </div>
-              </Html>
-            )}
+                  <div
+                    style={{
+                      background: 'linear-gradient(145deg,#0f766e,#14b8a6)',
+                      color: '#fff',
+                      borderRadius: 12,
+                      padding: '4px 11px',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      fontFamily: '"Arial Hebrew", Arial, sans-serif',
+                      boxShadow:
+                        '0 0 14px rgba(20,184,166,0.55), 0 2px 10px rgba(13,148,136,0.35)',
+                      border: '1px solid rgba(255,255,255,0.35)',
+                      direction: 'ltr',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <div>Lv.{level}</div>
+                    {xpPct != null && (
+                      <div
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          opacity: 0.92,
+                          marginTop: 2,
+                          letterSpacing: 0.2,
+                        }}
+                      >
+                        {xpPct}% XP
+                      </div>
+                    )}
+                  </div>
+                </Html>
+              )}
 
-            {streakEnergy && <StreakRimLight />}
-          </StreakEnergyFloat>
+              {streakEnergy && <StreakRimLight />}
+            </StreakEnergyFloat>
+          </group>
         </Suspense>
 
         {streakEnergy && (
@@ -395,15 +423,17 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       </div>
 
       {/* Level badge */}
-      <div style={{
-        position: 'absolute', top: 9, right: 10,
-        background: 'linear-gradient(135deg,#0d9488,#10b981)',
-        color: '#fff', borderRadius: 10, padding: '3px 10px',
-        fontSize: 12, fontWeight: 800, fontFamily: 'Arial',
-        boxShadow: '0 2px 9px rgba(13,148,136,0.38)',
-      }}>
-        Lv.{level}
-      </div>
+      {showLevelChrome && (
+        <div style={{
+          position: 'absolute', top: 9, right: 10,
+          background: 'linear-gradient(135deg,#0d9488,#10b981)',
+          color: '#fff', borderRadius: 10, padding: '3px 10px',
+          fontSize: 12, fontWeight: 800, fontFamily: 'Arial',
+          boxShadow: '0 2px 9px rgba(13,148,136,0.38)',
+        }}>
+          Lv.{level}
+        </div>
+      )}
 
       {/* View toggle */}
       <ViewToggle activeView={activeView} onSelect={handleView} />
