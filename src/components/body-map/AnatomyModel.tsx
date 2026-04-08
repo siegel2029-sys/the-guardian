@@ -4,6 +4,7 @@ import { ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
 import MuscleSegment from './MuscleSegment';
 import type { BodyArea } from '../../types';
+import { bodyAreaIsClinicalFocus } from '../../body/bodyPickMapping';
 import {
   createUpperTorso,
   createLowerTorso,
@@ -102,6 +103,10 @@ function useGeometries() {
 interface AnatomyModelProps {
   activeAreas: BodyArea[];
   primaryArea?: BodyArea;
+  /** Therapist clinical / rehab focus (defaults to primaryArea) */
+  clinicalArea?: BodyArea;
+  /** Green multi-select zones from patient picks */
+  selfCareSelectedAreas?: BodyArea[];
   painByArea: Partial<Record<BodyArea, number>>;
   level: number;
   selectedArea?: BodyArea | null;
@@ -111,6 +116,8 @@ interface AnatomyModelProps {
 export default function AnatomyModel({
   activeAreas,
   primaryArea,
+  clinicalArea: clinicalAreaProp,
+  selfCareSelectedAreas = [],
   painByArea,
   level,
   selectedArea,
@@ -118,6 +125,7 @@ export default function AnatomyModel({
 }: AnatomyModelProps) {
   const geos = useGeometries();
   const primaryLightRef = useRef<THREE.PointLight>(null);
+  const clinicalArea = clinicalAreaProp ?? primaryArea;
 
   const glowPos = useMemo<[number, number, number]>(
     () => primaryArea ? (AREA_GLOW[primaryArea] ?? [0, 0.4, 0.4]) : [0, 0.4, 0.4],
@@ -133,15 +141,25 @@ export default function AnatomyModel({
   });
 
   // Shared props factory
-  const S = (area: BodyArea | null) => ({
-    area,
-    isActive: area ? activeAreas.includes(area) : false,
-    isPrimary: area === primaryArea,
-    isHighPain: area ? (painByArea[area] ?? 0) >= 6 : false,
-    isSelected: area === selectedArea,
-    level,
-    onAreaClick: area ? onAreaClick : undefined,
-  });
+  const S = (area: BodyArea | null) => {
+    const clinicalLocked =
+      area != null && clinicalArea != null && bodyAreaIsClinicalFocus(area, clinicalArea);
+    const selfCareSelected =
+      area != null &&
+      selfCareSelectedAreas.includes(area) &&
+      !clinicalLocked;
+    return {
+      area,
+      isActive: area ? activeAreas.includes(area) : false,
+      isPrimary: area === primaryArea,
+      isHighPain: area ? (painByArea[area] ?? 0) >= 6 : false,
+      isSelected: area === selectedArea,
+      clinicalLocked,
+      selfCareSelected,
+      level,
+      onAreaClick: area ? onAreaClick : undefined,
+    };
+  };
 
   return (
     <group>
@@ -150,9 +168,9 @@ export default function AnatomyModel({
         <pointLight
           ref={primaryLightRef}
           position={glowPos}
-          color="#0d9488"
-          intensity={1.0}
-          distance={0.90}
+          color="#fecaca"
+          intensity={1.15}
+          distance={1.15}
           decay={2}
         />
       )}

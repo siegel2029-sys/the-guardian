@@ -19,8 +19,13 @@ import { getTherapistDisplayName } from '../../context/authPersistence';
 import BodyMap3D from '../body-map/BodyMap3D';
 import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseDetailModal from './ExerciseDetailModal';
-import PatientExerciseCard from './PatientExerciseCard';
+import PortalExerciseCard from './PortalExerciseCard';
+import ExerciseVideoTimerModal from './ExerciseVideoTimerModal';
 import GuardianAssistantFAB from './GuardianAssistantFAB';
+import { formatTime } from '../dashboard/ManagePlanModal';
+import type { StrengthExerciseLevelDef } from '../../data/strengthExerciseDatabase';
+import { getStrengthChainForArea } from '../../data/strengthExerciseDatabase';
+import { bodyAreaIsClinicalFocus } from '../../body/bodyPickMapping';
 import EmergencyStopModal from './EmergencyStopModal';
 import DidYouKnowBubble from './DidYouKnowBubble';
 import PatientAiSuggestionCards from './PatientAiSuggestionCards';
@@ -72,11 +77,15 @@ export default function PatientDailyView() {
     dailyHistoryByPatient,
     getSelfCareZones,
     toggleSelfCareZone,
+    logSelfCareSession,
+    grantPatientCoins,
   } = usePatient();
 
   const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
+  const [reportInitialEffort, setReportInitialEffort] = useState<
+    1 | 2 | 3 | 4 | 5 | undefined
+  >(undefined);
   const [detailFor, setDetailFor] = useState<PatientExercise | null>(null);
-  const [filterArea, setFilterArea] = useState<BodyArea | null>(null);
   const [messageText, setMessageText] = useState('');
   const [painSheetOpen, setPainSheetOpen] = useState(false);
   const [loadSafetyNudge, setLoadSafetyNudge] = useState<string | null>(null);
@@ -90,8 +99,14 @@ export default function PatientDailyView() {
   const [newLoginIdInput, setNewLoginIdInput] = useState('');
   const [loginIdCurrentPw, setLoginIdCurrentPw] = useState('');
   const [loginIdError, setLoginIdError] = useState<string | null>(null);
-  const [avatarFocusArea, setAvatarFocusArea] = useState<BodyArea | null>(null);
-  const [avatarMode, setAvatarMode] = useState<'clinical' | 'selfcare' | null>(null);
+  const [exerciseVideoModal, setExerciseVideoModal] = useState<
+    | null
+    | { kind: 'rehab'; exercise: PatientExercise }
+    | { kind: 'selfCare'; bodyArea: BodyArea; exercise: StrengthExerciseLevelDef }
+  >(null);
+  const [effortByExerciseId, setEffortByExerciseId] = useState<
+    Record<string, 1 | 2 | 3 | 4 | 5>
+  >({});
 
   const careGiverName = useMemo(
     () => (selectedPatient ? getTherapistDisplayName(selectedPatient.therapistId) : ''),
@@ -132,11 +147,6 @@ export default function PatientDailyView() {
     [exercises]
   );
 
-  const visibleExercises = useMemo(
-    () => (filterArea ? exercises.filter((e) => e.targetArea === filterArea) : exercises),
-    [exercises, filterArea]
-  );
-
   const completedSet = useMemo(
     () => new Set(session?.completedIds ?? []),
     [session?.completedIds]
@@ -157,40 +167,58 @@ export default function PatientDailyView() {
     ? isPatientExerciseSafetyLocked(selectedPatient.id)
     : false;
 
-  useEffect(() => {
-    if (!selectedPatient) return;
-    if (avatarMode === 'selfcare' && avatarFocusArea != null) {
-      const zones = getSelfCareZones(selectedPatient.id);
-      if (!zones.includes(avatarFocusArea)) {
-        setAvatarFocusArea(null);
-        setAvatarMode(null);
-      }
-    }
-  }, [selectedPatient?.id, avatarMode, avatarFocusArea, getSelfCareZones]);
+  /** Green zones (excludes clinical); synced with 3D picks + context. */
+  const selectedZones = selectedPatient ? getSelfCareZones(selectedPatient.id) : [];
 
-  useEffect(() => {
-    if (avatarMode === 'selfcare' && avatarFocusArea == null) {
-      setAvatarMode(null);
-    }
-  }, [avatarMode, avatarFocusArea]);
+  const clinicalRehabExercises = useMemo(() => {
+    if (!selectedPatient) return [];
+    const p = selectedPatient.primaryBodyArea;
+    return exercises.filter((e) => bodyAreaIsClinicalFocus(e.targetArea, p));
+  }, [exercises, selectedPatient]);
+
+  type MissionRow =
+    | { kind: 'rehab'; exercise: PatientExercise }
+    | {
+        kind: 'strength';
+        area: BodyArea;
+        exercise: StrengthExerciseLevelDef;
+      };
+
+  const strengthMissionRows = useMemo((): MissionRow[] => {
+    if (!selectedPatient) return [];
+    return [...selectedZones]
+      .sort((a, b) => a.localeCompare(b))
+      .map((area) => {
+        const chain = getStrengthChainForArea(area);
+        return {
+          kind: 'strength' as const,
+          area,
+          exercise: chain.levels[0],
+        };
+      });
+  }, [selectedZones, selectedPatient]);
+
+  const combinedMissionItems = useMemo((): MissionRow[] => {
+    const rehab: MissionRow[] = clinicalRehabExercises.map((exercise) => ({
+      kind: 'rehab' as const,
+      exercise,
+    }));
+    return [...rehab, ...strengthMissionRows];
+  }, [clinicalRehabExercises, strengthMissionRows]);
+
+  const getEffort = (id: string): 1 | 2 | 3 | 4 | 5 => effortByExerciseId[id] ?? 3;
+
+  const setEffortFor = (id: string, n: 1 | 2 | 3 | 4 | 5) => {
+    setEffortByExerciseId((prev) => ({ ...prev, [id]: n }));
+  };
+
+  /** ~35% of awarded XP as coins (same curve for rehab & self-care on actual XP granted). */
+  const coinsForAwardedXp = (xp: number) => Math.max(1, Math.round(xp * 0.35));
 
   const handleAvatarZoneClick = (area: BodyArea) => {
     if (!selectedPatient) return;
-    if (area === selectedPatient.primaryBodyArea) {
-      setAvatarMode('clinical');
-      setAvatarFocusArea(area);
-      setFilterArea(area);
-      return;
-    }
-    const had = getSelfCareZones(selectedPatient.id).includes(area);
+    if (bodyAreaIsClinicalFocus(area, selectedPatient.primaryBodyArea)) return;
     toggleSelfCareZone(selectedPatient.id, area);
-    if (had) {
-      setAvatarFocusArea((prev) => (prev === area ? null : prev));
-    } else {
-      setAvatarFocusArea(area);
-      setAvatarMode('selfcare');
-      setFilterArea(null);
-    }
   };
 
   const latestEmergencyReason = useMemo(() => {
@@ -232,17 +260,20 @@ export default function PatientDailyView() {
 
   const handleReportSubmit = (painLevel: number, effortRating: number) => {
     if (!reportFor || !selectedPatient) return;
+    const xp = reportFor.xpReward;
     submitExerciseReport(
       selectedPatient.id,
       reportFor.id,
       painLevel,
       effortRating,
-      reportFor.xpReward
+      xp
     );
+    grantPatientCoins(selectedPatient.id, coinsForAwardedXp(xp));
     if (painLevel >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
     else if (effortRating === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
     else setLoadSafetyNudge(null);
     setReportFor(null);
+    setReportInitialEffort(undefined);
   };
 
   const submitPasswordChange = () => {
@@ -358,22 +389,14 @@ export default function PatientDailyView() {
           <section className="mb-5">
             <div className="flex items-center justify-between mb-2 px-0.5">
               <h2 className="text-base font-bold text-slate-800">מפת הגוף שלי</h2>
-              {filterArea && (
-                <button
-                  type="button"
-                  onClick={() => setFilterArea(null)}
-                  className="flex items-center gap-1 text-xs font-medium text-teal-600 hover:text-teal-800"
-                >
-                  <X className="w-3 h-3" />
-                  הצג הכל
-                </button>
-              )}
             </div>
             <p className="text-xs text-slate-500 mb-2 leading-relaxed">
-              אזור הטיפול שהגדיר המטפל מודגש. ניתן לסנן את רשימת התרגילים לפי אזור בלחיצה על המודל.
+              <span className="text-red-800/90 font-medium">אדום</span> — אזור השיקום מהמטפל (לא ניתן
+              לבחירה). <span className="text-emerald-800/90 font-medium">ירוק</span> — אזורי כוח שנבחרו;
+              התרגילים שלהם מתווספים לרשימה למטה.
               {exercises.length > 0 && (
                 <span className="block mt-1 text-teal-700/90">
-                  מוקד: <strong>{bodyAreaLabels[selectedPatient.primaryBodyArea]}</strong>
+                  מוקד שיקום: <strong>{bodyAreaLabels[selectedPatient.primaryBodyArea]}</strong>
                 </span>
               )}
             </p>
@@ -385,19 +408,15 @@ export default function PatientDailyView() {
                 <BodyMap3D
                   activeAreas={exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
+                  clinicalArea={selectedPatient.primaryBodyArea}
+                  selfCareSelectedAreas={selectedZones}
                   painByArea={selectedPatient.analytics.painByArea}
                   level={selectedPatient.level}
-                  selectedArea={filterArea}
-                  minHeightPx={260}
+                  minHeightPx={280}
                   onAreaClick={handleAvatarZoneClick}
                 />
               </div>
             </div>
-            {filterArea && (
-              <p className="text-xs text-teal-700 mt-2 font-medium">
-                מסונן: {bodyAreaLabels[filterArea]}
-              </p>
-            )}
           </section>
         )}
 
@@ -683,8 +702,9 @@ export default function PatientDailyView() {
 
         <h1 className="text-lg font-bold text-slate-800 mb-1">המשימות להיום</h1>
         <p className="text-sm text-slate-500 mb-4 leading-relaxed">
-          לחצו על שורת התרגיל לפתיחת המסך המלא. מעבר עכבר על התמונה המקדימה מנגן וידאו (אם קיים) בלי לשנות
-          את גודל השורה. במסך: וידאו מתנגן אוטומטית, לאחר «התחל תרגול» וסיום המדד — דיווח VAS.
+          קודם תרגילי השיקום מהמטפל, אחריהם תרגילי כוח לאזורים הירוקים במפה. תצוגה מקדימה במעבר עכבר;
+          לחיצה פותחת וידאו גדול, הוראות, טיימר 30 שניות ורק אז «בוצע». כוח/פרהאב מעניקים חצי מנקודות
+          ה-XP והמטבעות לעומת השיקום.
         </p>
 
         {loadSafetyNudge && (
@@ -716,16 +736,17 @@ export default function PatientDailyView() {
           </div>
         )}
 
-        {exercises.length === 0 ? (
+        {exercises.length === 0 && selectedZones.length === 0 ? (
           <div
             className="rounded-2xl border border-dashed border-teal-200 p-8 text-center text-teal-800/80 text-sm"
             style={{ background: 'rgba(240, 253, 250, 0.6)' }}
           >
-            אין תרגילים בתוכנית. המטפל יכול להוסיף תרגילים ממסך ניהול התוכנית.
+            אין תרגילים בתוכנית. המטפל יכול להוסיף תרגילים ממסך ניהול התוכנית, או לבחור אזורי כוח במפה.
           </div>
-        ) : visibleExercises.length === 0 ? (
-          <p className="text-sm text-slate-500 text-center py-6">
-            אין תרגילים באזור שנבחר. נקו את הסינון או בחרו אזור אחר.
+        ) : combinedMissionItems.length === 0 ? (
+          <p className="text-sm text-slate-500 text-center py-6 leading-relaxed">
+            אין תרגילי שיקום שמתאימים לאזור המוגדר. בחרו אזורים ירוקים לתרגילי כוח, או פנו למטפל לעדכון
+            התוכנית.
           </p>
         ) : (
           <div
@@ -738,15 +759,64 @@ export default function PatientDailyView() {
               />
             )}
             <ul className="space-y-2 flex flex-col">
-              {visibleExercises.map((ex, i) => {
-                const done = completedSet.has(ex.id);
+              {combinedMissionItems.map((row, i) => {
+                const idx = i + 1;
+                if (row.kind === 'rehab') {
+                  const ex = row.exercise;
+                  const done = completedSet.has(ex.id);
+                  const displaySets = ex.patientSets;
+                  const displayReps = ex.patientReps;
+                  const repsShort =
+                    ex.holdSeconds && displayReps === 0
+                      ? formatTime(ex.holdSeconds)
+                      : ex.holdSeconds && displayReps > 0
+                        ? `${displayReps}+${formatTime(ex.holdSeconds)}`
+                        : `${displayReps}חז'`;
+                  return (
+                    <li key={`rehab-${ex.id}`} className="w-full">
+                      <PortalExerciseCard
+                        variant="rehab"
+                        index={idx}
+                        isCompleted={done}
+                        title={ex.name}
+                        subtitle={`${displaySets}× ${repsShort} · ${ex.muscleGroup} · שיקום`}
+                        xpReward={ex.xpReward}
+                        videoUrl={ex.videoUrl ?? null}
+                        effortValue={getEffort(ex.id)}
+                        onEffortChange={(n) => setEffortFor(ex.id, n)}
+                        onOpenVideo={() => setExerciseVideoModal({ kind: 'rehab', exercise: ex })}
+                        onOpenDetails={() => openExerciseDetail(ex)}
+                        disabled={exerciseSafetyLocked}
+                        typeKey={ex.type}
+                        isCustomExercise={ex.isCustom}
+                      />
+                    </li>
+                  );
+                }
+                const { area, exercise: ex } = row;
+                const selfXp = Math.max(1, Math.floor(ex.xpReward * 0.5));
+                const sid = ex.id;
+                const done = completedSet.has(sid);
+                const repsLine = ex.repsAreSeconds
+                  ? `${ex.sets}× ${ex.reps}ש״`
+                  : `${ex.sets}× ${ex.reps}חז'`;
                 return (
-                  <li key={ex.id} className="w-full">
-                    <PatientExerciseCard
-                      exercise={ex}
-                      index={i + 1}
+                  <li key={`strength-${area}-${ex.id}`} className="w-full">
+                    <PortalExerciseCard
+                      variant="selfCare"
+                      index={idx}
                       isCompleted={done}
-                      onOpen={() => openExerciseDetail(ex)}
+                      title={ex.name}
+                      subtitle={`${repsLine} · ${bodyAreaLabels[area]} · כוח (½ XP)`}
+                      xpReward={selfXp}
+                      videoUrl={ex.demoVideoUrl}
+                      effortValue={getEffort(sid)}
+                      onEffortChange={(n) => setEffortFor(sid, n)}
+                      onOpenVideo={() =>
+                        setExerciseVideoModal({ kind: 'selfCare', bodyArea: area, exercise: ex })
+                      }
+                      disabled={exerciseSafetyLocked}
+                      instructions={ex.instructions}
                     />
                   </li>
                 );
@@ -758,7 +828,7 @@ export default function PatientDailyView() {
 
       <GuardianAssistantFAB
         patient={selectedPatient}
-        exerciseCount={exercises.length}
+        exerciseCount={combinedMissionItems.length}
         exercises={exercises}
         variant="portal"
         onSubmitGuardianRepsRequest={(exerciseId, exerciseName, fromReps, toReps) =>
@@ -771,7 +841,13 @@ export default function PatientDailyView() {
           )
         }
         onTherapistClinicalAlert={(detail) => sendAiClinicalAlert(selectedPatient.id, detail)}
-        hidden={!!detailFor || !!reportFor || exerciseSafetyLocked || patientMustChangePassword}
+        hidden={
+          !!detailFor ||
+          !!reportFor ||
+          !!exerciseVideoModal ||
+          exerciseSafetyLocked ||
+          patientMustChangePassword
+        }
       />
 
       <PatientPainProgressSheet
@@ -791,8 +867,63 @@ export default function PatientDailyView() {
 
       <ExerciseReportModal
         exercise={reportFor}
-        onClose={() => setReportFor(null)}
+        onClose={() => {
+          setReportFor(null);
+          setReportInitialEffort(undefined);
+        }}
         onSubmit={handleReportSubmit}
+        initialEffort={reportInitialEffort}
+      />
+
+      <ExerciseVideoTimerModal
+        open={exerciseVideoModal != null}
+        title={
+          exerciseVideoModal?.kind === 'rehab'
+            ? exerciseVideoModal.exercise.name
+            : exerciseVideoModal?.kind === 'selfCare'
+              ? exerciseVideoModal.exercise.name
+              : ''
+        }
+        videoUrl={
+          exerciseVideoModal?.kind === 'rehab'
+            ? exerciseVideoModal.exercise.videoUrl ?? ''
+            : exerciseVideoModal?.kind === 'selfCare'
+              ? exerciseVideoModal.exercise.demoVideoUrl
+              : ''
+        }
+        description={
+          exerciseVideoModal?.kind === 'rehab'
+            ? exerciseVideoModal.exercise.instructions
+            : exerciseVideoModal?.kind === 'selfCare'
+              ? exerciseVideoModal.exercise.instructions
+              : null
+        }
+        primeSeconds={30}
+        onClose={() => setExerciseVideoModal(null)}
+        onMarkDone={() => {
+          const m = exerciseVideoModal;
+          if (!selectedPatient || !m) return;
+          if (m.kind === 'rehab') {
+            setReportInitialEffort(getEffort(m.exercise.id));
+            setReportFor(m.exercise);
+          } else {
+            const effort = getEffort(m.exercise.id);
+            const xp = Math.max(1, Math.floor(m.exercise.xpReward * 0.5));
+            submitExerciseReport(selectedPatient.id, m.exercise.id, 0, effort, xp, {
+              skipPainHistory: true,
+            });
+            grantPatientCoins(selectedPatient.id, coinsForAwardedXp(xp));
+            logSelfCareSession(
+              selectedPatient.id,
+              m.exercise.id,
+              m.exercise.name,
+              effort
+            );
+            if (effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
+            else setLoadSafetyNudge(null);
+          }
+          setExerciseVideoModal(null);
+        }}
       />
 
       <EmergencyStopModal

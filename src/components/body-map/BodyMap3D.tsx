@@ -8,6 +8,10 @@ import type { BodyArea } from '../../types';
 export interface BodyMap3DProps {
   activeAreas: BodyArea[];
   primaryArea?: BodyArea;
+  /** Therapist rehab focus — drives red materials (same as primary if omitted) */
+  clinicalArea?: BodyArea;
+  /** Patient self-care selections — green materials */
+  selfCareSelectedAreas?: BodyArea[];
   painByArea: Partial<Record<BodyArea, number>>;
   level: number;
   selectedArea?: BodyArea | null;
@@ -19,10 +23,10 @@ export interface BodyMap3DProps {
 // ── View presets ──────────────────────────────────────────────────
 type ViewPreset = 'front' | 'back' | 'left' | 'right';
 const VIEW_POSITIONS: Record<ViewPreset, THREE.Vector3> = {
-  front: new THREE.Vector3( 0,    0.22,  3.30),
-  back:  new THREE.Vector3( 0,    0.22, -3.30),
-  left:  new THREE.Vector3(-3.30, 0.22,  0),
-  right: new THREE.Vector3( 3.30, 0.22,  0),
+  front: new THREE.Vector3(0, 1, 5),
+  back: new THREE.Vector3(0, 1, -5),
+  left: new THREE.Vector3(-5, 1, 0),
+  right: new THREE.Vector3(5, 1, 0),
 };
 const LOOK_AT = new THREE.Vector3(0, 0.15, 0);
 
@@ -136,6 +140,8 @@ export default function BodyMap3D(props: BodyMap3DProps) {
   const {
     activeAreas,
     primaryArea,
+    clinicalArea,
+    selfCareSelectedAreas,
     painByArea,
     level,
     selectedArea,
@@ -165,26 +171,27 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       }}
     >
       <Canvas
-        camera={{ position: [0, 0.22, 3.30], fov: 43, near: 0.08, far: 35 }}
+        camera={{ position: [0, 1, 5], fov: 45, near: 0.08, far: 45 }}
         shadows="soft"
         gl={{
           antialias: true,
           alpha: false,
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.15,
+          toneMappingExposure: 1.28,
         }}
-        dpr={[1, 1.8]}
+        dpr={[1, 2]}
       >
         <SceneSetup />
 
         {/* ── Lighting ─────────────────────────────────────────── */}
         {/* Soft ambient fill – blueish mint to match the scene */}
-        <ambientLight intensity={0.50} color="#cce8f0" />
+        <ambientLight intensity={0.72} color="#e8f4f8" />
+        <hemisphereLight args={['#f8fafc', '#94a3b8', 0.45]} />
 
         {/* Key light – strong, warm, top-right-front (like a studio softbox) */}
         <directionalLight
           position={[2.8, 5.0, 3.5]}
-          intensity={1.55}
+          intensity={1.78}
           color="#fffaf5"
           castShadow
           shadow-mapSize={[2048, 2048]}
@@ -198,7 +205,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         />
 
         {/* Fill light – cool, from the left-back (simulates studio bounce) */}
-        <directionalLight position={[-2.5, 1.5, -2.5]} intensity={0.45} color="#c0e4f0" />
+        <directionalLight position={[-2.5, 1.5, -2.5]} intensity={0.58} color="#dbeafe" />
 
         {/* Rim / edge light – from directly behind, separates body from bg */}
         <directionalLight position={[0, 1.0, -3.5]}   intensity={0.55} color="#a7f3d0" />
@@ -213,6 +220,8 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           <AnatomyModel
             activeAreas={activeAreas}
             primaryArea={primaryArea}
+            clinicalArea={clinicalArea ?? primaryArea}
+            selfCareSelectedAreas={selfCareSelectedAreas}
             painByArea={painByArea}
             level={level}
             selectedArea={selectedArea}
@@ -251,7 +260,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         pointerEvents: 'none', direction: 'rtl', whiteSpace: 'nowrap',
         boxShadow: '0 1px 6px rgba(0,0,0,0.08)',
       }}>
-        גרור לסיבוב · גלגל לזום · לחץ על שריר לסינון
+        גרור לסיבוב · אדום = שיקום מהמטפל · ירוק = כוח/פרהאב (לחיצה)
       </div>
 
       {/* Level badge */}

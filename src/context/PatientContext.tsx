@@ -39,6 +39,7 @@ import {
   removePatientAccountsForPatient,
 } from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
+import { bodyAreaIsClinicalFocus } from '../body/bodyPickMapping';
 
 function buildEmptySession(patientId: string, clinicalDate: string): DailySession {
   return { patientId, date: clinicalDate, completedIds: [], sessionXp: 0 };
@@ -129,7 +130,8 @@ interface PatientContextValue {
     exerciseId: string,
     painLevel: number,
     effortRating: number,
-    xpReward: number
+    xpReward: number,
+    options?: { skipPainHistory?: boolean }
   ) => void;
 
   // AI suggestions (מטופל מאשר → awaiting_therapist; מטפל מאשר → עדכון תוכנית)
@@ -717,7 +719,8 @@ export function PatientProvider({
       exerciseId: string,
       painLevel: number,
       effortRating: number,
-      xpReward: number
+      xpReward: number,
+      options?: { skipPainHistory?: boolean }
     ) => {
       const clinicalDay = getClinicalDate();
       const prior = dailySessions.find((s) => s.patientId === patientId && s.date === clinicalDay);
@@ -774,9 +777,16 @@ export function PatientProvider({
               : {}),
           };
 
-          const newPainHistory = [...p.analytics.painHistory, painRecord];
+          const newPainHistory = options?.skipPainHistory
+            ? p.analytics.painHistory
+            : [...p.analytics.painHistory, painRecord];
           const averageOverallPain =
-            newPainHistory.reduce((sum, r) => sum + r.painLevel, 0) / newPainHistory.length;
+            newPainHistory.length === 0
+              ? p.analytics.averageOverallPain
+              : Math.round(
+                  (newPainHistory.reduce((sum, r) => sum + r.painLevel, 0) / newPainHistory.length) *
+                    10
+                ) / 10;
 
           const sh = [...p.analytics.sessionHistory];
           const todayIdx = sh.findIndex((s) => s.date === clinicalDay);
@@ -1263,7 +1273,9 @@ export function PatientProvider({
       const patient = allPatients.find((p) => p.id === patientId);
       const raw = selfCareZonesByPatientId[patientId] ?? [];
       if (!patient) return raw.filter(Boolean);
-      return raw.filter((a) => a && a !== patient.primaryBodyArea);
+      return raw.filter(
+        (a) => a && !bodyAreaIsClinicalFocus(a, patient.primaryBodyArea)
+      );
     },
     [allPatients, selfCareZonesByPatientId]
   );
@@ -1271,7 +1283,7 @@ export function PatientProvider({
   const toggleSelfCareZone = useCallback(
     (patientId: string, area: BodyArea) => {
       const patient = allPatients.find((p) => p.id === patientId);
-      if (!patient || area === patient.primaryBodyArea) return;
+      if (!patient || bodyAreaIsClinicalFocus(area, patient.primaryBodyArea)) return;
       setSelfCareZonesByPatientId((prev) => {
         const cur = prev[patientId] ?? [];
         const has = cur.includes(area);

@@ -14,6 +14,10 @@ export interface MuscleSegmentProps {
   isPrimary: boolean;
   isHighPain: boolean;
   isSelected: boolean;
+  /** Therapist clinical focus — red glow, not clickable */
+  clinicalLocked?: boolean;
+  /** Patient-selected self-care zone — green glow */
+  selfCareSelected?: boolean;
   level: number;
   onAreaClick?: (area: BodyArea) => void;
   children?: ReactNode; // optional overlay (e.g. wireframe)
@@ -37,6 +41,8 @@ function computeMatProps(
   isPrimary: boolean,
   isHighPain: boolean,
   isSelected: boolean,
+  clinicalLocked: boolean,
+  selfCareSelected: boolean,
   isHovered: boolean,
   level: number
 ): MatProps {
@@ -54,6 +60,34 @@ function computeMatProps(
       clearcoat: 0.08,
       clearcoatRoughness: 0.65,
       targetScale: 1.0,
+    };
+  }
+
+  // ── Clinical rehab zone (therapist) — red, not toggled by patient ──
+  if (clinicalLocked) {
+    return {
+      color: '#f87171',
+      emissive: '#991b1b',
+      emissiveIntensity: 0.52 + hv * 0.5,
+      roughness: 0.42,
+      metalness: 0.12,
+      clearcoat: 0.22,
+      clearcoatRoughness: 0.45,
+      targetScale: 1.0 + (isHovered ? 0.02 : 0),
+    };
+  }
+
+  // ── Self-care multi-select — green ───────────────────────────
+  if (selfCareSelected) {
+    return {
+      color: '#4ade80',
+      emissive: '#14532d',
+      emissiveIntensity: 0.58 + hv,
+      roughness: 0.38,
+      metalness: 0.1,
+      clearcoat: 0.2,
+      clearcoatRoughness: 0.48,
+      targetScale: 1.04 + (isHovered ? 0.03 : 0),
     };
   }
 
@@ -133,6 +167,8 @@ export default function MuscleSegment({
   isPrimary,
   isHighPain,
   isSelected,
+  clinicalLocked = false,
+  selfCareSelected = false,
   level,
   onAreaClick,
   children,
@@ -142,8 +178,29 @@ export default function MuscleSegment({
   const [hovered, setHovered] = useState(false);
 
   const mp = useMemo(
-    () => computeMatProps(area, isActive, isPrimary, isHighPain, isSelected, hovered, level),
-    [area, isActive, isPrimary, isHighPain, isSelected, hovered, level]
+    () =>
+      computeMatProps(
+        area,
+        isActive,
+        isPrimary,
+        isHighPain,
+        isSelected,
+        clinicalLocked,
+        selfCareSelected,
+        hovered,
+        level
+      ),
+    [
+      area,
+      isActive,
+      isPrimary,
+      isHighPain,
+      isSelected,
+      clinicalLocked,
+      selfCareSelected,
+      hovered,
+      level,
+    ]
   );
 
   // Smooth scale lerp + material lerp every frame
@@ -168,7 +225,7 @@ export default function MuscleSegment({
     mat.clearcoatRoughness = THREE.MathUtils.lerp(mat.clearcoatRoughness, mp.clearcoatRoughness, 0.10);
   });
 
-  const interactive = !!area;
+  const interactive = !!area && !clinicalLocked;
 
   return (
     <mesh
@@ -180,17 +237,32 @@ export default function MuscleSegment({
       receiveShadow
       onPointerOver={
         interactive
-          ? (e) => { e.stopPropagation(); setHovered(true); document.body.style.cursor = 'pointer'; }
-          : undefined
+          ? (e) => {
+              e.stopPropagation();
+              setHovered(true);
+              document.body.style.cursor = 'pointer';
+            }
+          : clinicalLocked && area
+            ? (e) => {
+                e.stopPropagation();
+                setHovered(true);
+              }
+            : undefined
       }
       onPointerOut={
-        interactive
-          ? () => { setHovered(false); document.body.style.cursor = ''; }
+        interactive || (clinicalLocked && area)
+          ? () => {
+              setHovered(false);
+              document.body.style.cursor = '';
+            }
           : undefined
       }
       onClick={
         interactive && onAreaClick
-          ? (e) => { e.stopPropagation(); onAreaClick(area!); }
+          ? (e) => {
+              e.stopPropagation();
+              onAreaClick(area!);
+            }
           : undefined
       }
     >
@@ -214,7 +286,11 @@ export default function MuscleSegment({
         <Html position={[0, 0.28, 0]} center distanceFactor={8} zIndexRange={[200, 0]}>
           <div
             style={{
-              background: 'rgba(13,148,136,0.92)',
+              background: clinicalLocked
+                ? 'rgba(185,28,28,0.92)'
+                : selfCareSelected
+                  ? 'rgba(21,101,52,0.92)'
+                  : 'rgba(13,148,136,0.92)',
               color: '#fff',
               padding: '3px 9px',
               borderRadius: '7px',

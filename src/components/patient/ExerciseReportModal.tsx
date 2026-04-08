@@ -14,12 +14,15 @@ interface ExerciseReportModalProps {
   exercise: PatientExercise | null;
   onClose: () => void;
   onSubmit: (painLevel: number, effortRating: number) => void;
+  /** Prefill from card effort (1–5) */
+  initialEffort?: 1 | 2 | 3 | 4 | 5;
 }
 
 export default function ExerciseReportModal({
   exercise,
   onClose,
   onSubmit,
+  initialEffort,
 }: ExerciseReportModalProps) {
   const [pain, setPain] = useState(3);
   const [effort, setEffort] = useState(3);
@@ -27,9 +30,9 @@ export default function ExerciseReportModal({
   useEffect(() => {
     if (exercise) {
       setPain(3);
-      setEffort(3);
+      setEffort(initialEffort != null ? initialEffort : 3);
     }
-  }, [exercise]);
+  }, [exercise, initialEffort]);
 
   const willTriggerSafetyAlert = useMemo(() => pain >= 6 || effort >= 4, [pain, effort]);
 

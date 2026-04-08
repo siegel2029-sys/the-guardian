@@ -5,6 +5,8 @@ export interface ExerciseVideoTimerModalProps {
   open: boolean;
   title: string;
   videoUrl: string;
+  /** Instructions / description below the video */
+  description?: string | null;
   /** Countdown seconds before «בוצע» unlocks */
   primeSeconds?: number;
   onClose: () => void;
@@ -15,6 +17,7 @@ export default function ExerciseVideoTimerModal({
   open,
   title,
   videoUrl,
+  description,
   primeSeconds = 30,
   onClose,
   onMarkDone,
@@ -118,7 +121,20 @@ export default function ExerciseVideoTimerModal({
           )}
         </div>
 
-        <div className="px-4 py-4 space-y-3 flex flex-col flex-1 min-h-0">
+        <div className="px-4 py-4 space-y-3 flex flex-col flex-1 min-h-0 overflow-y-auto">
+          {description ? (
+            <div
+              className="rounded-xl px-3 py-2.5 text-xs leading-relaxed max-h-28 overflow-y-auto"
+              style={{
+                background: 'rgba(30, 41, 59, 0.85)',
+                color: '#e2e8f0',
+                border: '1px solid #475569',
+              }}
+            >
+              {description}
+            </div>
+          ) : null}
+
           <div
             className="rounded-xl px-3 py-2.5 text-center text-sm font-medium"
             style={{
