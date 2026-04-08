@@ -1,9 +1,21 @@
 import type { BodyArea } from '../types';
+import {
+  DEMO_VIDEO_URL_L1,
+  DEMO_VIDEO_URL_L2,
+  DEMO_VIDEO_URL_L3,
+} from './exerciseVideoDefaults';
 
-/** CC0 clips — רמה שונה יכולה להציג קישור וידאו שונה מהמסד */
-const DEMO_L1 = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
-const DEMO_L2 = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/framerate.mp4';
-const DEMO_L3 = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm';
+const REGRESSION_BY_LEVEL: Record<1 | 2 | 3, string> = {
+  1: 'אם כאב מעל 4/10: הקטינו טווח תנועה, האטו, או צמצמו חזרות. עצרו מיד אם הכאב חד.',
+  2: 'קשה? הסירו גומייה או משקל, או הורידו רמה אחת במחוון. נשימה אחידה.',
+  3: 'מרגישים עומס? חזרו לרמת «בינוני», הפחיתו סטים, או קצרו זמן החזקה.',
+};
+
+const PROGRESSION_BY_LEVEL: Record<1 | 2 | 3, string> = {
+  1: 'קל מדי? העבירו את המחוון ל«בינוני» או הוסיפו 3–5 שניות החזקה בכל חזרה.',
+  2: 'קל מדי? עברו ל«קשה», הוסיפו גומייה או משקל קל — לפי הנחיית המטפל.',
+  3: 'מתקדמים? האריכו זמן, הוסיפו נפח (סטים/חזרות), או תאמו עם המטפל העמסה נוספת.',
+};
 
 export interface StrengthExerciseLevelDef {
   level: 1 | 2 | 3;
@@ -11,17 +23,17 @@ export interface StrengthExerciseLevelDef {
   name: string;
   sets: number;
   reps: number;
-  /** When true, UI shows reps as seconds (ש״) not חזרות */
   repsAreSeconds?: boolean;
   instructions: string;
-  /** YouTube / Vimeo / MP4 — אותו שדה כמו בתרגילי שיקום */
   videoUrl: string;
-  /** נק׳ XP כמו בתרגילי שיקום (אחרי טיימר + דיווח) */
   xpReward: number;
+  /** הנחיה להקלה — מוצג במודאל */
+  regressionHint: string;
+  /** הנחיה להתקדמות — מוצג במודאל */
+  progressionHint: string;
 }
 
 export interface StrengthChainDef {
-  /** Same as bodyArea — one progression track per zone */
   chainId: BodyArea;
   bodyArea: BodyArea;
   levels: [StrengthExerciseLevelDef, StrengthExerciseLevelDef, StrengthExerciseLevelDef];
@@ -34,9 +46,13 @@ function L(
   sets: number,
   reps: number,
   instructions: string,
-  repsAreSeconds?: boolean
+  repsAreSeconds?: boolean,
+  hints?: { regressionHint?: string; progressionHint?: string; videoUrl?: string }
 ): StrengthExerciseLevelDef {
   const xpReward = level === 1 ? 28 : level === 2 ? 33 : 38;
+  const videoUrl =
+    hints?.videoUrl ??
+    (level === 1 ? DEMO_VIDEO_URL_L1 : level === 2 ? DEMO_VIDEO_URL_L2 : DEMO_VIDEO_URL_L3);
   return {
     level,
     id,
@@ -45,13 +61,16 @@ function L(
     reps,
     repsAreSeconds,
     instructions,
-    videoUrl: level === 1 ? DEMO_L1 : level === 2 ? DEMO_L2 : DEMO_L3,
+    videoUrl,
     xpReward,
+    regressionHint: hints?.regressionHint ?? REGRESSION_BY_LEVEL[level],
+    progressionHint: hints?.progressionHint ?? PROGRESSION_BY_LEVEL[level],
   };
 }
 
 /**
  * Progressive strength / prehab chains (gym or home). Each body area has L1 → L2 → L3.
+ * ניתן לעדכן `videoUrl` וטקסטי regression/progression פר־שלב דרך הארגומנט האחרון של L().
  */
 export const STRENGTH_EXERCISE_CHAINS: StrengthChainDef[] = [
   {
@@ -121,95 +140,80 @@ export const STRENGTH_EXERCISE_CHAINS: StrengthChainDef[] = [
     chainId: 'knee_left',
     bodyArea: 'knee_left',
     levels: [
-      L(1, 'str-kl-1', 'סקווט משקל גוף', 3, 15, 'עמידה רחבה; ירידה עד כיסא; ברכיים בקו אצבעות.'),
-      L(2, 'str-kl-2', 'סקווט גובלט', 3, 12, 'דמבל אחד לחזה; עומק מבוקר.'),
-      L(3, 'str-kl-3', 'סקווט גב עם מוט', 4, 6, 'רק אם מאושר קלינית; עומק ושליטה.'),
+      L(1, 'str-kl-1', 'הרמת רגל ישרה שכיבה', 3, 12, 'ברך מעט כפופה; הרמה איטית; כיווץ ירך.'),
+      L(2, 'str-kl-2', 'סקווט חלקי לכיסא', 3, 10, 'ישיבה מבוקרת עד מגע קל בכיסא; ללא כאב ברך.'),
+      L(3, 'str-kl-3', 'סקווט חלקי עם גומייה', 3, 8, 'גומייה מעל ברכיים; דחיפת ברכיים החוצה קלות.'),
     ],
   },
   {
     chainId: 'knee_right',
     bodyArea: 'knee_right',
     levels: [
-      L(1, 'str-kr-1', 'סקווט משקל גוף', 3, 15, 'עמידה רחבה; ירידה עד כיסא; ברכיים בקו אצבעות.'),
-      L(2, 'str-kr-2', 'סקווט גובלט', 3, 12, 'דמבל אחד לחזה; עומק מבוקר.'),
-      L(3, 'str-kr-3', 'סקווט גב עם מוט', 4, 6, 'רק אם מאושר קלינית; עומק ושליטה.'),
+      L(1, 'str-kr-1', 'הרמת רגל ישרה שכיבה', 3, 12, 'ברך מעט כפופה; הרמה איטית; כיווץ ירך.'),
+      L(2, 'str-kr-2', 'סקווט חלקי לכיסא', 3, 10, 'ישיבה מבוקרת עד מגע קל בכיסא; ללא כאב ברך.'),
+      L(3, 'str-kr-3', 'סקווט חלקי עם גומייה', 3, 8, 'גומייה מעל ברכיים; דחיפת ברכיים החוצה קלות.'),
     ],
   },
   {
     chainId: 'ankle_left',
     bodyArea: 'ankle_left',
     levels: [
-      L(1, 'str-al-1', 'הרמת עקב דו-צדדיות', 3, 20, 'עמידה; טווח מלא; שליטה בירידה.'),
-      L(2, 'str-al-2', 'עקב יחיד + תמיכה קלה', 3, 12, 'אחיזה בקיר; עומס על קרסול אחד.'),
-      L(3, 'str-al-3', 'עקב יחיד עם משקל', 4, 10, 'דמבל ביד; שליטה מלאה.'),
+      L(1, 'str-al-1', 'כפיפת קרסול ישיבה', 3, 15, 'רגל על הרצפה; משוך אצבעות לכיוון השין.'),
+      L(2, 'str-al-2', 'עמידה על קצה רגל', 3, 10, 'אחיזה בקיר; הרמה איטית; ירידה מבוקרת.'),
+      L(3, 'str-al-3', 'קפיצות קלות (פליומטריקה)', 3, 8, 'מדרגה נמוכה; נחיתה רכה; עצירה אם נפיחות.'),
     ],
   },
   {
     chainId: 'ankle_right',
     bodyArea: 'ankle_right',
     levels: [
-      L(1, 'str-ar-1', 'הרמת עקב דו-צדדיות', 3, 20, 'עמידה; טווח מלא; שליטה בירידה.'),
-      L(2, 'str-ar-2', 'עקב יחיד + תמיכה קלה', 3, 12, 'אחיזה בקיר; עומס על קרסול אחד.'),
-      L(3, 'str-ar-3', 'עקב יחיד עם משקל', 4, 10, 'דמבל ביד; שליטה מלאה.'),
+      L(1, 'str-ar-1', 'כפיפת קרסול ישיבה', 3, 15, 'רגל על הרצפה; משוך אצבעות לכיוון השין.'),
+      L(2, 'str-ar-2', 'עמידה על קצה רגל', 3, 10, 'אחיזה בקיר; הרמה איטית; ירידה מבוקרת.'),
+      L(3, 'str-ar-3', 'קפיצות קלות (פליומטריקה)', 3, 8, 'מדרגה נמוכה; נחיתה רכה; עצירה אם נפיחות.'),
     ],
   },
   {
     chainId: 'wrist_left',
     bodyArea: 'wrist_left',
     levels: [
-      L(1, 'str-wl-1', 'כפיפה סטטית — שולחן', 3, 10, 'לחיצה כלפי מטה 10 שניות.'),
-      L(2, 'str-wl-2', 'כפיפה עם דמבל קל', 3, 15, 'אגרוף על משטח; טווח מלא איטי.'),
-      L(3, 'str-wl-3', 'Farmer carry זמן', 3, 40, 'הליכה 30–45 שניות; אחיזה חזקה.', true),
+      L(1, 'str-wl-1', 'כפיפה/פשיטה איטית', 3, 12, 'מרפק על שולחן; תנועה קטנה ללא כאב.'),
+      L(2, 'str-wl-2', 'כפיפה עם התנגדות קלה', 3, 10, 'בקבוק מים / גומייה עדינה.'),
+      L(3, 'str-wl-3', 'תמיכה על ברכיים + משקל גוף', 3, 8, 'אצבעות פשוטות; לחץ עדון.'),
     ],
   },
   {
     chainId: 'wrist_right',
     bodyArea: 'wrist_right',
     levels: [
-      L(1, 'str-wr-1', 'כפיפה סטטית — שולחן', 3, 10, 'לחיצה כלפי מטה 10 שניות.'),
-      L(2, 'str-wr-2', 'כפיפה עם דמבל קל', 3, 15, 'אגרוף על משטח; טווח מלא איטי.'),
-      L(3, 'str-wr-3', 'Farmer carry זמן', 3, 40, 'הליכה 30–45 שניות; אחיזה חזקה.', true),
+      L(1, 'str-wr-1', 'כפיפה/פשיטה איטית', 3, 12, 'מרפק על שולחן; תנועה קטנה ללא כאב.'),
+      L(2, 'str-wr-2', 'כפיפה עם התנגדות קלה', 3, 10, 'בקבוק מים / גומייה עדינה.'),
+      L(3, 'str-wr-3', 'תמיכה על ברכיים + משקל גוף', 3, 8, 'אצבעות פשוטות; לחץ עדון.'),
     ],
   },
   {
     chainId: 'elbow_left',
     bodyArea: 'elbow_left',
     levels: [
-      L(1, 'str-el-1', 'יישור מרפק עם גומייה', 3, 15, 'מרפק צמוד לגוף; יישור איטי.'),
-      L(2, 'str-el-2', 'כפיפה/יישור דמבל ניטרלי', 3, 12, 'ישיבה; טווח מלא מבוקר.'),
-      L(3, 'str-el-3', 'סקווש משקל — EZ / כבל', 4, 10, 'מרפקים קבועים; ללא נענוע כתפיים.'),
+      L(1, 'str-el-1', 'כפיפת מרפק isometric', 3, 8, 'יד תומכת; לחץ קל 5 שניות ללא תנועה.'),
+      L(2, 'str-el-2', 'כפיפה עם משקל קל', 3, 10, 'יושבים; טווח מלא מבוקר.'),
+      L(3, 'str-el-3', 'פשיטה אקסנטרית איטית', 3, 6, 'הורדה איטית משקל כבד יותר.'),
     ],
   },
   {
     chainId: 'elbow_right',
     bodyArea: 'elbow_right',
     levels: [
-      L(1, 'str-er-1', 'יישור מרפק עם גומייה', 3, 15, 'מרפק צמוד לגוף; יישור איטי.'),
-      L(2, 'str-er-2', 'כפיפה/יישור דמבל ניטרלי', 3, 12, 'ישיבה; טווח מלא מבוקר.'),
-      L(3, 'str-er-3', 'סקווש משקל — EZ / כבל', 4, 10, 'מרפקים קבועים; ללא נענוע כתפיים.'),
+      L(1, 'str-er-1', 'כפיפת מרפק isometric', 3, 8, 'יד תומכת; לחץ קל 5 שניות ללא תנועה.'),
+      L(2, 'str-er-2', 'כפיפה עם משקל קל', 3, 10, 'יושבים; טווח מלא מבוקר.'),
+      L(3, 'str-er-3', 'פשיטה אקסנטרית איטית', 3, 6, 'הורדה איטית משקל כבד יותר.'),
     ],
   },
 ];
 
-const CHAIN_BY_AREA: Record<BodyArea, StrengthChainDef> = STRENGTH_EXERCISE_CHAINS.reduce(
-  (acc, c) => {
-    acc[c.bodyArea] = c;
-    return acc;
-  },
-  {} as Record<BodyArea, StrengthChainDef>
-);
-
 export function getStrengthChainForArea(area: BodyArea): StrengthChainDef {
-  return CHAIN_BY_AREA[area];
-}
-
-export function getStrengthLevelDef(area: BodyArea, level: 1 | 2 | 3): StrengthExerciseLevelDef {
-  const chain = CHAIN_BY_AREA[area];
-  return chain.levels[level - 1];
-}
-
-export function clampStrengthLevel(area: BodyArea, level: number): 1 | 2 | 3 {
-  const max = CHAIN_BY_AREA[area].levels.length;
-  const n = Math.min(max, Math.max(1, Math.round(level)));
-  return n as 1 | 2 | 3;
+  const c = STRENGTH_EXERCISE_CHAINS.find((x) => x.bodyArea === area);
+  if (!c) {
+    throw new Error(`No strength chain for area: ${area}`);
+  }
+  return c;
 }

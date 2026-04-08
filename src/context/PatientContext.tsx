@@ -14,7 +14,6 @@ import type {
   SafetyAlert, ClinicalSafetyTier, DailyHistoryEntry, BodyArea,
   SelfCareSessionReport,
   PatientExerciseFinishReport,
-  ExerciseFinishReportSource,
 } from '../types';
 import { bodyAreaLabels } from '../types';
 import {
@@ -43,6 +42,7 @@ import {
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 import { bodyAreaIsClinicalFocus } from '../body/bodyPickMapping';
 import { sendDataToTherapist } from '../utils/therapistAnalytics';
+import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../data/exerciseVideoDefaults';
 
 function buildEmptySession(patientId: string, clinicalDate: string): DailySession {
   return { patientId, date: clinicalDate, completedIds: [], sessionXp: 0 };
@@ -206,14 +206,7 @@ interface PatientContextValue {
   patientExerciseFinishReportsByPatientId: Record<string, PatientExerciseFinishReport[]>;
   appendPatientExerciseFinishReport: (
     patientId: string,
-    entry: {
-      exerciseId: string;
-      exerciseName: string;
-      zone: string;
-      difficultyScore: 1 | 2 | 3 | 4 | 5;
-      painLevel: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
-      source: ExerciseFinishReportSource;
-    }
+    entry: Omit<PatientExerciseFinishReport, 'id' | 'patientId' | 'timestamp'>
   ) => void;
   getPatientExerciseFinishReports: (patientId: string) => PatientExerciseFinishReport[];
 
@@ -650,6 +643,7 @@ export function PatientProvider({
   const addExerciseToPlan = useCallback((patientId: string, exercise: Exercise) => {
     const newEntry: PatientExercise = {
       ...exercise,
+      videoUrl: exercise.videoUrl || DEFAULT_EXERCISE_DEMO_VIDEO_URL,
       id: `${patientId}-${exercise.id}-${Date.now()}`,
       patientSets: exercise.sets,
       patientReps: exercise.reps ?? 0,

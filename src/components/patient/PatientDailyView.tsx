@@ -225,6 +225,9 @@ export default function PatientDailyView() {
     const m = exerciseVideoModal;
     if (!selectedPatient || !m) return;
     if (m.kind === 'selfCare') {
+      const strengthTier = getSelfCareStrengthTier(selectedPatient.id, m.bodyArea);
+      const strengthTierLabel =
+        strengthTier === 0 ? 'קל' : strengthTier === 1 ? 'בינוני' : 'קשה';
       submitExerciseReport(selectedPatient.id, m.exercise.id, payload.painLevel, payload.effort, m.xpAward, {
         skipPainHistory: true,
       });
@@ -242,6 +245,8 @@ export default function PatientDailyView() {
         difficultyScore: payload.effort,
         painLevel: payload.painLevel,
         source: 'self-care',
+        selfCareDifficultyTier: strengthTier,
+        selfCareDifficultyLabel: strengthTierLabel,
       });
       if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
       else setLoadSafetyNudge(null);
@@ -960,6 +965,16 @@ export default function PatientDailyView() {
               : exerciseVideoModal.exercise.videoUrl
           }
           description={exerciseVideoModal.exercise.instructions}
+          clinicalRegressionHint={
+            exerciseVideoModal.kind === 'rehab'
+              ? exerciseVideoModal.exercise.clinicalRegressionHint ?? undefined
+              : exerciseVideoModal.exercise.regressionHint
+          }
+          clinicalProgressionHint={
+            exerciseVideoModal.kind === 'rehab'
+              ? exerciseVideoModal.exercise.clinicalProgressionHint ?? undefined
+              : exerciseVideoModal.exercise.progressionHint
+          }
           variant={exerciseVideoModal.kind === 'rehab' ? 'rehab' : 'selfCare'}
           xpAward={exerciseVideoModal.xpAward}
           coinsAward={exerciseVideoModal.coinsAward}

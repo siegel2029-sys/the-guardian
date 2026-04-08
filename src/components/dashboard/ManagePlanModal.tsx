@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { EXERCISE_LIBRARY } from '../../data/mockData';
+import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../../data/exerciseVideoDefaults';
 import type { PatientExercise, BodyArea, ExerciseDifficulty } from '../../types';
 import { bodyAreaLabels } from '../../types';
 
@@ -585,6 +586,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
       xpReward,
       isCustom: true,
       videoPlaceholder: `${data.name} – הדגמה`,
+      videoUrl: DEFAULT_EXERCISE_DEMO_VIDEO_URL,
     });
 
     setShowCustomForm(false);

@@ -16,6 +16,15 @@ function normalizeRow(r: PatientExerciseFinishReport) {
   const zone = r.zone ?? r.zoneName ?? '—';
   const exerciseName = r.exerciseName ?? '—';
   const painLevel = r.painLevel;
+  const selfCareTierDisplay =
+    r.selfCareDifficultyLabel?.trim() ||
+    (r.selfCareDifficultyTier != null
+      ? r.selfCareDifficultyTier === 0
+        ? 'קל (L1)'
+        : r.selfCareDifficultyTier === 1
+          ? 'בינוני (L2)'
+          : 'קשה (L3)'
+      : null);
   return {
     id: r.id,
     timestamp: r.timestamp,
@@ -26,6 +35,7 @@ function normalizeRow(r: PatientExerciseFinishReport) {
       painLevel != null && painLevel >= 1 && painLevel <= 10 ? `${painLevel}/10` : '—',
     sourceKey,
     sourceLabel: SOURCE_LABEL[sourceKey] ?? sourceKey,
+    selfCareTierDisplay: selfCareTierDisplay ?? '—',
   };
 }
 
@@ -39,7 +49,8 @@ export default function TherapistReportsView({ patient }: { patient: Patient }) 
   return (
     <div className="space-y-3">
       <p className="text-sm text-slate-600 leading-relaxed">
-        רשומות נשמרות אוטומטית לאחר שמטופל לוחץ «סיים תרגול» במודאל האימון (מאמץ ורמת כאב).
+        רשומות נשמרות אוטומטית לאחר שמטופל לוחץ «סיים תרגול» במודאל האימון (מאמץ, רמת כאב; בתרגילי כוח
+        — גם רמת הקושי שנבחרה במחוון).
       </p>
       <div className="rounded-lg border border-slate-200 overflow-x-auto max-h-[min(520px,60vh)] overflow-y-auto">
         <table className="w-full text-xs text-end min-w-[640px]">
@@ -50,13 +61,14 @@ export default function TherapistReportsView({ patient }: { patient: Patient }) 
               <th className="p-2.5">אזור</th>
               <th className="p-2.5">מאמץ (1–5)</th>
               <th className="p-2.5">כאב (1–10)</th>
+              <th className="p-2.5">רמת קושי (כוח)</th>
               <th className="p-2.5">מקור</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-slate-400 text-sm">
+                <td colSpan={7} className="p-8 text-center text-slate-400 text-sm">
                   אין דיווחי סיום תרגול עדיין
                 </td>
               </tr>
@@ -75,6 +87,7 @@ export default function TherapistReportsView({ patient }: { patient: Patient }) 
                   <td className="p-2.5 text-slate-700">{row.zone}</td>
                   <td className="p-2.5 tabular-nums">{row.difficultyScore}/5</td>
                   <td className="p-2.5 tabular-nums font-mono">{row.painDisplay}</td>
+                  <td className="p-2.5 text-slate-600 text-[11px]">{row.selfCareTierDisplay}</td>
                   <td className="p-2.5">
                     <span
                       className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${

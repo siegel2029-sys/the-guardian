@@ -110,6 +110,9 @@ export interface PatientExerciseFinishReport {
   isClinical?: boolean;
   /** @deprecated השתמשו ב־zone */
   zoneName?: string;
+  /** רמת קושי שנבחרה (כוח / אזור ירוק): 0=קל, 1=בינוני, 2=קשה */
+  selfCareDifficultyTier?: 0 | 1 | 2;
+  selfCareDifficultyLabel?: string;
 }
 
 export interface Patient {
@@ -187,8 +190,12 @@ export interface Exercise {
   instructions: string;
   xpReward: number;
   videoPlaceholder?: string;
-  /** Optional direct URL for patient-facing demo video */
-  videoUrl?: string;
+  /** קישור הדגמה — ברירת מחדל ב־`exerciseVideoDefaults.ts` אם לא הוגדר */
+  videoUrl: string;
+  /** הנחיות הקלה (רגרסיה) — מוצג במודאל האימון */
+  clinicalRegressionHint?: string;
+  /** הנחיות התקדמות — מוצג במודאל האימון */
+  clinicalProgressionHint?: string;
   isCustom?: boolean;     // true = manually added by therapist (not from library)
 }
 

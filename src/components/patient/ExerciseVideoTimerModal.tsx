@@ -62,12 +62,20 @@ export interface ExerciseTrainingCompletePayload {
   painLevel: ModalPainLevel;
 }
 
+const DEFAULT_CLINICAL_REGRESSION =
+  'אם קשה מדי: הקטינו טווח תנועה, האטו, או הפחיתו חזרות/סטים. אם כאב מעל 4/10 — העדיפו הקלה מובנית.';
+const DEFAULT_CLINICAL_PROGRESSION =
+  'אם קל מדי: תאמו עם המטפל להגדלת זמן החזקה, טווח, נפח או התנגדות.';
+
 export interface ExerciseVideoTimerModalProps {
   open: boolean;
   title: string;
   /** קישור YouTube / Vimeo / קובץ MP4 — מגיע מ־exercise.videoUrl במסד */
   videoUrl: string;
   description?: string | null;
+  /** רגרסיה / התקדמות — מתוך המסד או ברירת מחדל */
+  clinicalRegressionHint?: string | null;
+  clinicalProgressionHint?: string | null;
   variant: 'rehab' | 'selfCare';
   /** XP שיוצג ויוענק בסיום (מלא לשיקום, חצי לכוח) */
   xpAward: number;
@@ -84,6 +92,8 @@ export default function ExerciseVideoTimerModal({
   title,
   videoUrl,
   description,
+  clinicalRegressionHint,
+  clinicalProgressionHint,
   variant,
   xpAward,
   coinsAward,
@@ -104,6 +114,17 @@ export default function ExerciseVideoTimerModal({
   onCloseRef.current = onClose;
 
   const presentation = useVideoPresentation(videoUrl);
+
+  const regressionText = useMemo(
+    () =>
+      (clinicalRegressionHint && clinicalRegressionHint.trim()) || DEFAULT_CLINICAL_REGRESSION,
+    [clinicalRegressionHint]
+  );
+  const progressionText = useMemo(
+    () =>
+      (clinicalProgressionHint && clinicalProgressionHint.trim()) || DEFAULT_CLINICAL_PROGRESSION,
+    [clinicalProgressionHint]
+  );
 
   const iframeSrc = useMemo(() => {
     if (presentation.kind !== 'iframe') return '';
@@ -341,6 +362,30 @@ export default function ExerciseVideoTimerModal({
                   {description}
                 </div>
               ) : null}
+
+              <div
+                className="rounded-xl px-3 py-2.5 space-y-2 text-[11px] sm:text-xs leading-relaxed"
+                style={{
+                  background: 'rgba(15, 23, 42, 0.92)',
+                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                }}
+              >
+                <p className="font-bold text-sky-200/95">עצה קלינית</p>
+                {painLevel > 4 ? (
+                  <p className="text-amber-200/90 font-semibold border-b border-slate-600/60 pb-2">
+                    לפי רמת הכאב שבחרתם: מעל 4/10 מומלץ לשקול רגרסיה, הקטנת טווח, ומנוחה קצרה לפני
+                    המשך.
+                  </p>
+                ) : null}
+                <div>
+                  <p className="font-semibold text-emerald-200/90 mb-0.5">אם קשה מדי (רגרסיה)</p>
+                  <p className="text-slate-300">{regressionText}</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-teal-200/90 mb-0.5">אם קל מדי (התקדמות)</p>
+                  <p className="text-slate-300">{progressionText}</p>
+                </div>
+              </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 {!timerStarted ? (

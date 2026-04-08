@@ -6,6 +6,8 @@ import {
   Sparkles,
   PersonStanding,
   TrendingUp,
+  Minus,
+  Plus,
 } from 'lucide-react';
 
 const THUMB_W = 64;
@@ -228,31 +230,66 @@ export default function PortalExerciseCard({
         {variant === 'selfCare' &&
           onSelfCareStrengthTierChange != null &&
           selfCareStrengthTier !== undefined && (
-            <div className="flex flex-wrap items-center gap-1.5 pr-0.5">
-              <span className="text-[9px] font-bold text-slate-600 shrink-0">רמת קושי:</span>
-              {([0, 1, 2] as const).map((t) => {
-                const active = selfCareStrengthTier === t;
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    disabled={disabled}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelfCareStrengthTierChange(t);
-                    }}
-                    className="px-2 py-1 rounded-lg text-[9px] font-black transition-all border disabled:opacity-40"
-                    style={{
-                      borderColor: active ? '#0d9488' : '#cbd5e1',
-                      background: active ? 'linear-gradient(135deg,#ecfdf5,#d1fae5)' : '#f8fafc',
-                      color: active ? '#065f46' : '#64748b',
-                      boxShadow: active ? '0 1px 6px rgba(13,148,136,0.2)' : 'none',
-                    }}
-                  >
-                    {tierLabels[t]}
-                  </button>
-                );
-              })}
+            <div className="flex flex-col gap-1 pr-0.5 w-full min-w-0">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[9px] font-bold text-slate-600 shrink-0">רמת קושי</span>
+                <span
+                  className="text-[9px] font-black px-1.5 py-0.5 rounded-md shrink-0"
+                  style={{
+                    background: 'linear-gradient(135deg,#ecfdf5,#d1fae5)',
+                    color: '#065f46',
+                    border: '1px solid #99f6e4',
+                  }}
+                >
+                  {tierLabels[selfCareStrengthTier]}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 w-full min-w-0">
+                <button
+                  type="button"
+                  disabled={disabled || selfCareStrengthTier <= 0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelfCareStrengthTierChange(
+                      (Math.max(0, selfCareStrengthTier - 1) as 0 | 1 | 2)
+                    );
+                  }}
+                  className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border border-slate-300 bg-white text-slate-700 disabled:opacity-35 disabled:cursor-not-allowed hover:border-teal-400 transition-colors"
+                  aria-label="הקלה ברמת קושי"
+                >
+                  <Minus className="w-4 h-4" strokeWidth={2.5} />
+                </button>
+                <input
+                  type="range"
+                  min={0}
+                  max={2}
+                  step={1}
+                  value={selfCareStrengthTier}
+                  disabled={disabled}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    onSelfCareStrengthTierChange(Number(e.target.value) as 0 | 1 | 2);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex-1 min-w-0 h-2 rounded-lg appearance-none cursor-pointer accent-teal-600"
+                  style={{ background: '#e2e8f0' }}
+                  aria-valuetext={tierLabels[selfCareStrengthTier]}
+                />
+                <button
+                  type="button"
+                  disabled={disabled || selfCareStrengthTier >= 2}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelfCareStrengthTierChange(
+                      (Math.min(2, selfCareStrengthTier + 1) as 0 | 1 | 2)
+                    );
+                  }}
+                  className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border border-slate-300 bg-white text-slate-700 disabled:opacity-35 disabled:cursor-not-allowed hover:border-teal-400 transition-colors"
+                  aria-label="החמרת רמת קושי"
+                >
+                  <Plus className="w-4 h-4" strokeWidth={2.5} />
+                </button>
+              </div>
             </div>
           )}
 
