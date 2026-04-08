@@ -1,16 +1,18 @@
 import { useState, useMemo, useEffect } from 'react';
-import { LineChart, Dumbbell, Stethoscope, ClipboardList } from 'lucide-react';
+import { LineChart, Dumbbell, Stethoscope, ClipboardList, ClipboardCheck } from 'lucide-react';
 import type { Patient } from '../../../types';
 import { bodyAreaLabels } from '../../../types';
 import { usePatient } from '../../../context/PatientContext';
 import ClinicalIntakePanel from './ClinicalIntakePanel';
 import ClinicalSessionLineChart from './ClinicalSessionLineChart';
+import TherapistReportsView from './TherapistReportsView';
 
-type TabId = 'pain' | 'exercise' | 'assessment' | 'intake';
+type TabId = 'pain' | 'exercise' | 'finishReports' | 'assessment' | 'intake';
 
 const tabs: { id: TabId; label: string; icon: typeof LineChart }[] = [
   { id: 'pain', label: 'דוחות כאב', icon: LineChart },
   { id: 'exercise', label: 'היסטוריית תרגול', icon: Dumbbell },
+  { id: 'finishReports', label: 'דיווחי סיום תרגול', icon: ClipboardCheck },
   { id: 'assessment', label: 'הערכה קלינית', icon: Stethoscope },
   { id: 'intake', label: 'אינטייק קליני', icon: ClipboardList },
 ];
@@ -212,6 +214,7 @@ export default function ClinicalDeepDiveTabs({ patient }: { patient: Patient }) 
       <div className="p-5">
         {tab === 'pain' && <PainTrendPanel patient={patient} />}
         {tab === 'exercise' && <ExerciseHistoryPanel patient={patient} />}
+        {tab === 'finishReports' && <TherapistReportsView patient={patient} />}
         {tab === 'assessment' && <ClinicalAssessmentPanel patient={patient} />}
         {tab === 'intake' && <ClinicalIntakePanel patient={patient} />}
       </div>

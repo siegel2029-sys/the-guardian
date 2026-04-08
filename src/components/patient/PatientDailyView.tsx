@@ -82,6 +82,8 @@ export default function PatientDailyView() {
     logSelfCareSession,
     grantPatientCoins,
     appendPatientExerciseFinishReport,
+    getSelfCareStrengthTier,
+    setSelfCareStrengthTier,
   } = usePatient();
 
   const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
@@ -188,6 +190,7 @@ export default function PatientDailyView() {
         kind: 'strength';
         area: BodyArea;
         exercise: StrengthExerciseLevelDef;
+        strengthTier: 0 | 1 | 2;
       };
 
   const strengthMissionRows = useMemo((): MissionRow[] => {
@@ -196,13 +199,16 @@ export default function PatientDailyView() {
       .sort((a, b) => a.localeCompare(b))
       .map((area) => {
         const chain = getStrengthChainForArea(area);
+        const strengthTier = getSelfCareStrengthTier(selectedPatient.id, area);
+        const exercise = chain.levels[strengthTier];
         return {
           kind: 'strength' as const,
           area,
-          exercise: chain.levels[0],
+          exercise,
+          strengthTier,
         };
       });
-  }, [selectedZones, selectedPatient]);
+  }, [selectedZones, selectedPatient, getSelfCareStrengthTier]);
 
   const combinedMissionItems = useMemo((): MissionRow[] => {
     const rehab: MissionRow[] = clinicalRehabExercises.map((exercise) => ({
@@ -219,7 +225,7 @@ export default function PatientDailyView() {
     const m = exerciseVideoModal;
     if (!selectedPatient || !m) return;
     if (m.kind === 'selfCare') {
-      submitExerciseReport(selectedPatient.id, m.exercise.id, 0, payload.effort, m.xpAward, {
+      submitExerciseReport(selectedPatient.id, m.exercise.id, payload.painLevel, payload.effort, m.xpAward, {
         skipPainHistory: true,
       });
       grantPatientCoins(selectedPatient.id, m.coinsAward);
@@ -231,14 +237,16 @@ export default function PatientDailyView() {
       );
       appendPatientExerciseFinishReport(selectedPatient.id, {
         exerciseId: m.exercise.id,
-        zoneName: bodyAreaLabels[m.bodyArea],
+        exerciseName: m.exercise.name,
+        zone: bodyAreaLabels[m.bodyArea],
         difficultyScore: payload.effort,
-        isClinical: false,
+        painLevel: payload.painLevel,
+        source: 'self-care',
       });
       if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
       else setLoadSafetyNudge(null);
     } else {
-      const pain = payload.painLevel ?? 3;
+      const pain = payload.painLevel;
       submitExerciseReport(
         selectedPatient.id,
         m.exercise.id,
@@ -249,9 +257,11 @@ export default function PatientDailyView() {
       grantPatientCoins(selectedPatient.id, m.coinsAward);
       appendPatientExerciseFinishReport(selectedPatient.id, {
         exerciseId: m.exercise.id,
-        zoneName: bodyAreaLabels[m.exercise.targetArea],
+        exerciseName: m.exercise.name,
+        zone: bodyAreaLabels[m.exercise.targetArea],
         difficultyScore: payload.effort,
-        isClinical: true,
+        painLevel: payload.painLevel,
+        source: 'therapist',
       });
       if (pain >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
       else if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
@@ -444,10 +454,16 @@ export default function PatientDailyView() {
               )}
             </p>
             <div
-              className="rounded-2xl border overflow-hidden flex flex-col"
-              style={{ borderColor: '#a7f3d0', minHeight: '260px' }}
+              className="rounded-2xl border overflow-hidden flex flex-col items-center mx-auto w-full"
+              style={{
+                borderColor: '#a7f3d0',
+                maxWidth: 400,
+                aspectRatio: '9 / 16',
+                minHeight: 560,
+                maxHeight: 'min(72vh, 720px)',
+              }}
             >
-              <div className="flex-1 w-full min-h-[260px]">
+              <div className="flex-1 w-full h-full min-h-[520px]">
                 <BodyMap3D
                   activeAreas={exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
@@ -455,7 +471,7 @@ export default function PatientDailyView() {
                   selfCareSelectedAreas={selectedZones}
                   painByArea={selectedPatient.analytics.painByArea}
                   level={selectedPatient.level}
-                  minHeightPx={280}
+                  minHeightPx={520}
                   onAreaClick={handleAvatarZoneClick}
                 />
               </div>
@@ -841,7 +857,7 @@ export default function PatientDailyView() {
                     </li>
                   );
                 }
-                const { area, exercise: ex } = row;
+                const { area, exercise: ex, strengthTier } = row;
                 const selfXp = Math.max(1, Math.floor(ex.xpReward * 0.5));
                 const selfCoins = coinsForAwardedXp(selfXp);
                 const sid = ex.id;
@@ -849,6 +865,8 @@ export default function PatientDailyView() {
                 const repsLine = ex.repsAreSeconds
                   ? `${ex.sets}× ${ex.reps}ש״`
                   : `${ex.sets}× ${ex.reps}חז'`;
+                const tierLabel =
+                  strengthTier === 0 ? 'קל' : strengthTier === 1 ? 'בינוני' : 'קשה';
                 return (
                   <li key={`strength-${area}-${ex.id}`} className="w-full">
                     <PortalExerciseCard
@@ -856,7 +874,7 @@ export default function PatientDailyView() {
                       index={idx}
                       isCompleted={done}
                       title={ex.name}
-                      subtitle={`${repsLine} · ${bodyAreaLabels[area]} · כוח (½ XP)`}
+                      subtitle={`${repsLine} · ${bodyAreaLabels[area]} · כוח (½ XP) · רמה: ${tierLabel}`}
                       xpReward={selfXp}
                       videoUrl={ex.videoUrl}
                       onOpenTraining={() =>
@@ -869,6 +887,10 @@ export default function PatientDailyView() {
                         })
                       }
                       disabled={exerciseSafetyLocked}
+                      selfCareStrengthTier={strengthTier}
+                      onSelfCareStrengthTierChange={(tier) =>
+                        setSelfCareStrengthTier(selectedPatient.id, area, tier)
+                      }
                     />
                   </li>
                 );

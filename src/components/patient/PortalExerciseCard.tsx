@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import {
   Play,
   CheckCircle2,
@@ -15,6 +16,13 @@ const typeStyle: Record<string, { bg: string; text: string; label: string }> = {
   standard: { bg: '#f3e8ff', text: '#6b21a8', label: 'סטנדרטי' },
   custom: { bg: '#fff7ed', text: '#c2410c', label: 'מותאם' },
 };
+
+function isLikelyDirectVideoUrl(url: string | null): boolean {
+  const u = (url ?? '').trim().toLowerCase();
+  if (!u) return false;
+  if (u.includes('youtu.be') || u.includes('youtube.com') || u.includes('vimeo.com')) return false;
+  return /\.(mp4|webm|ogg|mov)(\?|$)/i.test(u) || u.startsWith('blob:');
+}
 
 export type PortalExerciseCardVariant = 'rehab' | 'selfCare';
 
@@ -37,6 +45,9 @@ export interface PortalExerciseCardProps {
   levelLine?: string;
   canAdvance?: boolean;
   onAdvance?: () => void;
+  /** בורר קל/בינוני/קשה — מתאים לשלבי L1–L3 במסד */
+  selfCareStrengthTier?: 0 | 1 | 2;
+  onSelfCareStrengthTierChange?: (tier: 0 | 1 | 2) => void;
 }
 
 export default function PortalExerciseCard({
@@ -55,8 +66,30 @@ export default function PortalExerciseCard({
   levelLine,
   canAdvance,
   onAdvance,
+  selfCareStrengthTier,
+  onSelfCareStrengthTierChange,
 }: PortalExerciseCardProps) {
   const hasVideo = Boolean(videoUrl);
+  const thumbVideoRef = useRef<HTMLVideoElement>(null);
+  const hoverPlayEnabled = hasVideo && isLikelyDirectVideoUrl(videoUrl);
+
+  const handleThumbEnter = () => {
+    const el = thumbVideoRef.current;
+    if (!el || !hoverPlayEnabled) return;
+    el.muted = true;
+    el.play().catch(() => {});
+  };
+
+  const handleThumbLeave = () => {
+    const el = thumbVideoRef.current;
+    if (!el) return;
+    el.pause();
+    try {
+      el.currentTime = 0;
+    } catch {
+      /* ignore */
+    }
+  };
 
   const type =
     variant === 'rehab' && !isCustomExercise && typeKey
@@ -72,6 +105,8 @@ export default function PortalExerciseCard({
   const bgMain = isCustomExercise ? '#fffdf8' : '#ffffff';
 
   const cardShadow = '0 1px 2px rgba(13, 148, 136, 0.06)';
+
+  const tierLabels: Record<0 | 1 | 2, string> = { 0: 'קל', 1: 'בינוני', 2: 'קשה' };
 
   return (
     <div
@@ -93,6 +128,8 @@ export default function PortalExerciseCard({
           type="button"
           disabled={disabled}
           onClick={onOpenTraining}
+          onMouseEnter={handleThumbEnter}
+          onMouseLeave={handleThumbLeave}
           className="shrink-0 rounded-lg overflow-hidden border relative cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
           style={{
             width: THUMB_W,
@@ -104,10 +141,12 @@ export default function PortalExerciseCard({
         >
           {hasVideo ? (
             <video
+              ref={hoverPlayEnabled ? thumbVideoRef : undefined}
               className="absolute inset-0 w-full h-full object-cover pointer-events-none"
               src={videoUrl ?? undefined}
               muted
               playsInline
+              loop
               preload="metadata"
             />
           ) : (
@@ -186,6 +225,37 @@ export default function PortalExerciseCard({
       </div>
 
       <div className="px-2.5 pb-2.5 space-y-2">
+        {variant === 'selfCare' &&
+          onSelfCareStrengthTierChange != null &&
+          selfCareStrengthTier !== undefined && (
+            <div className="flex flex-wrap items-center gap-1.5 pr-0.5">
+              <span className="text-[9px] font-bold text-slate-600 shrink-0">רמת קושי:</span>
+              {([0, 1, 2] as const).map((t) => {
+                const active = selfCareStrengthTier === t;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    disabled={disabled}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelfCareStrengthTierChange(t);
+                    }}
+                    className="px-2 py-1 rounded-lg text-[9px] font-black transition-all border disabled:opacity-40"
+                    style={{
+                      borderColor: active ? '#0d9488' : '#cbd5e1',
+                      background: active ? 'linear-gradient(135deg,#ecfdf5,#d1fae5)' : '#f8fafc',
+                      color: active ? '#065f46' : '#64748b',
+                      boxShadow: active ? '0 1px 6px rgba(13,148,136,0.2)' : 'none',
+                    }}
+                  >
+                    {tierLabels[t]}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
         {variant === 'rehab' && onOpenDetails && !disabled && (
           <button
             type="button"
@@ -217,7 +287,9 @@ export default function PortalExerciseCard({
         )}
 
         <p className="text-[10px] text-slate-500 pr-1 leading-snug">
-          וידאו, טיימר 30 שניות ומאמץ — בתוך מסך האימון בלחיצה על התמונה.
+          {hoverPlayEnabled
+            ? 'מעבר עכבר על התמונה מנגן תצוגה מקדימה (מושתק). לחיצה פותחת את מסך האימון.'
+            : 'וידאו, טיימר 30 שניות ומאמץ — בתוך מסך האימון בלחיצה על התמונה.'}
         </p>
       </div>
     </div>

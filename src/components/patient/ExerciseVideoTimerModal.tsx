@@ -54,10 +54,12 @@ function useVideoPresentation(videoUrl: string) {
   }, [videoUrl]);
 }
 
+export type ModalPainLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+
 export interface ExerciseTrainingCompletePayload {
   effort: 1 | 2 | 3 | 4 | 5;
-  /** VAS — רק שיקום מהמטפל */
-  painLevel?: number;
+  /** רמת כאב לדיווח למטפל (1–10) */
+  painLevel: ModalPainLevel;
 }
 
 export interface ExerciseVideoTimerModalProps {
@@ -93,7 +95,7 @@ export default function ExerciseVideoTimerModal({
   const [remaining, setRemaining] = useState(primeSeconds);
   const [timerStarted, setTimerStarted] = useState(false);
   const [effort, setEffort] = useState<1 | 2 | 3 | 4 | 5>(3);
-  const [painLevel, setPainLevel] = useState(3);
+  const [painLevel, setPainLevel] = useState<ModalPainLevel>(3);
   const [canCloseSuccess, setCanCloseSuccess] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -206,7 +208,7 @@ export default function ExerciseVideoTimerModal({
     if (remaining > 0 || phase !== 'train' || !timerStarted) return;
     onComplete({
       effort,
-      ...(variant === 'rehab' ? { painLevel } : {}),
+      painLevel,
     });
     setPhase('success');
     setCanCloseSuccess(false);
@@ -224,7 +226,6 @@ export default function ExerciseVideoTimerModal({
     timerStarted,
     effort,
     painLevel,
-    variant,
     onComplete,
     clearSuccessTimers,
     clearTimer,
@@ -245,6 +246,7 @@ export default function ExerciseVideoTimerModal({
     >
       <div
         className="w-full max-w-[min(96vw,920px)] max-h-[min(96vh,880px)] flex flex-col rounded-2xl border shadow-2xl overflow-hidden"
+        data-training-variant={variant}
         style={{
           background: '#0f172a',
           borderColor: '#334155',
@@ -391,27 +393,27 @@ export default function ExerciseVideoTimerModal({
                 ) : null}
               </div>
 
-              {variant === 'rehab' ? (
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-slate-300">
-                    רמת כאב כעת (VAS) · {painLevel}/10
-                  </label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={10}
-                    step={1}
-                    value={painLevel}
-                    onChange={(e) => setPainLevel(Number(e.target.value))}
-                    className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-teal-500"
-                    style={{ background: '#334155' }}
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-500 px-0.5">
-                    <span>0</span>
-                    <span>10</span>
-                  </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-300">
+                  רמת כאב · {painLevel}/10
+                </label>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  step={1}
+                  value={painLevel}
+                  onChange={(e) =>
+                    setPainLevel(Number(e.target.value) as ModalPainLevel)
+                  }
+                  className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                  style={{ background: '#334155' }}
+                />
+                <div className="flex justify-between text-[10px] text-slate-500 px-0.5">
+                  <span>1</span>
+                  <span>10</span>
                 </div>
-              ) : null}
+              </div>
 
               <div className="space-y-1.5">
                 <label className="block text-xs font-semibold text-slate-300">

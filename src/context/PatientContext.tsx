@@ -14,6 +14,7 @@ import type {
   SafetyAlert, ClinicalSafetyTier, DailyHistoryEntry, BodyArea,
   SelfCareSessionReport,
   PatientExerciseFinishReport,
+  ExerciseFinishReportSource,
 } from '../types';
 import { bodyAreaLabels } from '../types';
 import {
@@ -205,9 +206,20 @@ interface PatientContextValue {
   patientExerciseFinishReportsByPatientId: Record<string, PatientExerciseFinishReport[]>;
   appendPatientExerciseFinishReport: (
     patientId: string,
-    entry: Omit<PatientExerciseFinishReport, 'id' | 'patientId' | 'timestamp'>
+    entry: {
+      exerciseId: string;
+      exerciseName: string;
+      zone: string;
+      difficultyScore: 1 | 2 | 3 | 4 | 5;
+      painLevel: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+      source: ExerciseFinishReportSource;
+    }
   ) => void;
   getPatientExerciseFinishReports: (patientId: string) => PatientExerciseFinishReport[];
+
+  /** רמת קושי לתרגיל כוח לפי אזור (0–2 → שלבי שרשרת L1–L3) */
+  getSelfCareStrengthTier: (patientId: string, area: BodyArea) => 0 | 1 | 2;
+  setSelfCareStrengthTier: (patientId: string, area: BodyArea, tier: 0 | 1 | 2) => void;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -322,6 +334,9 @@ export function PatientProvider({
     useState<Record<string, PatientExerciseFinishReport[]>>(
       () => readPersistedOnce().patient?.patientExerciseFinishReportsByPatientId ?? {}
     );
+  const [selfCareStrengthTierByPatientId, setSelfCareStrengthTierByPatientId] = useState<
+    Record<string, Partial<Record<BodyArea, 0 | 1 | 2>>>
+  >(() => readPersistedOnce().patient?.selfCareStrengthTierByPatientId ?? {});
 
   const isPatientSessionLocked = restrictPatientSessionId != null && restrictPatientSessionId !== '';
 
@@ -369,6 +384,7 @@ export function PatientProvider({
       selfCareZonesByPatientId,
       selfCareReportsByPatientId,
       patientExerciseFinishReportsByPatientId,
+      selfCareStrengthTierByPatientId,
     });
   }, [
     allPatients,
@@ -382,6 +398,7 @@ export function PatientProvider({
     selfCareZonesByPatientId,
     selfCareReportsByPatientId,
     patientExerciseFinishReportsByPatientId,
+    selfCareStrengthTierByPatientId,
   ]);
 
   const applyExternalSnapshot = useCallback(
@@ -398,6 +415,7 @@ export function PatientProvider({
       setPatientExerciseFinishReportsByPatientId(
         data.patientExerciseFinishReportsByPatientId ?? {}
       );
+      setSelfCareStrengthTierByPatientId(data.selfCareStrengthTierByPatientId ?? {});
       if (!restrictPatientSessionId) {
         setSelectedPatientId(data.selectedPatientId ?? '');
       }
@@ -1395,6 +1413,24 @@ export function PatientProvider({
     [patientExerciseFinishReportsByPatientId]
   );
 
+  const getSelfCareStrengthTier = useCallback(
+    (patientId: string, area: BodyArea): 0 | 1 | 2 => {
+      const t = selfCareStrengthTierByPatientId[patientId]?.[area];
+      return t === 1 || t === 2 ? t : 0;
+    },
+    [selfCareStrengthTierByPatientId]
+  );
+
+  const setSelfCareStrengthTier = useCallback(
+    (patientId: string, area: BodyArea, tier: 0 | 1 | 2) => {
+      setSelfCareStrengthTierByPatientId((prev) => ({
+        ...prev,
+        [patientId]: { ...(prev[patientId] ?? {}), [area]: tier },
+      }));
+    },
+    []
+  );
+
   const resetPatientExercisePlan = useCallback((patientId: string) => {
     setExercisePlans((prev) =>
       prev.some((ep) => ep.patientId === patientId)
@@ -1472,6 +1508,8 @@ export function PatientProvider({
         patientExerciseFinishReportsByPatientId,
         appendPatientExerciseFinishReport,
         getPatientExerciseFinishReports,
+        getSelfCareStrengthTier,
+        setSelfCareStrengthTier,
       }}
     >
       {children}

@@ -1,7 +1,9 @@
 import type { BodyArea } from '../types';
 
-/** Short CC0 clip for inline `<video loop>` (avoid YouTube in native video tag). */
-const DEMO_MP4 = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+/** CC0 clips — רמה שונה יכולה להציג קישור וידאו שונה מהמסד */
+const DEMO_L1 = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+const DEMO_L2 = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/framerate.mp4';
+const DEMO_L3 = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm';
 
 export interface StrengthExerciseLevelDef {
   level: 1 | 2 | 3;
@@ -43,7 +45,7 @@ function L(
     reps,
     repsAreSeconds,
     instructions,
-    videoUrl: DEMO_MP4,
+    videoUrl: level === 1 ? DEMO_L1 : level === 2 ? DEMO_L2 : DEMO_L3,
     xpReward,
   };
 }

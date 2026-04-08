@@ -93,17 +93,23 @@ export interface SelfCareSessionReport {
   loggedAt: string;
 }
 
-/** דיווח סיום תרגול מתוך מודאל האימון — לאנליטיקה למטפל */
+export type ExerciseFinishReportSource = 'therapist' | 'self-care';
+
+/** דיווח סיום תרגול מתוך מודאל האימון — נשמר ב-localStorage; רשומות ישנות עשויות לחסר שדות */
 export interface PatientExerciseFinishReport {
   id: string;
   patientId: string;
   exerciseId: string;
-  /** תווית אזור גוף (עברית), לתצוגת דשבורד */
-  zoneName: string;
-  difficultyScore: 1 | 2 | 3 | 4 | 5;
   timestamp: string;
-  /** true = תרגיל מאזור שיקום אדום (מטפל) */
-  isClinical: boolean;
+  difficultyScore: 1 | 2 | 3 | 4 | 5;
+  exerciseName?: string;
+  zone?: string;
+  painLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  source?: ExerciseFinishReportSource;
+  /** @deprecated השתמשו ב־source */
+  isClinical?: boolean;
+  /** @deprecated השתמשו ב־zone */
+  zoneName?: string;
 }
 
 export interface Patient {

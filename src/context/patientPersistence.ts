@@ -29,6 +29,10 @@ export type PersistedPatientStateV1 = {
   selfCareReportsByPatientId?: Record<string, SelfCareSessionReport[]>;
   /** דיווחי סיום תרגול (מודאל) — לאנליטיקה למטפל */
   patientExerciseFinishReportsByPatientId?: Record<string, PatientExerciseFinishReport[]>;
+  /**
+   * רמת קושי לתרגילי כוח (אזור ירוק): 0 = קל (רמה 1), 1 = בינוני (2), 2 = קשה (3)
+   */
+  selfCareStrengthTierByPatientId?: Record<string, Partial<Record<BodyArea, 0 | 1 | 2>>>;
 };
 
 export function loadPersistedPatientState(): PersistedPatientStateV1 | null {
