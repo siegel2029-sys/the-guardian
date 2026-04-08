@@ -258,7 +258,9 @@ export default function ExercisesPanel() {
                 primaryArea={selectedPatient.primaryBodyArea}
                 painByArea={selectedPatient.analytics.painByArea}
                 level={selectedPatient.level}
-                streakForGlow={selectedPatient.currentStreak}
+                xp={selectedPatient.xp}
+                xpForNextLevel={selectedPatient.xpForNextLevel}
+                streak={selectedPatient.currentStreak}
                 strengthenedAreasToday={strengthenedToday}
                 selectedArea={filterArea}
                 onAreaClick={(area) =>

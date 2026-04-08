@@ -15,7 +15,15 @@ export interface BodyMap3DProps {
   selfCareSelectedAreas?: BodyArea[];
   painByArea: Partial<Record<BodyArea, number>>;
   level: number;
-  /** Current streak; when greater than 3 adds float + subtle bloom (“energy”) */
+  /** XP toward next level — forwarded to the 3D stack (badge / future use) */
+  xp?: number;
+  xpForNextLevel?: number;
+  /**
+   * Current streak (same as `Patient.currentStreak`).
+   * When >= 3: float, rim glow pulse, and post-processing bloom.
+   */
+  streak?: number;
+  /** @deprecated Use `streak` */
   streakForGlow?: number;
   /** Muscle areas with a finish report today — gold / blue highlight */
   strengthenedAreasToday?: BodyArea[];
@@ -76,6 +84,26 @@ function StreakEnergyFloat({
     }
   });
   return <group ref={ref}>{children}</group>;
+}
+
+/** Pulsating rim light — pairs with bloom for streak “energy”. */
+function StreakRimLight() {
+  const ref = useRef<THREE.PointLight>(null);
+  useFrame(({ clock }) => {
+    const L = ref.current;
+    if (!L) return;
+    L.intensity = 0.38 + Math.sin(clock.elapsedTime * 2.35) * 0.2;
+  });
+  return (
+    <pointLight
+      ref={ref}
+      position={[0.52, 1.68, 0.82]}
+      intensity={0.4}
+      color="#b9f7fe"
+      distance={3.4}
+      decay={2}
+    />
+  );
 }
 
 // ── Scene background + fog ────────────────────────────────────────
@@ -172,7 +200,10 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     selfCareSelectedAreas,
     painByArea,
     level,
-    streakForGlow = 0,
+    xp,
+    xpForNextLevel,
+    streak,
+    streakForGlow,
     strengthenedAreasToday = [],
     floatingLevelBadge = false,
     selectedArea,
@@ -180,7 +211,13 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     minHeightPx = 500,
   } = props;
 
-  const streakEnergy = streakForGlow > 3;
+  const streakVal = streak ?? streakForGlow ?? 0;
+  const streakEnergy = streakVal >= 3;
+
+  const xpPct =
+    xp != null && xpForNextLevel != null && xpForNextLevel > 0
+      ? Math.min(100, Math.round((xp / xpForNextLevel) * 100))
+      : null;
 
   const [activeView, setActiveView] = useState<ViewPreset | null>('front');
   const cameraTargetRef = useRef<THREE.Vector3 | null>(VIEW_POSITIONS.front.clone());
@@ -258,6 +295,9 @@ export default function BodyMap3D(props: BodyMap3DProps) {
               selfCareSelectedAreas={selfCareSelectedAreas}
               painByArea={painByArea}
               level={level}
+              xp={xp}
+              xpForNextLevel={xpForNextLevel}
+              streak={streakVal}
               strengthenedAreasToday={strengthenedAreasToday}
               selectedArea={selectedArea}
               onAreaClick={onAreaClick}
@@ -283,24 +323,29 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                     boxShadow:
                       '0 0 14px rgba(20,184,166,0.55), 0 2px 10px rgba(13,148,136,0.35)',
                     border: '1px solid rgba(255,255,255,0.35)',
-                    whiteSpace: 'nowrap',
                     direction: 'ltr',
+                    textAlign: 'center',
                   }}
                 >
-                  Lv.{level}
+                  <div>Lv.{level}</div>
+                  {xpPct != null && (
+                    <div
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        opacity: 0.92,
+                        marginTop: 2,
+                        letterSpacing: 0.2,
+                      }}
+                    >
+                      {xpPct}% XP
+                    </div>
+                  )}
                 </div>
               </Html>
             )}
 
-            {streakEnergy && (
-              <pointLight
-                position={[0.5, 1.65, 0.85]}
-                intensity={0.55}
-                color="#a5f3fc"
-                distance={3.2}
-                decay={2}
-              />
-            )}
+            {streakEnergy && <StreakRimLight />}
           </StreakEnergyFloat>
         </Suspense>
 

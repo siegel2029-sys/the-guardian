@@ -483,7 +483,9 @@ export default function PatientDailyView() {
                   selfCareSelectedAreas={selectedZones}
                   painByArea={selectedPatient.analytics.painByArea}
                   level={selectedPatient.level}
-                  streakForGlow={selectedPatient.currentStreak}
+                  xp={selectedPatient.xp}
+                  xpForNextLevel={selectedPatient.xpForNextLevel}
+                  streak={selectedPatient.currentStreak}
                   strengthenedAreasToday={strengthenedAreasToday}
                   floatingLevelBadge
                   minHeightPx={520}

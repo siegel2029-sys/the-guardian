@@ -4,7 +4,7 @@ import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import type { BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
-import { getLevelTier, type LevelTier } from '../../body/levelTier';
+import { getLevelTier } from '../../body/levelTier';
 
 export interface MuscleSegmentProps {
   area: BodyArea | null;
@@ -15,18 +15,23 @@ export interface MuscleSegmentProps {
   isPrimary: boolean;
   isHighPain: boolean;
   isSelected: boolean;
-  /** Therapist clinical focus — red glow, not clickable */
   clinicalLocked?: boolean;
-  /** Patient-selected self-care zone — green glow */
   selfCareSelected?: boolean;
-  /** Completed a session for this area today — gold / electric blue */
+  /** Self-care zone finished today — gold / blue (overrides level look) */
   strengthenedToday?: boolean;
+  /** Patient level (1–10) — drives material evolution */
   level: number;
+  /** Passed through for parity with portal data; reserved for future micro-tuning */
+  xp?: number;
+  xpForNextLevel?: number;
+  /** Current streak — reserved (streak VFX live on BodyMap3D) */
+  streak?: number;
   onAreaClick?: (area: BodyArea) => void;
   children?: ReactNode;
 }
 
 interface MatProps {
+  useStandardMaterial: boolean;
   color: string;
   emissive: string;
   emissiveIntensity: number;
@@ -34,60 +39,52 @@ interface MatProps {
   metalness: number;
   clearcoat: number;
   clearcoatRoughness: number;
-  targetScale: number;
   envMapIntensity: number;
+  iridescence: number;
+  iridescenceIOR: number;
+  iridescenceThicknessRange: [number, number];
   transparent: boolean;
   opacity: number;
-  showWireframeOverlay: boolean;
+  depthWrite: boolean;
+  targetScale: number;
 }
 
 function strongPalette(area: BodyArea): { color: string; emissive: string } {
   const gold = (area.charCodeAt(0) + area.length) % 2 === 0;
-  if (gold) {
-    return { color: '#e8c547', emissive: '#b8860b' };
-  }
+  if (gold) return { color: '#e8c547', emissive: '#b8860b' };
   return { color: '#38bdf8', emissive: '#0284c7' };
 }
 
-function applyLevelTier(
-  mp: Omit<MatProps, 'showWireframeOverlay'>,
-  tier: LevelTier,
-  clinicalLocked: boolean,
-  isHighPain: boolean
-): Omit<MatProps, 'showWireframeOverlay'> {
-  const out = { ...mp };
-  out.transparent = false;
-  out.opacity = 1;
+function recoveredChromeExtras(): Pick<
+  MatProps,
+  'metalness' | 'roughness' | 'clearcoat' | 'clearcoatRoughness' | 'iridescence' | 'iridescenceIOR' | 'iridescenceThicknessRange' | 'envMapIntensity'
+> {
+  return {
+    metalness: 0.72,
+    roughness: 0.16,
+    clearcoat: 0.88,
+    clearcoatRoughness: 0.22,
+    envMapIntensity: 2.05,
+    iridescence: 1,
+    iridescenceIOR: 1.25,
+    iridescenceThicknessRange: [120, 420],
+  };
+}
 
-  if (tier === 'ghost') {
-    const baseOp = clinicalLocked ? 0.58 : isHighPain ? 0.52 : 0.4;
-    out.transparent = true;
-    out.opacity = Math.min(0.92, baseOp + Math.min(0.14, mp.emissiveIntensity * 0.08));
-    out.roughness = Math.min(1, mp.roughness + 0.14);
-    out.metalness = mp.metalness * 0.65;
-    out.clearcoat = mp.clearcoat * 0.55;
-    out.emissiveIntensity = mp.emissiveIntensity * 0.88;
-    out.envMapIntensity = mp.envMapIntensity * 0.75;
-  } else if (tier === 'matte') {
-    out.roughness = Math.min(1, mp.roughness + 0.2);
-    out.metalness = mp.metalness * 0.42;
-    out.clearcoat = mp.clearcoat * 0.48;
-    out.envMapIntensity = mp.envMapIntensity * 0.92;
-  } else {
-    if (!clinicalLocked && !isHighPain) {
-      out.metalness = Math.max(mp.metalness, 0.62);
-      out.roughness = Math.min(mp.roughness, 0.2);
-      out.clearcoat = Math.max(mp.clearcoat, 0.55);
-      out.clearcoatRoughness = Math.min(mp.clearcoatRoughness, 0.28);
-      out.emissiveIntensity = mp.emissiveIntensity * 1.12 + 0.06;
-      out.envMapIntensity = Math.max(mp.envMapIntensity, 1.85);
-    } else {
-      out.metalness = Math.max(mp.metalness, 0.35);
-      out.roughness = Math.min(mp.roughness, 0.35);
-      out.envMapIntensity = mp.envMapIntensity * 1.08;
-    }
-  }
-  return out;
+function activeMatteTeal(): Pick<
+  MatProps,
+  'metalness' | 'roughness' | 'clearcoat' | 'clearcoatRoughness' | 'envMapIntensity' | 'iridescence' | 'iridescenceIOR' | 'iridescenceThicknessRange'
+> {
+  return {
+    metalness: 0.06,
+    roughness: 0.78,
+    clearcoat: 0.14,
+    clearcoatRoughness: 0.58,
+    envMapIntensity: 1.38,
+    iridescence: 0,
+    iridescenceIOR: 1,
+    iridescenceThicknessRange: [0, 0],
+  };
 }
 
 function computeMatProps(
@@ -105,147 +102,210 @@ function computeMatProps(
   const tier = getLevelTier(level);
   const lf = Math.min(Math.max(level, 1), 10) / 10;
   const hv = isHovered ? 0.06 : 0;
-
-  const envBase = clinicalLocked || selfCareSelected ? 2.15 : 1.4;
-
-  if (!area) {
-    const base = {
-      color: '#8fb8c8',
-      emissive: '#000000',
-      emissiveIntensity: 0,
-      roughness: 0.82,
-      metalness: 0.04,
-      clearcoat: 0.08,
-      clearcoatRoughness: 0.65,
-      targetScale: 1.0,
-      envMapIntensity: 1.15,
-      transparent: false,
-      opacity: 1,
-    };
-    const tiered = applyLevelTier(base, tier, false, false);
-    return { ...tiered, showWireframeOverlay: tier === 'ghost' };
-  }
-
-  if (clinicalLocked) {
-    const base = {
-      color: '#ff6b6b',
-      emissive: '#ff1744',
-      emissiveIntensity: 1.35 + hv * 0.85,
-      roughness: 0.22,
-      metalness: 0.28,
-      clearcoat: 0.55,
-      clearcoatRoughness: 0.28,
-      targetScale: 1.045 + (isHovered ? 0.025 : 0),
-      envMapIntensity: envBase,
-      transparent: false,
-      opacity: 1,
-    };
-    const tiered = applyLevelTier(base, tier, true, false);
-    return { ...tiered, showWireframeOverlay: tier === 'ghost' };
-  }
+  const envAccent = clinicalLocked || selfCareSelected ? 2.15 : 1.42;
 
   const strongPal =
-    strengthenedToday && !isHighPain && (selfCareSelected || isActive)
+    strengthenedToday && !isHighPain && selfCareSelected && area
       ? strongPalette(area)
       : null;
 
-  if (selfCareSelected) {
-    const pal = strongPal ?? { color: '#6bff8f', emissive: '#39ff14' };
-    const base = {
-      color: pal.color,
-      emissive: pal.emissive,
-      emissiveIntensity: (strongPal ? 1.45 : 1.28) + hv * 0.9,
-      roughness: strongPal ? 0.2 : 0.24,
-      metalness: strongPal ? 0.38 : 0.22,
-      clearcoat: strongPal ? 0.62 : 0.52,
-      clearcoatRoughness: strongPal ? 0.22 : 0.3,
-      targetScale: 1.065 + (isHovered ? 0.035 : 0),
-      envMapIntensity: envBase,
+  const basePhysical = (
+    partial: Partial<MatProps> & Pick<MatProps, 'color' | 'emissive' | 'emissiveIntensity' | 'targetScale'>
+  ): MatProps => ({
+    useStandardMaterial: false,
+    roughness: 0.5,
+    metalness: 0.2,
+    clearcoat: 0.3,
+    clearcoatRoughness: 0.45,
+    envMapIntensity: envAccent,
+    iridescence: 0,
+    iridescenceIOR: 1,
+    iridescenceThicknessRange: [0, 0],
+    transparent: false,
+    opacity: 1,
+    depthWrite: true,
+    ...partial,
+  });
+
+  if (!area) {
+    return {
+      useStandardMaterial: false,
+      color: '#8fb8c8',
+      emissive: '#000000',
+      emissiveIntensity: 0,
+      ...activeMatteTeal(),
       transparent: false,
       opacity: 1,
+      depthWrite: true,
+      targetScale: 1,
     };
-    const tiered = applyLevelTier(base, tier, false, false);
-    return { ...tiered, showWireframeOverlay: tier === 'ghost' };
+  }
+
+  if (clinicalLocked) {
+    const chrome = tier === 'recovered' ? recoveredChromeExtras() : activeMatteTeal();
+    return basePhysical({
+      color: '#ff6b6b',
+      emissive: '#ff1744',
+      emissiveIntensity: 1.35 + hv * 0.85,
+      targetScale: 1.045 + (isHovered ? 0.025 : 0),
+      ...chrome,
+      metalness: tier === 'recovered' ? chrome.metalness * 0.85 : 0.28,
+      roughness: tier === 'recovered' ? chrome.roughness + 0.06 : 0.24,
+      clearcoat: tier === 'recovered' ? chrome.clearcoat * 0.92 : 0.52,
+    });
+  }
+
+  if (selfCareSelected) {
+    if (strongPal) {
+      return basePhysical({
+        color: strongPal.color,
+        emissive: strongPal.emissive,
+        emissiveIntensity: 1.52 + hv * 0.95,
+        targetScale: 1.08 + (isHovered ? 0.035 : 0),
+        metalness: 0.42,
+        roughness: 0.2,
+        clearcoat: 0.68,
+        clearcoatRoughness: 0.24,
+        envMapIntensity: Math.max(envAccent, 1.9),
+        iridescence: 0.25,
+        iridescenceIOR: 1.15,
+        iridescenceThicknessRange: [80, 280],
+      });
+    }
+    const green = basePhysical({
+      color: '#6bff8f',
+      emissive: '#39ff14',
+      emissiveIntensity: 1.28 + hv * 0.9,
+      targetScale: 1.065 + (isHovered ? 0.035 : 0),
+      roughness: tier === 'injured' ? 0.42 : 0.24,
+      metalness: tier === 'injured' ? 0.12 : 0.22,
+      clearcoat: tier === 'injured' ? 0.2 : 0.52,
+      transparent: tier === 'injured',
+      opacity: tier === 'injured' ? 0.72 : 1,
+      depthWrite: tier !== 'injured',
+    });
+    if (tier === 'recovered') {
+      const c = recoveredChromeExtras();
+      return basePhysical({
+        ...green,
+        metalness: c.metalness * 0.35,
+        roughness: c.roughness + 0.12,
+        clearcoat: c.clearcoat * 0.55,
+        envMapIntensity: c.envMapIntensity,
+        iridescence: 0.45,
+        iridescenceIOR: c.iridescenceIOR,
+        iridescenceThicknessRange: c.iridescenceThicknessRange,
+        transparent: false,
+        opacity: 1,
+        depthWrite: true,
+      });
+    }
+    return green;
   }
 
   if (isHighPain) {
-    const base = {
+    return basePhysical({
       color: '#fb923c',
       emissive: '#c2410c',
-      emissiveIntensity: 0.2 + hv,
-      roughness: 0.6,
-      metalness: 0.0,
-      clearcoat: 0.18,
+      emissiveIntensity: 0.22 + hv,
+      roughness: 0.58,
+      metalness: 0,
+      clearcoat: 0.16,
       clearcoatRoughness: 0.55,
-      targetScale: 1.0,
-      envMapIntensity: 1.2,
-      transparent: false,
-      opacity: 1,
-    };
-    const tiered = applyLevelTier(base, tier, false, true);
-    return { ...tiered, showWireframeOverlay: tier === 'ghost' };
+      targetScale: 1,
+      envMapIntensity: 1.15,
+    });
   }
 
   if (!isActive) {
-    const base = {
-      color: isHovered ? '#b0d8e8' : '#90bac8',
+    if (tier === 'injured') {
+      return {
+        useStandardMaterial: true,
+        color: isHovered ? '#e2e8f0' : '#d8dee6',
+        emissive: '#000000',
+        emissiveIntensity: 0,
+        roughness: 0.94,
+        metalness: 0.02,
+        clearcoat: 0,
+        clearcoatRoughness: 0.5,
+        envMapIntensity: 0,
+        iridescence: 0,
+        iridescenceIOR: 1,
+        iridescenceThicknessRange: [0, 0],
+        transparent: true,
+        opacity: 0.6,
+        depthWrite: false,
+        targetScale: 1 + (isHovered ? 0.03 : 0),
+      };
+    }
+    const m = activeMatteTeal();
+    return basePhysical({
+      color: isHovered ? '#9fdbef' : '#7ec8de',
       emissive: '#000000',
       emissiveIntensity: 0,
-      roughness: 0.8,
-      metalness: 0.0,
-      clearcoat: 0.06,
-      clearcoatRoughness: 0.7,
-      targetScale: 1.0 + (isHovered ? 0.03 : 0),
-      envMapIntensity: 1.1,
-      transparent: false,
-      opacity: 1,
-    };
-    const tiered = applyLevelTier(base, tier, false, false);
-    return { ...tiered, showWireframeOverlay: tier === 'ghost' };
+      targetScale: 1 + (isHovered ? 0.03 : 0),
+      ...m,
+      roughness: m.roughness + 0.04,
+    });
   }
 
   const colorStops = ['#5eead4', '#2dd4bf', '#14b8a6', '#0d9488', '#0f766e'];
   const ci = Math.min(Math.floor(lf * 5), 4);
-  const pal = strongPal ?? { color: isSelected ? '#99f6e4' : colorStops[ci], emissive: '#0d9488' };
+  const baseColor = isSelected ? '#99f6e4' : colorStops[ci];
+  const baseEmissive = '#0d9488';
 
-  const roughness = strongPal
-    ? Math.max(0.14, 0.55 - lf * 0.35)
-    : Math.max(0.12, 0.82 - lf * 0.72);
-  const metalness = strongPal
-    ? Math.max(0.35, lf * (isPrimary ? 0.5 : 0.32))
-    : lf * (isPrimary ? 0.44 : 0.22);
-  const clearcoat = strongPal
-    ? 0.35 + lf * (isPrimary ? 0.22 : 0.12)
-    : 0.12 + lf * (isPrimary ? 0.3 : 0.16);
-  const clearcoatRoughness = strongPal
-    ? Math.max(0.18, 0.45 - lf * 0.28)
-    : Math.max(0.2, 0.68 - lf * 0.48);
+  if (tier === 'injured') {
+    return {
+      useStandardMaterial: true,
+      color: '#cfd8dc',
+      emissive: '#000000',
+      emissiveIntensity: 0,
+      roughness: 0.9,
+      metalness: 0.03,
+      clearcoat: 0,
+      clearcoatRoughness: 0.5,
+      envMapIntensity: 0,
+      iridescence: 0,
+      iridescenceIOR: 1,
+      iridescenceThicknessRange: [0, 0],
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+      targetScale:
+        1 +
+        (isPrimary ? 0.06 : 0.02) +
+        (isHovered ? 0.05 : 0) +
+        (isSelected ? 0.04 : 0),
+    };
+  }
 
-  const emissiveIntensity =
-    (strongPal ? lf * 0.65 + 0.35 : lf * (isPrimary ? 0.55 : 0.25)) +
-    hv +
-    (isSelected ? 0.14 : 0);
+  if (tier === 'active') {
+    const m = activeMatteTeal();
+    return basePhysical({
+      color: baseColor,
+      emissive: baseEmissive,
+      emissiveIntensity: lf * (isPrimary ? 0.48 : 0.26) + hv + (isSelected ? 0.12 : 0),
+      targetScale:
+        1 +
+        (isPrimary ? lf * 0.18 : lf * 0.07) +
+        (isHovered ? 0.05 : 0) +
+        (isSelected ? 0.04 : 0),
+      ...m,
+    });
+  }
 
-  const scaleBoost =
-    (isPrimary ? lf * 0.22 : lf * 0.08) +
-    (isHovered ? 0.05 : 0) +
-    (isSelected ? 0.04 : 0);
-
-  const base = {
-    color: pal.color,
-    emissive: pal.emissive,
-    emissiveIntensity,
-    roughness,
-    metalness,
-    clearcoat,
-    clearcoatRoughness,
-    targetScale: 1 + scaleBoost,
-    envMapIntensity: strongPal ? Math.max(envBase, 1.75) : envBase,
-    transparent: false,
-    opacity: 1,
-  };
-  const tiered = applyLevelTier(base, tier, false, false);
-  return { ...tiered, showWireframeOverlay: tier === 'ghost' };
+  const c = recoveredChromeExtras();
+  return basePhysical({
+    color: baseColor,
+    emissive: baseEmissive,
+    emissiveIntensity: lf * (isPrimary ? 0.62 : 0.38) + hv + 0.08 + (isSelected ? 0.12 : 0),
+    targetScale:
+      1 +
+      (isPrimary ? lf * 0.2 : lf * 0.09) +
+      (isHovered ? 0.05 : 0) +
+      (isSelected ? 0.04 : 0),
+    ...c,
+  });
 }
 
 const _sv = new THREE.Vector3();
@@ -265,11 +325,19 @@ export default function MuscleSegment({
   selfCareSelected = false,
   strengthenedToday = false,
   level,
+  xp: _xp,
+  xpForNextLevel: _xn,
+  streak: _st,
   onAreaClick,
   children,
 }: MuscleSegmentProps) {
+  void _xp;
+  void _xn;
+  void _st;
+
   const meshRef = useRef<THREE.Mesh>(null);
-  const matRef = useRef<THREE.MeshPhysicalMaterial>(null);
+  const stdRef = useRef<THREE.MeshStandardMaterial>(null);
+  const physRef = useRef<THREE.MeshPhysicalMaterial>(null);
   const [hovered, setHovered] = useState(false);
 
   const mp = useMemo(
@@ -302,25 +370,45 @@ export default function MuscleSegment({
 
   useFrame(() => {
     const mesh = meshRef.current;
-    const mat = matRef.current;
-    if (!mesh || !mat) return;
-
+    if (!mesh) return;
     _sv.setScalar(mp.targetScale);
     mesh.scale.lerp(_sv, 0.12);
 
-    _tc.set(mp.color);
-    _te.set(mp.emissive);
-    mat.color.lerp(_tc, 0.15);
-    mat.emissive.lerp(_te, 0.15);
-    mat.roughness = THREE.MathUtils.lerp(mat.roughness, mp.roughness, 0.12);
-    mat.metalness = THREE.MathUtils.lerp(mat.metalness, mp.metalness, 0.12);
-    mat.emissiveIntensity = THREE.MathUtils.lerp(mat.emissiveIntensity, mp.emissiveIntensity, 0.12);
-    mat.clearcoat = THREE.MathUtils.lerp(mat.clearcoat, mp.clearcoat, 0.1);
-    mat.clearcoatRoughness = THREE.MathUtils.lerp(mat.clearcoatRoughness, mp.clearcoatRoughness, 0.1);
-    mat.envMapIntensity = THREE.MathUtils.lerp(mat.envMapIntensity, mp.envMapIntensity, 0.1);
-    mat.transparent = mp.transparent;
-    mat.opacity = THREE.MathUtils.lerp(mat.opacity, mp.opacity, 0.14);
-    mat.depthWrite = mat.opacity >= 0.98 && !mp.transparent;
+    if (mp.useStandardMaterial) {
+      const mat = stdRef.current;
+      if (!mat) return;
+      _tc.set(mp.color);
+      mat.color.lerp(_tc, 0.15);
+      mat.emissive.set(mp.emissive);
+      mat.emissiveIntensity = THREE.MathUtils.lerp(mat.emissiveIntensity, mp.emissiveIntensity, 0.12);
+      mat.roughness = THREE.MathUtils.lerp(mat.roughness, mp.roughness, 0.12);
+      mat.metalness = THREE.MathUtils.lerp(mat.metalness, mp.metalness, 0.12);
+      mat.transparent = mp.transparent;
+      mat.opacity = THREE.MathUtils.lerp(mat.opacity, mp.opacity, 0.14);
+      mat.depthWrite = mp.depthWrite;
+    } else {
+      const mat = physRef.current;
+      if (!mat) return;
+      _tc.set(mp.color);
+      _te.set(mp.emissive);
+      mat.color.lerp(_tc, 0.15);
+      mat.emissive.lerp(_te, 0.15);
+      mat.roughness = THREE.MathUtils.lerp(mat.roughness, mp.roughness, 0.12);
+      mat.metalness = THREE.MathUtils.lerp(mat.metalness, mp.metalness, 0.12);
+      mat.emissiveIntensity = THREE.MathUtils.lerp(mat.emissiveIntensity, mp.emissiveIntensity, 0.12);
+      mat.clearcoat = THREE.MathUtils.lerp(mat.clearcoat, mp.clearcoat, 0.1);
+      mat.clearcoatRoughness = THREE.MathUtils.lerp(mat.clearcoatRoughness, mp.clearcoatRoughness, 0.1);
+      mat.envMapIntensity = THREE.MathUtils.lerp(mat.envMapIntensity, mp.envMapIntensity, 0.1);
+      mat.iridescence = THREE.MathUtils.lerp(mat.iridescence, mp.iridescence, 0.12);
+      mat.iridescenceIOR = THREE.MathUtils.lerp(mat.iridescenceIOR, mp.iridescenceIOR, 0.12);
+      const tr = mp.iridescenceThicknessRange;
+      const cur = mat.iridescenceThicknessRange;
+      cur[0] = THREE.MathUtils.lerp(cur[0], tr[0], 0.1);
+      cur[1] = THREE.MathUtils.lerp(cur[1], tr[1], 0.1);
+      mat.transparent = mp.transparent;
+      mat.opacity = THREE.MathUtils.lerp(mat.opacity, mp.opacity, 0.14);
+      mat.depthWrite = mp.depthWrite;
+    }
   });
 
   const interactive = !!area && !clinicalLocked;
@@ -364,35 +452,40 @@ export default function MuscleSegment({
             : undefined
         }
       >
-        <meshPhysicalMaterial
-          ref={matRef}
-          color={mp.color}
-          emissive={mp.emissive}
-          emissiveIntensity={mp.emissiveIntensity}
-          roughness={mp.roughness}
-          metalness={mp.metalness}
-          clearcoat={mp.clearcoat}
-          clearcoatRoughness={mp.clearcoatRoughness}
-          envMapIntensity={mp.envMapIntensity}
-          transparent={mp.transparent}
-          opacity={mp.opacity}
-          depthWrite={!mp.transparent || mp.opacity >= 0.95}
-        />
+        {mp.useStandardMaterial ? (
+          <meshStandardMaterial
+            ref={stdRef}
+            color={mp.color}
+            emissive={mp.emissive}
+            emissiveIntensity={mp.emissiveIntensity}
+            roughness={mp.roughness}
+            metalness={mp.metalness}
+            transparent={mp.transparent}
+            opacity={mp.opacity}
+            depthWrite={mp.depthWrite}
+          />
+        ) : (
+          <meshPhysicalMaterial
+            ref={physRef}
+            color={mp.color}
+            emissive={mp.emissive}
+            emissiveIntensity={mp.emissiveIntensity}
+            roughness={mp.roughness}
+            metalness={mp.metalness}
+            clearcoat={mp.clearcoat}
+            clearcoatRoughness={mp.clearcoatRoughness}
+            envMapIntensity={mp.envMapIntensity}
+            iridescence={mp.iridescence}
+            iridescenceIOR={mp.iridescenceIOR}
+            iridescenceThicknessRange={mp.iridescenceThicknessRange}
+            transparent={mp.transparent}
+            opacity={mp.opacity}
+            depthWrite={mp.depthWrite}
+          />
+        )}
 
         {children}
       </mesh>
-
-      {mp.showWireframeOverlay && (
-        <mesh geometry={geometry} raycast={() => {}}>
-          <meshBasicMaterial
-            color="#7dd3c0"
-            wireframe
-            transparent
-            opacity={0.22}
-            depthWrite={false}
-          />
-        </mesh>
-      )}
 
       {hovered && area && (
         <Html position={[0, 0.28, 0]} center distanceFactor={8} zIndexRange={[200, 0]}>

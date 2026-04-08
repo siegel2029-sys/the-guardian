@@ -49,50 +49,59 @@ interface BaseProps {
 
 function BaseSegment({ geometry, position, rotation, level }: BaseProps) {
   const tier = getLevelTier(level);
-  const ghost = tier === 'ghost';
-  const matte = tier === 'matte';
-  const chrome = tier === 'chrome';
-
-  const roughness = ghost ? 0.88 : matte ? 0.91 : 0.32;
-  const metalness = ghost ? 0.03 : matte ? 0.02 : 0.38;
-  const clearcoat = ghost ? 0.05 : matte ? 0.05 : 0.48;
-  const clearcoatRoughness = ghost ? 0.72 : matte ? 0.78 : 0.28;
-  const envMapIntensity = ghost ? 0.75 : matte ? 0.95 : 1.65;
-  const emissive = chrome ? '#0a3340' : '#000000';
-  const emissiveIntensity = chrome ? 0.085 : 0;
-  const transparent = ghost;
-  const opacity = ghost ? 0.34 : 1;
-
   const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
+
+  if (tier === 'injured') {
+    return (
+      <group position={position} rotation={rot}>
+        <mesh geometry={geometry} castShadow receiveShadow>
+          <meshStandardMaterial
+            color="#e8eaef"
+            roughness={0.92}
+            metalness={0.02}
+            transparent
+            opacity={0.6}
+            depthWrite={false}
+          />
+        </mesh>
+      </group>
+    );
+  }
+
+  if (tier === 'active') {
+    return (
+      <group position={position} rotation={rot}>
+        <mesh geometry={geometry} castShadow receiveShadow>
+          <meshPhysicalMaterial
+            color={BASE_SKIN}
+            roughness={0.82}
+            metalness={0.05}
+            clearcoat={0.1}
+            clearcoatRoughness={0.62}
+            envMapIntensity={1.22}
+          />
+        </mesh>
+      </group>
+    );
+  }
 
   return (
     <group position={position} rotation={rot}>
       <mesh geometry={geometry} castShadow receiveShadow>
         <meshPhysicalMaterial
           color={BASE_SKIN}
-          roughness={roughness}
-          metalness={metalness}
-          clearcoat={clearcoat}
-          clearcoatRoughness={clearcoatRoughness}
-          envMapIntensity={envMapIntensity}
-          emissive={emissive}
-          emissiveIntensity={emissiveIntensity}
-          transparent={transparent}
-          opacity={opacity}
-          depthWrite={!transparent}
+          roughness={0.26}
+          metalness={0.55}
+          clearcoat={0.82}
+          clearcoatRoughness={0.24}
+          envMapIntensity={1.85}
+          emissive="#082830"
+          emissiveIntensity={0.06}
+          iridescence={1}
+          iridescenceIOR={1.22}
+          iridescenceThicknessRange={[120, 420]}
         />
       </mesh>
-      {ghost && (
-        <mesh geometry={geometry} raycast={() => {}}>
-          <meshBasicMaterial
-            color="#6eb8c4"
-            wireframe
-            transparent
-            opacity={0.18}
-            depthWrite={false}
-          />
-        </mesh>
-      )}
     </group>
   );
 }
@@ -134,9 +143,9 @@ function HeadFaceFeatures({ level }: { level: number }) {
 
   const eyeY = 0.046;
   const eyeX = 0.056;
-  const ghost = getLevelTier(level) === 'ghost';
-  const faceOpacity = ghost ? 0.45 : 1;
-  const faceTransparent = ghost;
+  const injured = getLevelTier(level) === 'injured';
+  const faceOpacity = injured ? 0.5 : 1;
+  const faceTransparent = injured;
 
   return (
     <group position={[0, headCenterY, 0]}>
@@ -244,6 +253,9 @@ interface AnatomyModelProps {
   selfCareSelectedAreas?: BodyArea[];
   painByArea: Partial<Record<BodyArea, number>>;
   level: number;
+  xp?: number;
+  xpForNextLevel?: number;
+  streak?: number;
   /** Areas with a logged exercise finish today — gold / blue muscle highlight */
   strengthenedAreasToday?: BodyArea[];
   selectedArea?: BodyArea | null;
@@ -257,6 +269,9 @@ export default function AnatomyModel({
   selfCareSelectedAreas = [],
   painByArea,
   level,
+  xp,
+  xpForNextLevel,
+  streak,
   strengthenedAreasToday = [],
   selectedArea,
   onAreaClick,
@@ -300,6 +315,9 @@ export default function AnatomyModel({
       selfCareSelected,
       strengthenedToday: area ? strengthenedSet.has(area) : false,
       level,
+      xp,
+      xpForNextLevel,
+      streak,
       onAreaClick: area ? onAreaClick : undefined,
     };
   };
