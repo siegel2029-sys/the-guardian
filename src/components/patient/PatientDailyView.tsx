@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
 import { useNavigate } from 'react-router-dom';
 import {
   Sparkles,
@@ -82,6 +83,7 @@ export default function PatientDailyView() {
     logSelfCareSession,
     grantPatientCoins,
     appendPatientExerciseFinishReport,
+    getPatientExerciseFinishReports,
     getSelfCareStrengthTier,
     setSelfCareStrengthTier,
   } = usePatient();
@@ -177,6 +179,11 @@ export default function PatientDailyView() {
 
   /** Green zones (excludes clinical); synced with 3D picks + context. */
   const selectedZones = selectedPatient ? getSelfCareZones(selectedPatient.id) : [];
+
+  const strengthenedAreasToday = useMemo(() => {
+    if (!selectedPatient) return [] as BodyArea[];
+    return getStrengthenedBodyAreasToday(getPatientExerciseFinishReports(selectedPatient.id));
+  }, [selectedPatient, getPatientExerciseFinishReports]);
 
   const clinicalRehabExercises = useMemo(() => {
     if (!selectedPatient) return [];
@@ -476,6 +483,9 @@ export default function PatientDailyView() {
                   selfCareSelectedAreas={selectedZones}
                   painByArea={selectedPatient.analytics.painByArea}
                   level={selectedPatient.level}
+                  streakForGlow={selectedPatient.currentStreak}
+                  strengthenedAreasToday={strengthenedAreasToday}
+                  floatingLevelBadge
                   minHeightPx={520}
                   onAreaClick={handleAvatarZoneClick}
                 />

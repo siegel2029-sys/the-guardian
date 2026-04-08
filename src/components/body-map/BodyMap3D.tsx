@@ -1,6 +1,7 @@
-import { Suspense, useRef, useState, useCallback } from 'react';
+import { Suspense, useRef, useState, useCallback, type ReactNode } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Environment, Html } from '@react-three/drei';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import AnatomyModel from './AnatomyModel';
 import type { BodyArea } from '../../types';
@@ -14,6 +15,12 @@ export interface BodyMap3DProps {
   selfCareSelectedAreas?: BodyArea[];
   painByArea: Partial<Record<BodyArea, number>>;
   level: number;
+  /** Current streak; when greater than 3 adds float + subtle bloom (“energy”) */
+  streakForGlow?: number;
+  /** Muscle areas with a finish report today — gold / blue highlight */
+  strengthenedAreasToday?: BodyArea[];
+  /** When true, show level badge in 3D next to the head (e.g. patient portal) */
+  floatingLevelBadge?: boolean;
   selectedArea?: BodyArea | null;
   onAreaClick?: (area: BodyArea) => void;
   /** Default 500. Use a lower value for compact / mobile patient layouts. */
@@ -48,6 +55,27 @@ function CameraAnimator({ targetRef, orbitActiveRef }: CameraAnimatorProps) {
   });
 
   return null;
+}
+
+/** Subtle vertical float when streak is high — reads as “energy”. */
+function StreakEnergyFloat({
+  enabled,
+  children,
+}: {
+  enabled: boolean;
+  children: ReactNode;
+}) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => {
+    const g = ref.current;
+    if (!g) return;
+    if (enabled) {
+      g.position.y = Math.sin(clock.elapsedTime * 1.55) * 0.042;
+    } else {
+      g.position.y = THREE.MathUtils.lerp(g.position.y, 0, 0.1);
+    }
+  });
+  return <group ref={ref}>{children}</group>;
 }
 
 // ── Scene background + fog ────────────────────────────────────────
@@ -144,10 +172,15 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     selfCareSelectedAreas,
     painByArea,
     level,
+    streakForGlow = 0,
+    strengthenedAreasToday = [],
+    floatingLevelBadge = false,
     selectedArea,
     onAreaClick,
     minHeightPx = 500,
   } = props;
+
+  const streakEnergy = streakForGlow > 3;
 
   const [activeView, setActiveView] = useState<ViewPreset | null>('front');
   const cameraTargetRef = useRef<THREE.Vector3 | null>(VIEW_POSITIONS.front.clone());
@@ -217,17 +250,70 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         <Environment preset="studio" />
 
         <Suspense fallback={<Loader />}>
-          <AnatomyModel
-            activeAreas={activeAreas}
-            primaryArea={primaryArea}
-            clinicalArea={clinicalArea ?? primaryArea}
-            selfCareSelectedAreas={selfCareSelectedAreas}
-            painByArea={painByArea}
-            level={level}
-            selectedArea={selectedArea}
-            onAreaClick={onAreaClick}
-          />
+          <StreakEnergyFloat enabled={streakEnergy}>
+            <AnatomyModel
+              activeAreas={activeAreas}
+              primaryArea={primaryArea}
+              clinicalArea={clinicalArea ?? primaryArea}
+              selfCareSelectedAreas={selfCareSelectedAreas}
+              painByArea={painByArea}
+              level={level}
+              strengthenedAreasToday={strengthenedAreasToday}
+              selectedArea={selectedArea}
+              onAreaClick={onAreaClick}
+            />
+
+            {floatingLevelBadge && (
+              <Html
+                position={[0.34, 1.9, 0.14]}
+                center
+                distanceFactor={8.5}
+                style={{ pointerEvents: 'none' }}
+                zIndexRange={[100, 0]}
+              >
+                <div
+                  style={{
+                    background: 'linear-gradient(145deg,#0f766e,#14b8a6)',
+                    color: '#fff',
+                    borderRadius: 12,
+                    padding: '4px 11px',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    fontFamily: '"Arial Hebrew", Arial, sans-serif',
+                    boxShadow:
+                      '0 0 14px rgba(20,184,166,0.55), 0 2px 10px rgba(13,148,136,0.35)',
+                    border: '1px solid rgba(255,255,255,0.35)',
+                    whiteSpace: 'nowrap',
+                    direction: 'ltr',
+                  }}
+                >
+                  Lv.{level}
+                </div>
+              </Html>
+            )}
+
+            {streakEnergy && (
+              <pointLight
+                position={[0.5, 1.65, 0.85]}
+                intensity={0.55}
+                color="#a5f3fc"
+                distance={3.2}
+                decay={2}
+              />
+            )}
+          </StreakEnergyFloat>
         </Suspense>
+
+        {streakEnergy && (
+          <EffectComposer enableNormalPass={false}>
+            <Bloom
+              intensity={0.42}
+              luminanceThreshold={0.82}
+              luminanceSmoothing={0.35}
+              mipmapBlur
+            />
+          </EffectComposer>
+        )}
 
         {/* Camera smooth-animation controller */}
         <CameraAnimator targetRef={cameraTargetRef} orbitActiveRef={orbitActiveRef} />

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Dumbbell,
   Flame,
@@ -15,6 +15,7 @@ import BodyMap3D from '../body-map/BodyMap3D';
 import ExerciseCard from './ExerciseCard';
 import type { BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
+import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
 
 // ── Video Modal ──────────────────────────────────────────────────
 function VideoModal({ title, onClose }: { title: string; onClose: () => void }) {
@@ -163,9 +164,20 @@ function SessionXPBar({
 
 // ── Main ExercisesPanel ─────────────────────────────────────────
 export default function ExercisesPanel() {
-  const { selectedPatient, getExercisePlan, getTodaySession, toggleExercise } = usePatient();
+  const {
+    selectedPatient,
+    getExercisePlan,
+    getTodaySession,
+    toggleExercise,
+    getPatientExerciseFinishReports,
+  } = usePatient();
   const [videoModal, setVideoModal] = useState<string | null>(null);
   const [filterArea, setFilterArea] = useState<BodyArea | null>(null);
+
+  const strengthenedToday = useMemo(() => {
+    if (!selectedPatient) return [] as BodyArea[];
+    return getStrengthenedBodyAreasToday(getPatientExerciseFinishReports(selectedPatient.id));
+  }, [selectedPatient, getPatientExerciseFinishReports]);
 
   if (!selectedPatient) {
     return (
@@ -246,6 +258,8 @@ export default function ExercisesPanel() {
                 primaryArea={selectedPatient.primaryBodyArea}
                 painByArea={selectedPatient.analytics.painByArea}
                 level={selectedPatient.level}
+                streakForGlow={selectedPatient.currentStreak}
+                strengthenedAreasToday={strengthenedToday}
                 selectedArea={filterArea}
                 onAreaClick={(area) =>
                   setFilterArea((prev) => (prev === area ? null : area))

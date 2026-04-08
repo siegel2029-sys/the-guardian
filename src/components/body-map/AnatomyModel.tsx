@@ -16,6 +16,7 @@ import {
   createKnee,
   createGlute,
 } from './geometry/muscleGeometry';
+import { getLevelTier } from '../../body/levelTier';
 
 // ── Static world-position for each area's pulsing glow light ─────
 const AREA_GLOW: Partial<Record<BodyArea, [number, number, number]>> = {
@@ -43,20 +44,56 @@ interface BaseProps {
   geometry: THREE.BufferGeometry;
   position: [number, number, number];
   rotation?: [number, number, number];
+  level: number;
 }
 
-function BaseSegment({ geometry, position, rotation }: BaseProps) {
+function BaseSegment({ geometry, position, rotation, level }: BaseProps) {
+  const tier = getLevelTier(level);
+  const ghost = tier === 'ghost';
+  const matte = tier === 'matte';
+  const chrome = tier === 'chrome';
+
+  const roughness = ghost ? 0.88 : matte ? 0.91 : 0.32;
+  const metalness = ghost ? 0.03 : matte ? 0.02 : 0.38;
+  const clearcoat = ghost ? 0.05 : matte ? 0.05 : 0.48;
+  const clearcoatRoughness = ghost ? 0.72 : matte ? 0.78 : 0.28;
+  const envMapIntensity = ghost ? 0.75 : matte ? 0.95 : 1.65;
+  const emissive = chrome ? '#0a3340' : '#000000';
+  const emissiveIntensity = chrome ? 0.085 : 0;
+  const transparent = ghost;
+  const opacity = ghost ? 0.34 : 1;
+
+  const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
+
   return (
-    <mesh geometry={geometry} position={position} rotation={rotation as unknown as THREE.Euler} castShadow receiveShadow>
-      <meshPhysicalMaterial
-        color={BASE_SKIN}
-        roughness={0.82}
-        metalness={0.04}
-        clearcoat={0.08}
-        clearcoatRoughness={0.65}
-        envMapIntensity={1.2}
-      />
-    </mesh>
+    <group position={position} rotation={rot}>
+      <mesh geometry={geometry} castShadow receiveShadow>
+        <meshPhysicalMaterial
+          color={BASE_SKIN}
+          roughness={roughness}
+          metalness={metalness}
+          clearcoat={clearcoat}
+          clearcoatRoughness={clearcoatRoughness}
+          envMapIntensity={envMapIntensity}
+          emissive={emissive}
+          emissiveIntensity={emissiveIntensity}
+          transparent={transparent}
+          opacity={opacity}
+          depthWrite={!transparent}
+        />
+      </mesh>
+      {ghost && (
+        <mesh geometry={geometry} raycast={() => {}}>
+          <meshBasicMaterial
+            color="#6eb8c4"
+            wireframe
+            transparent
+            opacity={0.18}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
+    </group>
   );
 }
 
@@ -72,7 +109,7 @@ function useNoRaycast<T extends THREE.Object3D>(ref: RefObject<T | null>) {
   }, []);
 }
 
-function HeadFaceFeatures() {
+function HeadFaceFeatures({ level }: { level: number }) {
   const headCenterY = 1.73;
   const headRadius = 0.225;
   /** Surface Z ≈ +headRadius; features sit slightly inside to avoid z-fighting with head sphere */
@@ -97,6 +134,9 @@ function HeadFaceFeatures() {
 
   const eyeY = 0.046;
   const eyeX = 0.056;
+  const ghost = getLevelTier(level) === 'ghost';
+  const faceOpacity = ghost ? 0.45 : 1;
+  const faceTransparent = ghost;
 
   return (
     <group position={[0, headCenterY, 0]}>
@@ -114,6 +154,9 @@ function HeadFaceFeatures() {
           clearcoat={0.12}
           clearcoatRoughness={0.45}
           envMapIntensity={0.85}
+          transparent={faceTransparent}
+          opacity={faceOpacity}
+          depthWrite={!faceTransparent}
         />
       </mesh>
       <mesh
@@ -130,6 +173,9 @@ function HeadFaceFeatures() {
           clearcoat={0.12}
           clearcoatRoughness={0.45}
           envMapIntensity={0.85}
+          transparent={faceTransparent}
+          opacity={faceOpacity}
+          depthWrite={!faceTransparent}
         />
       </mesh>
       <mesh ref={mouthRef} geometry={mouthTubeGeo} castShadow={false} receiveShadow={false}>
@@ -140,6 +186,9 @@ function HeadFaceFeatures() {
           clearcoat={0.08}
           clearcoatRoughness={0.5}
           envMapIntensity={0.8}
+          transparent={faceTransparent}
+          opacity={faceOpacity}
+          depthWrite={!faceTransparent}
         />
       </mesh>
     </group>
@@ -195,6 +244,8 @@ interface AnatomyModelProps {
   selfCareSelectedAreas?: BodyArea[];
   painByArea: Partial<Record<BodyArea, number>>;
   level: number;
+  /** Areas with a logged exercise finish today — gold / blue muscle highlight */
+  strengthenedAreasToday?: BodyArea[];
   selectedArea?: BodyArea | null;
   onAreaClick?: (area: BodyArea) => void;
 }
@@ -206,12 +257,17 @@ export default function AnatomyModel({
   selfCareSelectedAreas = [],
   painByArea,
   level,
+  strengthenedAreasToday = [],
   selectedArea,
   onAreaClick,
 }: AnatomyModelProps) {
   const geos = useGeometries();
   const primaryLightRef = useRef<THREE.PointLight>(null);
   const clinicalArea = clinicalAreaProp ?? primaryArea;
+  const strengthenedSet = useMemo(
+    () => new Set(strengthenedAreasToday),
+    [strengthenedAreasToday]
+  );
 
   const glowPos = useMemo<[number, number, number]>(
     () => primaryArea ? (AREA_GLOW[primaryArea] ?? [0, 0.4, 0.4]) : [0, 0.4, 0.4],
@@ -242,6 +298,7 @@ export default function AnatomyModel({
       isSelected: area === selectedArea,
       clinicalLocked,
       selfCareSelected,
+      strengthenedToday: area ? strengthenedSet.has(area) : false,
       level,
       onAreaClick: area ? onAreaClick : undefined,
     };
@@ -262,10 +319,10 @@ export default function AnatomyModel({
       )}
 
       {/* ══ HEAD ═══════════════════════════════════════════════ */}
-      <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} />
-      <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} />
-      <BaseSegment geometry={geos.ear}  position={[-0.235, 1.73, 0]} />
-      <HeadFaceFeatures />
+      <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} level={level} />
+      <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} level={level} />
+      <BaseSegment geometry={geos.ear}  position={[-0.235, 1.73, 0]} level={level} />
+      <HeadFaceFeatures level={level} />
 
       {/* ══ NECK ═══════════════════════════════════════════════ */}
       <MuscleSegment {...S('neck')} geometry={geos.neck} position={[0, 1.48, 0]} />
@@ -280,43 +337,43 @@ export default function AnatomyModel({
       <MuscleSegment {...S('back_upper')} geometry={geos.upperTorso} position={[0, 0.98, 0]} />
       <MuscleSegment {...S('back_lower')} geometry={geos.lowerTorso} position={[0, 0.54, 0]} />
       {/* Pelvis bridge (non-interactive) */}
-      <BaseSegment geometry={geos.pelvis} position={[0, 0.24, 0]} />
+      <BaseSegment geometry={geos.pelvis} position={[0, 0.24, 0]} level={level} />
 
       {/* ══ LEFT ARM (+x) ══════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.upperArmL} position={[ 0.56, 0.90, 0]} />
+      <BaseSegment    geometry={geos.upperArmL} position={[ 0.56, 0.90, 0]} level={level} />
       <MuscleSegment {...S('elbow_left')}  geometry={geos.elbowL}    position={[ 0.58, 0.60, 0]} />
-      <BaseSegment    geometry={geos.forearmL}  position={[ 0.56, 0.21, 0]} />
+      <BaseSegment    geometry={geos.forearmL}  position={[ 0.56, 0.21, 0]} level={level} />
       <MuscleSegment {...S('wrist_left')}  geometry={geos.wristL}    position={[ 0.57,-0.04, 0]} />
-      <BaseSegment    geometry={geos.handL}     position={[ 0.57,-0.22, 0.02]} />
+      <BaseSegment    geometry={geos.handL}     position={[ 0.57,-0.22, 0.02]} level={level} />
 
       {/* ══ RIGHT ARM (-x) ═════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.upperArmR} position={[-0.56, 0.90, 0]} />
+      <BaseSegment    geometry={geos.upperArmR} position={[-0.56, 0.90, 0]} level={level} />
       <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR}    position={[-0.58, 0.60, 0]} />
-      <BaseSegment    geometry={geos.forearmR}  position={[-0.56, 0.21, 0]} />
+      <BaseSegment    geometry={geos.forearmR}  position={[-0.56, 0.21, 0]} level={level} />
       <MuscleSegment {...S('wrist_right')} geometry={geos.wristR}    position={[-0.57,-0.04, 0]} />
-      <BaseSegment    geometry={geos.handR}     position={[-0.57,-0.22, 0.02]} />
+      <BaseSegment    geometry={geos.handR}     position={[-0.57,-0.22, 0.02]} level={level} />
 
       {/* ══ HIPS ═══════════════════════════════════════════════ */}
       <MuscleSegment {...S('hip_left')}  geometry={geos.gluteL} position={[ 0.24, 0.14, 0]} />
       <MuscleSegment {...S('hip_right')} geometry={geos.gluteR} position={[-0.24, 0.14, 0]} />
 
       {/* ══ LEFT LEG (+x) ══════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.thighL}  position={[ 0.24,-0.27, 0]} />
+      <BaseSegment    geometry={geos.thighL}  position={[ 0.24,-0.27, 0]} level={level} />
       <MuscleSegment {...S('knee_left')}  geometry={geos.kneeL}  position={[ 0.24,-0.62, 0]} />
-      <BaseSegment    geometry={geos.shinL}   position={[ 0.24,-0.98, 0]} />
+      <BaseSegment    geometry={geos.shinL}   position={[ 0.24,-0.98, 0]} level={level} />
       <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[ 0.24,-1.33, 0]} />
-      <BaseSegment    geometry={geos.footL}   position={[ 0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} />
+      <BaseSegment    geometry={geos.footL}   position={[ 0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} />
 
       {/* ══ RIGHT LEG (-x) ═════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.thighR}  position={[-0.24,-0.27, 0]} />
+      <BaseSegment    geometry={geos.thighR}  position={[-0.24,-0.27, 0]} level={level} />
       <MuscleSegment {...S('knee_right')} geometry={geos.kneeR}  position={[-0.24,-0.62, 0]} />
-      <BaseSegment    geometry={geos.shinR}   position={[-0.24,-0.98, 0]} />
+      <BaseSegment    geometry={geos.shinR}   position={[-0.24,-0.98, 0]} level={level} />
       <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[-0.24,-1.33, 0]} />
-      <BaseSegment    geometry={geos.footR}   position={[-0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} />
+      <BaseSegment    geometry={geos.footR}   position={[-0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} />
 
       {/* ══ CALF detail (overlaid on shins for back muscle detail) */}
-      <BaseSegment geometry={geos.calfL} position={[ 0.24,-1.00, 0]} />
-      <BaseSegment geometry={geos.calfR} position={[-0.24,-1.00, 0]} />
+      <BaseSegment geometry={geos.calfL} position={[ 0.24,-1.00, 0]} level={level} />
+      <BaseSegment geometry={geos.calfR} position={[-0.24,-1.00, 0]} level={level} />
 
       {/* ══ GROUND SHADOW ══════════════════════════════════════ */}
       <ContactShadows
