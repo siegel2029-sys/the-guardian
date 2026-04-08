@@ -50,6 +50,7 @@ import {
 import { PATIENT_REWARDS, exerciseBaseXp } from '../../config/patientRewards';
 import { RewardLabel } from '../ui/RewardLabel';
 import GearStoreSection from './GearStoreSection';
+import PortalPatientDebugPanel from './PortalPatientDebugPanel';
 
 /** תצוגת יום למטופל — מוצגת רק ב־/patient-portal (מפת גוף, תרגילים, לוח שנה). */
 export default function PatientDailyView() {
@@ -1029,6 +1030,8 @@ export default function PatientDailyView() {
           />
         )}
       </div>
+
+      {import.meta.env.DEV && <PortalPatientDebugPanel />}
 
       <nav
         className="fixed bottom-0 left-0 right-0 z-[35] border-t flex justify-center backdrop-blur-md"

@@ -281,6 +281,13 @@ interface PatientContextValue {
 
   /** מחיקת מטופל מהמערכת (כולל auth פורטל) */
   deletePatient: (patientId: string) => void;
+  /**
+   * מיזוג חלקי לשדות מטופל — לדיבוג פיתוח בלבד (ב־production אין השפעה).
+   */
+  updatePatient: (
+    patientId: string,
+    patch: Partial<Omit<Patient, 'id' | 'therapistId'>>
+  ) => void;
   resetPatientExercisePlan: (patientId: string) => void;
   resetPatientMessageHistory: (patientId: string) => void;
   resetPatientPainReports: (patientId: string) => void;
@@ -1663,6 +1670,30 @@ export function PatientProvider({
     [allPatients, exercisePlans, clinicalToday]
   );
 
+  const updatePatient = useCallback(
+    (patientId: string, patch: Partial<Omit<Patient, 'id' | 'therapistId'>>) => {
+      if (import.meta.env.PROD) return;
+      setAllPatients((prev) =>
+        prev.map((p) => {
+          if (p.id !== patientId) return p;
+          const next = { ...p, ...patch } as Patient;
+          const L = Math.round(Number(next.level));
+          next.level = Math.min(10, Math.max(1, L)) as Patient['level'];
+          if (typeof next.xp === 'number' && next.xp < 0) next.xp = 0;
+          if (typeof next.currentStreak === 'number' && next.currentStreak < 0) {
+            next.currentStreak = 0;
+          }
+          if (typeof next.coins === 'number' && next.coins < 0) next.coins = 0;
+          if (typeof next.xpForNextLevel === 'number' && next.xpForNextLevel < 1) {
+            next.xpForNextLevel = 100;
+          }
+          return next;
+        })
+      );
+    },
+    []
+  );
+
   const deletePatient = useCallback((patientId: string) => {
     removePatientAccountsForPatient(patientId);
     setAllPatients((prev) => prev.filter((p) => p.id !== patientId));
@@ -1888,6 +1919,7 @@ export function PatientProvider({
         runClinicalAssessmentEngine,
         applyIntakeExercisePlan,
         deletePatient,
+        updatePatient,
         resetPatientExercisePlan,
         resetPatientMessageHistory,
         resetPatientPainReports,

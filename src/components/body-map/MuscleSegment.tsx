@@ -5,6 +5,14 @@ import * as THREE from 'three';
 import type { BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { getLevelTier } from '../../body/levelTier';
+import type { AnatomicalStage } from '../../body/anatomicalEvolution';
+import {
+  anatomicalStageUsesMuscleTextures,
+  getAnatomicalStage,
+} from '../../body/anatomicalEvolution';
+
+const MUSCLE_NORMAL_STD = new THREE.Vector2(0.42, 0.42);
+const MUSCLE_NORMAL_PHYS = new THREE.Vector2(0.48, 0.48);
 
 export interface MuscleSegmentProps {
   area: BodyArea | null;
@@ -26,6 +34,10 @@ export interface MuscleSegmentProps {
   xpForNextLevel?: number;
   /** Current streak — reserved (streak VFX live on BodyMap3D) */
   streak?: number;
+  /** שלבי אבולוציה אנטומית (שריר / כלי דם / עצבוב) */
+  anatomicalStage?: AnatomicalStage;
+  muscleNormalMap?: THREE.Texture | null;
+  muscleRoughnessMap?: THREE.Texture | null;
   onAreaClick?: (area: BodyArea) => void;
   children?: ReactNode;
 }
@@ -97,7 +109,8 @@ function computeMatProps(
   selfCareSelected: boolean,
   strengthenedToday: boolean,
   isHovered: boolean,
-  level: number
+  level: number,
+  stage: AnatomicalStage
 ): MatProps {
   const tier = getLevelTier(level);
   const lf = Math.min(Math.max(level, 1), 10) / 10;
@@ -217,6 +230,37 @@ function computeMatProps(
     });
   }
 
+  if (
+    stage === 'skeletal' &&
+    area &&
+    !clinicalLocked &&
+    !selfCareSelected &&
+    isActive
+  ) {
+    return {
+      useStandardMaterial: true,
+      color: isPrimary ? '#d8e0e8' : '#c9d4dd',
+      emissive: '#1e293b',
+      emissiveIntensity: 0.035 + hv * 0.5,
+      roughness: 0.92,
+      metalness: 0.035,
+      clearcoat: 0,
+      clearcoatRoughness: 0.5,
+      envMapIntensity: 0.4,
+      iridescence: 0,
+      iridescenceIOR: 1,
+      iridescenceThicknessRange: [0, 0],
+      transparent: false,
+      opacity: 1,
+      depthWrite: true,
+      targetScale:
+        1 +
+        (isPrimary ? 0.05 : 0.02) +
+        (isHovered ? 0.04 : 0) +
+        (isSelected ? 0.03 : 0),
+    };
+  }
+
   if (!isActive) {
     if (tier === 'injured') {
       return {
@@ -328,12 +372,17 @@ export default function MuscleSegment({
   xp: _xp,
   xpForNextLevel: _xn,
   streak: _st,
+  anatomicalStage: anatomicalStageProp,
+  muscleNormalMap = null,
+  muscleRoughnessMap = null,
   onAreaClick,
   children,
 }: MuscleSegmentProps) {
   void _xp;
   void _xn;
   void _st;
+
+  const anatomicalStage = anatomicalStageProp ?? getAnatomicalStage(level);
 
   const meshRef = useRef<THREE.Mesh>(null);
   const stdRef = useRef<THREE.MeshStandardMaterial>(null);
@@ -352,7 +401,8 @@ export default function MuscleSegment({
         selfCareSelected,
         strengthenedToday,
         hovered,
-        level
+        level,
+        anatomicalStage
       ),
     [
       area,
@@ -365,8 +415,14 @@ export default function MuscleSegment({
       strengthenedToday,
       hovered,
       level,
+      anatomicalStage,
     ]
   );
+
+  const useMuscleMaps =
+    anatomicalStageUsesMuscleTextures(anatomicalStage) &&
+    muscleNormalMap != null &&
+    muscleRoughnessMap != null;
 
   useFrame(() => {
     const mesh = meshRef.current;
@@ -463,6 +519,9 @@ export default function MuscleSegment({
             transparent={mp.transparent}
             opacity={mp.opacity}
             depthWrite={mp.depthWrite}
+            normalMap={useMuscleMaps ? muscleNormalMap ?? undefined : undefined}
+            roughnessMap={useMuscleMaps ? muscleRoughnessMap ?? undefined : undefined}
+            normalScale={useMuscleMaps ? MUSCLE_NORMAL_STD : undefined}
           />
         ) : (
           <meshPhysicalMaterial
@@ -481,6 +540,9 @@ export default function MuscleSegment({
             transparent={mp.transparent}
             opacity={mp.opacity}
             depthWrite={mp.depthWrite}
+            normalMap={useMuscleMaps ? muscleNormalMap ?? undefined : undefined}
+            roughnessMap={useMuscleMaps ? muscleRoughnessMap ?? undefined : undefined}
+            normalScale={useMuscleMaps ? MUSCLE_NORMAL_PHYS : undefined}
           />
         )}
 
