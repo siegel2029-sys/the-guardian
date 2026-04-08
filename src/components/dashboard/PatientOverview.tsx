@@ -11,12 +11,9 @@ import AiSuggestionsPanel from './AiSuggestionsPanel';
 import PendingApprovalsPanel from './PendingApprovalsPanel';
 import ManagePlanModal from './ManagePlanModal';
 import ClinicalProfileSetupModal from './ClinicalProfileSetupModal';
-import ClinicalSummaryStrip from './clinical/ClinicalSummaryStrip';
-import PatientAvatarStateCard from './clinical/PatientAvatarStateCard';
-import AiProgressInsightCard from './clinical/AiProgressInsightCard';
 import TherapistQuickChat from './clinical/TherapistQuickChat';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
-import AiClinicalInsightsCard from './clinical/AiClinicalInsightsCard';
+import SmartClinicalAnalysisCenter from './clinical/SmartClinicalAnalysisCenter';
 import PatientDataManagement from './clinical/PatientDataManagement';
 import { bodyAreaLabels } from '../../types';
 
@@ -55,11 +52,6 @@ export default function PatientOverview() {
     setRevealPortalPassword(false);
   }, [selectedPatient?.id]);
 
-  const insight = useMemo(
-    () => (selectedPatient ? computeClinicalProgressInsight(selectedPatient, clinicalToday) : null),
-    [selectedPatient, clinicalToday]
-  );
-
   const unreadFromPatient = useMemo(() => {
     if (!selectedPatient) return 0;
     return getPatientMessages(selectedPatient.id).filter(
@@ -88,6 +80,10 @@ export default function PatientOverview() {
   }
 
   const p = selectedPatient;
+  const progressInsight = useMemo(
+    () => computeClinicalProgressInsight(p, clinicalToday),
+    [p, clinicalToday]
+  );
   const style = statusStyles[p.status];
   const plan = getExercisePlan(p.id);
   const exerciseCount = plan?.exercises.length ?? 0;
@@ -140,16 +136,6 @@ export default function PatientOverview() {
               שחרור נעילת תרגול
             </button>
           </div>
-        )}
-
-        {insight && (
-          <ClinicalSummaryStrip
-            patient={p}
-            avgPain7d={insight.avgPain7d}
-            currentPain={insight.currentPain}
-            unreadFromPatient={unreadFromPatient}
-            lastAlertIso={lastAlertIso}
-          />
         )}
 
         <div className="rounded-2xl border bg-white p-5 shadow-sm mb-5" style={{ borderColor: '#e2e8f0' }}>
@@ -241,14 +227,7 @@ export default function PatientOverview() {
           )}
         </div>
 
-        {insight && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-            <PatientAvatarStateCard patient={p} />
-            <AiProgressInsightCard insight={insight} />
-          </div>
-        )}
-
-        <AiClinicalInsightsCard
+        <SmartClinicalAnalysisCenter
           patient={p}
           clinicalToday={clinicalToday}
           plan={plan}
@@ -256,6 +235,9 @@ export default function PatientOverview() {
           selfSelectedZones={getSelfCareZones(p.id)}
           selfCareReports={getSelfCareReportsForPatient(p.id)}
           finishReports={getPatientExerciseFinishReports(p.id)}
+          progressInsight={progressInsight}
+          unreadFromPatient={unreadFromPatient}
+          lastAlertIso={lastAlertIso}
         />
 
         <div className="mb-5">

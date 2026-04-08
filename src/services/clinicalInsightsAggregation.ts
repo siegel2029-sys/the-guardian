@@ -12,15 +12,18 @@ import type {
   PatientExerciseFinishReport,
   SelfCareSessionReport,
 } from '../types';
-import { addClinicalDays, toLocalYmd } from '../utils/clinicalCalendar';
-import { effortRatingToVas10 } from '../utils/patientPainMetrics';
+import { addClinicalDays, clinicalDateToLocalMidnight, toLocalYmd } from '../utils/clinicalCalendar';
 import { STRENGTH_EXERCISE_CHAINS } from '../data/strengthExerciseDatabase';
 
 export type ClinicalDayPoint = {
   date: string;
+  /** תווית לציר X (יום + תאריך קצר) */
   label: string;
+  /** שם יום מלא בעברית לניסוח AI */
+  weekdayHe: string;
   pain: number | null;
-  effort10: number | null;
+  /** מאמץ מדווח 1–5 (ממוצע אם יש כמה דיווחים באותו יום) */
+  effort1to5: number | null;
 };
 
 export type ClinicalInsightsAggregated = {
@@ -33,7 +36,7 @@ export type ClinicalInsightsAggregated = {
   /** שינוי יחסי בממוצע כאב (אזור ראשי) בין חציון מוקדם לחציון מאוחר בחלון 7 ימים */
   painTrendPercent: number | null;
   avgPain7dPrimary: number | null;
-  avgEffortVas7d: number | null;
+  avgEffort1to5: number | null;
   compliance: {
     completedSum: number;
     plannedSum: number;
@@ -70,26 +73,42 @@ function buildAssignedBodyAreas(patient: Patient, plan: ExercisePlan | undefined
   return s;
 }
 
-function effortForClinicalDay(
+function formatDayTickHe(ymd: string): string {
+  const d = clinicalDateToLocalMidnight(ymd);
+  const w = d.toLocaleDateString('he-IL', { weekday: 'short' });
+  const dm = d.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
+  return `${w} ${dm}`;
+}
+
+function weekdayLongHe(ymd: string): string {
+  return clinicalDateToLocalMidnight(ymd).toLocaleDateString('he-IL', { weekday: 'long' });
+}
+
+function clampEffort15(n: number): number {
+  const c = Math.min(5, Math.max(1, n));
+  return Math.round(c * 10) / 10;
+}
+
+function effortRaw1to5ForClinicalDay(
   ymd: string,
   sessionHistory: ExerciseSession[],
   finishReports: PatientExerciseFinishReport[],
   selfCareReports: SelfCareSessionReport[]
 ): number | null {
   const sess = sessionHistory.find((s) => s.date === ymd);
-  if (sess) return effortRatingToVas10(sess.difficultyRating);
+  if (sess) return clampEffort15(sess.difficultyRating);
 
   const finishes = finishReports.filter((r) => toLocalYmd(new Date(r.timestamp)) === ymd);
   if (finishes.length > 0) {
     const avg =
       finishes.reduce((sum, r) => sum + r.difficultyScore, 0) / finishes.length;
-    return effortRatingToVas10(avg);
+    return clampEffort15(avg);
   }
 
   const sc = selfCareReports.filter((r) => r.clinicalDate === ymd);
   if (sc.length > 0) {
     const avg = sc.reduce((sum, r) => sum + r.effortRating, 0) / sc.length;
-    return effortRatingToVas10(avg);
+    return clampEffort15(avg);
   }
   return null;
 }
@@ -181,17 +200,18 @@ export function aggregateClinicalInsights(params: {
   for (let i = 0; i < 7; i++) {
     const ymd = addClinicalDays(start7, i);
     const pain = painForDayPrimary(ymd, patient.analytics.painHistory, primary);
-    const effort10 = effortForClinicalDay(ymd, exerciseHistory, patientFinishes, patientSelfCare);
-    if (effort10 != null) effortVals.push(effort10);
+    const effort1to5 = effortRaw1to5ForClinicalDay(ymd, exerciseHistory, patientFinishes, patientSelfCare);
+    if (effort1to5 != null) effortVals.push(effort1to5);
     daySeries7.push({
       date: ymd,
-      label: ymd.slice(5).replace('-', '/'),
+      label: formatDayTickHe(ymd),
+      weekdayHe: weekdayLongHe(ymd),
       pain,
-      effort10,
+      effort1to5,
     });
   }
 
-  const avgEffortVas7d =
+  const avgEffort1to5 =
     effortVals.length > 0 ? effortVals.reduce((a, b) => a + b, 0) / effortVals.length : null;
 
   const highPainWithStrongCompliance =
@@ -221,7 +241,7 @@ export function aggregateClinicalInsights(params: {
     painRecordsLast7ClinicalDays: painInWindow,
     painTrendPercent,
     avgPain7dPrimary,
-    avgEffortVas7d,
+    avgEffort1to5,
     compliance: {
       completedSum,
       plannedSum,
