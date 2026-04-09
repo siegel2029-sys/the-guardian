@@ -42,6 +42,10 @@ export interface BodyMap3DProps {
   minHeightPx?: number;
   /** ציוד מעוגן אנטומית — מטופל; דשבורד מטפל משאיר ריק */
   equippedGear?: EquippedGearSnapshot;
+  /** מקטעים להדגשת פגיעה (אדום) */
+  injuryHighlightSegments?: BodyArea[];
+  /** מכפילי נפח שריר לפי מקטע (השוואת גיבורים וכו') */
+  segmentGrowthMul?: Partial<Record<BodyArea, number>>;
 }
 
 // ── View presets ──────────────────────────────────────────────────
@@ -221,6 +225,8 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     onAreaClick,
     minHeightPx = 500,
     equippedGear: equippedGearProp,
+    injuryHighlightSegments = [],
+    segmentGrowthMul,
   } = props;
 
   const equippedGear = equippedGearProp ?? EMPTY_EQUIPPED_GEAR;
@@ -322,6 +328,8 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                 selectedArea={selectedArea}
                 onAreaClick={onAreaClick}
                 equippedGear={equippedGear}
+                injuryHighlightSegments={injuryHighlightSegments}
+                segmentGrowthMul={segmentGrowthMul}
               />
 
               {floatingLevelBadge && showLevelChrome && (

@@ -15,7 +15,9 @@ import {
   CheckCircle2,
   AlertOctagon,
   Reply,
+  MessageCircleWarning,
 } from 'lucide-react';
+import RedFlagWhatsAppModal from './RedFlagWhatsAppModal';
 import { useAuth } from '../../context/AuthContext';
 import { usePatient } from '../../context/PatientContext';
 import type { NavSection } from '../../types';
@@ -57,6 +59,7 @@ export default function Sidebar() {
     dismissSafetyAlert,
   } = usePatient();
   const [patientSwitcherOpen, setPatientSwitcherOpen] = useState(false);
+  const [redFlagWaOpen, setRedFlagWaOpen] = useState(false);
 
   const totalUnreadMessages = patients.reduce((sum, p) => {
     const unread = getPatientMessages(p.id).filter(
@@ -307,6 +310,24 @@ export default function Sidebar() {
         </div>
       )}
 
+      {selectedPatient && (
+        <div className="px-3 pb-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setRedFlagWaOpen(true)}
+            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-right border-2 transition-colors"
+            style={{
+              borderColor: '#fecaca',
+              background: 'linear-gradient(135deg, #fef2f2, #fff)',
+              color: '#991b1b',
+            }}
+          >
+            <MessageCircleWarning className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-bold flex-1">דגל אדום — WhatsApp</span>
+          </button>
+        </div>
+      )}
+
       {/* Navigation */}
       <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto min-h-0">
         <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
@@ -391,6 +412,15 @@ export default function Sidebar() {
           <span>ניהול פרופיל</span>
         </button>
       </div>
+
+      {selectedPatient && (
+        <RedFlagWhatsAppModal
+          open={redFlagWaOpen}
+          onClose={() => setRedFlagWaOpen(false)}
+          patientId={selectedPatient.id}
+          patientName={selectedPatient.name}
+        />
+      )}
     </aside>
   );
 }

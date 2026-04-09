@@ -170,6 +170,8 @@ export default function ExercisesPanel() {
     getTodaySession,
     toggleExercise,
     getPatientExerciseFinishReports,
+    togglePatientInjuryHighlight,
+    clearPatientInjuryHighlights,
   } = usePatient();
   const [videoModal, setVideoModal] = useState<string | null>(null);
   const [filterArea, setFilterArea] = useState<BodyArea | null>(null);
@@ -178,6 +180,19 @@ export default function ExercisesPanel() {
     if (!selectedPatient) return [] as BodyArea[];
     return getStrengthenedBodyAreasToday(getPatientExerciseFinishReports(selectedPatient.id));
   }, [selectedPatient, getPatientExerciseFinishReports]);
+
+  const allBodyAreasSorted = useMemo(
+    () =>
+      (Object.keys(bodyAreaLabels) as BodyArea[]).sort((a, b) =>
+        bodyAreaLabels[a].localeCompare(bodyAreaLabels[b], 'he')
+      ),
+    []
+  );
+
+  const injurySet = useMemo(
+    () => new Set(selectedPatient?.injuryHighlightSegments ?? []),
+    [selectedPatient?.injuryHighlightSegments]
+  );
 
   if (!selectedPatient) {
     return (
@@ -263,6 +278,7 @@ export default function ExercisesPanel() {
                 streak={selectedPatient.currentStreak}
                 strengthenedAreasToday={strengthenedToday}
                 selectedArea={filterArea}
+                injuryHighlightSegments={selectedPatient.injuryHighlightSegments}
                 onAreaClick={(area) =>
                   setFilterArea((prev) => (prev === area ? null : area))
                 }
@@ -310,6 +326,41 @@ export default function ExercisesPanel() {
             <p className="text-[10px] text-slate-400 text-center mt-3">
               לחץ על אזור במפה או ברשימה לסינון
             </p>
+          </div>
+
+          <div
+            className="rounded-2xl border bg-white p-3 shadow-sm"
+            style={{ borderColor: '#fecaca' }}
+          >
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <h4 className="text-xs font-black text-red-950">הדגשת פגיעה (אדום)</h4>
+              <button
+                type="button"
+                onClick={() => clearPatientInjuryHighlights(selectedPatient.id)}
+                className="text-[10px] font-semibold text-red-700 hover:underline shrink-0"
+              >
+                נקה הכל
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500 mb-2 leading-snug">
+              מקטעים נפרדים ממיקוד השיקום — לסימון שבר/כאב; נשמר אצל המטופל.
+            </p>
+            <div className="max-h-40 overflow-y-auto space-y-1 pr-0.5">
+              {allBodyAreasSorted.map((a) => (
+                <label
+                  key={a}
+                  className="flex items-center gap-2 text-[11px] cursor-pointer text-slate-700"
+                >
+                  <input
+                    type="checkbox"
+                    checked={injurySet.has(a)}
+                    onChange={() => togglePatientInjuryHighlight(selectedPatient.id, a)}
+                    className="rounded border-red-300 text-red-600"
+                  />
+                  {bodyAreaLabels[a]}
+                </label>
+              ))}
+            </div>
           </div>
 
           {/* Patient level mini card */}

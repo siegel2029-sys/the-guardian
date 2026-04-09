@@ -51,6 +51,10 @@ export interface MuscleSegmentProps {
    * נפח שריר מוחל רק ב־AnatomyModel על גלילי זרוע/ירך (BaseSegment).
    */
   vertexInflationWeight?: number;
+  /** מכפיל נפח צמיחה לפי מקטע (1 = מלא לפי רמת המטופל) */
+  growthLayerWeight?: number;
+  /** שכבת פגיעה — זוהר אדום נפרד ממיקוד קליני */
+  injuryHighlight?: boolean;
   onAreaClick?: (area: BodyArea) => void;
   children?: ReactNode;
 }
@@ -123,7 +127,8 @@ function computeMatProps(
   strengthenedToday: boolean,
   isHovered: boolean,
   level: number,
-  stage: MuscleEvolutionStage
+  stage: MuscleEvolutionStage,
+  injuryHighlight: boolean
 ): MatProps {
   const tier = getLevelTier(level);
   const lf = Math.min(Math.max(level, 1), 100) / 100;
@@ -167,6 +172,23 @@ function computeMatProps(
       depthWrite: true,
       targetScale: 1,
     };
+  }
+
+  if (injuryHighlight) {
+    return basePhysical({
+      color: '#fecaca',
+      emissive: '#dc2626',
+      emissiveIntensity: 1.25 + hv * 0.85,
+      targetScale: 1.04 + (isHovered ? 0.03 : 0),
+      metalness: 0.22,
+      roughness: 0.38,
+      clearcoat: 0.45,
+      clearcoatRoughness: 0.35,
+      envMapIntensity: 1.55,
+      iridescence: 0.12,
+      iridescenceIOR: 1.12,
+      iridescenceThicknessRange: [60, 200],
+    });
   }
 
   if (clinicalLocked) {
@@ -395,6 +417,8 @@ export default function MuscleSegment({
   muscleNormalMap = null,
   muscleRoughnessMap = null,
   vertexInflationWeight = 0,
+  growthLayerWeight = 1,
+  injuryHighlight = false,
   onAreaClick,
   children,
 }: MuscleSegmentProps) {
@@ -422,7 +446,8 @@ export default function MuscleSegment({
         strengthenedToday,
         hovered,
         level,
-        muscleStage
+        muscleStage,
+        injuryHighlight
       ),
     [
       area,
@@ -436,6 +461,7 @@ export default function MuscleSegment({
       hovered,
       level,
       muscleStage,
+      injuryHighlight,
     ]
   );
 
@@ -480,8 +506,9 @@ export default function MuscleSegment({
   }, [inflationEnabled, inflationUniform, mp.useStandardMaterial, vertexInflationWeight]);
 
   useFrame(({ clock }) => {
+    const g = Math.max(0, Math.min(1, growthLayerWeight));
     inflationUniform.value = inflationEnabled
-      ? getMuscleVertexInflation(level, clock.elapsedTime) * vertexInflationWeight
+      ? getMuscleVertexInflation(level, clock.elapsedTime) * vertexInflationWeight * g
       : 0;
 
     const mesh = meshRef.current;
@@ -495,7 +522,9 @@ export default function MuscleSegment({
       _tc.set(mp.color);
       mat.color.lerp(_tc, 0.15);
       mat.emissive.set(mp.emissive);
-      const pulse = muscleStage === 'power' ? 1 + 0.08 * Math.sin(clock.elapsedTime * 2.12) : 1;
+      const injPulse = injuryHighlight ? 1 + 0.22 * Math.sin(clock.elapsedTime * 3.1) : 1;
+      const pulse =
+        (muscleStage === 'power' ? 1 + 0.08 * Math.sin(clock.elapsedTime * 2.12) : 1) * injPulse;
       mat.emissiveIntensity = THREE.MathUtils.lerp(
         mat.emissiveIntensity,
         mp.emissiveIntensity * pulse,
@@ -515,7 +544,9 @@ export default function MuscleSegment({
       mat.emissive.lerp(_te, 0.15);
       mat.roughness = THREE.MathUtils.lerp(mat.roughness, mp.roughness, 0.12);
       mat.metalness = THREE.MathUtils.lerp(mat.metalness, mp.metalness, 0.12);
-      const pulseP = muscleStage === 'power' ? 1 + 0.085 * Math.sin(clock.elapsedTime * 2.12) : 1;
+      const injPulse = injuryHighlight ? 1 + 0.22 * Math.sin(clock.elapsedTime * 3.1) : 1;
+      const pulseP =
+        (muscleStage === 'power' ? 1 + 0.085 * Math.sin(clock.elapsedTime * 2.12) : 1) * injPulse;
       mat.emissiveIntensity = THREE.MathUtils.lerp(
         mat.emissiveIntensity,
         mp.emissiveIntensity * pulseP,
@@ -541,6 +572,15 @@ export default function MuscleSegment({
 
   return (
     <group position={position} rotation={rot}>
+      {injuryHighlight && area && (
+        <pointLight
+          color="#ff2200"
+          intensity={1.15}
+          distance={0.52}
+          decay={2}
+          position={[0, 0, 0.06]}
+        />
+      )}
       <mesh
         ref={meshRef}
         geometry={geometry}

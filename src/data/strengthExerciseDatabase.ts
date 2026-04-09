@@ -210,8 +210,23 @@ export const STRENGTH_EXERCISE_CHAINS: StrengthChainDef[] = [
   },
 ];
 
+/** מיפוי מקטע אנטומי מפורט → אזור שרשרת כוח קיימת */
+const STRENGTH_CHAIN_ANCHOR: Partial<Record<BodyArea, BodyArea>> = {
+  chest: 'back_upper',
+  abdomen: 'back_lower',
+  upper_arm_left: 'shoulder_left',
+  upper_arm_right: 'shoulder_right',
+  forearm_left: 'elbow_left',
+  forearm_right: 'elbow_right',
+  thigh_left: 'hip_left',
+  thigh_right: 'hip_right',
+  shin_left: 'knee_left',
+  shin_right: 'knee_right',
+};
+
 export function getStrengthChainForArea(area: BodyArea): StrengthChainDef {
-  const c = STRENGTH_EXERCISE_CHAINS.find((x) => x.bodyArea === area);
+  const anchor = STRENGTH_CHAIN_ANCHOR[area] ?? area;
+  const c = STRENGTH_EXERCISE_CHAINS.find((x) => x.bodyArea === anchor);
   if (!c) {
     throw new Error(`No strength chain for area: ${area}`);
   }

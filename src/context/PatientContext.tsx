@@ -352,6 +352,10 @@ interface PatientContextValue {
   resetPatientMessageHistory: (patientId: string) => void;
   resetPatientPainReports: (patientId: string) => void;
 
+  /** הדגשת מקטע אנטומי כ«פגיעה» (זוהר אדום ב־3D) — מתג */
+  togglePatientInjuryHighlight: (patientId: string, area: BodyArea) => void;
+  clearPatientInjuryHighlights: (patientId: string) => void;
+
   /** אזורי פרהאב/כוח שנבחרו על ידי המטופל (לא כולל אזור קליני ראשי) */
   getSelfCareZones: (patientId: string) => BodyArea[];
   toggleSelfCareZone: (patientId: string, area: BodyArea) => void;
@@ -394,6 +398,9 @@ function normalizePatientsTherapistIds(list: Patient[]): Patient[] {
     normalizePatientProgressFields({
       ...p,
       therapistId: p.therapistId ?? mockTherapist.id,
+      injuryHighlightSegments: Array.isArray(p.injuryHighlightSegments)
+        ? p.injuryHighlightSegments
+        : [],
     })
   );
 }
@@ -1652,6 +1659,7 @@ export function PatientProvider({
       hasRedFlag: false,
       therapistNotes: '',
       coins: 0,
+      injuryHighlightSegments: [],
       analytics: {
         averageOverallPain: 0,
         painByArea: {},
@@ -1804,6 +1812,7 @@ export function PatientProvider({
               currentStreak: 0,
               longestStreak: 0,
               lastSessionDate: p.joinDate,
+              injuryHighlightSegments: [],
               analytics: {
                 ...p.analytics,
                 sessionHistory: [],
@@ -2094,6 +2103,24 @@ export function PatientProvider({
     );
   }, []);
 
+  const togglePatientInjuryHighlight = useCallback((patientId: string, area: BodyArea) => {
+    setAllPatients((prev) =>
+      prev.map((p) => {
+        if (p.id !== patientId) return p;
+        const cur = p.injuryHighlightSegments ?? [];
+        const has = cur.includes(area);
+        const next = has ? cur.filter((a) => a !== area) : [...cur, area];
+        return { ...p, injuryHighlightSegments: next };
+      })
+    );
+  }, []);
+
+  const clearPatientInjuryHighlights = useCallback((patientId: string) => {
+    setAllPatients((prev) =>
+      prev.map((p) => (p.id === patientId ? { ...p, injuryHighlightSegments: [] } : p))
+    );
+  }, []);
+
   return (
     <PatientContext.Provider
       value={{
@@ -2152,6 +2179,8 @@ export function PatientProvider({
         resetPatientExercisePlan,
         resetPatientMessageHistory,
         resetPatientPainReports,
+        togglePatientInjuryHighlight,
+        clearPatientInjuryHighlights,
         getSelfCareZones,
         toggleSelfCareZone,
         logSelfCareSession,

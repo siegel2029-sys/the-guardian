@@ -579,6 +579,7 @@ export default function PatientDailyView() {
                   xpForNextLevel={selectedPatient.xpForNextLevel}
                   streak={displayStreak}
                   strengthenedAreasToday={strengthenedAreasToday}
+                  injuryHighlightSegments={selectedPatient.injuryHighlightSegments}
                   floatingLevelBadge
                   levelBadgeRevealOnHover
                   avatarScale={0.9}

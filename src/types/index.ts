@@ -11,37 +11,57 @@ export type PainLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
 export type BodyArea =
   | 'neck'
+  | 'chest'
+  | 'abdomen'
   | 'shoulder_right'
   | 'shoulder_left'
-  | 'back_upper'
-  | 'back_lower'
-  | 'knee_right'
-  | 'knee_left'
-  | 'hip_right'
-  | 'hip_left'
-  | 'ankle_right'
-  | 'ankle_left'
+  | 'upper_arm_right'
+  | 'upper_arm_left'
+  | 'elbow_right'
+  | 'elbow_left'
+  | 'forearm_right'
+  | 'forearm_left'
   | 'wrist_right'
   | 'wrist_left'
-  | 'elbow_right'
-  | 'elbow_left';
+  | 'back_upper'
+  | 'back_lower'
+  | 'hip_right'
+  | 'hip_left'
+  | 'thigh_right'
+  | 'thigh_left'
+  | 'knee_right'
+  | 'knee_left'
+  | 'shin_right'
+  | 'shin_left'
+  | 'ankle_right'
+  | 'ankle_left';
 
 export const bodyAreaLabels: Record<BodyArea, string> = {
   neck: 'צוואר',
+  chest: 'חזה',
+  abdomen: 'בטן',
   shoulder_right: 'כתף ימין',
   shoulder_left: 'כתף שמאל',
-  back_upper: 'גב עליון',
-  back_lower: 'גב תחתון',
-  knee_right: 'ברך ימין',
-  knee_left: 'ברך שמאל',
-  hip_right: 'ירך ימין',
-  hip_left: 'ירך שמאל',
-  ankle_right: 'קרסול ימין',
-  ankle_left: 'קרסול שמאל',
-  wrist_right: 'פרק כף יד ימין',
-  wrist_left: 'פרק כף יד שמאל',
+  upper_arm_right: 'זרוע עליונה ימין',
+  upper_arm_left: 'זרוע עליונה שמאל',
   elbow_right: 'מרפק ימין',
   elbow_left: 'מרפק שמאל',
+  forearm_right: 'אמה ימין',
+  forearm_left: 'אמה שמאל',
+  wrist_right: 'פרק כף יד ימין',
+  wrist_left: 'פרק כף יד שמאל',
+  back_upper: 'גב עליון',
+  back_lower: 'גב תחתון',
+  hip_right: 'עכוז / אגן ימין',
+  hip_left: 'עכוז / אגן שמאל',
+  thigh_right: 'ירך ימין',
+  thigh_left: 'ירך שמאל',
+  knee_right: 'ברך ימין',
+  knee_left: 'ברך שמאל',
+  shin_right: 'שוק ימין',
+  shin_left: 'שוק שמאל',
+  ankle_right: 'קרסול ימין',
+  ankle_left: 'קרסול שמאל',
 };
 
 export interface PainRecord {
@@ -138,6 +158,10 @@ export interface Patient {
   therapistNotes: string;
   /** מטבעות למידה / בונוסים בתצוגת מטופל */
   coins: number;
+  /**
+   * מקטעי אנטומיה להדגשת «הבעיה» — זוהר אדום במודל 3D (נשמר ב־localStorage).
+   */
+  injuryHighlightSegments: BodyArea[];
 }
 
 export interface AuthUser {
@@ -261,13 +285,31 @@ export interface AiSuggestion {
 
 export function getMuscleGroupLabel(area: BodyArea): string {
   const map: Record<BodyArea, string> = {
-    neck: 'צוואר', shoulder_right: 'כתף', shoulder_left: 'כתף',
-    back_upper: 'גב עליון', back_lower: 'גב תחתון',
-    knee_right: 'ברך', knee_left: 'ברך',
-    hip_right: 'ירך', hip_left: 'ירך',
-    ankle_right: 'קרסול', ankle_left: 'קרסול',
-    wrist_right: 'פרק יד', wrist_left: 'פרק יד',
-    elbow_right: 'מרפק', elbow_left: 'מרפק',
+    neck: 'צוואר',
+    chest: 'חזה',
+    abdomen: 'בטן',
+    shoulder_right: 'כתף',
+    shoulder_left: 'כתף',
+    upper_arm_right: 'זרוע עליונה',
+    upper_arm_left: 'זרוע עליונה',
+    elbow_right: 'מרפק',
+    elbow_left: 'מרפק',
+    forearm_right: 'אמה',
+    forearm_left: 'אמה',
+    wrist_right: 'פרק יד',
+    wrist_left: 'פרק יד',
+    back_upper: 'גב עליון',
+    back_lower: 'גב תחתון',
+    hip_right: 'עכוז',
+    hip_left: 'עכוז',
+    thigh_right: 'ירך',
+    thigh_left: 'ירך',
+    knee_right: 'ברך',
+    knee_left: 'ברך',
+    shin_right: 'שוק',
+    shin_left: 'שוק',
+    ankle_right: 'קרסול',
+    ankle_left: 'קרסול',
   };
   return map[area];
 }

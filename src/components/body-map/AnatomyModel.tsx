@@ -36,21 +36,31 @@ import type { EquippedGearSnapshot } from '../../config/gearCatalog';
 
 // ── Static world-position for each area's pulsing glow light ─────
 const AREA_GLOW: Partial<Record<BodyArea, [number, number, number]>> = {
-  neck:           [0,    1.48, 0.22],
-  shoulder_left:  [0.44, 1.30, 0.18],
-  shoulder_right: [-0.44,1.30, 0.18],
-  back_upper:     [0,    0.98, 0.30],
-  back_lower:     [0,    0.55, 0.30],
-  elbow_left:     [0.58, 0.60, 0.16],
-  elbow_right:    [-0.58,0.60, 0.16],
-  wrist_left:     [0.58, -0.04,0.16],
-  wrist_right:    [-0.58,-0.04,0.16],
-  hip_left:       [0.24, 0.14, 0.22],
-  hip_right:      [-0.24,0.14, 0.22],
-  knee_left:      [0.24, -0.62,0.22],
-  knee_right:     [-0.24,-0.62,0.22],
-  ankle_left:     [0.24, -1.33,0.16],
-  ankle_right:    [-0.24,-1.33,0.16],
+  neck: [0, 1.48, 0.22],
+  chest: [0, 1.0, 0.28],
+  abdomen: [0, 0.52, 0.26],
+  shoulder_left: [0.44, 1.3, 0.18],
+  shoulder_right: [-0.44, 1.3, 0.18],
+  upper_arm_left: [0.56, 0.92, 0.14],
+  upper_arm_right: [-0.56, 0.92, 0.14],
+  elbow_left: [0.58, 0.6, 0.16],
+  elbow_right: [-0.58, 0.6, 0.16],
+  forearm_left: [0.56, 0.22, 0.14],
+  forearm_right: [-0.56, 0.22, 0.14],
+  wrist_left: [0.58, -0.04, 0.16],
+  wrist_right: [-0.58, -0.04, 0.16],
+  back_upper: [0, 0.98, -0.28],
+  back_lower: [0, 0.55, -0.28],
+  hip_left: [0.24, 0.14, 0.22],
+  hip_right: [-0.24, 0.14, 0.22],
+  thigh_left: [0.24, -0.32, 0.18],
+  thigh_right: [-0.24, -0.32, 0.18],
+  knee_left: [0.24, -0.62, 0.22],
+  knee_right: [-0.24, -0.62, 0.22],
+  shin_left: [0.24, -0.98, 0.16],
+  shin_right: [-0.24, -0.98, 0.16],
+  ankle_left: [0.24, -1.33, 0.16],
+  ankle_right: [-0.24, -1.33, 0.16],
 };
 
 // ── Simple non-interactive meshes (base body silhouette) ──────────
@@ -69,6 +79,12 @@ interface BaseProps {
    * 1 = נפח שריר על גלילי זרוע/ירך בלבד (ביספס/שוק/ירך/אמה).
    */
   vertexInflationWeight?: number;
+  /** מכפיל שכבת צמיחה לפי מקטע */
+  growthLayerWeight?: number;
+  pickArea?: BodyArea | null;
+  injuryHighlight?: boolean;
+  clinicalLocked?: boolean;
+  onAreaClick?: (area: BodyArea) => void;
 }
 
 function BaseSegment({
@@ -79,12 +95,18 @@ function BaseSegment({
   goldSkin,
   muscleStage,
   vertexInflationWeight = 0,
+  growthLayerWeight = 1,
+  pickArea = null,
+  injuryHighlight = false,
+  clinicalLocked = false,
+  onAreaClick,
 }: BaseProps) {
   const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
   const baseColor = goldSkin ? GOLD_SKIN : BASE_SKIN;
   const matRef = useRef<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial | null>(null);
   const inflationU = useMemo(() => ({ value: 0 }), []);
   const inflationEnabled = !goldSkin && level > 20 && vertexInflationWeight > 0;
+  const pickable = !!pickArea && !!onAreaClick && !clinicalLocked && !goldSkin;
 
   useLayoutEffect(() => {
     if (!inflationEnabled) {
@@ -108,13 +130,37 @@ function BaseSegment({
 
   useFrame(({ clock }) => {
     if (!inflationEnabled) return;
-    inflationU.value = getMuscleVertexInflation(level, clock.elapsedTime) * vertexInflationWeight;
+    const g = Math.max(0, Math.min(1, growthLayerWeight));
+    inflationU.value =
+      getMuscleVertexInflation(level, clock.elapsedTime) * vertexInflationWeight * g;
   });
+
+  const injuryLight =
+    injuryHighlight && pickArea ? (
+      <pointLight color="#ff2200" intensity={1.05} distance={0.48} decay={2} position={[0, 0, 0.05]} />
+    ) : null;
+
+  const pointerProps = pickable
+    ? {
+        onPointerOver: (e: { stopPropagation: () => void }) => {
+          e.stopPropagation();
+          document.body.style.cursor = 'pointer';
+        },
+        onPointerOut: () => {
+          document.body.style.cursor = '';
+        },
+        onClick: (e: { stopPropagation: () => void }) => {
+          e.stopPropagation();
+          if (pickArea) onAreaClick!(pickArea);
+        },
+      }
+    : {};
 
   if (!goldSkin && muscleStage === 'post_injury') {
     return (
       <group position={position} rotation={rot} scale={[0.96, 0.97, 0.96]}>
-        <mesh geometry={geometry} castShadow receiveShadow>
+        {injuryLight}
+        <mesh geometry={geometry} castShadow receiveShadow {...pointerProps}>
           <meshStandardMaterial
             ref={matRef}
             color="#cbd5e1"
@@ -135,7 +181,8 @@ function BaseSegment({
   if (tier === 'injured') {
     return (
       <group position={position} rotation={rot}>
-        <mesh geometry={geometry} castShadow receiveShadow>
+        {injuryLight}
+        <mesh geometry={geometry} castShadow receiveShadow {...pointerProps}>
           <meshStandardMaterial
             ref={matRef}
             color={goldSkin ? '#b8941f' : '#e8eaef'}
@@ -153,7 +200,8 @@ function BaseSegment({
   if (tier === 'active') {
     return (
       <group position={position} rotation={rot}>
-        <mesh geometry={geometry} castShadow receiveShadow>
+        {injuryLight}
+        <mesh geometry={geometry} castShadow receiveShadow {...pointerProps}>
           <meshPhysicalMaterial
             ref={matRef}
             color={baseColor}
@@ -170,10 +218,11 @@ function BaseSegment({
 
   return (
     <group position={position} rotation={rot}>
-      <mesh geometry={geometry} castShadow receiveShadow>
+      {injuryLight}
+      <mesh geometry={geometry} castShadow receiveShadow {...pointerProps}>
         <meshPhysicalMaterial
           ref={matRef}
-          color={baseColor}
+          color={injuryHighlight ? '#fecaca' : baseColor}
           roughness={goldSkin ? 0.22 : 0.26}
           metalness={goldSkin ? 0.78 : 0.55}
           clearcoat={goldSkin ? 0.9 : 0.82}
@@ -359,6 +408,10 @@ interface AnatomyModelProps {
   onAreaClick?: (area: BodyArea) => void;
   /** ציוד מעוצב — מיפוי אנטומי ב־EquippedGearAttachments */
   equippedGear: EquippedGearSnapshot;
+  /** מקטעים להדגשת פגיעה — שכבת «בעיה» (אדום) */
+  injuryHighlightSegments?: BodyArea[];
+  /** מכפילי נפח צמיחה לפי מקטע (שכבת «פתרון»), ברירת מחדל 1 */
+  segmentGrowthMul?: Partial<Record<BodyArea, number>>;
 }
 
 export default function AnatomyModel({
@@ -375,11 +428,18 @@ export default function AnatomyModel({
   selectedArea,
   onAreaClick,
   equippedGear,
+  injuryHighlightSegments = [],
+  segmentGrowthMul,
 }: AnatomyModelProps) {
   const gearGoldSkin = equippedGear.skin === 'gold_skin';
   const geos = useGeometries();
   const primaryLightRef = useRef<THREE.PointLight>(null);
   const clinicalArea = clinicalAreaProp ?? primaryArea;
+  const injurySet = useMemo(() => new Set(injuryHighlightSegments), [injuryHighlightSegments]);
+  const growthOf = (a: BodyArea) =>
+    Math.max(0, Math.min(1, segmentGrowthMul?.[a] ?? 1));
+  const clinicalLock = (a: BodyArea) =>
+    clinicalArea != null && bodyAreaIsClinicalFocus(a, clinicalArea);
   const strengthenedSet = useMemo(
     () => new Set(strengthenedAreasToday),
     [strengthenedAreasToday]
@@ -411,14 +471,14 @@ export default function AnatomyModel({
     primaryLightRef.current.intensity = (0.55 + lf * 1.15) + pulse;
   });
 
-  // Shared props factory
+  // Shared props factory (מפרקים: ללא אינפלציה; כן ניתן לסמן פגיעה)
   const S = (area: BodyArea | null) => {
-    const clinicalLocked =
-      area != null && clinicalArea != null && bodyAreaIsClinicalFocus(area, clinicalArea);
+    const clinicalLocked = area != null && clinicalLock(area);
     const selfCareSelected =
       area != null &&
       selfCareSelectedAreas.includes(area) &&
       !clinicalLocked;
+    const inj = area != null && injurySet.has(area);
     return {
       area,
       isActive: area ? activeAreas.includes(area) : false,
@@ -436,8 +496,9 @@ export default function AnatomyModel({
       muscleNormalMap: muscleMaps.normalMap,
       muscleRoughnessMap: muscleMaps.roughnessMap,
       onAreaClick: area ? onAreaClick : undefined,
-      /** נפח קדקודים רק על גלילי זרוע/ירך — לא על מפרקים (מרפק/ברך וכו') */
       vertexInflationWeight: 0,
+      growthLayerWeight: area ? growthOf(area) : 1,
+      injuryHighlight: inj,
     };
   };
 
@@ -472,43 +533,140 @@ export default function AnatomyModel({
       {/* patient RIGHT = viewer LEFT = -x */}
       <MuscleSegment {...S('shoulder_right')} geometry={geos.shoulderR} position={[-0.44, 1.30, 0]} />
 
-      {/* ══ TORSO ══════════════════════════════════════════════ */}
-      <MuscleSegment {...S('back_upper')} geometry={geos.upperTorso} position={[0, 0.98, 0]} />
-      <MuscleSegment {...S('back_lower')} geometry={geos.lowerTorso} position={[0, 0.54, 0]} />
-      {/* Pelvis bridge (non-interactive) */}
+      {/* ══ TORSO — חזה/גב עליון · בטן/גב תחתון (מקטעים נפרדים) ═══ */}
+      <MuscleSegment {...S('chest')} geometry={geos.upperTorso} position={[0, 0.98, 0.034]} />
+      <MuscleSegment {...S('back_upper')} geometry={geos.upperTorso} position={[0, 0.98, -0.034]} />
+      <MuscleSegment {...S('abdomen')} geometry={geos.lowerTorso} position={[0, 0.54, 0.028]} />
+      <MuscleSegment {...S('back_lower')} geometry={geos.lowerTorso} position={[0, 0.54, -0.028]} />
       <BaseSegment geometry={geos.pelvis} position={[0, 0.24, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
 
       {/* ══ LEFT ARM (+x) ══════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.upperArmL} position={[ 0.56, 0.90, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={1} />
-      <MuscleSegment {...S('elbow_left')}  geometry={geos.elbowL}    position={[ 0.58, 0.60, 0]} />
-      <BaseSegment    geometry={geos.forearmL}  position={[ 0.56, 0.21, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={1} />
-      <MuscleSegment {...S('wrist_left')}  geometry={geos.wristL}    position={[ 0.57,-0.04, 0]} />
-      <BaseSegment    geometry={geos.handL}     position={[ 0.57,-0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <BaseSegment
+        geometry={geos.upperArmL}
+        position={[0.56, 0.9, 0]}
+        level={level}
+        goldSkin={gearGoldSkin}
+        muscleStage={muscleStage}
+        vertexInflationWeight={1}
+        growthLayerWeight={growthOf('upper_arm_left')}
+        pickArea="upper_arm_left"
+        injuryHighlight={injurySet.has('upper_arm_left')}
+        clinicalLocked={clinicalLock('upper_arm_left')}
+        onAreaClick={onAreaClick}
+      />
+      <MuscleSegment {...S('elbow_left')} geometry={geos.elbowL} position={[0.58, 0.6, 0]} />
+      <BaseSegment
+        geometry={geos.forearmL}
+        position={[0.56, 0.21, 0]}
+        level={level}
+        goldSkin={gearGoldSkin}
+        muscleStage={muscleStage}
+        vertexInflationWeight={1}
+        growthLayerWeight={growthOf('forearm_left')}
+        pickArea="forearm_left"
+        injuryHighlight={injurySet.has('forearm_left')}
+        clinicalLocked={clinicalLock('forearm_left')}
+        onAreaClick={onAreaClick}
+      />
+      <MuscleSegment {...S('wrist_left')} geometry={geos.wristL} position={[0.57, -0.04, 0]} />
+      <BaseSegment geometry={geos.handL} position={[0.57, -0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
 
       {/* ══ RIGHT ARM (-x) ═════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.upperArmR} position={[-0.56, 0.90, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={1} />
-      <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR}    position={[-0.58, 0.60, 0]} />
-      <BaseSegment    geometry={geos.forearmR}  position={[-0.56, 0.21, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={1} />
-      <MuscleSegment {...S('wrist_right')} geometry={geos.wristR}    position={[-0.57,-0.04, 0]} />
-      <BaseSegment    geometry={geos.handR}     position={[-0.57,-0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <BaseSegment
+        geometry={geos.upperArmR}
+        position={[-0.56, 0.9, 0]}
+        level={level}
+        goldSkin={gearGoldSkin}
+        muscleStage={muscleStage}
+        vertexInflationWeight={1}
+        growthLayerWeight={growthOf('upper_arm_right')}
+        pickArea="upper_arm_right"
+        injuryHighlight={injurySet.has('upper_arm_right')}
+        clinicalLocked={clinicalLock('upper_arm_right')}
+        onAreaClick={onAreaClick}
+      />
+      <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR} position={[-0.58, 0.6, 0]} />
+      <BaseSegment
+        geometry={geos.forearmR}
+        position={[-0.56, 0.21, 0]}
+        level={level}
+        goldSkin={gearGoldSkin}
+        muscleStage={muscleStage}
+        vertexInflationWeight={1}
+        growthLayerWeight={growthOf('forearm_right')}
+        pickArea="forearm_right"
+        injuryHighlight={injurySet.has('forearm_right')}
+        clinicalLocked={clinicalLock('forearm_right')}
+        onAreaClick={onAreaClick}
+      />
+      <MuscleSegment {...S('wrist_right')} geometry={geos.wristR} position={[-0.57, -0.04, 0]} />
+      <BaseSegment geometry={geos.handR} position={[-0.57, -0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
 
-      {/* ══ HIPS ═══════════════════════════════════════════════ */}
-      <MuscleSegment {...S('hip_left')}  geometry={geos.gluteL} position={[ 0.24, 0.14, 0]} />
+      {/* ══ HIPS (עכוז) ═══════════════════════════════════════ */}
+      <MuscleSegment {...S('hip_left')} geometry={geos.gluteL} position={[0.24, 0.14, 0]} />
       <MuscleSegment {...S('hip_right')} geometry={geos.gluteR} position={[-0.24, 0.14, 0]} />
 
       {/* ══ LEFT LEG (+x) ══════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.thighL}  position={[ 0.24,-0.27, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={1} />
-      <MuscleSegment {...S('knee_left')}  geometry={geos.kneeL}  position={[ 0.24,-0.62, 0]} />
-      <BaseSegment    geometry={geos.shinL}   position={[ 0.24,-0.98, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={1} />
-      <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[ 0.24,-1.33, 0]} />
-      <BaseSegment    geometry={geos.footL}   position={[ 0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <BaseSegment
+        geometry={geos.thighL}
+        position={[0.24, -0.27, 0]}
+        level={level}
+        goldSkin={gearGoldSkin}
+        muscleStage={muscleStage}
+        vertexInflationWeight={1}
+        growthLayerWeight={growthOf('thigh_left')}
+        pickArea="thigh_left"
+        injuryHighlight={injurySet.has('thigh_left')}
+        clinicalLocked={clinicalLock('thigh_left')}
+        onAreaClick={onAreaClick}
+      />
+      <MuscleSegment {...S('knee_left')} geometry={geos.kneeL} position={[0.24, -0.62, 0]} />
+      <BaseSegment
+        geometry={geos.shinL}
+        position={[0.24, -0.98, 0]}
+        level={level}
+        goldSkin={gearGoldSkin}
+        muscleStage={muscleStage}
+        vertexInflationWeight={1}
+        growthLayerWeight={growthOf('shin_left')}
+        pickArea="shin_left"
+        injuryHighlight={injurySet.has('shin_left')}
+        clinicalLocked={clinicalLock('shin_left')}
+        onAreaClick={onAreaClick}
+      />
+      <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[0.24, -1.33, 0]} />
+      <BaseSegment geometry={geos.footL} position={[0.255, -1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
 
       {/* ══ RIGHT LEG (-x) ═════════════════════════════════════ */}
-      <BaseSegment    geometry={geos.thighR}  position={[-0.24,-0.27, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={1} />
-      <MuscleSegment {...S('knee_right')} geometry={geos.kneeR}  position={[-0.24,-0.62, 0]} />
-      <BaseSegment    geometry={geos.shinR}   position={[-0.24,-0.98, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={1} />
-      <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[-0.24,-1.33, 0]} />
-      <BaseSegment    geometry={geos.footR}   position={[-0.255,-1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <BaseSegment
+        geometry={geos.thighR}
+        position={[-0.24, -0.27, 0]}
+        level={level}
+        goldSkin={gearGoldSkin}
+        muscleStage={muscleStage}
+        vertexInflationWeight={1}
+        growthLayerWeight={growthOf('thigh_right')}
+        pickArea="thigh_right"
+        injuryHighlight={injurySet.has('thigh_right')}
+        clinicalLocked={clinicalLock('thigh_right')}
+        onAreaClick={onAreaClick}
+      />
+      <MuscleSegment {...S('knee_right')} geometry={geos.kneeR} position={[-0.24, -0.62, 0]} />
+      <BaseSegment
+        geometry={geos.shinR}
+        position={[-0.24, -0.98, 0]}
+        level={level}
+        goldSkin={gearGoldSkin}
+        muscleStage={muscleStage}
+        vertexInflationWeight={1}
+        growthLayerWeight={growthOf('shin_right')}
+        pickArea="shin_right"
+        injuryHighlight={injurySet.has('shin_right')}
+        clinicalLocked={clinicalLock('shin_right')}
+        onAreaClick={onAreaClick}
+      />
+      <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[-0.24, -1.33, 0]} />
+      <BaseSegment geometry={geos.footR} position={[-0.255, -1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
 
       {/* ══ CALF detail (overlaid on shins for back muscle detail) */}
       <BaseSegment geometry={geos.calfL} position={[ 0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />

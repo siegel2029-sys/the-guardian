@@ -45,24 +45,54 @@ export const GRANULAR_PICK_LABELS: Record<GranularPickKey, string> = {
   r_foot: 'קרסול/כף רגל ימין',
 };
 
-const BACK_BODY_AREAS: BodyArea[] = ['back_upper', 'back_lower'];
+const TRUNK_AREAS: BodyArea[] = ['chest', 'abdomen', 'back_upper', 'back_lower'];
+
+const LEG_LEFT_CHAIN: BodyArea[] = [
+  'hip_left',
+  'thigh_left',
+  'knee_left',
+  'shin_left',
+  'ankle_left',
+];
+const LEG_RIGHT_CHAIN: BodyArea[] = [
+  'hip_right',
+  'thigh_right',
+  'knee_right',
+  'shin_right',
+  'ankle_right',
+];
 
 /**
  * Body area is part of the therapist-assigned clinical focus (not user-toggled self-care).
- * Handles trunk (upper/lower back) and hip/knee coupling for coarse 3D parts.
  */
 export function bodyAreaIsClinicalFocus(
   zone: BodyArea,
   primaryBodyArea: BodyArea
 ): boolean {
   if (zone === primaryBodyArea) return true;
-  if (BACK_BODY_AREAS.includes(zone) && BACK_BODY_AREAS.includes(primaryBodyArea)) {
+  if (TRUNK_AREAS.includes(zone) && TRUNK_AREAS.includes(primaryBodyArea)) {
     return true;
   }
-  if (zone === 'knee_left' && primaryBodyArea === 'hip_left') return true;
-  if (zone === 'knee_right' && primaryBodyArea === 'hip_right') return true;
-  if (zone === 'hip_left' && primaryBodyArea === 'knee_left') return true;
-  if (zone === 'hip_right' && primaryBodyArea === 'knee_right') return true;
+
+  const armPairs: [BodyArea, BodyArea][] = [
+    ['shoulder_left', 'upper_arm_left'],
+    ['shoulder_right', 'upper_arm_right'],
+    ['elbow_left', 'forearm_left'],
+    ['elbow_right', 'forearm_right'],
+  ];
+  for (const [a, b] of armPairs) {
+    if ((zone === a && primaryBodyArea === b) || (zone === b && primaryBodyArea === a)) {
+      return true;
+    }
+  }
+
+  if (LEG_LEFT_CHAIN.includes(zone) && LEG_LEFT_CHAIN.includes(primaryBodyArea)) {
+    return true;
+  }
+  if (LEG_RIGHT_CHAIN.includes(zone) && LEG_RIGHT_CHAIN.includes(primaryBodyArea)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -79,20 +109,20 @@ export function pickKeyToBodyArea(key: GranularPickKey): BodyArea {
     cranium: 'neck',
     neck: 'neck',
     l_shoulder: 'shoulder_left',
-    l_upper_arm: 'shoulder_left',
-    l_forearm: 'elbow_left',
+    l_upper_arm: 'upper_arm_left',
+    l_forearm: 'forearm_left',
     l_hand: 'wrist_left',
     r_shoulder: 'shoulder_right',
-    r_upper_arm: 'shoulder_right',
-    r_forearm: 'elbow_right',
+    r_upper_arm: 'upper_arm_right',
+    r_forearm: 'forearm_right',
     r_hand: 'wrist_right',
     torso_upper: 'back_upper',
     pelvis: 'back_lower',
-    l_thigh: 'hip_left',
-    l_shin: 'knee_left',
+    l_thigh: 'thigh_left',
+    l_shin: 'shin_left',
     l_foot: 'ankle_left',
-    r_thigh: 'hip_right',
-    r_shin: 'knee_right',
+    r_thigh: 'thigh_right',
+    r_shin: 'shin_right',
     r_foot: 'ankle_right',
   };
   return m[key];
@@ -125,18 +155,28 @@ export function mixamoBoneNameToPickKey(boneName: string): GranularPickKey | nul
 /** Default pick key when migrating legacy BodyArea-only selections */
 export const DEFAULT_PICK_KEY_FOR_BODY_AREA: Record<BodyArea, GranularPickKey> = {
   neck: 'neck',
-  shoulder_left: 'l_upper_arm',
-  shoulder_right: 'r_upper_arm',
+  chest: 'torso_upper',
+  abdomen: 'pelvis',
+  shoulder_left: 'l_shoulder',
+  shoulder_right: 'r_shoulder',
+  upper_arm_left: 'l_upper_arm',
+  upper_arm_right: 'r_upper_arm',
   elbow_left: 'l_forearm',
   elbow_right: 'r_forearm',
+  forearm_left: 'l_forearm',
+  forearm_right: 'r_forearm',
   wrist_left: 'l_hand',
   wrist_right: 'r_hand',
   back_upper: 'torso_upper',
   back_lower: 'pelvis',
   hip_left: 'l_thigh',
   hip_right: 'r_thigh',
+  thigh_left: 'l_thigh',
+  thigh_right: 'r_thigh',
   knee_left: 'l_shin',
   knee_right: 'r_shin',
+  shin_left: 'l_shin',
+  shin_right: 'r_shin',
   ankle_left: 'l_foot',
   ankle_right: 'r_foot',
 };
@@ -147,8 +187,21 @@ export function isGranularPickKey(s: string): s is GranularPickKey {
 
 const ALL_GRANULAR_KEYS = Object.keys(GRANULAR_PICK_LABELS) as GranularPickKey[];
 
-/** All bone-level keys that map to a clinical BodyArea (for legacy zone toggles). */
+/** Granular keys that contribute to a coarse BodyArea (some areas share a bone). */
+const EXTRA_KEYS_FOR_AREA: Partial<Record<BodyArea, GranularPickKey[]>> = {
+  chest: ['torso_upper'],
+  abdomen: ['pelvis'],
+  knee_left: ['l_shin'],
+  knee_right: ['r_shin'],
+  shin_left: ['l_shin'],
+  shin_right: ['r_shin'],
+  elbow_left: ['l_forearm'],
+  elbow_right: ['r_forearm'],
+};
+
 export function pickKeysForBodyArea(area: BodyArea): GranularPickKey[] {
+  const extra = EXTRA_KEYS_FOR_AREA[area];
+  if (extra) return [...extra];
   return ALL_GRANULAR_KEYS.filter((k) => pickKeyToBodyArea(k) === area);
 }
 
