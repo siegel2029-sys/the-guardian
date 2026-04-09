@@ -10,7 +10,7 @@ import RedFlagAlert from './RedFlagAlert';
 import AiSuggestionsPanel from './AiSuggestionsPanel';
 import PendingApprovalsPanel from './PendingApprovalsPanel';
 import ManagePlanModal from './ManagePlanModal';
-import ClinicalProfileSetupModal from './ClinicalProfileSetupModal';
+import ClinicalAiIntakeWizard from './ClinicalAiIntakeWizard';
 import TherapistQuickChat from './clinical/TherapistQuickChat';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import SmartClinicalAnalysisCenter from './clinical/SmartClinicalAnalysisCenter';
@@ -320,11 +320,11 @@ export default function PatientOverview() {
         {showManageModal && <ManagePlanModal onClose={() => setShowManageModal(false)} />}
 
         {showClinicalModal && (
-          <ClinicalProfileSetupModal
-            patientName={p.name}
+          <ClinicalAiIntakeWizard
+            initialPatientName={p.name}
             onClose={() => setShowClinicalModal(false)}
-            onSave={(primaryBodyArea, libraryExerciseIds) =>
-              applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds)
+            onSave={(primaryBodyArea, libraryExerciseIds, extras) =>
+              applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds, extras)
             }
           />
         )}

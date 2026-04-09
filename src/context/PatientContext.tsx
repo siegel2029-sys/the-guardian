@@ -325,7 +325,8 @@ interface PatientContextValue {
   applyInitialClinicalProfile: (
     patientId: string,
     primaryBodyArea: BodyArea,
-    libraryExerciseIds: string[]
+    libraryExerciseIds: string[],
+    extras?: { displayName?: string; intakeStory?: string }
   ) => void;
 
   /** הערות מטפל — נשמרות ב-localStorage */
@@ -1702,7 +1703,12 @@ export function PatientProvider({
   );
 
   const applyInitialClinicalProfile = useCallback(
-    (patientId: string, primaryBodyArea: BodyArea, libraryExerciseIds: string[]) => {
+    (
+      patientId: string,
+      primaryBodyArea: BodyArea,
+      libraryExerciseIds: string[],
+      extras?: { displayName?: string; intakeStory?: string }
+    ) => {
       const lib = EXERCISE_LIBRARY.filter((e) => libraryExerciseIds.includes(e.id));
       const addedAt = new Date().toISOString();
       const newExercises: PatientExercise[] = lib.map((exercise, i) => ({
@@ -1714,16 +1720,21 @@ export function PatientProvider({
       }));
 
       setAllPatients((prev) =>
-        prev.map((p) =>
-          p.id === patientId
-            ? {
-                ...p,
-                primaryBodyArea,
-                status: 'active',
-                diagnosis: `מוקד טיפול: ${bodyAreaLabels[primaryBodyArea]}`,
-              }
-            : p
-        )
+        prev.map((p) => {
+          if (p.id !== patientId) return p;
+          const name = extras?.displayName?.trim() ? extras.displayName.trim() : p.name;
+          const therapistNotes = extras?.intakeStory?.trim()
+            ? extras.intakeStory.trim()
+            : p.therapistNotes;
+          return {
+            ...p,
+            name,
+            primaryBodyArea,
+            status: 'active',
+            diagnosis: `מוקד טיפול: ${bodyAreaLabels[primaryBodyArea]}`,
+            therapistNotes,
+          };
+        })
       );
       setExercisePlans((prev) => {
         const rest = prev.filter((ep) => ep.patientId !== patientId);

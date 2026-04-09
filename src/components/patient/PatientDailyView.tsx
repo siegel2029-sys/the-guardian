@@ -19,7 +19,8 @@ import {
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
 import { getTherapistDisplayName } from '../../context/authPersistence';
-import GordyHero from './GordyHero';
+import BodyMap3D from '../body-map/BodyMap3D';
+import GordyCelebration from './GordyCelebration';
 import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseDetailModal from './ExerciseDetailModal';
 import PortalExerciseCard from './PortalExerciseCard';
@@ -579,12 +580,8 @@ export default function PatientDailyView() {
                 maxHeight: 'min(72vh, 720px)',
               }}
             >
-              <div className="flex-1 w-full h-full min-h-[520px]">
-                <GordyHero
-                  patientId={selectedPatient.id}
-                  celebrationBurstKey={
-                    rewardFeedback && rewardFeedback.xpAdded > 0 ? rewardFeedback.id : 0
-                  }
+              <div className="relative flex-1 w-full h-full min-h-[520px]">
+                <BodyMap3D
                   activeAreas={exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
                   clinicalArea={selectedPatient.primaryBodyArea}
@@ -602,6 +599,11 @@ export default function PatientDailyView() {
                   equippedGear={buildEquippedGearSnapshot(patientGearState)}
                   minHeightPx={520}
                   onAreaClick={handleAvatarZoneClick}
+                />
+                <GordyCelebration
+                  burstKey={
+                    rewardFeedback && rewardFeedback.xpAdded > 0 ? rewardFeedback.id : 0
+                  }
                 />
               </div>
             </div>
