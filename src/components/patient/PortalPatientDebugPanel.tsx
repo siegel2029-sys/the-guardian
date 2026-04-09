@@ -121,7 +121,8 @@ export default function PortalPatientDebugPanel() {
             className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-rose-950 text-rose-100 hover:bg-rose-900 border border-rose-700/60"
             onClick={() => resetPatientToCleanAvatar(pid)}
           >
-            Reset All (רמה 1, גוף רזה, ללא הדגשות פגיעה, 0 XP/רצף/מטבעות, ללא ציוד)
+            Reset (משחק): רמה 1, XP/רצף/מטבעות/ציוד, דגל אדום+נעילה — שומר אבחון, הדגשות פגיעה ותוכנית
+            תרגילים
           </button>
 
           <p className="text-[9px] font-bold text-slate-300 uppercase tracking-wide pt-0.5">פריסטים — רמה (ויזואליה)</p>

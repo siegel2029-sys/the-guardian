@@ -82,4 +82,52 @@
   .animate-article-reward-success {
     animation: article-reward-success 1.35s ease-out forwards;
   }
+
+  @keyframes gordy-spin-y {
+    from {
+      transform: rotateY(0deg);
+    }
+    to {
+      transform: rotateY(360deg);
+    }
+  }
+
+  .gordy-hero-spin-stage {
+    transform-style: preserve-3d;
+  }
+
+  .gordy-hero-spin-inner {
+    transform-origin: center center;
+    animation: gordy-spin-y 2.1s cubic-bezier(0.22, 0.82, 0.28, 1) forwards;
+  }
+
+  @keyframes gordy-welcome-in {
+    from {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .animate-gordy-welcome-in {
+    animation: gordy-welcome-in 0.55s ease-out forwards;
+  }
+
+  @keyframes gordy-burst {
+    0% {
+      opacity: 1;
+      transform: translate(0, 0) rotate(0deg) scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(var(--gx, 40px), var(--gy, -100px)) rotate(240deg) scale(0.4);
+    }
+  }
+
+  .animate-gordy-burst {
+    animation: gordy-burst 2s ease-out forwards;
+  }
 }

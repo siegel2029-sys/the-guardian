@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { X, MessageCircleWarning } from 'lucide-react';
+import { X, MessageCircleWarning, Mail } from 'lucide-react';
 import type { BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
-import { REDFLAG_WHATSAPP_E164 } from '../../config/redFlagContact';
+import { getTherapistAlertEmail, openClinicalMailto } from '../../utils/clinicalAlertEmail';
 
 const SYMPTOMS: { id: string; label: string }[] = [
   { id: 'pain_spike', label: 'החמרת כאב חדה' },
@@ -19,34 +19,55 @@ const SEGMENT_OPTIONS = (Object.keys(bodyAreaLabels) as BodyArea[]).sort((a, b) 
   bodyAreaLabels[a].localeCompare(bodyAreaLabels[b], 'he')
 );
 
-function buildRedFlagMessage(segment: BodyArea, patientId: string, symptomLabels: string[]): string {
+function buildRedFlagEmailBody(
+  segment: BodyArea,
+  patientId: string,
+  patientName: string,
+  symptomLabels: string[]
+): { subject: string; body: string } {
   const seg = bodyAreaLabels[segment];
   const sym = symptomLabels.length ? symptomLabels.join(', ') : 'לא צוין';
-  return `שלום נדב, דגל אדום זוהה ב-${seg} של מטופל ${patientId}. סימפטום: ${sym}.`;
+  const subject = `[The Guardian] דגל אדום — ${patientName}`;
+  const body =
+    `דיווח דגל אדום (מטפל)\n\n` +
+    `מטופל: ${patientName}\n` +
+    `מזהה: ${patientId}\n` +
+    `מקטע: ${seg}\n` +
+    `סימפטומים: ${sym}\n\n` +
+    `נא לטפל בפורטל בהקדם.\n` +
+    `(נשלח בדוא״ל — ללא חשיפת מספר טלפון אישי)`;
+  return { subject, body };
 }
 
+/** דגל אדום מהמטפל — פתיחת דוא״ל (פרטיות) */
 export default function RedFlagWhatsAppModal({
   open,
   onClose,
   patientId,
   patientName,
+  therapistId,
 }: {
   open: boolean;
   onClose: () => void;
   patientId: string;
   patientName: string;
+  therapistId: string;
 }) {
   const [segment, setSegment] = useState<BodyArea>('back_lower');
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
 
-  const waUrl = useMemo(() => {
+  const to = getTherapistAlertEmail(therapistId);
+  const preview = useMemo(() => {
     const labels = SYMPTOMS.filter((s) => picked.has(s.id)).map((s) => s.label);
-    const text = buildRedFlagMessage(segment, patientId, labels);
-    const phone = REDFLAG_WHATSAPP_E164.replace(/\D/g, '');
-    return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
-  }, [segment, patientId, picked]);
+    return buildRedFlagEmailBody(segment, patientId, patientName, labels);
+  }, [segment, patientId, patientName, picked]);
 
   if (!open) return null;
+
+  const send = () => {
+    openClinicalMailto(to, preview.subject, preview.body);
+    onClose();
+  };
 
   return (
     <div
@@ -68,7 +89,7 @@ export default function RedFlagWhatsAppModal({
           <div className="flex items-center gap-2 min-w-0">
             <MessageCircleWarning className="w-5 h-5 text-red-600 shrink-0" />
             <h2 id="rf-wa-title" className="text-sm font-black text-red-950 truncate">
-              דגל אדום — WhatsApp לנדב
+              דגל אדום — דוא״ל למטפל
             </h2>
           </div>
           <button
@@ -83,7 +104,11 @@ export default function RedFlagWhatsAppModal({
 
         <div className="p-4 space-y-4 max-h-[min(70vh,520px)] overflow-y-auto">
           <p className="text-xs text-slate-600 leading-relaxed">
-            מטופל: <strong>{patientName}</strong> · מזהה: <code className="text-[11px] bg-slate-100 px-1 rounded">{patientId}</code>
+            מטופל: <strong>{patientName}</strong> · מזהה:{' '}
+            <code className="text-[11px] bg-slate-100 px-1 rounded">{patientId}</code>
+          </p>
+          <p className="text-[10px] text-slate-500">
+            יעד: <strong>{to}</strong> · ניתן לדריסה ב־VITE_CLINICAL_ALERT_EMAIL
           </p>
 
           <div>
@@ -128,25 +153,18 @@ export default function RedFlagWhatsAppModal({
           </div>
 
           <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-700 leading-relaxed whitespace-pre-wrap">
-            {buildRedFlagMessage(
-              segment,
-              patientId,
-              SYMPTOMS.filter((s) => picked.has(s.id)).map((s) => s.label)
-            )}
+            {preview.body}
           </div>
 
-          <a
-            href={waUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            type="button"
+            onClick={send}
             className="flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold text-white text-sm"
-            style={{ background: 'linear-gradient(135deg,#16a34a,#15803d)' }}
+            style={{ background: 'linear-gradient(135deg,#b91c1c,#dc2626)' }}
           >
-            פתיחה ב־WhatsApp
-          </a>
-          <p className="text-[10px] text-slate-400 text-center">
-            מספר יעד: {REDFLAG_WHATSAPP_E164} — ניתן לשינוי ב־VITE_REDFLAGS_WHATSAPP
-          </p>
+            <Mail className="w-4 h-4" />
+            פתיחת דוא״ל
+          </button>
         </div>
       </div>
     </div>

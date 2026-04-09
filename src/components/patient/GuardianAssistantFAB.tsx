@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bot, X, Send } from 'lucide-react';
+import { X, Send } from 'lucide-react';
+import GordyMascotIcon from './GordyMascotIcon';
 import type { Patient, PatientExercise } from '../../types';
 import {
   buildGuardianTurn,
@@ -143,12 +144,12 @@ export default function GuardianAssistantFAB({
         onClick={() => setOpen(true)}
         className="fixed z-[65] bottom-6 left-4 flex items-center justify-center w-14 h-14 rounded-2xl shadow-lg text-white"
         style={{
-          background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-          boxShadow: '0 12px 28px -8px rgba(79, 70, 229, 0.55)',
+          background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
+          boxShadow: '0 12px 28px -8px rgba(234, 88, 12, 0.5)',
         }}
-        aria-label={isPortal ? 'עוזר דיגיטלי' : 'עוזר Guardian'}
+        aria-label={isPortal ? 'גורדי — העוזר שלך' : 'עוזר Guardian'}
       >
-        <Bot className="w-7 h-7" />
+        <GordyMascotIcon className="w-9 h-9" />
       </button>
 
       {open && (
@@ -176,18 +177,17 @@ export default function GuardianAssistantFAB({
             >
               <div className="flex items-center gap-2 min-w-0">
                 <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                  style={{ background: '#e0e7ff' }}
+                  className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-amber-100"
                 >
-                  <Bot className="w-5 h-5 text-indigo-700" />
+                  <GordyMascotIcon className="w-8 h-8" />
                 </div>
                 <div className="min-w-0">
                   <h2 id="guardian-title" className="text-sm font-bold text-indigo-950 truncate">
-                    {isPortal ? 'העוזר הדיגיטלי' : 'עוזר Guardian'}
+                    {isPortal ? 'גורדי — העוזר שלך' : 'עוזר Guardian'}
                   </h2>
                   <p className="text-[11px] text-indigo-600/90">
                     {isPortal
-                      ? 'הבנת התרגול והתקדמות — תמיד לצד צוות הטיפול שלך'
+                      ? 'איתך בתרגול ובהתקדמות — לצד צוות הטיפול'
                       : 'ניתוח כאב, רצף והתאמת עומס (ללא תחליף למטפל)'}
                   </p>
                 </div>

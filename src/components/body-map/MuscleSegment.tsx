@@ -55,6 +55,10 @@ export interface MuscleSegmentProps {
   growthLayerWeight?: number;
   /** שכבת פגיעה — זוהר אדום נפרד ממיקוד קליני */
   injuryHighlight?: boolean;
+  /**
+   * false = המפרק לא חוסם raycast — לחיצה «על האמצע» של הגפ תיפול על הגליל (ירך/שוק/זרוע/אמה).
+   */
+  participatesInHitTest?: boolean;
   onAreaClick?: (area: BodyArea) => void;
   children?: ReactNode;
 }
@@ -419,6 +423,7 @@ export default function MuscleSegment({
   vertexInflationWeight = 0,
   growthLayerWeight = 1,
   injuryHighlight = false,
+  participatesInHitTest = true,
   onAreaClick,
   children,
 }: MuscleSegmentProps) {
@@ -432,6 +437,16 @@ export default function MuscleSegment({
   const stdRef = useRef<THREE.MeshStandardMaterial>(null);
   const physRef = useRef<THREE.MeshPhysicalMaterial>(null);
   const [hovered, setHovered] = useState(false);
+
+  useLayoutEffect(() => {
+    const m = meshRef.current;
+    if (!m) return;
+    if (!participatesInHitTest) {
+      m.raycast = () => {};
+    } else {
+      m.raycast = THREE.Mesh.prototype.raycast.bind(m);
+    }
+  }, [participatesInHitTest]);
 
   const mp = useMemo(
     () =>
@@ -567,7 +582,7 @@ export default function MuscleSegment({
     }
   });
 
-  const interactive = !!area && !clinicalLocked;
+  const interactive = !!area && !clinicalLocked && participatesInHitTest;
   const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
 
   return (

@@ -196,7 +196,7 @@ export default function ClinicalMonthCalendar({ dayMap, clinicalToday }: Clinica
       <div className="flex flex-wrap gap-3 text-[10px] text-slate-600 mb-2 px-0.5">
         <span className="inline-flex items-center gap-1">
           <span className="w-3 h-3 rounded-sm" style={{ background: 'linear-gradient(145deg,#fde68a,#f59e0b)' }} />
-          זהב — כל התוכנית
+          זהב — כל התוכנית הושלמה בלי דיווח כאב גבוה (≥7) באותו יום
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="w-3 h-3 rounded-sm" style={{ background: 'linear-gradient(145deg,#e2e8f0,#cbd5e1)' }} />

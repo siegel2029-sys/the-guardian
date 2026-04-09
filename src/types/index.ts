@@ -155,6 +155,11 @@ export interface Patient {
   analytics: PatientAnalytics;
   pendingMessages: number;
   hasRedFlag: boolean;
+  /**
+   * נעילת תרגילים בפורטל לאחר דגל אדום דחוף (דיווח מטופל + התראה בדוא״ל).
+   * מתאפס כשהמטפל מטפל בדגל או באיפוס משחק (דיבוג).
+   */
+  redFlagActive?: boolean;
   therapistNotes: string;
   /** מטבעות למידה / בונוסים בתצוגת מטופל */
   coins: number;
@@ -162,6 +167,8 @@ export interface Patient {
    * מקטעי אנטומיה להדגשת «הבעיה» — זוהר אדום במודל 3D (נשמר ב־localStorage).
    */
   injuryHighlightSegments: BodyArea[];
+  /** מספר WhatsApp בינלאומי ללא + (למשל 9725XXXXXXXX) — לפתיחת צ׳אט ישיר מהמטפל */
+  contactWhatsappE164?: string;
 }
 
 export interface AuthUser {
@@ -243,6 +250,8 @@ export interface DailySession {
   date: string;
   completedIds: string[];
   sessionXp: number;
+  /** דיווח כאב גבוה באותו יום — הלוח לא יסמן יום כזהב (כלל הזהב) */
+  goldDisqualified?: boolean;
 }
 
 /** סטטוס יום בלוח הקליני (מעקב אחר השלמת פוקוס קליני) */

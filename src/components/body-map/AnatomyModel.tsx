@@ -85,6 +85,8 @@ interface BaseProps {
   injuryHighlight?: boolean;
   clinicalLocked?: boolean;
   onAreaClick?: (area: BodyArea) => void;
+  /** true = mesh לא חוסם raycast (מעבר בחירה למקטע מאחור, למשל שוק מול שכבת עגל) */
+  disableRaycast?: boolean;
 }
 
 function BaseSegment({
@@ -100,13 +102,25 @@ function BaseSegment({
   injuryHighlight = false,
   clinicalLocked = false,
   onAreaClick,
+  disableRaycast = false,
 }: BaseProps) {
   const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
   const baseColor = goldSkin ? GOLD_SKIN : BASE_SKIN;
+  const meshRef = useRef<THREE.Mesh>(null);
   const matRef = useRef<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial | null>(null);
   const inflationU = useMemo(() => ({ value: 0 }), []);
   const inflationEnabled = !goldSkin && level > 20 && vertexInflationWeight > 0;
   const pickable = !!pickArea && !!onAreaClick && !clinicalLocked && !goldSkin;
+
+  useLayoutEffect(() => {
+    const m = meshRef.current;
+    if (!m) return;
+    if (disableRaycast) {
+      m.raycast = () => {};
+    } else {
+      m.raycast = THREE.Mesh.prototype.raycast.bind(m);
+    }
+  }, [disableRaycast]);
 
   useLayoutEffect(() => {
     if (!inflationEnabled) {
@@ -160,7 +174,7 @@ function BaseSegment({
     return (
       <group position={position} rotation={rot} scale={[0.96, 0.97, 0.96]}>
         {injuryLight}
-        <mesh geometry={geometry} castShadow receiveShadow {...pointerProps}>
+        <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
           <meshStandardMaterial
             ref={matRef}
             color="#cbd5e1"
@@ -182,7 +196,7 @@ function BaseSegment({
     return (
       <group position={position} rotation={rot}>
         {injuryLight}
-        <mesh geometry={geometry} castShadow receiveShadow {...pointerProps}>
+        <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
           <meshStandardMaterial
             ref={matRef}
             color={goldSkin ? '#b8941f' : '#e8eaef'}
@@ -201,7 +215,7 @@ function BaseSegment({
     return (
       <group position={position} rotation={rot}>
         {injuryLight}
-        <mesh geometry={geometry} castShadow receiveShadow {...pointerProps}>
+        <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
           <meshPhysicalMaterial
             ref={matRef}
             color={baseColor}
@@ -219,7 +233,7 @@ function BaseSegment({
   return (
     <group position={position} rotation={rot}>
       {injuryLight}
-      <mesh geometry={geometry} castShadow receiveShadow {...pointerProps}>
+      <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
         <meshPhysicalMaterial
           ref={matRef}
           color={injuryHighlight ? '#fecaca' : baseColor}
@@ -519,9 +533,9 @@ export default function AnatomyModel({
       )}
 
       {/* ══ HEAD ═══════════════════════════════════════════════ */}
-      <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
-      <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
-      <BaseSegment geometry={geos.ear}  position={[-0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
+      <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
+      <BaseSegment geometry={geos.ear}  position={[-0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
       <HeadFaceFeatures level={level} />
 
       {/* ══ NECK ═══════════════════════════════════════════════ */}
@@ -529,16 +543,16 @@ export default function AnatomyModel({
 
       {/* ══ SHOULDERS ══════════════════════════════════════════ */}
       {/* patient LEFT = viewer RIGHT = +x */}
-      <MuscleSegment {...S('shoulder_left')}  geometry={geos.shoulderL} position={[ 0.44, 1.30, 0]} />
+      <MuscleSegment {...S('shoulder_left')}  geometry={geos.shoulderL} position={[ 0.44, 1.30, 0]} participatesInHitTest={false} />
       {/* patient RIGHT = viewer LEFT = -x */}
-      <MuscleSegment {...S('shoulder_right')} geometry={geos.shoulderR} position={[-0.44, 1.30, 0]} />
+      <MuscleSegment {...S('shoulder_right')} geometry={geos.shoulderR} position={[-0.44, 1.30, 0]} participatesInHitTest={false} />
 
       {/* ══ TORSO — חזה/גב עליון · בטן/גב תחתון (מקטעים נפרדים) ═══ */}
       <MuscleSegment {...S('chest')} geometry={geos.upperTorso} position={[0, 0.98, 0.034]} />
       <MuscleSegment {...S('back_upper')} geometry={geos.upperTorso} position={[0, 0.98, -0.034]} />
       <MuscleSegment {...S('abdomen')} geometry={geos.lowerTorso} position={[0, 0.54, 0.028]} />
       <MuscleSegment {...S('back_lower')} geometry={geos.lowerTorso} position={[0, 0.54, -0.028]} />
-      <BaseSegment geometry={geos.pelvis} position={[0, 0.24, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <BaseSegment geometry={geos.pelvis} position={[0, 0.24, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
       {/* ══ LEFT ARM (+x) ══════════════════════════════════════ */}
       <BaseSegment
@@ -554,7 +568,7 @@ export default function AnatomyModel({
         clinicalLocked={clinicalLock('upper_arm_left')}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('elbow_left')} geometry={geos.elbowL} position={[0.58, 0.6, 0]} />
+      <MuscleSegment {...S('elbow_left')} geometry={geos.elbowL} position={[0.58, 0.6, 0]} participatesInHitTest={false} />
       <BaseSegment
         geometry={geos.forearmL}
         position={[0.56, 0.21, 0]}
@@ -568,8 +582,8 @@ export default function AnatomyModel({
         clinicalLocked={clinicalLock('forearm_left')}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('wrist_left')} geometry={geos.wristL} position={[0.57, -0.04, 0]} />
-      <BaseSegment geometry={geos.handL} position={[0.57, -0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <MuscleSegment {...S('wrist_left')} geometry={geos.wristL} position={[0.57, -0.04, 0]} participatesInHitTest={false} />
+      <BaseSegment geometry={geos.handL} position={[0.57, -0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
       {/* ══ RIGHT ARM (-x) ═════════════════════════════════════ */}
       <BaseSegment
@@ -585,7 +599,7 @@ export default function AnatomyModel({
         clinicalLocked={clinicalLock('upper_arm_right')}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR} position={[-0.58, 0.6, 0]} />
+      <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR} position={[-0.58, 0.6, 0]} participatesInHitTest={false} />
       <BaseSegment
         geometry={geos.forearmR}
         position={[-0.56, 0.21, 0]}
@@ -599,12 +613,12 @@ export default function AnatomyModel({
         clinicalLocked={clinicalLock('forearm_right')}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('wrist_right')} geometry={geos.wristR} position={[-0.57, -0.04, 0]} />
-      <BaseSegment geometry={geos.handR} position={[-0.57, -0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <MuscleSegment {...S('wrist_right')} geometry={geos.wristR} position={[-0.57, -0.04, 0]} participatesInHitTest={false} />
+      <BaseSegment geometry={geos.handR} position={[-0.57, -0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
       {/* ══ HIPS (עכוז) ═══════════════════════════════════════ */}
-      <MuscleSegment {...S('hip_left')} geometry={geos.gluteL} position={[0.24, 0.14, 0]} />
-      <MuscleSegment {...S('hip_right')} geometry={geos.gluteR} position={[-0.24, 0.14, 0]} />
+      <MuscleSegment {...S('hip_left')} geometry={geos.gluteL} position={[0.24, 0.14, 0]} participatesInHitTest={false} />
+      <MuscleSegment {...S('hip_right')} geometry={geos.gluteR} position={[-0.24, 0.14, 0]} participatesInHitTest={false} />
 
       {/* ══ LEFT LEG (+x) ══════════════════════════════════════ */}
       <BaseSegment
@@ -620,7 +634,7 @@ export default function AnatomyModel({
         clinicalLocked={clinicalLock('thigh_left')}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('knee_left')} geometry={geos.kneeL} position={[0.24, -0.62, 0]} />
+      <MuscleSegment {...S('knee_left')} geometry={geos.kneeL} position={[0.24, -0.62, 0]} participatesInHitTest={false} />
       <BaseSegment
         geometry={geos.shinL}
         position={[0.24, -0.98, 0]}
@@ -634,8 +648,8 @@ export default function AnatomyModel({
         clinicalLocked={clinicalLock('shin_left')}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[0.24, -1.33, 0]} />
-      <BaseSegment geometry={geos.footL} position={[0.255, -1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[0.24, -1.33, 0]} participatesInHitTest={false} />
+      <BaseSegment geometry={geos.footL} position={[0.255, -1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
       {/* ══ RIGHT LEG (-x) ═════════════════════════════════════ */}
       <BaseSegment
@@ -651,7 +665,7 @@ export default function AnatomyModel({
         clinicalLocked={clinicalLock('thigh_right')}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('knee_right')} geometry={geos.kneeR} position={[-0.24, -0.62, 0]} />
+      <MuscleSegment {...S('knee_right')} geometry={geos.kneeR} position={[-0.24, -0.62, 0]} participatesInHitTest={false} />
       <BaseSegment
         geometry={geos.shinR}
         position={[-0.24, -0.98, 0]}
@@ -665,12 +679,12 @@ export default function AnatomyModel({
         clinicalLocked={clinicalLock('shin_right')}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[-0.24, -1.33, 0]} />
-      <BaseSegment geometry={geos.footR} position={[-0.255, -1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[-0.24, -1.33, 0]} participatesInHitTest={false} />
+      <BaseSegment geometry={geos.footR} position={[-0.255, -1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
       {/* ══ CALF detail (overlaid on shins for back muscle detail) */}
-      <BaseSegment geometry={geos.calfL} position={[ 0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
-      <BaseSegment geometry={geos.calfR} position={[-0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <BaseSegment geometry={geos.calfL} position={[ 0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
+      <BaseSegment geometry={geos.calfR} position={[-0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
       <EquippedGearAttachments equipped={equippedGear} />
         </group>

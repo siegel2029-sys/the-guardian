@@ -15,7 +15,6 @@ import TherapistQuickChat from './clinical/TherapistQuickChat';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import SmartClinicalAnalysisCenter from './clinical/SmartClinicalAnalysisCenter';
 import PatientDataManagement from './clinical/PatientDataManagement';
-import HeroesHallCompare from './HeroesHallCompare';
 import { bodyAreaLabels } from '../../types';
 
 const statusLabels: Record<string, string> = {
@@ -88,10 +87,6 @@ export default function PatientOverview() {
   const style = statusStyles[p.status];
   const plan = getExercisePlan(p.id);
   const exerciseCount = plan?.exercises.length ?? 0;
-  const heroActiveAreas = useMemo(() => {
-    const fromPlan = plan ? [...new Set(plan.exercises.map((e) => e.targetArea))] : [];
-    return fromPlan.length > 0 ? fromPlan : [p.primaryBodyArea];
-  }, [plan, p.primaryBodyArea]);
   const portalAccess = getPatientCredentialsByPatientId(p.id);
   const needsClinicalSetup = p.status === 'pending' || exerciseCount === 0;
 
@@ -117,15 +112,6 @@ export default function PatientOverview() {
         </header>
 
         {p.hasRedFlag && <RedFlagAlert patient={p} />}
-
-        <HeroesHallCompare
-          userLevel={p.level}
-          userXp={p.xp}
-          userXpNext={p.xpForNextLevel}
-          activeAreas={heroActiveAreas}
-          primaryArea={p.primaryBodyArea}
-          heroLevel={100}
-        />
 
         {isPatientExerciseSafetyLocked(p.id) && (
           <div className="mb-5 rounded-xl border-2 border-red-600 bg-red-50 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

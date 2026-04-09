@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { X, Stethoscope, Dumbbell } from 'lucide-react';
+import { X, Stethoscope, Dumbbell, BookOpen, Microscope, Link2 } from 'lucide-react';
 import { EXERCISE_LIBRARY } from '../../data/mockData';
 import type { BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { exerciseMatchesPrimary } from '../../utils/clinicalBodyArea';
+import { getClinicalIntakeAdvice } from '../../ai/clinicalIntakeAdvisor';
 
 const ALL_AREAS = Object.keys(bodyAreaLabels) as BodyArea[];
 
@@ -21,6 +22,8 @@ export default function ClinicalProfileSetupModal({ patientName, onClose, onSave
     () => EXERCISE_LIBRARY.filter((ex) => exerciseMatchesPrimary(ex, primary)),
     [primary]
   );
+
+  const intakeAdvice = useMemo(() => getClinicalIntakeAdvice(primary), [primary]);
 
   const toggleLibId = (libId: string) => {
     setSelected((prev) => {
@@ -92,6 +95,37 @@ export default function ClinicalProfileSetupModal({ patientName, onClose, onSave
             </select>
             <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
               הבחירה מעדכנת את אזור המיקוד במפת הגוף של המטופל ובוחרת תרגילים רלוונטיים מהספרייה.
+            </p>
+          </div>
+
+          <div
+            className="rounded-xl border border-indigo-200 bg-indigo-50/90 p-3 space-y-2.5 text-[11px] text-indigo-950 leading-relaxed"
+            role="region"
+            aria-label="הנחיות אינטייק"
+          >
+            <p className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+              <BookOpen className="w-4 h-4 shrink-0" />
+              פרוטוקול והמלצות (לפי אזור)
+            </p>
+            <p>{intakeAdvice.protocolHe}</p>
+            <p className="text-indigo-800/95">
+              <span className="font-semibold">תרגילים: </span>
+              {intakeAdvice.exercisesHintHe}
+            </p>
+            <p className="text-indigo-800/95 flex gap-1.5">
+              <Microscope className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>
+                <span className="font-semibold">הבחנה דיפרנציאלית: </span>
+                {intakeAdvice.differentialHe}
+              </span>
+            </p>
+            <p className="text-indigo-800/95">
+              <span className="font-semibold">בדיקות נוספות: </span>
+              {intakeAdvice.furtherTestsHe}
+            </p>
+            <p className="rounded-lg bg-amber-100/90 border border-amber-300/80 px-2.5 py-2 text-amber-950 flex gap-1.5">
+              <Link2 className="w-4 h-4 shrink-0 mt-0.5 text-amber-800" />
+              <span>{intakeAdvice.chainWarningHe}</span>
             </p>
           </div>
 

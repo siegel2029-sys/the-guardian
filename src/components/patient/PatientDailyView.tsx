@@ -19,7 +19,7 @@ import {
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
 import { getTherapistDisplayName } from '../../context/authPersistence';
-import BodyMap3D from '../body-map/BodyMap3D';
+import GordyHero from './GordyHero';
 import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseDetailModal from './ExerciseDetailModal';
 import PortalExerciseCard from './PortalExerciseCard';
@@ -52,6 +52,10 @@ import { RewardLabel } from '../ui/RewardLabel';
 import GearStoreArmory from './GearStoreArmory';
 import { buildEquippedGearSnapshot } from '../../utils/gearSnapshot';
 import PortalPatientDebugPanel from './PortalPatientDebugPanel';
+import PatientSidebar from './PatientSidebar';
+import PatientDashboard from './PatientDashboard';
+import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
+import PatientHeroesHallTab from './PatientHeroesHallTab';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
 
 /** תצוגת יום למטופל — מוצגת רק ב־/patient-portal (מפת גוף, תרגילים, לוח שנה). */
@@ -121,7 +125,7 @@ export default function PatientDailyView() {
   const [pwConfirm, setPwConfirm] = useState('');
   const [pwFormError, setPwFormError] = useState<string | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [portalTab, setPortalTab] = useState<'home' | 'gear'>('home');
+  const [portalTab, setPortalTab] = useState<'home' | 'gear' | 'heroes'>('home');
   const [newLoginIdInput, setNewLoginIdInput] = useState('');
   const [loginIdCurrentPw, setLoginIdCurrentPw] = useState('');
   const [loginIdError, setLoginIdError] = useState<string | null>(null);
@@ -136,6 +140,7 @@ export default function PatientDailyView() {
         coinsAward: number;
       }
   >(null);
+  const [redFlagOpen, setRedFlagOpen] = useState(false);
 
   const careGiverName = useMemo(
     () => (selectedPatient ? getTherapistDisplayName(selectedPatient.therapistId) : ''),
@@ -203,6 +208,12 @@ export default function PatientDailyView() {
   const exerciseSafetyLocked = selectedPatient
     ? isPatientExerciseSafetyLocked(selectedPatient.id)
     : false;
+  const redFlagPortalLock = selectedPatient?.redFlagActive === true;
+  const exercisesLocked = exerciseSafetyLocked || redFlagPortalLock;
+
+  useEffect(() => {
+    if (exercisesLocked) setExerciseVideoModal(null);
+  }, [exercisesLocked]);
 
   /** Green zones (excludes clinical); synced with 3D picks + context. */
   const selectedZones = selectedPatient ? getSelfCareZones(selectedPatient.id) : [];
@@ -288,6 +299,8 @@ export default function PatientDailyView() {
         strengthTier === 0 ? 'קל' : strengthTier === 1 ? 'בינוני' : 'קשה';
       submitExerciseReport(selectedPatient.id, m.exercise.id, payload.painLevel, payload.effort, m.xpAward, {
         skipPainHistory: true,
+        completionSource: 'self-care',
+        sessionBodyArea: m.bodyArea,
       });
       logSelfCareSession(
         selectedPatient.id,
@@ -309,13 +322,10 @@ export default function PatientDailyView() {
       else setLoadSafetyNudge(null);
     } else {
       const pain = payload.painLevel;
-      submitExerciseReport(
-        selectedPatient.id,
-        m.exercise.id,
-        pain,
-        payload.effort,
-        m.xpAward
-      );
+      submitExerciseReport(selectedPatient.id, m.exercise.id, pain, payload.effort, m.xpAward, {
+        completionSource: 'rehab',
+        sessionBodyArea: m.exercise.targetArea,
+      });
       appendPatientExerciseFinishReport(selectedPatient.id, {
         exerciseId: m.exercise.id,
         exerciseName: m.exercise.name,
@@ -375,13 +385,10 @@ export default function PatientDailyView() {
   const handleReportSubmit = (painLevel: number, effortRating: number) => {
     if (!reportFor || !selectedPatient) return;
     const xp = reportFor.xpReward;
-    submitExerciseReport(
-      selectedPatient.id,
-      reportFor.id,
-      painLevel,
-      effortRating,
-      xp
-    );
+    submitExerciseReport(selectedPatient.id, reportFor.id, painLevel, effortRating, xp, {
+      completionSource: 'rehab',
+      sessionBodyArea: reportFor.targetArea,
+    });
     if (painLevel >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
     else if (effortRating === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
     else setLoadSafetyNudge(null);
@@ -542,6 +549,11 @@ export default function PatientDailyView() {
       </header>
 
       <div className="flex-1 px-4 py-4 pb-36">
+        {portalTab === 'heroes' && selectedPatient && !patientMustChangePassword && <PatientHeroesHallTab />}
+
+        {portalTab === 'home' && selectedPatient && !patientMustChangePassword && (
+          <PatientSidebar onOpenRedFlag={() => setRedFlagOpen(true)} />
+        )}
         {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
             <div className="flex items-center justify-between mb-2 px-0.5">
@@ -568,7 +580,11 @@ export default function PatientDailyView() {
               }}
             >
               <div className="flex-1 w-full h-full min-h-[520px]">
-                <BodyMap3D
+                <GordyHero
+                  patientId={selectedPatient.id}
+                  celebrationBurstKey={
+                    rewardFeedback && rewardFeedback.xpAdded > 0 ? rewardFeedback.id : 0
+                  }
                   activeAreas={exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
                   clinicalArea={selectedPatient.primaryBodyArea}
@@ -826,6 +842,9 @@ export default function PatientDailyView() {
 
         {portalTab === 'home' && (
         <>
+        {selectedPatient && !patientMustChangePassword && (
+          <PatientDashboard onOpenRedFlag={() => setRedFlagOpen(true)} />
+        )}
         <div
           className="rounded-2xl p-4 mb-5 border"
           style={{
@@ -919,6 +938,18 @@ export default function PatientDailyView() {
           </div>
         )}
 
+        {redFlagPortalLock && (
+          <div
+            className="mb-4 rounded-2xl border-2 border-red-600 bg-red-50 px-4 py-3 text-center"
+            role="alert"
+          >
+            <p className="text-sm font-black text-red-950">תרגול נעול זמנית</p>
+            <p className="text-xs text-red-900 mt-1 leading-relaxed">
+              התרגילים נעולים זמנית עקב דיווח על כאב חריג. המטפל עודכן ויצור קשר בהקדם.
+            </p>
+          </div>
+        )}
+
         {exerciseSafetyLocked && (
           <div
             className="mb-4 rounded-2xl border-2 border-red-500 bg-red-50 px-4 py-3 text-center"
@@ -945,9 +976,9 @@ export default function PatientDailyView() {
           </p>
         ) : (
           <div
-            className={`relative flex flex-col ${exerciseSafetyLocked ? 'pointer-events-none select-none opacity-[0.38]' : ''}`}
+            className={`relative flex flex-col ${exercisesLocked ? 'pointer-events-none select-none opacity-[0.38]' : ''}`}
           >
-            {exerciseSafetyLocked && (
+            {exercisesLocked && (
               <div
                 className="absolute inset-0 z-10 rounded-2xl bg-red-950/5 pointer-events-none"
                 aria-hidden
@@ -986,7 +1017,7 @@ export default function PatientDailyView() {
                           })
                         }
                         onOpenDetails={() => openExerciseDetail(ex)}
-                        disabled={exerciseSafetyLocked}
+                        disabled={exercisesLocked}
                         typeKey={ex.type}
                         isCustomExercise={ex.isCustom}
                         rewardLabelXp={exerciseBaseXp(ex.xpReward)}
@@ -1024,7 +1055,7 @@ export default function PatientDailyView() {
                           coinsAward: selfCoins,
                         })
                       }
-                      disabled={exerciseSafetyLocked}
+                      disabled={exercisesLocked}
                       selfCareStrengthTier={strengthTier}
                       onSelfCareStrengthTierChange={(tier) =>
                         setSelfCareStrengthTier(selectedPatient.id, area, tier)
@@ -1069,7 +1100,7 @@ export default function PatientDailyView() {
           <button
             type="button"
             onClick={() => setPortalTab('home')}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-bold transition-colors ${
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[10px] sm:text-[11px] font-bold transition-colors ${
               portalTab === 'home' ? 'text-teal-800' : 'text-slate-500'
             }`}
           >
@@ -1078,8 +1109,18 @@ export default function PatientDailyView() {
           </button>
           <button
             type="button"
+            onClick={() => setPortalTab('heroes')}
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[10px] sm:text-[11px] font-bold transition-colors ${
+              portalTab === 'heroes' ? 'text-violet-800' : 'text-slate-500'
+            }`}
+          >
+            <Sparkles className="w-5 h-5" />
+            <span className="text-center leading-tight">היכל גיבורים</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setPortalTab('gear')}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-bold transition-colors ${
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[10px] sm:text-[11px] font-bold transition-colors ${
               portalTab === 'gear' ? 'text-violet-800' : 'text-slate-500'
             }`}
           >
@@ -1108,9 +1149,18 @@ export default function PatientDailyView() {
           !!detailFor ||
           !!reportFor ||
           !!exerciseVideoModal ||
-          exerciseSafetyLocked ||
+          exercisesLocked ||
           patientMustChangePassword
         }
+      />
+
+      <PatientRedFlagEmergencyModal
+        open={redFlagOpen}
+        onClose={() => setRedFlagOpen(false)}
+        patientId={selectedPatient.id}
+        patientName={selectedPatient.name}
+        therapistId={selectedPatient.therapistId}
+        defaultBodyArea={selectedPatient.primaryBodyArea}
       />
 
       <PatientPainProgressSheet

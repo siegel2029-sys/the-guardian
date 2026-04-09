@@ -3,6 +3,10 @@ import type { BodyArea } from '../types';
 /**
  * Granular picks from Mixamo-style bones (Soldier.glb).
  * Each key toggles independently; exercises aggregate by mapped BodyArea.
+ *
+ * במודל ה־3D (`AnatomyModel`): מפרקים (כתף/ירך/מרפק/ברך/פרק כף/קרסול) ושכבות דקורטיביות
+ * (שוק אחורי/כף רגל/ראש וכו׳) לא חוסמים raycast — לחיצה על גוף הגפ נופלת על הגליל
+ * (זרוע עליונה/אמה/ירך/שוק) בנפרד ממפרקים.
  */
 export type GranularPickKey =
   | 'cranium'

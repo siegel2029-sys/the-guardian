@@ -323,7 +323,7 @@ export default function Sidebar() {
             }}
           >
             <MessageCircleWarning className="w-4 h-4 shrink-0" />
-            <span className="text-xs font-bold flex-1">דגל אדום — WhatsApp</span>
+            <span className="text-xs font-bold flex-1">דגל אדום — דוא״ל</span>
           </button>
         </div>
       )}
@@ -419,6 +419,7 @@ export default function Sidebar() {
           onClose={() => setRedFlagWaOpen(false)}
           patientId={selectedPatient.id}
           patientName={selectedPatient.name}
+          therapistId={selectedPatient.therapistId}
         />
       )}
     </aside>

@@ -43,6 +43,8 @@ import {
 } from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 import { bodyAreaIsClinicalFocus } from '../body/bodyPickMapping';
+import { isChainReactionZoneForPrimary } from '../body/chainReactionZones';
+import { getTherapistAlertEmail, openClinicalMailto } from '../utils/clinicalAlertEmail';
 import {
   PATIENT_MAX_LEVEL,
   xpRequiredToReachNextLevel,
@@ -229,6 +231,11 @@ interface PatientContextValue {
 
   // Red flags
   resolveRedFlag: (patientId: string) => void;
+  /** דגל אדום ממטופל — רישום בפורטל + סימון דגל (לצד דוא״ל שנפתח ב־UI) */
+  reportPatientUrgentRedFlag: (patientId: string, portalLogLine: string) => void;
+
+  /** מספר WhatsApp למטופל — נשמר ב־localStorage (גם ב־production) */
+  setPatientContactWhatsapp: (patientId: string, phoneDigitsOrEmpty: string) => void;
 
   // Exercise plans (mutable)
   exercisePlans: ExercisePlan[];
@@ -256,7 +263,12 @@ interface PatientContextValue {
     painLevel: number,
     effortRating: number,
     xpReward: number,
-    options?: { skipPainHistory?: boolean }
+    options?: {
+      skipPainHistory?: boolean;
+      completionSource?: 'rehab' | 'self-care';
+      /** אזור תרגול (כוח) או יעד שיקום — לזיהוי שרשרת */
+      sessionBodyArea?: BodyArea;
+    }
   ) => void;
 
   // AI suggestions (מטופל מאשר → awaiting_therapist; מטפל מאשר → עדכון תוכנית)
@@ -394,15 +406,18 @@ function randomPatientPassword(): string {
 }
 
 function normalizePatientsTherapistIds(list: Patient[]): Patient[] {
-  return list.map((p) =>
-    normalizePatientProgressFields({
+  return list.map((p) => {
+    const wa = (p.contactWhatsappE164 ?? '').replace(/\D/g, '');
+    return normalizePatientProgressFields({
       ...p,
       therapistId: p.therapistId ?? mockTherapist.id,
       injuryHighlightSegments: Array.isArray(p.injuryHighlightSegments)
         ? p.injuryHighlightSegments
         : [],
-    })
-  );
+      contactWhatsappE164: wa.length >= 9 ? wa : undefined,
+      redFlagActive: p.redFlagActive === true,
+    });
+  });
 }
 
 export function PatientProvider({
@@ -868,7 +883,47 @@ export function PatientProvider({
 
   // ── Red flags ──────────────────────────────────────────────────
   const resolveRedFlag = useCallback((patientId: string) => {
-    setAllPatients((prev) => prev.map((p) => (p.id === patientId ? { ...p, hasRedFlag: false } : p)));
+    setAllPatients((prev) =>
+      prev.map((p) =>
+        p.id === patientId ? { ...p, hasRedFlag: false, redFlagActive: false } : p
+      )
+    );
+  }, []);
+
+  const reportPatientUrgentRedFlag = useCallback((patientId: string, portalLogLine: string) => {
+    const trimmed = portalLogLine.trim();
+    if (!trimmed) return;
+    setAllPatients((prev) =>
+      prev.map((p) =>
+        p.id === patientId
+          ? {
+              ...p,
+              hasRedFlag: true,
+              redFlagActive: true,
+              pendingMessages: p.pendingMessages + 1,
+            }
+          : p
+      )
+    );
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `urgent-rf-${Date.now()}`,
+        patientId,
+        content: trimmed,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        fromPatient: true,
+      },
+    ]);
+  }, []);
+
+  const setPatientContactWhatsapp = useCallback((patientId: string, phoneRaw: string) => {
+    const d = phoneRaw.replace(/\D/g, '');
+    const contactWhatsappE164 = d.length >= 9 ? d : undefined;
+    setAllPatients((prev) =>
+      prev.map((p) => (p.id === patientId ? { ...p, contactWhatsappE164 } : p))
+    );
   }, []);
 
   // ── Exercise plan CRUD ─────────────────────────────────────────
@@ -1220,7 +1275,11 @@ export function PatientProvider({
       painLevel: number,
       effortRating: number,
       xpReward: number,
-      options?: { skipPainHistory?: boolean }
+      options?: {
+        skipPainHistory?: boolean;
+        completionSource?: 'rehab' | 'self-care';
+        sessionBodyArea?: BodyArea;
+      }
     ) => {
       const clinicalDay = getClinicalDate();
       const prior = dailySessions.find((s) => s.patientId === patientId && s.date === clinicalDay);
@@ -1231,6 +1290,7 @@ export function PatientProvider({
 
       const pain = clampPain(painLevel);
       const effort = clampEffort(effortRating);
+      const goldRulePain = pain >= 7;
       const plan = exercisePlans.find((ep) => ep.patientId === patientId);
       const totalInPlan = plan?.exercises.length ?? 0;
       const firstOfDay = !prior || prior.completedIds.length === 0;
@@ -1283,6 +1343,7 @@ export function PatientProvider({
               date: clinicalDay,
               completedIds: [exerciseId],
               sessionXp: xpGain,
+              ...(goldRulePain ? { goldDisqualified: true } : {}),
             },
           ];
         }
@@ -1294,6 +1355,7 @@ export function PatientProvider({
                   ? s.completedIds
                   : [...s.completedIds, exerciseId],
                 sessionXp: s.sessionXp + xpGain,
+                ...(goldRulePain || s.goldDisqualified ? { goldDisqualified: true } : {}),
               }
             : s
         );
@@ -1428,6 +1490,43 @@ export function PatientProvider({
       }
 
       const planAfter = exercisePlans.find((ep) => ep.patientId === patientId);
+      const rehabEx = planAfter?.exercises.find((e) => e.id === exerciseId);
+      const sessionZone =
+        options?.sessionBodyArea ?? rehabEx?.targetArea ?? undefined;
+      if (
+        options?.completionSource === 'self-care' &&
+        sessionZone &&
+        isChainReactionZoneForPrimary(patientBefore.primaryBodyArea, sessionZone) &&
+        pain >= 7
+      ) {
+        setExerciseSafetyLockedPatientIds((prev) => ({ ...prev, [patientId]: true }));
+        const email = getTherapistAlertEmail(patientBefore.therapistId);
+        const subject = '[The Guardian] עצירת בטיחות — תגובת שרשרת';
+        const body =
+          `מטופל: ${patientBefore.name}\n` +
+          `אזור קליני ראשי: ${bodyAreaLabels[patientBefore.primaryBodyArea]}\n` +
+          `תרגיל כוח באזור שרשרת: ${bodyAreaLabels[sessionZone]}\n` +
+          `כאב דווח: ${pain}/10\n\n` +
+          'הסשן נעצר אוטומטית — יש להתייחס לפי פרוטוקול.';
+        openClinicalMailto(email, subject, body);
+        setSafetyAlerts((prev) => [
+          ...prev,
+          {
+            id: `sa-chain-${Date.now()}`,
+            patientId,
+            reasonCode: 'CHAIN_REACTION',
+            reasonHebrew: `כאב גבוה אחרי תרגול ב־${bodyAreaLabels[sessionZone]} (אזור שרשרת למוקד ${bodyAreaLabels[patientBefore.primaryBodyArea]})`,
+            severity: 'high_priority',
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        sendAiClinicalAlert(
+          patientId,
+          `עצירת בטיחות (שרשרת): כאב ${pain}/10 אחרי פעילות ב־${bodyAreaLabels[sessionZone]} ביחס למוקד ${bodyAreaLabels[patientBefore.primaryBodyArea]}. נשלח דוא״ל למטפל.`,
+          'high_priority'
+        );
+      }
+
       if (pain >= 7) {
         setSafetyAlerts((prev) => [
           ...prev,
@@ -1497,6 +1596,7 @@ export function PatientProvider({
       allPatients,
       pushRewardFeedback,
       patientGearByPatientId,
+      setExerciseSafetyLockedPatientIds,
     ]
   );
 
@@ -1657,6 +1757,7 @@ export function PatientProvider({
       lastSessionDate: joinDate,
       pendingMessages: 0,
       hasRedFlag: false,
+      redFlagActive: false,
       therapistNotes: '',
       coins: 0,
       injuryHighlightSegments: [],
@@ -1812,7 +1913,8 @@ export function PatientProvider({
               currentStreak: 0,
               longestStreak: 0,
               lastSessionDate: p.joinDate,
-              injuryHighlightSegments: [],
+              hasRedFlag: false,
+              redFlagActive: false,
               analytics: {
                 ...p.analytics,
                 sessionHistory: [],
@@ -2137,6 +2239,8 @@ export function PatientProvider({
         isPatientSessionLocked,
         createPatientWithAccess,
         resolveRedFlag,
+        reportPatientUrgentRedFlag,
+        setPatientContactWhatsapp,
         exercisePlans, getExercisePlan,
         addExerciseToPlan, removeExerciseFromPlan, updateExerciseInPlan,
         clinicalToday,
