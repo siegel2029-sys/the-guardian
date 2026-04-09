@@ -6,7 +6,7 @@ import { usePatient } from '../../context/PatientContext';
  * פאנל דיבוג ויזואלי — רק ב־development (מוצג מההורה).
  */
 export default function PortalPatientDebugPanel() {
-  const { selectedPatient, updatePatient } = usePatient();
+  const { selectedPatient, updatePatient, resetPatientToCleanAvatar } = usePatient();
   const [open, setOpen] = useState(false);
 
   if (!selectedPatient) return null;
@@ -43,6 +43,13 @@ export default function PortalPatientDebugPanel() {
           <p className="text-[9px] text-slate-400 leading-snug mb-1">
             רמות 1–100 + נפח שריר (רק dev)
           </p>
+          <button
+            type="button"
+            className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-rose-950 text-rose-100 hover:bg-rose-900 border border-rose-700/60"
+            onClick={() => resetPatientToCleanAvatar(pid)}
+          >
+            Reset Avatar (Level 1, Clean)
+          </button>
           <button
             type="button"
             className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600"

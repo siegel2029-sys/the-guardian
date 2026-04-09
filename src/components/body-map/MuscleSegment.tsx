@@ -46,6 +46,11 @@ export interface MuscleSegmentProps {
   muscleStage?: MuscleEvolutionStage;
   muscleNormalMap?: THREE.Texture | null;
   muscleRoughnessMap?: THREE.Texture | null;
+  /**
+   * 0 = ללא נפח קדקודים (מפרקים ומקטעי בחירה על גאומטריית מפרק).
+   * נפח שריר מוחל רק ב־AnatomyModel על גלילי זרוע/ירך (BaseSegment).
+   */
+  vertexInflationWeight?: number;
   onAreaClick?: (area: BodyArea) => void;
   children?: ReactNode;
 }
@@ -389,6 +394,7 @@ export default function MuscleSegment({
   muscleStage: muscleStageProp,
   muscleNormalMap = null,
   muscleRoughnessMap = null,
+  vertexInflationWeight = 0,
   onAreaClick,
   children,
 }: MuscleSegmentProps) {
@@ -449,7 +455,7 @@ export default function MuscleSegment({
   );
 
   const inflationUniform = useMemo(() => ({ value: 0 }), []);
-  const inflationEnabled = level > 20;
+  const inflationEnabled = level > 20 && vertexInflationWeight > 0;
 
   useLayoutEffect(() => {
     if (!inflationEnabled) {
@@ -471,10 +477,12 @@ export default function MuscleSegment({
       const m = stdRef.current ?? physRef.current;
       clearMuscleVertexInflationPatch(m);
     };
-  }, [inflationEnabled, inflationUniform, mp.useStandardMaterial]);
+  }, [inflationEnabled, inflationUniform, mp.useStandardMaterial, vertexInflationWeight]);
 
   useFrame(({ clock }) => {
-    inflationUniform.value = inflationEnabled ? getMuscleVertexInflation(level, clock.elapsedTime) : 0;
+    inflationUniform.value = inflationEnabled
+      ? getMuscleVertexInflation(level, clock.elapsedTime) * vertexInflationWeight
+      : 0;
 
     const mesh = meshRef.current;
     if (!mesh) return;

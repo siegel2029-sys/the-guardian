@@ -334,6 +334,10 @@ interface PatientContextValue {
     patientId: string,
     patch: Partial<Omit<Patient, 'id' | 'therapistId'>>
   ) => void;
+  /**
+   * דיבוג בלבד: רמה 1, XP 0, מטבעות 0, איפוס ציוד (owned/equipped) — נשמר ב־localStorage.
+   */
+  resetPatientToCleanAvatar: (patientId: string) => void;
   resetPatientExercisePlan: (patientId: string) => void;
   resetPatientMessageHistory: (patientId: string) => void;
   resetPatientPainReports: (patientId: string) => void;
@@ -1758,6 +1762,29 @@ export function PatientProvider({
     []
   );
 
+  const resetPatientToCleanAvatar = useCallback((patientId: string) => {
+    if (import.meta.env.PROD) return;
+    const gate = xpRequiredToReachNextLevel(1);
+    setAllPatients((prev) =>
+      prev.map((p) =>
+        p.id === patientId
+          ? {
+              ...p,
+              level: 1,
+              xp: 0,
+              xpForNextLevel: gate,
+              coins: 0,
+              currentStreak: 0,
+            }
+          : p
+      )
+    );
+    setPatientGearByPatientId((prev) => ({
+      ...prev,
+      [patientId]: defaultPatientGear(),
+    }));
+  }, []);
+
   const deletePatient = useCallback((patientId: string) => {
     removePatientAccountsForPatient(patientId);
     setAllPatients((prev) => prev.filter((p) => p.id !== patientId));
@@ -1985,6 +2012,7 @@ export function PatientProvider({
         applyIntakeExercisePlan,
         deletePatient,
         updatePatient,
+        resetPatientToCleanAvatar,
         resetPatientExercisePlan,
         resetPatientMessageHistory,
         resetPatientPainReports,
