@@ -20,7 +20,7 @@ import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
 import { getTherapistDisplayName } from '../../context/authPersistence';
 import BodyMap3D from '../body-map/BodyMap3D';
-import GordyCelebration from './GordyCelebration';
+import GordyVictorySequence from './GordyVictorySequence';
 import GordyCompanion from './GordyCompanion';
 import GordyFullScreenCelebration from './GordyFullScreenCelebration';
 import ExerciseReportModal from './ExerciseReportModal';
@@ -33,7 +33,7 @@ import GuardianAssistantFAB from './GuardianAssistantFAB';
 import { formatTime } from '../dashboard/ManagePlanModal';
 import type { StrengthExerciseLevelDef } from '../../data/strengthExerciseDatabase';
 import { getStrengthChainForArea } from '../../data/strengthExerciseDatabase';
-import { bodyAreaIsClinicalFocus } from '../../body/bodyPickMapping';
+import { bodyAreaBlocksSelfCare } from '../../body/bodyPickMapping';
 import EmergencyStopModal from './EmergencyStopModal';
 import DidYouKnowBubble from './DidYouKnowBubble';
 import PatientAiSuggestionCards from './PatientAiSuggestionCards';
@@ -231,6 +231,12 @@ export default function PatientDailyView() {
 
   const prevPatientIdRef = useRef<string | undefined>(undefined);
   const [coinKick, setCoinKick] = useState(false);
+  const [gordyVictoryBurst, setGordyVictoryBurst] = useState(0);
+  const [gordyVictoryRewards, setGordyVictoryRewards] = useState<{
+    xp: number;
+    coins: number;
+    streak?: number;
+  }>({ xp: 0, coins: 0 });
 
   useEffect(() => {
     const pid = selectedPatient?.id;
@@ -248,6 +254,18 @@ export default function PatientDailyView() {
   useEffect(() => {
     if (!rewardFeedback) return;
     setCoinKick(true);
+    const hasVictoryLoot =
+      rewardFeedback.xpAdded > 0 ||
+      rewardFeedback.coinsAdded > 0 ||
+      (rewardFeedback.streakBonusXp != null && rewardFeedback.streakBonusXp > 0);
+    if (hasVictoryLoot) {
+      setGordyVictoryBurst((k) => k + 1);
+      setGordyVictoryRewards({
+        xp: rewardFeedback.xpAdded,
+        coins: rewardFeedback.coinsAdded,
+        streak: rewardFeedback.streakBonusXp,
+      });
+    }
     const t0 = window.setTimeout(() => setCoinKick(false), 720);
     const t1 = window.setTimeout(() => clearRewardFeedback(), 2400);
     return () => {
@@ -258,8 +276,10 @@ export default function PatientDailyView() {
 
   const clinicalRehabExercises = useMemo(() => {
     if (!selectedPatient) return [];
-    const p = selectedPatient.primaryBodyArea;
-    return exercises.filter((e) => bodyAreaIsClinicalFocus(e.targetArea, p));
+    const sec = selectedPatient.secondaryClinicalBodyAreas ?? [];
+    return exercises.filter((e) =>
+      bodyAreaBlocksSelfCare(e.targetArea, selectedPatient.primaryBodyArea, sec)
+    );
   }, [exercises, selectedPatient]);
 
   type MissionRow =
@@ -420,7 +440,15 @@ export default function PatientDailyView() {
 
   const handleAvatarZoneClick = (area: BodyArea) => {
     if (!selectedPatient) return;
-    if (bodyAreaIsClinicalFocus(area, selectedPatient.primaryBodyArea)) return;
+    if (
+      bodyAreaBlocksSelfCare(
+        area,
+        selectedPatient.primaryBodyArea,
+        selectedPatient.secondaryClinicalBodyAreas ?? []
+      )
+    ) {
+      return;
+    }
     toggleSelfCareZone(selectedPatient.id, area);
   };
 
@@ -528,6 +556,12 @@ export default function PatientDailyView() {
       style={{ background: 'linear-gradient(180deg, #ecfdf5 0%, #f0fdfa 35%, #ffffff 100%)' }}
       dir="rtl"
     >
+      <GordyVictorySequence
+        burstKey={gordyVictoryBurst}
+        xpAdded={gordyVictoryRewards.xp}
+        coinsAdded={gordyVictoryRewards.coins}
+        streakBonusXp={gordyVictoryRewards.streak}
+      />
       <header
         className="sticky top-0 z-20 px-4 pt-4 pb-3 border-b flex items-center gap-3 relative overflow-visible"
         style={{
@@ -663,6 +697,9 @@ export default function PatientDailyView() {
                   primaryArea={selectedPatient.primaryBodyArea}
                   clinicalArea={selectedPatient.primaryBodyArea}
                   selfCareSelectedAreas={selectedZones}
+                  secondaryClinicalBodyAreas={selectedPatient.secondaryClinicalBodyAreas}
+                  stableInteraction={false}
+                  patientPortalInteractive
                   painByArea={selectedPatient.analytics.painByArea}
                   level={selectedPatient.level}
                   xp={selectedPatient.xp}
@@ -676,11 +713,6 @@ export default function PatientDailyView() {
                   equippedGear={buildEquippedGearSnapshot(patientGearState)}
                   minHeightPx={520}
                   onAreaClick={handleAvatarZoneClick}
-                />
-                <GordyCelebration
-                  burstKey={
-                    rewardFeedback && rewardFeedback.xpAdded > 0 ? rewardFeedback.id : 0
-                  }
                 />
               </div>
             </div>

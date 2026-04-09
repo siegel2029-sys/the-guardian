@@ -144,4 +144,69 @@
   .animate-gordy-companion-float {
     animation: gordy-companion-float 2.8s ease-in-out infinite;
   }
+
+  @keyframes gordy-victory-hop {
+    0% {
+      transform: translateY(0) scale(1);
+    }
+    30% {
+      transform: translateY(-14%) scale(1.06);
+    }
+    48% {
+      transform: translateY(-22%) scale(1.12);
+    }
+    100% {
+      transform: translateY(-4%) scale(1);
+    }
+  }
+
+  .gordy-victory-hop {
+    animation: gordy-victory-hop 1.35s cubic-bezier(0.34, 1.3, 0.52, 1) forwards;
+  }
+
+  @keyframes gordy-victory-fist {
+    0%,
+    100% {
+      transform: translateY(0) rotate(-8deg);
+    }
+    40% {
+      transform: translateY(-120%) rotate(12deg) scale(1.15);
+    }
+  }
+
+  .gordy-victory-fist {
+    animation: gordy-victory-fist 1.2s ease-out forwards;
+  }
+
+  @keyframes gordy-victory-aura {
+    0%,
+    100% {
+      filter: drop-shadow(0 0 12px rgba(251, 191, 36, 0.75))
+        drop-shadow(0 0 28px rgba(234, 179, 8, 0.45));
+    }
+    50% {
+      filter: drop-shadow(0 0 22px rgba(252, 211, 77, 0.95))
+        drop-shadow(0 0 48px rgba(245, 158, 11, 0.55));
+    }
+  }
+
+  .gordy-victory-aura {
+    animation: gordy-victory-aura 0.85s ease-in-out infinite;
+  }
+
+  @keyframes gordy-victory-loot-fall {
+    0% {
+      opacity: 1;
+      transform: translate(-50%, 0) translateX(0) rotate(0deg);
+    }
+    100% {
+      opacity: 0.15;
+      transform: translate(-50%, var(--loot-fall, 70vh)) translateX(var(--loot-drift, 0px))
+        rotate(220deg);
+    }
+  }
+
+  .animate-gordy-victory-loot-fall {
+    animation: gordy-victory-loot-fall 2.4s ease-in forwards;
+  }
 }

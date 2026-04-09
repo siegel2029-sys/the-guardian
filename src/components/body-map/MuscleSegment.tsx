@@ -32,7 +32,12 @@ export interface MuscleSegmentProps {
   isHighPain: boolean;
   isSelected: boolean;
   clinicalLocked?: boolean;
+  /** מוקד משני מטפל — כתום */
+  clinicalSecondary?: boolean;
   selfCareSelected?: boolean;
+  /** אזור חסום לפרהאב (מטפל/משני) — לסמן עכבר בפורטל בלבד */
+  clinicalBlockSelfCare?: boolean;
+  patientPortalInteractive?: boolean;
   /** Self-care zone finished today — gold / blue (overrides level look) */
   strengthenedToday?: boolean;
   /** Patient level (1–100) — נפח שריר וחומרים */
@@ -60,6 +65,8 @@ export interface MuscleSegmentProps {
    */
   participatesInHitTest?: boolean;
   onAreaClick?: (area: BodyArea) => void;
+  /** ללא לרפות scale/פולס — לחיצות יציבות */
+  reduceMotion?: boolean;
   children?: ReactNode;
 }
 
@@ -83,9 +90,9 @@ interface MatProps {
 }
 
 function strongPalette(area: BodyArea): { color: string; emissive: string } {
-  const tealSide = (area.charCodeAt(0) + area.length) % 2 === 0;
-  if (tealSide) return { color: '#5eead4', emissive: '#0d9488' };
-  return { color: '#ef4444', emissive: '#7f1d1d' };
+  const alt = (area.charCodeAt(0) + area.length) % 2 === 0;
+  if (alt) return { color: '#4ade80', emissive: '#166534' };
+  return { color: '#22c55e', emissive: '#14532d' };
 }
 
 function recoveredChromeExtras(): Pick<
@@ -127,6 +134,7 @@ function computeMatProps(
   isHighPain: boolean,
   isSelected: boolean,
   clinicalLocked: boolean,
+  clinicalSecondary: boolean,
   selfCareSelected: boolean,
   strengthenedToday: boolean,
   isHovered: boolean,
@@ -137,7 +145,8 @@ function computeMatProps(
   const tier = getLevelTier(level);
   const lf = Math.min(Math.max(level, 1), 100) / 100;
   const hv = isHovered ? 0.06 : 0;
-  const envAccent = clinicalLocked || selfCareSelected ? 2.15 : 1.42;
+  const envAccent =
+    clinicalLocked || clinicalSecondary || selfCareSelected ? 2.15 : 1.42;
   const volBoost = muscleStageVolumeBoost(stage);
   const glowX = muscleStageHealthyGlowExtra(stage);
 
@@ -195,6 +204,23 @@ function computeMatProps(
     });
   }
 
+  if (clinicalSecondary) {
+    return basePhysical({
+      color: '#ea580c',
+      emissive: '#9a3412',
+      emissiveIntensity: 1.18 + hv * 0.82,
+      targetScale: 1.045 + (isHovered ? 0.028 : 0) + volBoost,
+      metalness: 0.24,
+      roughness: 0.34,
+      clearcoat: 0.52,
+      clearcoatRoughness: 0.32,
+      envMapIntensity: Math.max(envAccent, 1.65),
+      iridescence: 0.18,
+      iridescenceIOR: 1.14,
+      iridescenceThicknessRange: [70, 240],
+    });
+  }
+
   if (clinicalLocked) {
     const chrome = tier === 'recovered' ? recoveredChromeExtras() : activeMatteTeal();
     return basePhysical({
@@ -227,13 +253,13 @@ function computeMatProps(
       });
     }
     const green = basePhysical({
-      color: '#2dd4bf',
-      emissive: '#0f766e',
-      emissiveIntensity: 1.22 + hv * 0.85 + glowX,
-      targetScale: 1.065 + (isHovered ? 0.035 : 0) + volBoost,
-      roughness: tier === 'injured' ? 0.42 : 0.24,
-      metalness: tier === 'injured' ? 0.12 : 0.22,
-      clearcoat: tier === 'injured' ? 0.2 : 0.52,
+      color: '#22c55e',
+      emissive: '#15803d',
+      emissiveIntensity: 1.45 + hv * 1.05 + glowX,
+      targetScale: 1.08 + (isHovered ? 0.04 : 0) + volBoost,
+      roughness: tier === 'injured' ? 0.38 : 0.18,
+      metalness: tier === 'injured' ? 0.14 : 0.28,
+      clearcoat: tier === 'injured' ? 0.22 : 0.62,
       transparent: tier === 'injured',
       opacity: tier === 'injured' ? 0.72 : 1,
       depthWrite: tier !== 'injured',
@@ -275,6 +301,7 @@ function computeMatProps(
     stage === 'post_injury' &&
     area &&
     !clinicalLocked &&
+    !clinicalSecondary &&
     !selfCareSelected &&
     isActive
   ) {
@@ -411,7 +438,10 @@ export default function MuscleSegment({
   isHighPain,
   isSelected,
   clinicalLocked = false,
+  clinicalSecondary = false,
   selfCareSelected = false,
+  clinicalBlockSelfCare = false,
+  patientPortalInteractive = false,
   strengthenedToday = false,
   level,
   xp: _xp,
@@ -425,6 +455,7 @@ export default function MuscleSegment({
   injuryHighlight = false,
   participatesInHitTest = true,
   onAreaClick,
+  reduceMotion = false,
   children,
 }: MuscleSegmentProps) {
   void _xp;
@@ -457,6 +488,7 @@ export default function MuscleSegment({
         isHighPain,
         isSelected,
         clinicalLocked,
+        clinicalSecondary,
         selfCareSelected,
         strengthenedToday,
         hovered,
@@ -471,6 +503,7 @@ export default function MuscleSegment({
       isHighPain,
       isSelected,
       clinicalLocked,
+      clinicalSecondary,
       selfCareSelected,
       strengthenedToday,
       hovered,
@@ -529,60 +562,84 @@ export default function MuscleSegment({
     const mesh = meshRef.current;
     if (!mesh) return;
     _sv.setScalar(mp.targetScale);
-    mesh.scale.lerp(_sv, 0.12);
+    const k = reduceMotion ? 1 : 0.12;
+    mesh.scale.lerp(_sv, k);
 
     if (mp.useStandardMaterial) {
       const mat = stdRef.current;
       if (!mat) return;
       _tc.set(mp.color);
-      mat.color.lerp(_tc, 0.15);
+      mat.color.lerp(_tc, reduceMotion ? 1 : 0.15);
       mat.emissive.set(mp.emissive);
-      const injPulse = injuryHighlight ? 1 + 0.22 * Math.sin(clock.elapsedTime * 3.1) : 1;
+      const injPulse =
+        reduceMotion ? 1 : injuryHighlight ? 1 + 0.22 * Math.sin(clock.elapsedTime * 3.1) : 1;
       const pulse =
-        (muscleStage === 'power' ? 1 + 0.08 * Math.sin(clock.elapsedTime * 2.12) : 1) * injPulse;
+        (reduceMotion
+          ? 1
+          : muscleStage === 'power'
+            ? 1 + 0.08 * Math.sin(clock.elapsedTime * 2.12)
+            : 1) * injPulse;
       mat.emissiveIntensity = THREE.MathUtils.lerp(
         mat.emissiveIntensity,
         mp.emissiveIntensity * pulse,
-        0.12
+        k
       );
-      mat.roughness = THREE.MathUtils.lerp(mat.roughness, mp.roughness, 0.12);
-      mat.metalness = THREE.MathUtils.lerp(mat.metalness, mp.metalness, 0.12);
+      mat.roughness = THREE.MathUtils.lerp(mat.roughness, mp.roughness, k);
+      mat.metalness = THREE.MathUtils.lerp(mat.metalness, mp.metalness, k);
       mat.transparent = mp.transparent;
-      mat.opacity = THREE.MathUtils.lerp(mat.opacity, mp.opacity, 0.14);
+      mat.opacity = THREE.MathUtils.lerp(mat.opacity, mp.opacity, reduceMotion ? 1 : 0.14);
       mat.depthWrite = mp.depthWrite;
     } else {
       const mat = physRef.current;
       if (!mat) return;
       _tc.set(mp.color);
       _te.set(mp.emissive);
-      mat.color.lerp(_tc, 0.15);
-      mat.emissive.lerp(_te, 0.15);
-      mat.roughness = THREE.MathUtils.lerp(mat.roughness, mp.roughness, 0.12);
-      mat.metalness = THREE.MathUtils.lerp(mat.metalness, mp.metalness, 0.12);
-      const injPulse = injuryHighlight ? 1 + 0.22 * Math.sin(clock.elapsedTime * 3.1) : 1;
+      mat.color.lerp(_tc, reduceMotion ? 1 : 0.15);
+      mat.emissive.lerp(_te, reduceMotion ? 1 : 0.15);
+      mat.roughness = THREE.MathUtils.lerp(mat.roughness, mp.roughness, k);
+      mat.metalness = THREE.MathUtils.lerp(mat.metalness, mp.metalness, k);
+      const injPulseP =
+        reduceMotion ? 1 : injuryHighlight ? 1 + 0.22 * Math.sin(clock.elapsedTime * 3.1) : 1;
       const pulseP =
-        (muscleStage === 'power' ? 1 + 0.085 * Math.sin(clock.elapsedTime * 2.12) : 1) * injPulse;
+        (reduceMotion
+          ? 1
+          : muscleStage === 'power'
+            ? 1 + 0.085 * Math.sin(clock.elapsedTime * 2.12)
+            : 1) * injPulseP;
       mat.emissiveIntensity = THREE.MathUtils.lerp(
         mat.emissiveIntensity,
         mp.emissiveIntensity * pulseP,
-        0.12
+        k
       );
-      mat.clearcoat = THREE.MathUtils.lerp(mat.clearcoat, mp.clearcoat, 0.1);
-      mat.clearcoatRoughness = THREE.MathUtils.lerp(mat.clearcoatRoughness, mp.clearcoatRoughness, 0.1);
-      mat.envMapIntensity = THREE.MathUtils.lerp(mat.envMapIntensity, mp.envMapIntensity, 0.1);
-      mat.iridescence = THREE.MathUtils.lerp(mat.iridescence, mp.iridescence, 0.12);
-      mat.iridescenceIOR = THREE.MathUtils.lerp(mat.iridescenceIOR, mp.iridescenceIOR, 0.12);
+      mat.clearcoat = THREE.MathUtils.lerp(mat.clearcoat, mp.clearcoat, reduceMotion ? 1 : 0.1);
+      mat.clearcoatRoughness = THREE.MathUtils.lerp(
+        mat.clearcoatRoughness,
+        mp.clearcoatRoughness,
+        reduceMotion ? 1 : 0.1
+      );
+      mat.envMapIntensity = THREE.MathUtils.lerp(
+        mat.envMapIntensity,
+        mp.envMapIntensity,
+        reduceMotion ? 1 : 0.1
+      );
+      mat.iridescence = THREE.MathUtils.lerp(mat.iridescence, mp.iridescence, reduceMotion ? 1 : 0.12);
+      mat.iridescenceIOR = THREE.MathUtils.lerp(
+        mat.iridescenceIOR,
+        mp.iridescenceIOR,
+        reduceMotion ? 1 : 0.12
+      );
       const tr = mp.iridescenceThicknessRange;
       const cur = mat.iridescenceThicknessRange;
-      cur[0] = THREE.MathUtils.lerp(cur[0], tr[0], 0.1);
-      cur[1] = THREE.MathUtils.lerp(cur[1], tr[1], 0.1);
+      cur[0] = THREE.MathUtils.lerp(cur[0], tr[0], reduceMotion ? 1 : 0.1);
+      cur[1] = THREE.MathUtils.lerp(cur[1], tr[1], reduceMotion ? 1 : 0.1);
       mat.transparent = mp.transparent;
-      mat.opacity = THREE.MathUtils.lerp(mat.opacity, mp.opacity, 0.14);
+      mat.opacity = THREE.MathUtils.lerp(mat.opacity, mp.opacity, reduceMotion ? 1 : 0.14);
       mat.depthWrite = mp.depthWrite;
     }
   });
 
-  const interactive = !!area && !clinicalLocked && participatesInHitTest;
+  /** לחיצות מותרות גם באזור קליני — הפורטל מסנן ב־handleAvatar; המטפל מסנן לפי תרגילים */
+  const interactive = !!area && participatesInHitTest && !!onAreaClick;
   const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
 
   return (
@@ -606,7 +663,8 @@ export default function MuscleSegment({
             ? (e) => {
                 e.stopPropagation();
                 setHovered(true);
-                document.body.style.cursor = 'pointer';
+                const blockCursor = patientPortalInteractive && clinicalBlockSelfCare;
+                document.body.style.cursor = blockCursor ? 'not-allowed' : 'pointer';
               }
             : clinicalLocked && area
               ? (e) => {

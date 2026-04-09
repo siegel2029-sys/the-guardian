@@ -167,6 +167,10 @@ export interface Patient {
    * מקטעי אנטומיה להדגשת «הבעיה» — זוהר אדום במודל 3D (נשמר ב־localStorage).
    */
   injuryHighlightSegments: BodyArea[];
+  /**
+   * מוקד משני מהמטפל — כתום במפה; חוסם פרהאב כמו מוקד ראשי לפי אותו מקטע.
+   */
+  secondaryClinicalBodyAreas: BodyArea[];
   /** שדה קשר ישן (מספר בינלאומי ללא +) — נשמר לתאימות; התראות קליניות נשלחות בדוא״ל בלבד */
   contactWhatsappE164?: string;
 }

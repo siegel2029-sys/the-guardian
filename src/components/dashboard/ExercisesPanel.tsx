@@ -172,6 +172,7 @@ export default function ExercisesPanel() {
     getPatientExerciseFinishReports,
     togglePatientInjuryHighlight,
     clearPatientInjuryHighlights,
+    cycleTherapistBodyMapClinical,
   } = usePatient();
   const [videoModal, setVideoModal] = useState<string | null>(null);
   const [filterArea, setFilterArea] = useState<BodyArea | null>(null);
@@ -271,6 +272,9 @@ export default function ExercisesPanel() {
               <BodyMap3D
                 activeAreas={activeAreas}
                 primaryArea={selectedPatient.primaryBodyArea}
+                clinicalArea={selectedPatient.primaryBodyArea}
+                secondaryClinicalBodyAreas={selectedPatient.secondaryClinicalBodyAreas}
+                stableInteraction
                 painByArea={selectedPatient.analytics.painByArea}
                 level={selectedPatient.level}
                 xp={selectedPatient.xp}
@@ -279,9 +283,10 @@ export default function ExercisesPanel() {
                 strengthenedAreasToday={strengthenedToday}
                 selectedArea={filterArea}
                 injuryHighlightSegments={selectedPatient.injuryHighlightSegments}
-                onAreaClick={(area) =>
-                  setFilterArea((prev) => (prev === area ? null : area))
-                }
+                onAreaClick={(area) => {
+                  cycleTherapistBodyMapClinical(selectedPatient.id, area);
+                  setFilterArea((prev) => (prev === area ? null : area));
+                }}
               />
             </div>
 
@@ -323,8 +328,8 @@ export default function ExercisesPanel() {
             </div>
 
             {/* Hint */}
-            <p className="text-[10px] text-slate-400 text-center mt-3">
-              לחץ על אזור במפה או ברשימה לסינון
+            <p className="text-[10px] text-slate-400 text-center mt-3 leading-snug">
+              לחיצה על המפה: מחזור מוקד ראשי (אדום) / משני (כתום) / כבוי — וסינון הרשימה
             </p>
           </div>
 

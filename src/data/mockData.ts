@@ -45,6 +45,7 @@ export const mockPatients: Patient[] = [
     therapistNotes: 'מתקדם היטב. לשים לב לתרגילי חיזוק הליבה.',
     coins: 12,
     injuryHighlightSegments: [],
+    secondaryClinicalBodyAreas: [],
     analytics: {
       averageOverallPain: 4.2,
       averageDifficulty: 3.1,
@@ -88,6 +89,7 @@ export const mockPatients: Patient[] = [
     therapistNotes: 'ביצועים מצוינים. שלב 2 של שיקום - אפשר להגביר עומסים.',
     coins: 5,
     injuryHighlightSegments: [],
+    secondaryClinicalBodyAreas: [],
     analytics: {
       averageOverallPain: 2.8,
       averageDifficulty: 3.8,
@@ -136,6 +138,7 @@ export const mockPatients: Patient[] = [
     therapistNotes: 'דיווח על כאב חריג בלילה. לבדוק ב-Flag האדום.',
     coins: 0,
     injuryHighlightSegments: [],
+    secondaryClinicalBodyAreas: [],
     analytics: {
       averageOverallPain: 6.7,
       averageDifficulty: 2.3,

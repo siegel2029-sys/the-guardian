@@ -11,7 +11,10 @@ import { ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
 import MuscleSegment from './MuscleSegment';
 import type { BodyArea } from '../../types';
-import { bodyAreaIsClinicalFocus } from '../../body/bodyPickMapping';
+import {
+  bodyAreaBlocksSelfCare,
+  bodyAreaIsClinicalFocus,
+} from '../../body/bodyPickMapping';
 import {
   createUpperTorso,
   createLowerTorso,
@@ -87,6 +90,8 @@ interface BaseProps {
   onAreaClick?: (area: BodyArea) => void;
   /** true = mesh לא חוסם raycast (מעבר בחירה למקטע מאחור, למשל שוק מול שכבת עגל) */
   disableRaycast?: boolean;
+  /** ללא אנימציית נפח — לחיצות מדויקות */
+  motionSteady?: boolean;
 }
 
 function BaseSegment({
@@ -103,6 +108,7 @@ function BaseSegment({
   clinicalLocked = false,
   onAreaClick,
   disableRaycast = false,
+  motionSteady = false,
 }: BaseProps) {
   const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
   const baseColor = goldSkin ? GOLD_SKIN : BASE_SKIN;
@@ -110,7 +116,7 @@ function BaseSegment({
   const matRef = useRef<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial | null>(null);
   const inflationU = useMemo(() => ({ value: 0 }), []);
   const inflationEnabled = !goldSkin && level > 20 && vertexInflationWeight > 0;
-  const pickable = !!pickArea && !!onAreaClick && !clinicalLocked && !goldSkin;
+  const pickable = !!pickArea && !!onAreaClick && !goldSkin;
 
   useLayoutEffect(() => {
     const m = meshRef.current;
@@ -143,7 +149,7 @@ function BaseSegment({
   }, [inflationEnabled, inflationU]);
 
   useFrame(({ clock }) => {
-    if (!inflationEnabled) return;
+    if (!inflationEnabled || motionSteady) return;
     const g = Math.max(0, Math.min(1, growthLayerWeight));
     inflationU.value =
       getMuscleVertexInflation(level, clock.elapsedTime) * vertexInflationWeight * g;
@@ -265,17 +271,9 @@ function useNoRaycast<T extends THREE.Object3D>(ref: RefObject<T | null>) {
   }, []);
 }
 
-/** תנודת idle עדינה — אביזרים וגוף נעים יחד */
+/** עטיפה סטטית — תנודת idle הוסרה לטובת דיוק raycast */
 function IdleSwayRoot({ children }: { children: ReactNode }) {
-  const ref = useRef<THREE.Group>(null);
-  useFrame(({ clock }) => {
-    const g = ref.current;
-    if (!g) return;
-    const t = clock.elapsedTime;
-    g.rotation.y = Math.sin(t * 0.38) * 0.02;
-    g.position.y = Math.sin(t * 0.88) * 0.014;
-  });
-  return <group ref={ref}>{children}</group>;
+  return <group>{children}</group>;
 }
 
 function HeadFaceFeatures({ level }: { level: number }) {
@@ -388,12 +386,12 @@ function useGeometries() {
     ear:          new THREE.SphereGeometry(0.058, 12, 10),
     neck:         new THREE.CylinderGeometry(0.092, 0.112, 0.31, 18, 8),
     pelvis:       new THREE.CylinderGeometry(0.230, 0.212, 0.24, 20, 6),
-    wristL:       new THREE.SphereGeometry(0.086, 14, 12),
-    wristR:       new THREE.SphereGeometry(0.086, 14, 12),
+    wristL:       new THREE.SphereGeometry(0.098, 16, 12),
+    wristR:       new THREE.SphereGeometry(0.098, 16, 12),
     handL:        new THREE.CapsuleGeometry(0.074, 0.20, 4, 10),
     handR:        new THREE.CapsuleGeometry(0.074, 0.20, 4, 10),
-    elbowL:       new THREE.SphereGeometry(0.100, 16, 14),
-    elbowR:       new THREE.SphereGeometry(0.100, 16, 14),
+    elbowL:       new THREE.SphereGeometry(0.118, 18, 14),
+    elbowR:       new THREE.SphereGeometry(0.118, 18, 14),
     ankleL:       new THREE.SphereGeometry(0.098, 14, 12),
     ankleR:       new THREE.SphereGeometry(0.098, 14, 12),
     footL:        new THREE.BoxGeometry(0.158, 0.080, 0.300),
@@ -424,6 +422,12 @@ interface AnatomyModelProps {
   equippedGear: EquippedGearSnapshot;
   /** מקטעים להדגשת פגיעה — שכבת «בעיה» (אדום) */
   injuryHighlightSegments?: BodyArea[];
+  /** מוקד משני מהמטפל — כתום */
+  secondaryClinicalBodyAreas?: BodyArea[];
+  /** כבה אנימציות מפריעות — לחיצות מדויקות (ברירת מחדל: כן) */
+  stableInteraction?: boolean;
+  /** פורטל מטופל — עכבר «אסור» על אזורים חסומים לפרהאב */
+  patientPortalInteractive?: boolean;
   /** מכפילי נפח צמיחה לפי מקטע (שכבת «פתרון»), ברירת מחדל 1 */
   segmentGrowthMul?: Partial<Record<BodyArea, number>>;
 }
@@ -443,6 +447,9 @@ export default function AnatomyModel({
   onAreaClick,
   equippedGear,
   injuryHighlightSegments = [],
+  secondaryClinicalBodyAreas = [],
+  stableInteraction = true,
+  patientPortalInteractive = false,
   segmentGrowthMul,
 }: AnatomyModelProps) {
   const gearGoldSkin = equippedGear.skin === 'gold_skin';
@@ -450,10 +457,16 @@ export default function AnatomyModel({
   const primaryLightRef = useRef<THREE.PointLight>(null);
   const clinicalArea = clinicalAreaProp ?? primaryArea;
   const injurySet = useMemo(() => new Set(injuryHighlightSegments), [injuryHighlightSegments]);
+  const secondarySet = useMemo(
+    () => new Set(secondaryClinicalBodyAreas),
+    [secondaryClinicalBodyAreas]
+  );
   const growthOf = (a: BodyArea) =>
     Math.max(0, Math.min(1, segmentGrowthMul?.[a] ?? 1));
-  const clinicalLock = (a: BodyArea) =>
-    clinicalArea != null && bodyAreaIsClinicalFocus(a, clinicalArea);
+  const clinicalLockVisual = (a: BodyArea) =>
+    clinicalArea != null &&
+    bodyAreaIsClinicalFocus(a, clinicalArea) &&
+    !secondarySet.has(a);
   const strengthenedSet = useMemo(
     () => new Set(strengthenedAreasToday),
     [strengthenedAreasToday]
@@ -479,7 +492,7 @@ export default function AnatomyModel({
 
   // Pulse primary-area glow
   useFrame(({ clock }) => {
-    if (!primaryLightRef.current) return;
+    if (!primaryLightRef.current || stableInteraction) return;
     const lf = Math.min(level, 100) / 100;
     const pulse = Math.sin(clock.elapsedTime * 2.4) * 0.38;
     primaryLightRef.current.intensity = (0.55 + lf * 1.15) + pulse;
@@ -487,11 +500,19 @@ export default function AnatomyModel({
 
   // Shared props factory (מפרקים: ללא אינפלציה; כן ניתן לסמן פגיעה)
   const S = (area: BodyArea | null) => {
-    const clinicalLocked = area != null && clinicalLock(area);
-    const selfCareSelected =
+    const inChain =
+      area != null && clinicalArea != null && bodyAreaIsClinicalFocus(area, clinicalArea);
+    const clinicalSecondary = area != null && secondarySet.has(area);
+    const clinicalLocked = Boolean(inChain && !clinicalSecondary);
+    const blockSelfCare =
       area != null &&
-      selfCareSelectedAreas.includes(area) &&
-      !clinicalLocked;
+      bodyAreaBlocksSelfCare(
+        area,
+        clinicalArea ?? primaryArea ?? ('neck' as BodyArea),
+        secondaryClinicalBodyAreas
+      );
+    const selfCareSelected =
+      area != null && selfCareSelectedAreas.includes(area) && !blockSelfCare;
     const inj = area != null && injurySet.has(area);
     return {
       area,
@@ -513,6 +534,10 @@ export default function AnatomyModel({
       vertexInflationWeight: 0,
       growthLayerWeight: area ? growthOf(area) : 1,
       injuryHighlight: inj,
+      clinicalSecondary,
+      reduceMotion: stableInteraction,
+      clinicalBlockSelfCare: blockSelfCare,
+      patientPortalInteractive,
     };
   };
 
@@ -541,11 +566,11 @@ export default function AnatomyModel({
       {/* ══ NECK ═══════════════════════════════════════════════ */}
       <MuscleSegment {...S('neck')} geometry={geos.neck} position={[0, 1.48, 0]} />
 
-      {/* ══ SHOULDERS ══════════════════════════════════════════ */}
+      {/* ══ SHOULDERS — מפרק נפרד מזרוע; Z+ קדימה לעדיפות raycast ═══ */}
       {/* patient LEFT = viewer RIGHT = +x */}
-      <MuscleSegment {...S('shoulder_left')}  geometry={geos.shoulderL} position={[ 0.44, 1.30, 0]} participatesInHitTest={false} />
+      <MuscleSegment {...S('shoulder_left')} geometry={geos.shoulderL} position={[0.44, 1.3, 0.07]} />
       {/* patient RIGHT = viewer LEFT = -x */}
-      <MuscleSegment {...S('shoulder_right')} geometry={geos.shoulderR} position={[-0.44, 1.30, 0]} participatesInHitTest={false} />
+      <MuscleSegment {...S('shoulder_right')} geometry={geos.shoulderR} position={[-0.44, 1.3, 0.07]} />
 
       {/* ══ TORSO — חזה/גב עליון · בטן/גב תחתון (מקטעים נפרדים) ═══ */}
       <MuscleSegment {...S('chest')} geometry={geos.upperTorso} position={[0, 0.98, 0.034]} />
@@ -565,10 +590,11 @@ export default function AnatomyModel({
         growthLayerWeight={growthOf('upper_arm_left')}
         pickArea="upper_arm_left"
         injuryHighlight={injurySet.has('upper_arm_left')}
-        clinicalLocked={clinicalLock('upper_arm_left')}
+        clinicalLocked={clinicalLockVisual('upper_arm_left')}
+        motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('elbow_left')} geometry={geos.elbowL} position={[0.58, 0.6, 0]} participatesInHitTest={false} />
+      <MuscleSegment {...S('elbow_left')} geometry={geos.elbowL} position={[0.58, 0.6, 0.07]} />
       <BaseSegment
         geometry={geos.forearmL}
         position={[0.56, 0.21, 0]}
@@ -579,10 +605,11 @@ export default function AnatomyModel({
         growthLayerWeight={growthOf('forearm_left')}
         pickArea="forearm_left"
         injuryHighlight={injurySet.has('forearm_left')}
-        clinicalLocked={clinicalLock('forearm_left')}
+        clinicalLocked={clinicalLockVisual('forearm_left')}
+        motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('wrist_left')} geometry={geos.wristL} position={[0.57, -0.04, 0]} participatesInHitTest={false} />
+      <MuscleSegment {...S('wrist_left')} geometry={geos.wristL} position={[0.57, -0.04, 0.075]} />
       <BaseSegment geometry={geos.handL} position={[0.57, -0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
       {/* ══ RIGHT ARM (-x) ═════════════════════════════════════ */}
@@ -596,10 +623,11 @@ export default function AnatomyModel({
         growthLayerWeight={growthOf('upper_arm_right')}
         pickArea="upper_arm_right"
         injuryHighlight={injurySet.has('upper_arm_right')}
-        clinicalLocked={clinicalLock('upper_arm_right')}
+        clinicalLocked={clinicalLockVisual('upper_arm_right')}
+        motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR} position={[-0.58, 0.6, 0]} participatesInHitTest={false} />
+      <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR} position={[-0.58, 0.6, 0.07]} />
       <BaseSegment
         geometry={geos.forearmR}
         position={[-0.56, 0.21, 0]}
@@ -610,15 +638,16 @@ export default function AnatomyModel({
         growthLayerWeight={growthOf('forearm_right')}
         pickArea="forearm_right"
         injuryHighlight={injurySet.has('forearm_right')}
-        clinicalLocked={clinicalLock('forearm_right')}
+        clinicalLocked={clinicalLockVisual('forearm_right')}
+        motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('wrist_right')} geometry={geos.wristR} position={[-0.57, -0.04, 0]} participatesInHitTest={false} />
+      <MuscleSegment {...S('wrist_right')} geometry={geos.wristR} position={[-0.57, -0.04, 0.075]} />
       <BaseSegment geometry={geos.handR} position={[-0.57, -0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
       {/* ══ HIPS (עכוז) ═══════════════════════════════════════ */}
-      <MuscleSegment {...S('hip_left')} geometry={geos.gluteL} position={[0.24, 0.14, 0]} participatesInHitTest={false} />
-      <MuscleSegment {...S('hip_right')} geometry={geos.gluteR} position={[-0.24, 0.14, 0]} participatesInHitTest={false} />
+      <MuscleSegment {...S('hip_left')} geometry={geos.gluteL} position={[0.24, 0.14, 0.08]} />
+      <MuscleSegment {...S('hip_right')} geometry={geos.gluteR} position={[-0.24, 0.14, 0.08]} />
 
       {/* ══ LEFT LEG (+x) ══════════════════════════════════════ */}
       <BaseSegment
@@ -631,10 +660,11 @@ export default function AnatomyModel({
         growthLayerWeight={growthOf('thigh_left')}
         pickArea="thigh_left"
         injuryHighlight={injurySet.has('thigh_left')}
-        clinicalLocked={clinicalLock('thigh_left')}
+        clinicalLocked={clinicalLockVisual('thigh_left')}
+        motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('knee_left')} geometry={geos.kneeL} position={[0.24, -0.62, 0]} participatesInHitTest={false} />
+      <MuscleSegment {...S('knee_left')} geometry={geos.kneeL} position={[0.24, -0.62, 0.08]} />
       <BaseSegment
         geometry={geos.shinL}
         position={[0.24, -0.98, 0]}
@@ -645,10 +675,11 @@ export default function AnatomyModel({
         growthLayerWeight={growthOf('shin_left')}
         pickArea="shin_left"
         injuryHighlight={injurySet.has('shin_left')}
-        clinicalLocked={clinicalLock('shin_left')}
+        clinicalLocked={clinicalLockVisual('shin_left')}
+        motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[0.24, -1.33, 0]} participatesInHitTest={false} />
+      <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[0.24, -1.33, 0.085]} />
       <BaseSegment geometry={geos.footL} position={[0.255, -1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
       {/* ══ RIGHT LEG (-x) ═════════════════════════════════════ */}
@@ -662,10 +693,11 @@ export default function AnatomyModel({
         growthLayerWeight={growthOf('thigh_right')}
         pickArea="thigh_right"
         injuryHighlight={injurySet.has('thigh_right')}
-        clinicalLocked={clinicalLock('thigh_right')}
+        clinicalLocked={clinicalLockVisual('thigh_right')}
+        motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('knee_right')} geometry={geos.kneeR} position={[-0.24, -0.62, 0]} participatesInHitTest={false} />
+      <MuscleSegment {...S('knee_right')} geometry={geos.kneeR} position={[-0.24, -0.62, 0.08]} />
       <BaseSegment
         geometry={geos.shinR}
         position={[-0.24, -0.98, 0]}
@@ -676,10 +708,11 @@ export default function AnatomyModel({
         growthLayerWeight={growthOf('shin_right')}
         pickArea="shin_right"
         injuryHighlight={injurySet.has('shin_right')}
-        clinicalLocked={clinicalLock('shin_right')}
+        clinicalLocked={clinicalLockVisual('shin_right')}
+        motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
-      <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[-0.24, -1.33, 0]} participatesInHitTest={false} />
+      <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[-0.24, -1.33, 0.085]} />
       <BaseSegment geometry={geos.footR} position={[-0.255, -1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
       {/* ══ CALF detail (overlaid on shins for back muscle detail) */}

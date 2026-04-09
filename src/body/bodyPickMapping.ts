@@ -83,6 +83,8 @@ export function bodyAreaIsClinicalFocus(
     ['shoulder_right', 'upper_arm_right'],
     ['elbow_left', 'forearm_left'],
     ['elbow_right', 'forearm_right'],
+    ['wrist_left', 'forearm_left'],
+    ['wrist_right', 'forearm_right'],
   ];
   for (const [a, b] of armPairs) {
     if ((zone === a && primaryBodyArea === b) || (zone === b && primaryBodyArea === a)) {
@@ -98,6 +100,20 @@ export function bodyAreaIsClinicalFocus(
   }
 
   return false;
+}
+
+/**
+ * אזור שחוסם בחירת פרהאב/כוח ירוק — מוקד ראשי (שרשרת) או מוקד משני מפורש.
+ */
+export function bodyAreaBlocksSelfCare(
+  zone: BodyArea,
+  primaryBodyArea: BodyArea,
+  secondaryClinicalBodyAreas: readonly BodyArea[] = []
+): boolean {
+  return (
+    bodyAreaIsClinicalFocus(zone, primaryBodyArea) ||
+    secondaryClinicalBodyAreas.includes(zone)
+  );
 }
 
 /** Granular pick belongs to clinical focus (same rules as {@link bodyAreaIsClinicalFocus}). */

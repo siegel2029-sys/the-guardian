@@ -42,7 +42,7 @@ import {
   removePatientAccountsForPatient,
 } from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
-import { bodyAreaIsClinicalFocus } from '../body/bodyPickMapping';
+import { bodyAreaBlocksSelfCare, bodyAreaIsClinicalFocus } from '../body/bodyPickMapping';
 import { isChainReactionZoneForPrimary } from '../body/chainReactionZones';
 import { getTherapistAlertEmail, openClinicalMailto } from '../utils/clinicalAlertEmail';
 import {
@@ -368,6 +368,10 @@ interface PatientContextValue {
   /** הדגשת מקטע אנטומי כ«פגיעה» (זוהר אדום ב־3D) — מתג */
   togglePatientInjuryHighlight: (patientId: string, area: BodyArea) => void;
   clearPatientInjuryHighlights: (patientId: string) => void;
+  /**
+   * מפת מטפל: מחזור מוקד ראשי (אדום) / משני (כתום) / כבוי לפי מקטע.
+   */
+  cycleTherapistBodyMapClinical: (patientId: string, area: BodyArea) => void;
 
   /** אזורי פרהאב/כוח שנבחרו על ידי המטופל (לא כולל אזור קליני ראשי) */
   getSelfCareZones: (patientId: string) => BodyArea[];
@@ -406,6 +410,33 @@ function randomPatientPassword(): string {
   return s;
 }
 
+const NEUTRAL_PRIMARY_BODY_AREA: BodyArea = 'neck';
+
+function applyTherapistClinicalCycle(p: Patient, area: BodyArea): Patient {
+  const sec = [...(p.secondaryClinicalBodyAreas ?? [])];
+  if (sec.includes(area)) {
+    return { ...p, secondaryClinicalBodyAreas: sec.filter((a) => a !== area) };
+  }
+  if (p.primaryBodyArea === area) {
+    if (area === NEUTRAL_PRIMARY_BODY_AREA) {
+      return { ...p, secondaryClinicalBodyAreas: [...sec, area] };
+    }
+    return {
+      ...p,
+      primaryBodyArea: NEUTRAL_PRIMARY_BODY_AREA,
+      secondaryClinicalBodyAreas: sec.includes(area) ? sec : [...sec, area],
+    };
+  }
+  if (bodyAreaIsClinicalFocus(area, p.primaryBodyArea)) {
+    return { ...p, secondaryClinicalBodyAreas: [...sec, area] };
+  }
+  return {
+    ...p,
+    primaryBodyArea: area,
+    secondaryClinicalBodyAreas: sec.filter((a) => a !== area),
+  };
+}
+
 function normalizePatientsTherapistIds(list: Patient[]): Patient[] {
   return list.map((p) => {
     const wa = (p.contactWhatsappE164 ?? '').replace(/\D/g, '');
@@ -414,6 +445,9 @@ function normalizePatientsTherapistIds(list: Patient[]): Patient[] {
       therapistId: p.therapistId ?? mockTherapist.id,
       injuryHighlightSegments: Array.isArray(p.injuryHighlightSegments)
         ? p.injuryHighlightSegments
+        : [],
+      secondaryClinicalBodyAreas: Array.isArray(p.secondaryClinicalBodyAreas)
+        ? p.secondaryClinicalBodyAreas
         : [],
       contactWhatsappE164: wa.length >= 9 ? wa : undefined,
       redFlagActive: p.redFlagActive === true,
@@ -1811,6 +1845,7 @@ export function PatientProvider({
       therapistNotes: '',
       coins: 0,
       injuryHighlightSegments: [],
+      secondaryClinicalBodyAreas: [],
       analytics: {
         averageOverallPain: 0,
         painByArea: {},
@@ -2120,8 +2155,9 @@ export function PatientProvider({
       const patient = allPatients.find((p) => p.id === patientId);
       const raw = selfCareZonesByPatientId[patientId] ?? [];
       if (!patient) return raw.filter(Boolean);
+      const sec = patient.secondaryClinicalBodyAreas ?? [];
       return raw.filter(
-        (a) => a && !bodyAreaIsClinicalFocus(a, patient.primaryBodyArea)
+        (a) => a && !bodyAreaBlocksSelfCare(a, patient.primaryBodyArea, sec)
       );
     },
     [allPatients, selfCareZonesByPatientId]
@@ -2130,7 +2166,12 @@ export function PatientProvider({
   const toggleSelfCareZone = useCallback(
     (patientId: string, area: BodyArea) => {
       const patient = allPatients.find((p) => p.id === patientId);
-      if (!patient || bodyAreaIsClinicalFocus(area, patient.primaryBodyArea)) return;
+      if (
+        !patient ||
+        bodyAreaBlocksSelfCare(area, patient.primaryBodyArea, patient.secondaryClinicalBodyAreas ?? [])
+      ) {
+        return;
+      }
       setSelfCareZonesByPatientId((prev) => {
         const cur = prev[patientId] ?? [];
         const has = cur.includes(area);
@@ -2273,6 +2314,24 @@ export function PatientProvider({
     );
   }, []);
 
+  const cycleTherapistBodyMapClinical = useCallback((patientId: string, area: BodyArea) => {
+    setAllPatients((prev) => {
+      const idx = prev.findIndex((p) => p.id === patientId);
+      if (idx < 0) return prev;
+      const nextPatient = applyTherapistClinicalCycle(prev[idx], area);
+      setSelfCareZonesByPatientId((zp) => {
+        const cur = zp[patientId] ?? [];
+        const s = nextPatient.secondaryClinicalBodyAreas ?? [];
+        const filtered = cur.filter(
+          (a) => !bodyAreaBlocksSelfCare(a, nextPatient.primaryBodyArea, s)
+        );
+        if (filtered.length === cur.length) return zp;
+        return { ...zp, [patientId]: filtered };
+      });
+      return prev.map((p, i) => (i === idx ? nextPatient : p));
+    });
+  }, []);
+
   return (
     <PatientContext.Provider
       value={{
@@ -2335,6 +2394,7 @@ export function PatientProvider({
         resetPatientPainReports,
         togglePatientInjuryHighlight,
         clearPatientInjuryHighlights,
+        cycleTherapistBodyMapClinical,
         getSelfCareZones,
         toggleSelfCareZone,
         logSelfCareSession,

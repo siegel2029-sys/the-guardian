@@ -44,6 +44,12 @@ export interface BodyMap3DProps {
   equippedGear?: EquippedGearSnapshot;
   /** מקטעים להדגשת פגיעה (אדום) */
   injuryHighlightSegments?: BodyArea[];
+  /** מוקד משני מהמטפל (כתום) */
+  secondaryClinicalBodyAreas?: BodyArea[];
+  /** כבה אנימציות צף/בלום — לחיצות מדויקות */
+  stableInteraction?: boolean;
+  /** פורטל מטופל — סמן «אסור» על אזורי שיקום */
+  patientPortalInteractive?: boolean;
   /** מכפילי נפח שריר לפי מקטע (השוואת גיבורים וכו') */
   segmentGrowthMul?: Partial<Record<BodyArea, number>>;
 }
@@ -226,6 +232,9 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     minHeightPx = 500,
     equippedGear: equippedGearProp,
     injuryHighlightSegments = [],
+    secondaryClinicalBodyAreas = [],
+    stableInteraction = true,
+    patientPortalInteractive = false,
     segmentGrowthMul,
   } = props;
 
@@ -313,7 +322,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
 
         <Suspense fallback={<Loader />}>
           <group scale={avatarScale}>
-            <StreakEnergyFloat enabled={streakEnergy}>
+            <StreakEnergyFloat enabled={streakEnergy && !stableInteraction}>
               <AnatomyModel
                 activeAreas={activeAreas}
                 primaryArea={primaryArea}
@@ -329,6 +338,9 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                 onAreaClick={onAreaClick}
                 equippedGear={equippedGear}
                 injuryHighlightSegments={injuryHighlightSegments}
+                secondaryClinicalBodyAreas={secondaryClinicalBodyAreas}
+                stableInteraction={stableInteraction}
+                patientPortalInteractive={patientPortalInteractive}
                 segmentGrowthMul={segmentGrowthMul}
               />
 
@@ -374,12 +386,12 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                 </Html>
               )}
 
-              {streakEnergy && <StreakRimLight />}
+              {streakEnergy && !stableInteraction && <StreakRimLight />}
             </StreakEnergyFloat>
           </group>
         </Suspense>
 
-        {streakEnergy && (
+        {streakEnergy && !stableInteraction && (
           <EffectComposer enableNormalPass={false}>
             <Bloom
               intensity={0.42}
@@ -421,7 +433,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         pointerEvents: 'none', direction: 'rtl', whiteSpace: 'nowrap',
         boxShadow: '0 1px 6px rgba(0,0,0,0.08)',
       }}>
-        גרור לסיבוב · אדום = שיקום מהמטפל · ירוק = כוח/פרהאב (לחיצה)
+        גרור לסיבוב · אדום = מוקד ראשי · כתום = משני · ירוק = פרהאב (לחיצה)
       </div>
 
       {/* Level badge */}
