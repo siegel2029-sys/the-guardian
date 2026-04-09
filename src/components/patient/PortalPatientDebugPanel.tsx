@@ -1,22 +1,39 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Bug } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import { lifetimeXpFromPatient } from '../../body/patientLevelXp';
 
 /**
- * פאנל דיבוג ויזואלי — רק ב־development (מוצג מההורה).
+ * פאנל דיבוג — רק ב־development (מוצג מההורה).
+ * God mode: היסטוריה, XP מצטבר, איפוס מלא.
  */
 export default function PortalPatientDebugPanel() {
-  const { selectedPatient, updatePatient, resetPatientToCleanAvatar } = usePatient();
+  const {
+    selectedPatient,
+    updatePatient,
+    resetPatientToCleanAvatar,
+    devMockSevenDayExerciseHistory,
+    devBreakStreakRemoveYesterday,
+    devAdjustPatientLifetimeXp,
+    devSetPatientLifetimeXp,
+  } = usePatient();
   const [open, setOpen] = useState(false);
+  const [lifetimeXpInput, setLifetimeXpInput] = useState('');
 
   if (!selectedPatient) return null;
 
   const pid = selectedPatient.id;
+  const lifetimeTotal = Math.max(0, Math.floor(lifetimeXpFromPatient(selectedPatient)));
+
+  useEffect(() => {
+    if (!open) return;
+    setLifetimeXpInput(String(lifetimeTotal));
+  }, [open, lifetimeTotal]);
 
   return (
     <div
       className="fixed z-[60] text-start"
-      style={{ left: 8, bottom: 'calc(88px + env(safe-area-inset-bottom, 0px))', maxWidth: 200 }}
+      style={{ left: 8, bottom: 'calc(88px + env(safe-area-inset-bottom, 0px))', maxWidth: 220 }}
       dir="rtl"
     >
       <button
@@ -34,22 +51,80 @@ export default function PortalPatientDebugPanel() {
       </button>
       {open && (
         <div
-          className="mt-2 rounded-xl border p-2.5 space-y-1.5 shadow-xl"
+          className="mt-2 rounded-xl border p-2.5 space-y-2 shadow-xl max-h-[min(70vh,520px)] overflow-y-auto"
           style={{
             background: 'rgba(15,23,42,0.95)',
             borderColor: '#64748b',
           }}
         >
-          <p className="text-[9px] text-slate-400 leading-snug mb-1">
-            רמות 1–100 + נפח שריר (רק dev)
+          <p className="text-[9px] text-slate-400 leading-snug">
+            רק dev — נשמר ב־localStorage. XP בשדה = סה״כ מצטבר (כל הרמות).
           </p>
+
+          <p className="text-[9px] font-bold text-slate-300 uppercase tracking-wide">היסטוריה</p>
+          <button
+            type="button"
+            className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-emerald-950 text-emerald-100 hover:bg-emerald-900 border border-emerald-700/50"
+            onClick={() => devMockSevenDayExerciseHistory(pid)}
+          >
+            Mock 7-Day History
+          </button>
+          <button
+            type="button"
+            className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-orange-950 text-orange-100 hover:bg-orange-900 border border-orange-700/50"
+            onClick={() => devBreakStreakRemoveYesterday(pid)}
+          >
+            Break Streak (מחק אתמול)
+          </button>
+
+          <p className="text-[9px] font-bold text-slate-300 uppercase tracking-wide pt-0.5">XP</p>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              className="flex-1 text-[10px] font-semibold py-1.5 rounded-lg bg-teal-900 text-teal-50 hover:bg-teal-800"
+              onClick={() => devAdjustPatientLifetimeXp(pid, 100)}
+            >
+              +100 XP
+            </button>
+            <button
+              type="button"
+              className="flex-1 text-[10px] font-semibold py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600"
+              onClick={() => devAdjustPatientLifetimeXp(pid, -100)}
+            >
+              −100 XP
+            </button>
+          </div>
+          <div className="flex gap-1 items-stretch">
+            <input
+              type="number"
+              min={0}
+              className="flex-1 min-w-0 rounded-lg border border-slate-600 bg-slate-900 px-2 py-1 text-[10px] text-slate-100"
+              value={lifetimeXpInput}
+              onChange={(e) => setLifetimeXpInput(e.target.value)}
+              aria-label="סה״כ XP מצטבר"
+            />
+            <button
+              type="button"
+              className="shrink-0 px-2 rounded-lg text-[10px] font-semibold bg-indigo-900 text-indigo-100 hover:bg-indigo-800 border border-indigo-700/50"
+              onClick={() => {
+                const n = Math.max(0, Math.floor(Number(lifetimeXpInput)));
+                if (Number.isFinite(n)) devSetPatientLifetimeXp(pid, n);
+              }}
+            >
+              החל
+            </button>
+          </div>
+
+          <p className="text-[9px] font-bold text-slate-300 uppercase tracking-wide pt-0.5">איפוס</p>
           <button
             type="button"
             className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-rose-950 text-rose-100 hover:bg-rose-900 border border-rose-700/60"
             onClick={() => resetPatientToCleanAvatar(pid)}
           >
-            Reset Avatar (Level 1, Clean)
+            Reset All (רמה 1, 0 XP, 0 רצף, 0 מטבעות, ללא ציוד)
           </button>
+
+          <p className="text-[9px] font-bold text-slate-300 uppercase tracking-wide pt-0.5">פריסטים — רמה (ויזואליה)</p>
           <button
             type="button"
             className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600"

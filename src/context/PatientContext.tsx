@@ -48,7 +48,10 @@ import {
   xpRequiredToReachNextLevel,
   normalizePatientProgressFields,
   clampPatientLevel,
+  patientWithLifetimeXp,
+  lifetimeXpFromPatient,
 } from '../body/patientLevelXp';
+import { computeStreakForPatient } from '../utils/exerciseStreak';
 import { sendDataToTherapist } from '../utils/therapistAnalytics';
 import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../data/exerciseVideoDefaults';
 import {
@@ -338,6 +341,13 @@ interface PatientContextValue {
    * דיבוג בלבד: רמה 1, XP 0, מטבעות 0, איפוס ציוד (owned/equipped) — נשמר ב־localStorage.
    */
   resetPatientToCleanAvatar: (patientId: string) => void;
+  /** דיבוג: 7 ימים רצופים עם דיווח ב־dailySessions + sessionHistory */
+  devMockSevenDayExerciseHistory: (patientId: string) => void;
+  /** דיבוג: מוחק סשן של אתמול — שובר רצף */
+  devBreakStreakRemoveYesterday: (patientId: string) => void;
+  /** דיבוג: ±XP מצטבר (כולל עליות/ירידות רמה) */
+  devAdjustPatientLifetimeXp: (patientId: string, delta: number) => void;
+  devSetPatientLifetimeXp: (patientId: string, lifetimeXp: number) => void;
   resetPatientExercisePlan: (patientId: string) => void;
   resetPatientMessageHistory: (patientId: string) => void;
   resetPatientPainReports: (patientId: string) => void;
@@ -546,6 +556,22 @@ export function PatientProvider({
       mergeHistoryFromSessions(dailySessions, exercisePlans, {})
     );
   }, [dailySessions, exercisePlans]);
+
+  /** רצף נגזר מלוח + sessionHistory — מסונכן ל־currentStreak לשמירה ול־UI */
+  useEffect(() => {
+    setAllPatients((prev) => {
+      let changed = false;
+      const next = prev.map((p) => {
+        const map = dailyHistoryByPatient[p.id] ?? {};
+        const s = computeStreakForPatient(p, map, clinicalToday);
+        const longest = Math.max(p.longestStreak, s);
+        if (s === p.currentStreak && longest === p.longestStreak) return p;
+        changed = true;
+        return { ...p, currentStreak: s, longestStreak: longest };
+      });
+      return changed ? next : prev;
+    });
+  }, [dailyHistoryByPatient, clinicalToday]);
 
   useEffect(() => {
     savePersistedPatientState({
@@ -1765,6 +1791,7 @@ export function PatientProvider({
   const resetPatientToCleanAvatar = useCallback((patientId: string) => {
     if (import.meta.env.PROD) return;
     const gate = xpRequiredToReachNextLevel(1);
+    setDailySessions((prev) => prev.filter((s) => s.patientId !== patientId));
     setAllPatients((prev) =>
       prev.map((p) =>
         p.id === patientId
@@ -1775,6 +1802,13 @@ export function PatientProvider({
               xpForNextLevel: gate,
               coins: 0,
               currentStreak: 0,
+              longestStreak: 0,
+              lastSessionDate: p.joinDate,
+              analytics: {
+                ...p.analytics,
+                sessionHistory: [],
+                totalSessions: 0,
+              },
             }
           : p
       )
@@ -1783,6 +1817,104 @@ export function PatientProvider({
       ...prev,
       [patientId]: defaultPatientGear(),
     }));
+  }, []);
+
+  const devMockSevenDayExerciseHistory = useCallback(
+    (patientId: string) => {
+      if (import.meta.env.PROD) return;
+      const plan = exercisePlans.find((ep) => ep.patientId === patientId);
+      const exId =
+        plan?.exercises[0]?.id ??
+        `${patientId}-dev-mock-${Math.random().toString(36).slice(2, 8)}`;
+      const dates = [0, 1, 2, 3, 4, 5, 6].map((i) => addClinicalDays(clinicalToday, -i));
+      const totalPlanned = Math.max(1, plan?.exercises.length ?? 1);
+
+      setDailySessions((prev) => {
+        const without = prev.filter(
+          (s) => !(s.patientId === patientId && dates.includes(s.date))
+        );
+        const additions: DailySession[] = dates.map((date) => ({
+          patientId,
+          date,
+          completedIds: [exId],
+          sessionXp: 80,
+        }));
+        return [...without, ...additions];
+      });
+
+      setAllPatients((prev) =>
+        prev.map((p) => {
+          if (p.id !== patientId) return p;
+          const without = p.analytics.sessionHistory.filter((s) => !dates.includes(s.date));
+          const rows: ExerciseSession[] = dates.map((date) => ({
+            date,
+            exercisesCompleted: totalPlanned,
+            totalExercises: totalPlanned,
+            difficultyRating: 3,
+            xpEarned: 80,
+          }));
+          const sessionHistory = [...without, ...rows].sort((a, b) =>
+            a.date.localeCompare(b.date)
+          );
+          return {
+            ...p,
+            lastSessionDate: clinicalToday,
+            analytics: {
+              ...p.analytics,
+              sessionHistory,
+              totalSessions: sessionHistory.length,
+            },
+          };
+        })
+      );
+    },
+    [clinicalToday, exercisePlans]
+  );
+
+  const devBreakStreakRemoveYesterday = useCallback(
+    (patientId: string) => {
+      if (import.meta.env.PROD) return;
+      const y = getClinicalYesterday();
+      setDailySessions((prev) =>
+        prev.filter((s) => !(s.patientId === patientId && s.date === y))
+      );
+      setAllPatients((prev) =>
+        prev.map((p) => {
+          if (p.id !== patientId) return p;
+          const sessionHistory = p.analytics.sessionHistory.filter((s) => s.date !== y);
+          return {
+            ...p,
+            analytics: {
+              ...p.analytics,
+              sessionHistory,
+              totalSessions: sessionHistory.length,
+            },
+          };
+        })
+      );
+    },
+    []
+  );
+
+  const devAdjustPatientLifetimeXp = useCallback((patientId: string, delta: number) => {
+    if (import.meta.env.PROD) return;
+    setAllPatients((prev) =>
+      prev.map((p) => {
+        if (p.id !== patientId) return p;
+        const nextLife = Math.max(0, lifetimeXpFromPatient(p) + Math.round(delta));
+        return patientWithLifetimeXp(p, nextLife);
+      })
+    );
+  }, []);
+
+  const devSetPatientLifetimeXp = useCallback((patientId: string, lifetimeXp: number) => {
+    if (import.meta.env.PROD) return;
+    setAllPatients((prev) =>
+      prev.map((p) => {
+        if (p.id !== patientId) return p;
+        return patientWithLifetimeXp(p, Math.max(0, Math.floor(lifetimeXp)));
+      })
+    );
   }, []);
 
   const deletePatient = useCallback((patientId: string) => {
@@ -2013,6 +2145,10 @@ export function PatientProvider({
         deletePatient,
         updatePatient,
         resetPatientToCleanAvatar,
+        devMockSevenDayExerciseHistory,
+        devBreakStreakRemoveYesterday,
+        devAdjustPatientLifetimeXp,
+        devSetPatientLifetimeXp,
         resetPatientExercisePlan,
         resetPatientMessageHistory,
         resetPatientPainReports,

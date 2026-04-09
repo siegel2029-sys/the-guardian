@@ -1,5 +1,5 @@
 import { useMemo, useState, type CSSProperties } from 'react';
-import { ChevronRight, ChevronLeft, Calendar } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Calendar, Check } from 'lucide-react';
 import type { DailyHistoryEntry } from '../../types';
 import { clinicalDateToLocalMidnight } from '../../utils/clinicalCalendar';
 
@@ -49,7 +49,7 @@ function buildStreakSegments(
   for (let d = 1; d <= daysInMonth; d++) {
     const key = ymd(year, month, d);
     const e = entries[key];
-    if (e && (e.status === 'gold' || e.status === 'stasis')) {
+    if (e && e.exercisesCompleted > 0) {
       qualifying.push(d);
     }
   }
@@ -68,7 +68,14 @@ function buildStreakSegments(
   return lines;
 }
 
-function cellStyle(entry: DailyHistoryEntry | undefined, isToday: boolean): CSSProperties {
+const WORKOUT_GLOW =
+  '0 0 0 2px rgba(34, 197, 94, 0.55), 0 0 12px rgba(34, 197, 94, 0.45), 0 0 22px rgba(34, 197, 94, 0.2)';
+
+function cellStyle(
+  entry: DailyHistoryEntry | undefined,
+  isToday: boolean,
+  hasCompletedWorkout: boolean
+): CSSProperties {
   const base: CSSProperties = {
     width: CELL_W,
     height: CELL_H,
@@ -80,36 +87,45 @@ function cellStyle(entry: DailyHistoryEntry | undefined, isToday: boolean): CSSP
     fontWeight: 700,
     border: isToday ? '2px solid #0d9488' : '1px solid rgba(15,118,110,0.15)',
     boxSizing: 'border-box',
+    position: 'relative',
+  };
+  const withWorkoutGlow = (s: CSSProperties): CSSProperties => {
+    if (!hasCompletedWorkout) return s;
+    const prev = s.boxShadow;
+    return {
+      ...s,
+      boxShadow: prev ? `${prev}, ${WORKOUT_GLOW}` : WORKOUT_GLOW,
+    };
   };
   if (!entry || entry.status === 'empty') {
-    return {
+    return withWorkoutGlow({
       ...base,
       background: 'rgba(241,245,249,0.9)',
       color: '#94a3b8',
-    };
+    });
   }
   if (entry.status === 'gold') {
-    return {
+    return withWorkoutGlow({
       ...base,
       background: 'linear-gradient(145deg, #fde68a, #f59e0b)',
       color: '#78350f',
       boxShadow: isToday ? '0 0 0 2px #0d9488' : '0 2px 8px rgba(245, 158, 11, 0.35)',
-    };
+    });
   }
   if (entry.status === 'silver') {
-    return {
+    return withWorkoutGlow({
       ...base,
       background: 'linear-gradient(145deg, #e2e8f0, #cbd5e1)',
       color: '#334155',
-    };
+    });
   }
   /* stasis — קרח */
-  return {
+  return withWorkoutGlow({
     ...base,
     background: 'linear-gradient(145deg, #dbeafe, #93c5fd)',
     color: '#1e3a5f',
     borderColor: '#7dd3fc',
-  };
+  });
 }
 
 interface ClinicalMonthCalendarProps {
@@ -190,8 +206,15 @@ export default function ClinicalMonthCalendar({ dayMap, clinicalToday }: Clinica
           <span className="w-3 h-3 rounded-sm" style={{ background: 'linear-gradient(145deg,#dbeafe,#93c5fd)' }} />
           קרח — סטזיס / ללא ביצוע
         </span>
+        <span className="inline-flex items-center gap-1">
+          <span
+            className="w-3 h-3 rounded-full shrink-0"
+            style={{ boxShadow: WORKOUT_GLOW, background: 'rgba(187, 247, 208, 0.95)' }}
+          />
+          וי — בוצע לפחות תרגיל אחד
+        </span>
         <span className="inline-flex items-center gap-1 text-teal-700">
-          קו — רצף ימי זהב/קרח
+          קו — רצף ימים עם פעילות
         </span>
       </div>
 
@@ -241,16 +264,25 @@ export default function ClinicalMonthCalendar({ dayMap, clinicalToday }: Clinica
                 const key = ymd(year, month, dayNum);
                 const entry = dayMap[key];
                 const isToday = key === clinicalToday;
+                const hasWorkout = entry != null && entry.exercisesCompleted > 0;
                 return (
                   <div
                     key={key}
-                    style={cellStyle(entry, isToday)}
+                    style={cellStyle(entry, isToday, hasWorkout)}
                     title={
                       entry
                         ? `${key}: ${entry.status} (${entry.exercisesCompleted}/${entry.exercisesPlanned})`
                         : key
                     }
                   >
+                    {hasWorkout && (
+                      <span
+                        className="absolute top-0.5 start-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500/95 text-white shadow-sm"
+                        aria-hidden
+                      >
+                        <Check className="h-2 w-2 stroke-[3]" />
+                      </span>
+                    )}
                     {dayNum}
                   </div>
                 );

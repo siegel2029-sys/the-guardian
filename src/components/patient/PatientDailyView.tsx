@@ -52,6 +52,7 @@ import { RewardLabel } from '../ui/RewardLabel';
 import GearStoreArmory from './GearStoreArmory';
 import { buildEquippedGearSnapshot } from '../../utils/gearSnapshot';
 import PortalPatientDebugPanel from './PortalPatientDebugPanel';
+import { computeStreakForPatient } from '../../utils/exerciseStreak';
 
 /** תצוגת יום למטופל — מוצגת רק ב־/patient-portal (מפת גוף, תרגילים, לוח שנה). */
 export default function PatientDailyView() {
@@ -189,6 +190,14 @@ export default function PatientDailyView() {
     () =>
       selectedPatient ? dailyHistoryByPatient[selectedPatient.id] ?? {} : {},
     [selectedPatient, dailyHistoryByPatient]
+  );
+
+  const displayStreak = useMemo(
+    () =>
+      selectedPatient
+        ? computeStreakForPatient(selectedPatient, patientDayMap, clinicalToday)
+        : 0,
+    [selectedPatient, patientDayMap, clinicalToday]
   );
 
   const exerciseSafetyLocked = selectedPatient
@@ -568,7 +577,7 @@ export default function PatientDailyView() {
                   level={selectedPatient.level}
                   xp={selectedPatient.xp}
                   xpForNextLevel={selectedPatient.xpForNextLevel}
-                  streak={selectedPatient.currentStreak}
+                  streak={displayStreak}
                   strengthenedAreasToday={strengthenedAreasToday}
                   floatingLevelBadge
                   levelBadgeRevealOnHover
@@ -823,9 +832,23 @@ export default function PatientDailyView() {
             background: 'linear-gradient(135deg, #f0fdfa, #ffffff)',
           }}
         >
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="w-4 h-4 text-teal-600" />
-            <span className="text-sm font-semibold text-teal-900">התקדמות</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-teal-600" />
+              <span className="text-sm font-semibold text-teal-900">התקדמות</span>
+            </div>
+            <div
+              className="text-sm font-black tabular-nums px-3 py-1 rounded-xl border"
+              style={{
+                borderColor: 'rgba(249, 115, 22, 0.45)',
+                background: 'linear-gradient(135deg, rgba(255, 247, 237, 0.95), #fff7ed)',
+                color: '#9a3412',
+                boxShadow: '0 0 16px rgba(251, 146, 60, 0.25)',
+              }}
+              title="רצף ימים עם לפחות תרגיל אחד שהושלם (לפי לוח קליני)"
+            >
+              רצף {displayStreak} {displayStreak === 1 ? 'יום' : 'ימים'} 🔥
+            </div>
           </div>
           <div className="flex justify-between text-sm text-slate-600 mb-1">
             <span>רמה {selectedPatient.level}</span>

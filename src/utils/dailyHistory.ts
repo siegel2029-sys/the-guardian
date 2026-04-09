@@ -7,10 +7,12 @@ export function deriveDailyHistoryEntry(
   planned: number
 ): DailyHistoryEntry {
   const exercisesCompleted = completedIds.length;
+  /** תוכנית ריקה + דיווח — עדיין "יום עם ביצוע" ללוח ולרצף */
+  const plannedEff = Math.max(planned, exercisesCompleted > 0 ? 1 : 0);
   let status: ClinicalDayStatus;
-  if (planned <= 0) {
+  if (plannedEff <= 0) {
     status = 'empty';
-  } else if (exercisesCompleted >= planned) {
+  } else if (exercisesCompleted >= plannedEff) {
     status = 'gold';
   } else if (exercisesCompleted > 0) {
     status = 'silver';
@@ -19,7 +21,7 @@ export function deriveDailyHistoryEntry(
   }
   return {
     clinicalDate,
-    exercisesPlanned: planned,
+    exercisesPlanned: plannedEff,
     exercisesCompleted,
     completedExerciseIds: [...completedIds],
     xpEarned: sessionXp,
