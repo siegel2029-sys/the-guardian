@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Bug } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
-import type { ExerciseLevel } from '../../types';
 
 /**
  * פאנל דיבוג ויזואלי — רק ב־development (מוצג מההורה).
@@ -42,47 +41,73 @@ export default function PortalPatientDebugPanel() {
           }}
         >
           <p className="text-[9px] text-slate-400 leading-snug mb-1">
-            אבולוציית שריר (רק dev) + חנות
+            רמות 1–100 + נפח שריר (רק dev)
           </p>
           <button
             type="button"
             className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600"
             onClick={() =>
               updatePatient(pid, {
-                level: 2 as ExerciseLevel,
+                level: 5,
                 xp: 0,
                 xpForNextLevel: 500,
                 currentStreak: 0,
               })
             }
           >
-            רמה 2 — רזה / חלש
+            רמה 5 — רזה / חלש
           </button>
           <button
             type="button"
             className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-teal-900 text-teal-100 hover:bg-teal-800"
             onClick={() =>
               updatePatient(pid, {
-                level: 5 as ExerciseLevel,
-                xp: 2000,
-                xpForNextLevel: 2500,
+                level: 35,
+                xp: 1200,
+                xpForNextLevel: 1800,
               })
             }
           >
-            רמה 5 — מוגדר / פעיל
+            רמה 35 — שיקום פעיל
+          </button>
+          <button
+            type="button"
+            className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-emerald-900 text-emerald-100 hover:bg-emerald-800"
+            onClick={() =>
+              updatePatient(pid, {
+                level: 65,
+                xp: 4000,
+                xpForNextLevel: 9000,
+              })
+            }
+          >
+            רמה 65 — חיזוק
           </button>
           <button
             type="button"
             className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-cyan-900 text-cyan-100 hover:bg-cyan-800"
             onClick={() =>
               updatePatient(pid, {
-                level: 10 as ExerciseLevel,
-                xp: 5000,
-                xpForNextLevel: 8000,
+                level: 90,
+                xp: 8000,
+                xpForNextLevel: 16000,
               })
             }
           >
-            רמה 10 — חזק / עוצמה
+            רמה 90 — עוצמה
+          </button>
+          <button
+            type="button"
+            className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-violet-950 text-violet-100 hover:bg-violet-900"
+            onClick={() =>
+              updatePatient(pid, {
+                level: 100,
+                xp: 0,
+                xpForNextLevel: 999_999_999,
+              })
+            }
+          >
+            רמה 100 — מקסימום
           </button>
           <button
             type="button"

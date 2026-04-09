@@ -24,9 +24,13 @@ import {
   createGlute,
 } from './geometry/muscleGeometry';
 import { getLevelTier } from '../../body/levelTier';
-import { getMuscleEvolutionStage } from '../../body/anatomicalEvolution';
+import { getMuscleEvolutionStage, getMuscleVertexInflation } from '../../body/anatomicalEvolution';
 import type { MuscleEvolutionStage } from '../../body/anatomicalEvolution';
 import { createMuscleFiberTextures } from './proceduralMuscleTextures';
+import {
+  installMuscleVertexInflation,
+  clearMuscleVertexInflationPatch,
+} from './muscleVertexInflation';
 import EquippedGearAttachments from './equippedGear/EquippedGearAttachments';
 import type { EquippedGearSnapshot } from '../../config/gearCatalog';
 
@@ -60,17 +64,56 @@ interface BaseProps {
   level: number;
   goldSkin?: boolean;
   muscleStage: MuscleEvolutionStage;
+  /** 0 = ללא נפח קדקודים (ראש); 1 = גפיים וגוף */
+  vertexInflationWeight?: number;
 }
 
-function BaseSegment({ geometry, position, rotation, level, goldSkin, muscleStage }: BaseProps) {
+function BaseSegment({
+  geometry,
+  position,
+  rotation,
+  level,
+  goldSkin,
+  muscleStage,
+  vertexInflationWeight = 1,
+}: BaseProps) {
   const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
   const baseColor = goldSkin ? GOLD_SKIN : BASE_SKIN;
+  const matRef = useRef<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial | null>(null);
+  const inflationU = useMemo(() => ({ value: 0 }), []);
+  const inflationEnabled = !goldSkin && level > 20 && vertexInflationWeight > 0;
 
-  if (!goldSkin && muscleStage === 'recovery') {
+  useLayoutEffect(() => {
+    if (!inflationEnabled) {
+      inflationU.value = 0;
+      return () => {
+        clearMuscleVertexInflationPatch(matRef.current);
+      };
+    }
+    let raf = 0;
+    raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const m = matRef.current;
+        if (m) installMuscleVertexInflation(m, inflationU);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      clearMuscleVertexInflationPatch(matRef.current);
+    };
+  }, [inflationEnabled, inflationU]);
+
+  useFrame(({ clock }) => {
+    if (!inflationEnabled) return;
+    inflationU.value = getMuscleVertexInflation(level, clock.elapsedTime) * vertexInflationWeight;
+  });
+
+  if (!goldSkin && muscleStage === 'post_injury') {
     return (
       <group position={position} rotation={rot} scale={[0.96, 0.97, 0.96]}>
         <mesh geometry={geometry} castShadow receiveShadow>
           <meshStandardMaterial
+            ref={matRef}
             color="#cbd5e1"
             roughness={0.94}
             metalness={0.02}
@@ -91,6 +134,7 @@ function BaseSegment({ geometry, position, rotation, level, goldSkin, muscleStag
       <group position={position} rotation={rot}>
         <mesh geometry={geometry} castShadow receiveShadow>
           <meshStandardMaterial
+            ref={matRef}
             color={goldSkin ? '#b8941f' : '#e8eaef'}
             roughness={0.92}
             metalness={goldSkin ? 0.35 : 0.02}
@@ -108,6 +152,7 @@ function BaseSegment({ geometry, position, rotation, level, goldSkin, muscleStag
       <group position={position} rotation={rot}>
         <mesh geometry={geometry} castShadow receiveShadow>
           <meshPhysicalMaterial
+            ref={matRef}
             color={baseColor}
             roughness={goldSkin ? 0.35 : 0.82}
             metalness={goldSkin ? 0.65 : 0.05}
@@ -124,6 +169,7 @@ function BaseSegment({ geometry, position, rotation, level, goldSkin, muscleStag
     <group position={position} rotation={rot}>
       <mesh geometry={geometry} castShadow receiveShadow>
         <meshPhysicalMaterial
+          ref={matRef}
           color={baseColor}
           roughness={goldSkin ? 0.22 : 0.26}
           metalness={goldSkin ? 0.78 : 0.55}
@@ -338,7 +384,7 @@ export default function AnatomyModel({
 
   const muscleStage = useMemo(() => getMuscleEvolutionStage(level), [level]);
   const muscleMaps = useMemo(
-    () => createMuscleFiberTextures(256, muscleStage === 'strong' ? 'strong' : 'strengthening'),
+    () => createMuscleFiberTextures(256, muscleStage === 'power' ? 'strong' : 'strengthening'),
     [muscleStage]
   );
 
@@ -357,7 +403,7 @@ export default function AnatomyModel({
   // Pulse primary-area glow
   useFrame(({ clock }) => {
     if (!primaryLightRef.current) return;
-    const lf = Math.min(level, 10) / 10;
+    const lf = Math.min(level, 100) / 100;
     const pulse = Math.sin(clock.elapsedTime * 2.4) * 0.38;
     primaryLightRef.current.intensity = (0.55 + lf * 1.15) + pulse;
   });
@@ -407,9 +453,9 @@ export default function AnatomyModel({
       )}
 
       {/* ══ HEAD ═══════════════════════════════════════════════ */}
-      <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
-      <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
-      <BaseSegment geometry={geos.ear}  position={[-0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} />
+      <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
+      <BaseSegment geometry={geos.ear}  position={[-0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} />
       <HeadFaceFeatures level={level} />
 
       {/* ══ NECK ═══════════════════════════════════════════════ */}

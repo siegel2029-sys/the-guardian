@@ -69,7 +69,8 @@ export interface PatientAnalytics {
 }
 
 export type PatientStatus = 'active' | 'pending' | 'paused';
-export type ExerciseLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+/** רמת התקדמות מטופל (1–100) — XP ואווטאר משתנים לפי הסקאלה המלאה */
+export type ExerciseLevel = number;
 
 /** תרגיל כוח/פרהאב לבחירת מטופל — מחוץ לתוכנית הקלינית */
 export interface SelfCareExercise {

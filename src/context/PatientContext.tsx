@@ -43,6 +43,12 @@ import {
 } from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 import { bodyAreaIsClinicalFocus } from '../body/bodyPickMapping';
+import {
+  PATIENT_MAX_LEVEL,
+  xpRequiredToReachNextLevel,
+  normalizePatientProgressFields,
+  clampPatientLevel,
+} from '../body/patientLevelXp';
 import { sendDataToTherapist } from '../utils/therapistAnalytics';
 import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../data/exerciseVideoDefaults';
 import {
@@ -134,16 +140,14 @@ function clampEffort(n: number): 1 | 2 | 3 | 4 | 5 {
   return r as 1 | 2 | 3 | 4 | 5;
 }
 
-const MAX_LEVEL = 10;
-
 function applyXpCoinsLevelUp(p: Patient, xpDelta: number, coinsDelta: number): Patient {
   let { xp, level, xpForNextLevel, coins } = p;
   coins += coinsDelta;
   xp += xpDelta;
-  while (xp >= xpForNextLevel && level < MAX_LEVEL) {
+  while (xp >= xpForNextLevel && level < PATIENT_MAX_LEVEL) {
     xp -= xpForNextLevel;
     level += 1;
-    xpForNextLevel = Math.floor(xpForNextLevel * 1.15);
+    xpForNextLevel = xpRequiredToReachNextLevel(level);
   }
   return {
     ...p,
@@ -372,10 +376,12 @@ function randomPatientPassword(): string {
 }
 
 function normalizePatientsTherapistIds(list: Patient[]): Patient[] {
-  return list.map((p) => ({
-    ...p,
-    therapistId: p.therapistId ?? mockTherapist.id,
-  }));
+  return list.map((p) =>
+    normalizePatientProgressFields({
+      ...p,
+      therapistId: p.therapistId ?? mockTherapist.id,
+    })
+  );
 }
 
 export function PatientProvider({
@@ -1607,7 +1613,7 @@ export function PatientProvider({
       status: 'pending',
       level: 1,
       xp: 0,
-      xpForNextLevel: 500,
+      xpForNextLevel: xpRequiredToReachNextLevel(1),
       currentStreak: 0,
       longestStreak: 0,
       joinDate,
@@ -1736,7 +1742,7 @@ export function PatientProvider({
           if (p.id !== patientId) return p;
           const next = { ...p, ...patch } as Patient;
           const L = Math.round(Number(next.level));
-          next.level = Math.min(10, Math.max(1, L)) as Patient['level'];
+          next.level = clampPatientLevel(L) as Patient['level'];
           if (typeof next.xp === 'number' && next.xp < 0) next.xp = 0;
           if (typeof next.currentStreak === 'number' && next.currentStreak < 0) {
             next.currentStreak = 0;

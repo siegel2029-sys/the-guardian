@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo, type ReactNode } from 'react';
+import { useRef, useState, useMemo, useLayoutEffect, type ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -8,11 +8,16 @@ import { getLevelTier } from '../../body/levelTier';
 import type { MuscleEvolutionStage } from '../../body/anatomicalEvolution';
 import {
   getMuscleEvolutionStage,
+  getMuscleVertexInflation,
   muscleStageHealthyGlowExtra,
   muscleStageNormalScaleMul,
   muscleStageUsesFiberNormalMap,
   muscleStageVolumeBoost,
 } from '../../body/anatomicalEvolution';
+import {
+  installMuscleVertexInflation,
+  clearMuscleVertexInflationPatch,
+} from './muscleVertexInflation';
 
 const MUSCLE_NORMAL_STD = new THREE.Vector2(0.42, 0.42);
 const MUSCLE_NORMAL_PHYS = new THREE.Vector2(0.48, 0.48);
@@ -30,7 +35,7 @@ export interface MuscleSegmentProps {
   selfCareSelected?: boolean;
   /** Self-care zone finished today — gold / blue (overrides level look) */
   strengthenedToday?: boolean;
-  /** Patient level (1–10) — drives material evolution */
+  /** Patient level (1–100) — נפח שריר וחומרים */
   level: number;
   /** Passed through for parity with portal data; reserved for future micro-tuning */
   xp?: number;
@@ -116,7 +121,7 @@ function computeMatProps(
   stage: MuscleEvolutionStage
 ): MatProps {
   const tier = getLevelTier(level);
-  const lf = Math.min(Math.max(level, 1), 10) / 10;
+  const lf = Math.min(Math.max(level, 1), 100) / 100;
   const hv = isHovered ? 0.06 : 0;
   const envAccent = clinicalLocked || selfCareSelected ? 2.15 : 1.42;
   const volBoost = muscleStageVolumeBoost(stage);
@@ -236,7 +241,7 @@ function computeMatProps(
   }
 
   if (
-    stage === 'recovery' &&
+    stage === 'post_injury' &&
     area &&
     !clinicalLocked &&
     !selfCareSelected &&
@@ -256,7 +261,7 @@ function computeMatProps(
       iridescenceIOR: 1,
       iridescenceThicknessRange: [0, 0],
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.58,
       depthWrite: false,
       targetScale:
         0.98 +
@@ -291,7 +296,7 @@ function computeMatProps(
     return basePhysical({
       color: isHovered ? '#7dd3fc' : '#5eead4',
       emissive: '#0f172a',
-      emissiveIntensity: stage === 'strong' ? 0.04 : 0,
+      emissiveIntensity: stage === 'power' ? 0.05 : 0,
       targetScale: 1 + (isHovered ? 0.03 : 0) + volBoost * 0.4,
       ...m,
       roughness: m.roughness + 0.04,
@@ -443,7 +448,34 @@ export default function MuscleSegment({
     [normalMul]
   );
 
-  useFrame(() => {
+  const inflationUniform = useMemo(() => ({ value: 0 }), []);
+  const inflationEnabled = level > 20;
+
+  useLayoutEffect(() => {
+    if (!inflationEnabled) {
+      inflationUniform.value = 0;
+      return () => {
+        const m = stdRef.current ?? physRef.current;
+        clearMuscleVertexInflationPatch(m);
+      };
+    }
+    let raf = 0;
+    raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const m = stdRef.current ?? physRef.current;
+        if (m) installMuscleVertexInflation(m, inflationUniform);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      const m = stdRef.current ?? physRef.current;
+      clearMuscleVertexInflationPatch(m);
+    };
+  }, [inflationEnabled, inflationUniform, mp.useStandardMaterial]);
+
+  useFrame(({ clock }) => {
+    inflationUniform.value = inflationEnabled ? getMuscleVertexInflation(level, clock.elapsedTime) : 0;
+
     const mesh = meshRef.current;
     if (!mesh) return;
     _sv.setScalar(mp.targetScale);
@@ -455,7 +487,12 @@ export default function MuscleSegment({
       _tc.set(mp.color);
       mat.color.lerp(_tc, 0.15);
       mat.emissive.set(mp.emissive);
-      mat.emissiveIntensity = THREE.MathUtils.lerp(mat.emissiveIntensity, mp.emissiveIntensity, 0.12);
+      const pulse = muscleStage === 'power' ? 1 + 0.08 * Math.sin(clock.elapsedTime * 2.12) : 1;
+      mat.emissiveIntensity = THREE.MathUtils.lerp(
+        mat.emissiveIntensity,
+        mp.emissiveIntensity * pulse,
+        0.12
+      );
       mat.roughness = THREE.MathUtils.lerp(mat.roughness, mp.roughness, 0.12);
       mat.metalness = THREE.MathUtils.lerp(mat.metalness, mp.metalness, 0.12);
       mat.transparent = mp.transparent;
@@ -470,7 +507,12 @@ export default function MuscleSegment({
       mat.emissive.lerp(_te, 0.15);
       mat.roughness = THREE.MathUtils.lerp(mat.roughness, mp.roughness, 0.12);
       mat.metalness = THREE.MathUtils.lerp(mat.metalness, mp.metalness, 0.12);
-      mat.emissiveIntensity = THREE.MathUtils.lerp(mat.emissiveIntensity, mp.emissiveIntensity, 0.12);
+      const pulseP = muscleStage === 'power' ? 1 + 0.085 * Math.sin(clock.elapsedTime * 2.12) : 1;
+      mat.emissiveIntensity = THREE.MathUtils.lerp(
+        mat.emissiveIntensity,
+        mp.emissiveIntensity * pulseP,
+        0.12
+      );
       mat.clearcoat = THREE.MathUtils.lerp(mat.clearcoat, mp.clearcoat, 0.1);
       mat.clearcoatRoughness = THREE.MathUtils.lerp(mat.clearcoatRoughness, mp.clearcoatRoughness, 0.1);
       mat.envMapIntensity = THREE.MathUtils.lerp(mat.envMapIntensity, mp.envMapIntensity, 0.1);
