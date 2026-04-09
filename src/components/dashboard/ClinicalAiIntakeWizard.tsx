@@ -6,7 +6,6 @@ import { bodyAreaLabels } from '../../types';
 import { exerciseMatchesPrimary } from '../../utils/clinicalBodyArea';
 import { getClinicalIntakeAdvice } from '../../ai/clinicalIntakeAdvisor';
 import { analyzeClinicalNote } from '../../utils/clinicalParser';
-import GordyModalPresenter from './GordyModalPresenter';
 
 const ALL_AREAS = Object.keys(bodyAreaLabels) as BodyArea[];
 
@@ -144,13 +143,6 @@ export default function ClinicalAiIntakeWizard({
         <div className="p-5 overflow-y-auto flex-1 space-y-4">
           {step === 'intake' && (
             <>
-              <GordyModalPresenter>
-                <p className="font-bold text-amber-900 mb-1">היי, אני גורדי.</p>
-                <p>
-                  הזינו את שם המטופל וסיפור קצר (תלונה, אבחון, מטרות). אעבד את הטקסט ואציע מוקד גוף
-                  ותרגילים — תמיד אפשר לאשר או לערוך לפני השמירה.
-                </p>
-              </GordyModalPresenter>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">שם תצוגה</label>
                 <input
@@ -177,10 +169,6 @@ export default function ClinicalAiIntakeWizard({
 
           {step === 'review' && !detailedEdit && (
             <>
-              <GordyModalPresenter>
-                <p className="font-bold text-amber-900 mb-1">הנה מה שזיהיתי מהטקסט.</p>
-                <p>לחצו &quot;אישור&quot; לשמירה מיידית לפי ההמלצה, או &quot;עריכה&quot; כדי לשנות אזור או תרגילים.</p>
-              </GordyModalPresenter>
               <div
                 className="rounded-xl border border-indigo-200 bg-indigo-50/90 p-3 space-y-2 text-[11px] text-indigo-950 leading-relaxed"
                 role="region"
@@ -206,10 +194,6 @@ export default function ClinicalAiIntakeWizard({
 
           {step === 'review' && detailedEdit && (
             <>
-              <GordyModalPresenter>
-                <p className="font-bold text-amber-900 mb-1">מצב עריכה</p>
-                <p>בחרו אזור מרכזי וסמנו תרגילים מהספרייה. השמירה מעדכנת את המטופל ואת תוכנית האימונים.</p>
-              </GordyModalPresenter>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-2">
                   אזור גוף מרכזי (מפת גוף + תרגילים)

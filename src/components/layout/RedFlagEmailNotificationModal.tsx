@@ -39,8 +39,8 @@ function buildRedFlagEmailBody(
   return { subject, body };
 }
 
-/** דגל אדום מהמטפל — פתיחת דוא״ל (פרטיות) */
-export default function RedFlagWhatsAppModal({
+/** דגל אדום — שליחה דרך מערכת הדוא״ל הקלינית (ללא חשיפת טלפון אישי) */
+export default function RedFlagEmailNotificationModal({
   open,
   onClose,
   patientId,
@@ -83,13 +83,13 @@ export default function RedFlagWhatsAppModal({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="rf-wa-title"
+        aria-labelledby="rf-email-notification-title"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-red-100 bg-red-50/80">
           <div className="flex items-center gap-2 min-w-0">
             <MessageCircleWarning className="w-5 h-5 text-red-600 shrink-0" />
-            <h2 id="rf-wa-title" className="text-sm font-black text-red-950 truncate">
-              דגל אדום — דוא״ל למטפל
+            <h2 id="rf-email-notification-title" className="text-sm font-black text-red-950 truncate">
+              דגל אדום — התראה בדוא״ל
             </h2>
           </div>
           <button

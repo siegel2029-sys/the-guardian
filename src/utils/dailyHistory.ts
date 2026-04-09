@@ -4,8 +4,7 @@ export function deriveDailyHistoryEntry(
   clinicalDate: string,
   completedIds: string[],
   sessionXp: number,
-  planned: number,
-  goldDisqualified?: boolean
+  planned: number
 ): DailyHistoryEntry {
   const exercisesCompleted = completedIds.length;
   /** תוכנית ריקה + דיווח — עדיין "יום עם ביצוע" ללוח ולרצף */
@@ -14,8 +13,8 @@ export function deriveDailyHistoryEntry(
   if (plannedEff <= 0) {
     status = 'empty';
   } else if (exercisesCompleted >= plannedEff) {
-    /** כלל הזהב: השלמה מלאה בלי דיווח כאב גבוה באותו יום */
-    status = goldDisqualified ? 'silver' : 'gold';
+    /** כלל הזהב: השלמה מלאה של התוכנית */
+    status = 'gold';
   } else if (exercisesCompleted > 0) {
     status = 'silver';
   } else {
@@ -48,8 +47,7 @@ export function mergeHistoryFromSessions(
       s.date,
       s.completedIds,
       s.sessionXp,
-      planned,
-      s.goldDisqualified
+      planned
     );
   }
   return next;

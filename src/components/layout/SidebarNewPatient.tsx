@@ -1,22 +1,46 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { UserPlus, KeyRound, Copy, X } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import ClinicalAiIntakeWizard from '../dashboard/ClinicalAiIntakeWizard';
 
 export default function SidebarNewPatient() {
-  const { createPatientWithAccess } = usePatient();
+  const { createPatientWithAccess, applyInitialClinicalProfile, deletePatient } = usePatient();
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
+  const [draftPatientId, setDraftPatientId] = useState<string | null>(null);
   const [created, setCreated] = useState<{ loginId: string; password: string } | null>(null);
+  const savedDraftRef = useRef(false);
 
   const start = () => {
-    setOpen(true);
-    setCreated(null);
-    setName('');
+    const creds = createPatientWithAccess('מטופל חדש');
+    savedDraftRef.current = false;
+    setDraftPatientId(creds.patientId);
+    setCreated({ loginId: creds.loginId, password: creds.password });
+    setOpen(false);
   };
 
-  const submit = () => {
-    const creds = createPatientWithAccess(name);
-    setCreated({ loginId: creds.loginId, password: creds.password });
+  const onWizardClose = () => {
+    if (savedDraftRef.current) {
+      savedDraftRef.current = false;
+      return;
+    }
+    if (draftPatientId) {
+      deletePatient(draftPatientId);
+      setDraftPatientId(null);
+      setCreated(null);
+    }
+  };
+
+  const onWizardSave = (
+    primaryBodyArea: Parameters<typeof applyInitialClinicalProfile>[1],
+    libraryExerciseIds: Parameters<typeof applyInitialClinicalProfile>[2],
+    extras?: Parameters<typeof applyInitialClinicalProfile>[3]
+  ) => {
+    if (!draftPatientId) return;
+    savedDraftRef.current = true;
+    applyInitialClinicalProfile(draftPatientId, primaryBodyArea, libraryExerciseIds, extras);
+    setDraftPatientId(null);
+    setCreated(null);
+    setOpen(true);
   };
 
   const copy = async (t: string) => {
@@ -46,6 +70,14 @@ export default function SidebarNewPatient() {
           יצירת מטופל, תוכנית ריקה, מזהה וסיסמה לכניסה
         </p>
       </div>
+
+      {draftPatientId && (
+        <ClinicalAiIntakeWizard
+          initialPatientName="מטופל חדש"
+          onClose={onWizardClose}
+          onSave={onWizardSave}
+        />
+      )}
 
       {open && (
         <div
@@ -77,25 +109,7 @@ export default function SidebarNewPatient() {
               </button>
             </div>
             <div className="p-4 space-y-3">
-              {!created ? (
-                <>
-                  <label className="block text-xs font-medium text-slate-600">שם תצוגה</label>
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="למשל: יוסי כהן"
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={submit}
-                    className="w-full py-2.5 rounded-xl font-semibold text-white text-sm"
-                    style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
-                  >
-                    יצירה
-                  </button>
-                </>
-              ) : (
+              {created && (
                 <>
                   <p className="text-xs font-semibold text-teal-900">העתיקו למטופל:</p>
                   <div className="rounded-xl bg-slate-50 border border-slate-200 p-2 space-y-2 text-xs">
@@ -116,7 +130,10 @@ export default function SidebarNewPatient() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setOpen(false)}
+                    onClick={() => {
+                      setOpen(false);
+                      setCreated(null);
+                    }}
                     className="w-full py-2 rounded-xl border border-slate-200 text-slate-700 text-sm font-medium"
                   >
                     סגירה

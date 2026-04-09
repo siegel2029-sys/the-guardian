@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, MessageSquare, Clock, User, Bot } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
-import { waMeOpenUrl } from '../../utils/whatsappLink';
 
 /** צ׳אט ישיר מטפל ↔ המטופל הנבחר (המטופל רואה בפורטל) */
 export default function MessagesPanel() {
@@ -11,11 +10,8 @@ export default function MessagesPanel() {
     markMessageRead,
     sendTherapistReply,
     messages: allMessages,
-    setPatientContactWhatsapp,
   } = usePatient();
   const [replyText, setReplyText] = useState('');
-  const [sendChannel, setSendChannel] = useState<'internal' | 'whatsapp'>('internal');
-  const [waPhoneDraft, setWaPhoneDraft] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const messages = selectedPatient ? getPatientMessages(selectedPatient.id) : [];
 
@@ -33,11 +29,6 @@ export default function MessagesPanel() {
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
   }, [selectedPatient?.id, threadSignature]);
-
-  useEffect(() => {
-    if (!selectedPatient) return;
-    setWaPhoneDraft(selectedPatient.contactWhatsappE164 ?? '');
-  }, [selectedPatient?.id, selectedPatient?.contactWhatsappE164]);
 
   if (!selectedPatient) {
     return (
@@ -62,34 +53,11 @@ export default function MessagesPanel() {
     unreadIds.forEach((id) => markMessageRead(id));
   };
 
-  const waTemplatePrefix = `שלום ${selectedPatient.name}, מהמטפל:\n\n`;
-
   const handleSend = () => {
     const body = replyText.trim();
     if (!body) return;
-    if (sendChannel === 'internal') {
-      sendTherapistReply(selectedPatient.id, body);
-      setReplyText('');
-      return;
-    }
-    const full = `${waTemplatePrefix}${body}`;
-    const stored = selectedPatient.contactWhatsappE164;
-    const tryOpen = (digits: string) => {
-      const url = waMeOpenUrl(digits, full);
-      if (url) window.open(url, '_blank', 'noopener,noreferrer');
-      return !!url;
-    };
-    if (stored && tryOpen(stored)) {
-      setReplyText('');
-      return;
-    }
-    if (tryOpen(waPhoneDraft)) {
-      if (waPhoneDraft.replace(/\D/g, '').length >= 9) {
-        setPatientContactWhatsapp(selectedPatient.id, waPhoneDraft);
-      }
-      setReplyText('');
-      return;
-    }
+    sendTherapistReply(selectedPatient.id, body);
+    setReplyText('');
   };
 
   return (
@@ -216,44 +184,12 @@ export default function MessagesPanel() {
         style={{ background: 'rgba(255,255,255,0.98)' }}
       >
         <div className="max-w-3xl mx-auto space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs font-semibold text-slate-600">ערוץ שליחה</label>
-            <select
-              value={sendChannel}
-              onChange={(e) => setSendChannel(e.target.value as 'internal' | 'whatsapp')}
-              className="text-xs rounded-xl border border-teal-200 bg-white px-2 py-1.5 font-medium text-slate-800"
-            >
-              <option value="internal">הודעה פנימית (פורטל)</option>
-              <option value="whatsapp">WhatsApp ישיר (תבנית + טקסט שלכם)</option>
-            </select>
-          </div>
-          {sendChannel === 'whatsapp' && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 space-y-1">
-              <p className="text-[10px] text-emerald-900 leading-relaxed">
-                ייפתח חלון WhatsApp עם הקידומת: «{waTemplatePrefix.trim()}» ואז התוכן שתכתבו. אם אין מספר
-                שמור — הזינו למטה ושלחו (יישמר אוטומטית).
-              </p>
-              <label className="block text-[10px] font-bold text-slate-600">מספר WhatsApp למטופל (בינלאומי, ללא +)</label>
-              <input
-                type="tel"
-                inputMode="numeric"
-                value={waPhoneDraft}
-                onChange={(e) => setWaPhoneDraft(e.target.value)}
-                placeholder="9725XXXXXXXX"
-                className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-mono"
-              />
-            </div>
-          )}
           <p className="text-xs font-semibold text-slate-600 mb-2">הודעה חדשה למטופל</p>
           <div className="flex gap-2 items-end">
             <textarea
               value={replyText}
               onChange={(e) => setReplyText(e.target.value)}
-              placeholder={
-                sendChannel === 'internal'
-                  ? 'כתבו כאן… ההודעה תופיע מיד בפורטל המטופל'
-                  : 'הנחיות לתרגיל / מעקב (יוצמד אחרי תבנית הפתיחה ב־WhatsApp)'
-              }
+              placeholder="כתבו כאן… ההודעה תופיע מיד בפורטל המטופל"
               rows={3}
               className="flex-1 resize-none rounded-2xl border border-teal-200/90 px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/40 placeholder:text-slate-400"
               style={{ background: '#fafefd' }}

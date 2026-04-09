@@ -167,7 +167,7 @@ export interface Patient {
    * מקטעי אנטומיה להדגשת «הבעיה» — זוהר אדום במודל 3D (נשמר ב־localStorage).
    */
   injuryHighlightSegments: BodyArea[];
-  /** מספר WhatsApp בינלאומי ללא + (למשל 9725XXXXXXXX) — לפתיחת צ׳אט ישיר מהמטפל */
+  /** שדה קשר ישן (מספר בינלאומי ללא +) — נשמר לתאימות; התראות קליניות נשלחות בדוא״ל בלבד */
   contactWhatsappE164?: string;
 }
 
@@ -250,7 +250,7 @@ export interface DailySession {
   date: string;
   completedIds: string[];
   sessionXp: number;
-  /** דיווח כאב גבוה באותו יום — הלוח לא יסמן יום כזהב (כלל הזהב) */
+  /** שדה legacy לשמירה לאחור; כלל הזהב מבוסס השלמה מלאה בלבד */
   goldDisqualified?: boolean;
 }
 

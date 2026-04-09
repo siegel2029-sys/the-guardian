@@ -17,7 +17,7 @@ import {
   Reply,
   MessageCircleWarning,
 } from 'lucide-react';
-import RedFlagWhatsAppModal from './RedFlagWhatsAppModal';
+import RedFlagEmailNotificationModal from './RedFlagEmailNotificationModal';
 import { useAuth } from '../../context/AuthContext';
 import { usePatient } from '../../context/PatientContext';
 import type { NavSection } from '../../types';
@@ -59,7 +59,7 @@ export default function Sidebar() {
     dismissSafetyAlert,
   } = usePatient();
   const [patientSwitcherOpen, setPatientSwitcherOpen] = useState(false);
-  const [redFlagWaOpen, setRedFlagWaOpen] = useState(false);
+  const [redFlagEmailOpen, setRedFlagEmailOpen] = useState(false);
 
   const totalUnreadMessages = patients.reduce((sum, p) => {
     const unread = getPatientMessages(p.id).filter(
@@ -314,7 +314,7 @@ export default function Sidebar() {
         <div className="px-3 pb-2 shrink-0">
           <button
             type="button"
-            onClick={() => setRedFlagWaOpen(true)}
+            onClick={() => setRedFlagEmailOpen(true)}
             className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-right border-2 transition-colors"
             style={{
               borderColor: '#fecaca',
@@ -414,9 +414,9 @@ export default function Sidebar() {
       </div>
 
       {selectedPatient && (
-        <RedFlagWhatsAppModal
-          open={redFlagWaOpen}
-          onClose={() => setRedFlagWaOpen(false)}
+        <RedFlagEmailNotificationModal
+          open={redFlagEmailOpen}
+          onClose={() => setRedFlagEmailOpen(false)}
           patientId={selectedPatient.id}
           patientName={selectedPatient.name}
           therapistId={selectedPatient.therapistId}

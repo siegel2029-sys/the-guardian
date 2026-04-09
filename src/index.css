@@ -130,4 +130,18 @@
   .animate-gordy-burst {
     animation: gordy-burst 2s ease-out forwards;
   }
+
+  @keyframes gordy-companion-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-5px);
+    }
+  }
+
+  .animate-gordy-companion-float {
+    animation: gordy-companion-float 2.8s ease-in-out infinite;
+  }
 }

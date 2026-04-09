@@ -21,6 +21,8 @@ import { useAuth } from '../../context/AuthContext';
 import { getTherapistDisplayName } from '../../context/authPersistence';
 import BodyMap3D from '../body-map/BodyMap3D';
 import GordyCelebration from './GordyCelebration';
+import GordyCompanion from './GordyCompanion';
+import GordyFullScreenCelebration from './GordyFullScreenCelebration';
 import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseDetailModal from './ExerciseDetailModal';
 import PortalExerciseCard from './PortalExerciseCard';
@@ -58,6 +60,9 @@ import PatientDashboard from './PatientDashboard';
 import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
 import PatientHeroesHallTab from './PatientHeroesHallTab';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
+
+/** מניעת כפילות חגיגת סיום תחת React StrictMode (אותו מפתח ביום) */
+const gordySessionCompleteDedupe = new Set<string>();
 
 /** תצוגת יום למטופל — מוצגת רק ב־/patient-portal (מפת גוף, תרגילים, לוח שנה). */
 export default function PatientDailyView() {
@@ -290,6 +295,78 @@ export default function PatientDailyView() {
     }));
     return [...rehab, ...strengthMissionRows];
   }, [clinicalRehabExercises, strengthMissionRows]);
+
+  const totalMissions = combinedMissionItems.length;
+  const completedMissionCount = useMemo(
+    () => combinedMissionItems.filter((row) => completedSet.has(row.exercise.id)).length,
+    [combinedMissionItems, completedSet]
+  );
+
+  const [halfwayBubbleOpen, setHalfwayBubbleOpen] = useState(false);
+  useEffect(() => {
+    if (!selectedPatient || exercisesLocked || totalMissions < 2) {
+      setHalfwayBubbleOpen(false);
+      return;
+    }
+    const sk = `gordy_half_${selectedPatient.id}_${clinicalToday}`;
+    if (sessionStorage.getItem(sk) === '1') {
+      setHalfwayBubbleOpen(false);
+      return;
+    }
+    const met =
+      completedMissionCount >= Math.ceil(totalMissions / 2) &&
+      completedMissionCount < totalMissions;
+    setHalfwayBubbleOpen(met);
+  }, [
+    selectedPatient?.id,
+    clinicalToday,
+    exercisesLocked,
+    totalMissions,
+    completedMissionCount,
+  ]);
+
+  const dismissHalfwayEncouragement = () => {
+    if (!selectedPatient) return;
+    sessionStorage.setItem(`gordy_half_${selectedPatient.id}_${clinicalToday}`, '1');
+    setHalfwayBubbleOpen(false);
+  };
+
+  const [sessionCelebrationBurst, setSessionCelebrationBurst] = useState(0);
+  useEffect(() => {
+    if (!selectedPatient || exercisesLocked || totalMissions === 0) return;
+    const sk = `gordy_full_celebrate_${selectedPatient.id}_${clinicalToday}`;
+    if (sessionStorage.getItem(sk) === '1') return;
+    if (completedMissionCount !== totalMissions) return;
+    const dedupeKey = `${selectedPatient.id}|${clinicalToday}|${totalMissions}`;
+    if (gordySessionCompleteDedupe.has(dedupeKey)) return;
+    gordySessionCompleteDedupe.add(dedupeKey);
+    setSessionCelebrationBurst((n) => n + 1);
+  }, [
+    selectedPatient?.id,
+    clinicalToday,
+    completedMissionCount,
+    totalMissions,
+    exercisesLocked,
+  ]);
+
+  const endSessionCelebration = () => {
+    if (selectedPatient) {
+      sessionStorage.setItem(
+        `gordy_full_celebrate_${selectedPatient.id}_${clinicalToday}`,
+        '1'
+      );
+    }
+    setSessionCelebrationBurst(0);
+  };
+
+  const gordyCompanionVisible =
+    portalTab === 'home' &&
+    !patientMustChangePassword &&
+    !!selectedPatient &&
+    combinedMissionItems.length > 0 &&
+    !detailFor &&
+    !reportFor &&
+    !exerciseVideoModal;
 
   const handleTrainingComplete = (payload: ExerciseTrainingCompletePayload) => {
     const m = exerciseVideoModal;
@@ -1132,6 +1209,21 @@ export default function PatientDailyView() {
         </div>
       </nav>
 
+      <GordyCompanion
+        visible={gordyCompanionVisible}
+        exerciseSafetyLocked={exerciseSafetyLocked}
+        redFlagPortalLock={redFlagPortalLock}
+        showHalfwayEncouragement={halfwayBubbleOpen}
+        onDismissHalfway={dismissHalfwayEncouragement}
+      />
+
+      {sessionCelebrationBurst > 0 && (
+        <GordyFullScreenCelebration
+          burstKey={sessionCelebrationBurst}
+          onClose={endSessionCelebration}
+        />
+      )}
+
       <GuardianAssistantFAB
         patient={selectedPatient}
         exerciseCount={combinedMissionItems.length}
@@ -1152,7 +1244,8 @@ export default function PatientDailyView() {
           !!reportFor ||
           !!exerciseVideoModal ||
           exercisesLocked ||
-          patientMustChangePassword
+          patientMustChangePassword ||
+          sessionCelebrationBurst > 0
         }
       />
 

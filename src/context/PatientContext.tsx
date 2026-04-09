@@ -234,7 +234,7 @@ interface PatientContextValue {
   /** דגל אדום ממטופל — רישום בפורטל + סימון דגל (לצד דוא״ל שנפתח ב־UI) */
   reportPatientUrgentRedFlag: (patientId: string, portalLogLine: string) => void;
 
-  /** מספר WhatsApp למטופל — נשמר ב־localStorage (גם ב־production) */
+  /** שדה קשר ישן (מספר בינלאומי) — נשמר ב־localStorage; התראות קליניות בדוא״ל */
   setPatientContactWhatsapp: (patientId: string, phoneDigitsOrEmpty: string) => void;
 
   // Exercise plans (mutable)
@@ -1291,9 +1291,10 @@ export function PatientProvider({
 
       const pain = clampPain(painLevel);
       const effort = clampEffort(effortRating);
-      const goldRulePain = pain >= 7;
       const plan = exercisePlans.find((ep) => ep.patientId === patientId);
       const totalInPlan = plan?.exercises.length ?? 0;
+      const rehabEx = plan?.exercises.find((e) => e.id === exerciseId);
+      const sessionZone = options?.sessionBodyArea ?? rehabEx?.targetArea ?? undefined;
       const firstOfDay = !prior || prior.completedIds.length === 0;
       const clinicalYesterday = getClinicalYesterday();
       const clinicalTwoDaysAgo = addClinicalDays(clinicalDay, -2);
@@ -1344,7 +1345,6 @@ export function PatientProvider({
               date: clinicalDay,
               completedIds: [exerciseId],
               sessionXp: xpGain,
-              ...(goldRulePain ? { goldDisqualified: true } : {}),
             },
           ];
         }
@@ -1356,7 +1356,6 @@ export function PatientProvider({
                   ? s.completedIds
                   : [...s.completedIds, exerciseId],
                 sessionXp: s.sessionXp + xpGain,
-                ...(goldRulePain || s.goldDisqualified ? { goldDisqualified: true } : {}),
               }
             : s
         );
@@ -1462,6 +1461,7 @@ export function PatientProvider({
           return {
             ...leveled,
             hasRedFlag: p.hasRedFlag || triggersClinicalAlert,
+            redFlagActive: p.redFlagActive || (pain >= 7 && sessionZone === p.primaryBodyArea),
             lastSessionDate,
             currentStreak,
             longestStreak,
@@ -1490,10 +1490,38 @@ export function PatientProvider({
         });
       }
 
-      const planAfter = exercisePlans.find((ep) => ep.patientId === patientId);
-      const rehabEx = planAfter?.exercises.find((e) => e.id === exerciseId);
-      const sessionZone =
-        options?.sessionBodyArea ?? rehabEx?.targetArea ?? undefined;
+      if (
+        sessionZone &&
+        sessionZone === patientBefore.primaryBodyArea &&
+        pain >= 7
+      ) {
+        setExerciseSafetyLockedPatientIds((prev) => ({ ...prev, [patientId]: true }));
+        const email = getTherapistAlertEmail(patientBefore.therapistId);
+        const subject = '[The Guardian] עצירת אימון — כאב גבוה במוקד פגיעה';
+        const body =
+          `מטופל: ${patientBefore.name}\n` +
+          `מוקד פגיעה ראשי: ${bodyAreaLabels[patientBefore.primaryBodyArea]}\n` +
+          `כאב דווח: ${pain}/10\n\n` +
+          'האימון נעצר עקב רמת כאב גבוהה. הודעה נשלחה לנדב.';
+        openClinicalMailto(email, subject, body);
+        setSafetyAlerts((prev) => [
+          ...prev,
+          {
+            id: `sa-primary-${Date.now()}`,
+            patientId,
+            reasonCode: 'PAIN_SURGE',
+            reasonHebrew: 'האימון נעצר עקב רמת כאב גבוהה. הודעה נשלחה לנדב.',
+            severity: 'high_priority',
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        sendAiClinicalAlert(
+          patientId,
+          'האימון נעצר עקב רמת כאב גבוהה. הודעה נשלחה לנדב.',
+          'high_priority'
+        );
+      }
+
       if (
         options?.completionSource === 'self-care' &&
         sessionZone &&
@@ -1529,6 +1557,17 @@ export function PatientProvider({
       }
 
       if (pain >= 7) {
+        const email = getTherapistAlertEmail(patientBefore.therapistId);
+        const subject = '[The Guardian] התראת כאב גבוהה';
+        const body =
+          `מטופל: ${patientBefore.name}\n` +
+          `אזור תרגול: ${sessionZone ? bodyAreaLabels[sessionZone] : bodyAreaLabels[patientBefore.primaryBodyArea]}\n` +
+          `מוקד פגיעה ראשי: ${bodyAreaLabels[patientBefore.primaryBodyArea]}\n` +
+          `כאב דווח: ${pain}/10\n` +
+          `קושי דווח: ${effort}/5\n` +
+          `תאריך קליני: ${clinicalDay}\n\n` +
+          'נדרשת בדיקה קלינית ועדכון עומסים לפי שיקול מטפל.';
+        openClinicalMailto(email, subject, body);
         setSafetyAlerts((prev) => [
           ...prev,
           {
@@ -1563,7 +1602,7 @@ export function PatientProvider({
           `דיווח לאחר תרגיל: קושי מאמץ ${effort}/5.\nמומלץ להפחית חזרות או סטים עד עדכון ממטפל.\nטקסט שהומלץ למטופל:\n${DIFFICULTY_MAX_PATIENT_COPY}`,
           'high_priority'
         );
-        const ex = planAfter?.exercises.find((e) => e.id === exerciseId);
+        const ex = plan?.exercises.find((e) => e.id === exerciseId);
         if (ex && ex.patientReps > 0) {
           const suggestedReps = Math.max(1, Math.floor(ex.patientReps * 0.7));
           if (suggestedReps < ex.patientReps) {
