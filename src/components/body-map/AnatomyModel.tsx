@@ -1,5 +1,6 @@
 import {
   useRef,
+  useState,
   useMemo,
   useLayoutEffect,
   useEffect,
@@ -449,6 +450,11 @@ function IdleSwayRoot({ children }: { children: ReactNode }) {
   return <group>{children}</group>;
 }
 
+/** פיבוט ירך / ברך להליכה במקום (קואורדינטות מקומיות מול מרכז הירך) */
+const WALK_HIP_L: [number, number, number] = [0.24, 0.08, 0.07];
+const WALK_HIP_R: [number, number, number] = [-0.24, 0.08, 0.07];
+const WALK_KNEE_OFF: [number, number, number] = [0, -0.7, 0.01];
+
 function HeadFaceFeatures({ level }: { level: number }) {
   const headCenterY = 1.73;
   const headRadius = 0.225;
@@ -674,12 +680,60 @@ export default function AnatomyModel({
     [primaryArea]
   );
 
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const apply = () => setPrefersReducedMotion(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  const walkInPlace = patientPortalInteractive && !prefersReducedMotion;
+  const walkRootRef = useRef<THREE.Group>(null);
+  const torsoSwayRef = useRef<THREE.Group>(null);
+  const leftThighRef = useRef<THREE.Group>(null);
+  const leftKneeRef = useRef<THREE.Group>(null);
+  const rightThighRef = useRef<THREE.Group>(null);
+  const rightKneeRef = useRef<THREE.Group>(null);
+
   // Pulse primary-area glow
   useFrame(({ clock }) => {
     if (!primaryLightRef.current || stableInteraction) return;
     const lf = Math.min(level, 100) / 100;
     const pulse = Math.sin(clock.elapsedTime * 2.4) * 0.38;
     primaryLightRef.current.intensity = (0.55 + lf * 1.15) + pulse;
+  });
+
+  /** הליכה במקום — קצב עדין, קומה זקופה (סיבוב מתון סביב מפרקי ירך/ברך) */
+  useFrame(({ clock }) => {
+    if (!walkInPlace) {
+      if (walkRootRef.current) walkRootRef.current.position.y = 0;
+      if (torsoSwayRef.current) {
+        torsoSwayRef.current.rotation.x = 0;
+        torsoSwayRef.current.rotation.z = 0;
+      }
+      if (leftThighRef.current) leftThighRef.current.rotation.x = 0;
+      if (leftKneeRef.current) leftKneeRef.current.rotation.x = 0;
+      if (rightThighRef.current) rightThighRef.current.rotation.x = 0;
+      if (rightKneeRef.current) rightKneeRef.current.rotation.x = 0;
+      return;
+    }
+    const t = clock.elapsedTime * (Math.PI * 2) * 1.08;
+    const bob = 0.014 * Math.abs(Math.sin(t));
+    if (walkRootRef.current) walkRootRef.current.position.y = bob;
+    if (torsoSwayRef.current) {
+      torsoSwayRef.current.rotation.x = -0.026 * Math.sin(t);
+      torsoSwayRef.current.rotation.z = 0.017 * Math.sin(2 * t);
+    }
+    const ls = 0.19 * Math.sin(t);
+    const lk = Math.max(0, Math.sin(t - 0.4)) * 0.42;
+    const rs = 0.19 * Math.sin(t + Math.PI);
+    const rk = Math.max(0, Math.sin(t + Math.PI - 0.4)) * 0.42;
+    if (leftThighRef.current) leftThighRef.current.rotation.x = ls + 0.028;
+    if (leftKneeRef.current) leftKneeRef.current.rotation.x = lk;
+    if (rightThighRef.current) rightThighRef.current.rotation.x = rs + 0.028;
+    if (rightKneeRef.current) rightKneeRef.current.rotation.x = rk;
   });
 
   // Shared props factory (מפרקים: ללא אינפלציה; כן ניתן לסמן פגיעה)
@@ -728,7 +782,7 @@ export default function AnatomyModel({
   return (
     <group>
       <IdleSwayRoot>
-        <group>
+        <group ref={walkRootRef}>
       {/* Pulsing injury spotlight */}
       {primaryArea && (
         <pointLight
@@ -741,6 +795,7 @@ export default function AnatomyModel({
         />
       )}
 
+      <group ref={torsoSwayRef}>
       {/* ══ HEAD ═══════════════════════════════════════════════ */}
       <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
       <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
@@ -847,105 +902,128 @@ export default function AnatomyModel({
         onAreaClick={onAreaClick}
       />
 
-      {/* ══ HIPS (עכוז) ═══════════════════════════════════════ */}
-      <MuscleSegment {...S('hip_left')} geometry={geos.gluteL} position={[0.24, 0.14, 0.08]} />
-      <MuscleSegment {...S('hip_right')} geometry={geos.gluteR} position={[-0.24, 0.14, 0.08]} />
+      </group>
 
-      {/* ══ LEFT LEG (+x) ══════════════════════════════════════ */}
-      <BaseSegment
-        geometry={geos.thighL}
-        position={[0.24, -0.27, 0.048]}
-        level={level}
-        goldSkin={gearGoldSkin}
-        muscleStage={muscleStage}
-        vertexInflationWeight={1}
-        growthLayerWeight={growthOf('thigh_left')}
-        pickArea="thigh_left"
-        {...limbPickProps('thigh_left')}
-        motionSteady={stableInteraction}
-        onAreaClick={onAreaClick}
-      />
-      <MuscleSegment {...S('knee_left')} geometry={geos.kneeL} position={[0.24, -0.62, 0.08]} />
-      <BaseSegment
-        geometry={geos.shinL}
-        position={[0.24, -0.98, 0.048]}
-        level={level}
-        goldSkin={gearGoldSkin}
-        muscleStage={muscleStage}
-        vertexInflationWeight={1}
-        growthLayerWeight={growthOf('shin_left')}
-        pickArea="shin_left"
-        {...limbPickProps('shin_left')}
-        motionSteady={stableInteraction}
-        onAreaClick={onAreaClick}
-      />
-      <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[0.24, -1.33, 0.085]} />
-      <BaseSegment
-        geometry={geos.footL}
-        position={[0.255, -1.52, 0.1]}
-        rotation={[0.18, 0, 0]}
-        level={level}
-        goldSkin={gearGoldSkin}
-        muscleStage={muscleStage}
-        vertexInflationWeight={0}
-        pickArea="foot_left"
-        {...limbPickProps('foot_left')}
-        motionSteady={stableInteraction}
-        onAreaClick={onAreaClick}
-      />
+      {/* ══ רגליים — פיבוט ירך/ברך להליכה במקום (פורטל מטופל) ═══ */}
+      <group position={WALK_HIP_L}>
+        <group ref={leftThighRef}>
+          <MuscleSegment {...S('hip_left')} geometry={geos.gluteL} position={[0, 0.06, 0.01]} />
+          <BaseSegment
+            geometry={geos.thighL}
+            position={[0, -0.35, -0.022]}
+            level={level}
+            goldSkin={gearGoldSkin}
+            muscleStage={muscleStage}
+            vertexInflationWeight={1}
+            growthLayerWeight={growthOf('thigh_left')}
+            pickArea="thigh_left"
+            {...limbPickProps('thigh_left')}
+            motionSteady={stableInteraction}
+            onAreaClick={onAreaClick}
+          />
+          <group position={WALK_KNEE_OFF} ref={leftKneeRef}>
+            <MuscleSegment {...S('knee_left')} geometry={geos.kneeL} position={[0, 0, 0]} />
+            <BaseSegment
+              geometry={geos.shinL}
+              position={[0, -0.36, -0.032]}
+              level={level}
+              goldSkin={gearGoldSkin}
+              muscleStage={muscleStage}
+              vertexInflationWeight={1}
+              growthLayerWeight={growthOf('shin_left')}
+              pickArea="shin_left"
+              {...limbPickProps('shin_left')}
+              motionSteady={stableInteraction}
+              onAreaClick={onAreaClick}
+            />
+            <BaseSegment
+              geometry={geos.calfL}
+              position={[0, -0.38, -0.08]}
+              level={level}
+              goldSkin={gearGoldSkin}
+              muscleStage={muscleStage}
+              vertexInflationWeight={0}
+              disableRaycast
+            />
+            <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[0, -0.71, 0.005]} />
+            <BaseSegment
+              geometry={geos.footL}
+              position={[0.015, -0.9, 0.02]}
+              rotation={[0.18, 0, 0]}
+              level={level}
+              goldSkin={gearGoldSkin}
+              muscleStage={muscleStage}
+              vertexInflationWeight={0}
+              pickArea="foot_left"
+              {...limbPickProps('foot_left')}
+              motionSteady={stableInteraction}
+              onAreaClick={onAreaClick}
+            />
+          </group>
+        </group>
+      </group>
 
-      {/* ══ RIGHT LEG (-x) ═════════════════════════════════════ */}
-      <BaseSegment
-        geometry={geos.thighR}
-        position={[-0.24, -0.27, 0.048]}
-        level={level}
-        goldSkin={gearGoldSkin}
-        muscleStage={muscleStage}
-        vertexInflationWeight={1}
-        growthLayerWeight={growthOf('thigh_right')}
-        pickArea="thigh_right"
-        {...limbPickProps('thigh_right')}
-        motionSteady={stableInteraction}
-        onAreaClick={onAreaClick}
-      />
-      <MuscleSegment {...S('knee_right')} geometry={geos.kneeR} position={[-0.24, -0.62, 0.08]} />
-      <BaseSegment
-        geometry={geos.shinR}
-        position={[-0.24, -0.98, 0.048]}
-        level={level}
-        goldSkin={gearGoldSkin}
-        muscleStage={muscleStage}
-        vertexInflationWeight={1}
-        growthLayerWeight={growthOf('shin_right')}
-        pickArea="shin_right"
-        {...limbPickProps('shin_right')}
-        motionSteady={stableInteraction}
-        onAreaClick={onAreaClick}
-      />
-      <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[-0.24, -1.33, 0.085]} />
-      <BaseSegment
-        geometry={geos.footR}
-        position={[-0.255, -1.52, 0.1]}
-        rotation={[0.18, 0, 0]}
-        level={level}
-        goldSkin={gearGoldSkin}
-        muscleStage={muscleStage}
-        vertexInflationWeight={0}
-        pickArea="foot_right"
-        {...limbPickProps('foot_right')}
-        motionSteady={stableInteraction}
-        onAreaClick={onAreaClick}
-      />
-
-      {/* ══ CALF detail (overlaid on shins for back muscle detail) */}
-      <BaseSegment geometry={geos.calfL} position={[ 0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
-      <BaseSegment geometry={geos.calfR} position={[-0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
+      <group position={WALK_HIP_R}>
+        <group ref={rightThighRef}>
+          <MuscleSegment {...S('hip_right')} geometry={geos.gluteR} position={[0, 0.06, 0.01]} />
+          <BaseSegment
+            geometry={geos.thighR}
+            position={[0, -0.35, -0.022]}
+            level={level}
+            goldSkin={gearGoldSkin}
+            muscleStage={muscleStage}
+            vertexInflationWeight={1}
+            growthLayerWeight={growthOf('thigh_right')}
+            pickArea="thigh_right"
+            {...limbPickProps('thigh_right')}
+            motionSteady={stableInteraction}
+            onAreaClick={onAreaClick}
+          />
+          <group position={WALK_KNEE_OFF} ref={rightKneeRef}>
+            <MuscleSegment {...S('knee_right')} geometry={geos.kneeR} position={[0, 0, 0]} />
+            <BaseSegment
+              geometry={geos.shinR}
+              position={[0, -0.36, -0.032]}
+              level={level}
+              goldSkin={gearGoldSkin}
+              muscleStage={muscleStage}
+              vertexInflationWeight={1}
+              growthLayerWeight={growthOf('shin_right')}
+              pickArea="shin_right"
+              {...limbPickProps('shin_right')}
+              motionSteady={stableInteraction}
+              onAreaClick={onAreaClick}
+            />
+            <BaseSegment
+              geometry={geos.calfR}
+              position={[0, -0.38, -0.08]}
+              level={level}
+              goldSkin={gearGoldSkin}
+              muscleStage={muscleStage}
+              vertexInflationWeight={0}
+              disableRaycast
+            />
+            <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[0, -0.71, 0.005]} />
+            <BaseSegment
+              geometry={geos.footR}
+              position={[-0.015, -0.9, 0.02]}
+              rotation={[0.18, 0, 0]}
+              level={level}
+              goldSkin={gearGoldSkin}
+              muscleStage={muscleStage}
+              vertexInflationWeight={0}
+              pickArea="foot_right"
+              {...limbPickProps('foot_right')}
+              motionSteady={stableInteraction}
+              onAreaClick={onAreaClick}
+            />
+          </group>
+        </group>
+      </group>
 
       <EquippedGearAttachments equipped={equippedGear} />
-        </group>
-      </IdleSwayRoot>
 
-      {/* ══ GROUND SHADOW ══════════════════════════════════════ */}
+      {/* ══ GROUND SHADOW (עם שורש ההליכה — צל עוקב אחרי נשיאת הגוף) ═══ */}
       <ContactShadows
         position={[0, -1.73, 0]}
         opacity={0.32}
@@ -955,6 +1033,8 @@ export default function AnatomyModel({
         color="#0a6e68"
         resolution={512}
       />
+        </group>
+      </IdleSwayRoot>
     </group>
   );
 }

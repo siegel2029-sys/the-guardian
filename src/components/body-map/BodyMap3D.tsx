@@ -182,29 +182,27 @@ function Loader({ minimal }: { minimal?: boolean }) {
 interface ViewToggleProps {
   activeView: ViewPreset | null;
   onSelect: (v: ViewPreset) => void;
-  /** פורטל מטופל — כפתורים קומפקטיים ללא טקסט */
-  compact?: boolean;
 }
-const VIEW_LABELS: { id: ViewPreset; label: string; icon: string }[] = [
-  { id: 'front', label: 'פנים', icon: '◎' },
-  { id: 'back', label: 'גב', icon: '◉' },
-  { id: 'left', label: 'שמאל', icon: '◀' },
-  { id: 'right', label: 'ימין', icon: '▶' },
+const VIEW_LABELS: { id: ViewPreset; label: string }[] = [
+  { id: 'front', label: 'פנים' },
+  { id: 'back', label: 'גב' },
+  { id: 'left', label: 'שמאל' },
+  { id: 'right', label: 'ימין' },
 ];
-function ViewToggle({ activeView, onSelect, compact }: ViewToggleProps) {
+function ViewToggle({ activeView, onSelect }: ViewToggleProps) {
   return (
     <div
       style={{
         position: 'absolute',
-        bottom: compact ? 8 : 38,
+        bottom: 38,
         left: '50%',
         transform: 'translateX(-50%)',
         display: 'flex',
-        gap: compact ? 4 : 5,
+        gap: 5,
         zIndex: 20,
       }}
     >
-      {VIEW_LABELS.map(({ id, label, icon }) => {
+      {VIEW_LABELS.map(({ id, label }) => {
         const isActive = activeView === id;
         return (
           <button
@@ -214,22 +212,20 @@ function ViewToggle({ activeView, onSelect, compact }: ViewToggleProps) {
             aria-label={label}
             onClick={() => onSelect(id)}
             style={{
-              minWidth: compact ? 30 : undefined,
-              padding: compact ? '5px 7px' : '4px 11px',
-              borderRadius: compact ? 8 : 9,
+              padding: '4px 11px',
+              borderRadius: 9,
               border: `1.5px solid ${isActive ? '#2563eb' : 'rgba(37,99,235,0.28)'}`,
               background: isActive
                 ? 'linear-gradient(135deg,#2563eb,#1d4ed8)'
                 : 'rgba(255,255,255,0.92)',
               color: isActive ? '#fff' : '#2563eb',
-              fontSize: compact ? 13 : 12,
+              fontSize: 12,
               fontFamily: 'Inter, system-ui, sans-serif',
               fontWeight: 600,
               cursor: 'pointer',
               backdropFilter: 'blur(6px)',
               transition: 'all 0.18s ease',
-              direction: 'ltr',
-              lineHeight: 1,
+              direction: 'rtl',
               boxShadow: isActive
                 ? '0 2px 8px rgba(13,148,136,0.35)'
                 : '0 1px 4px rgba(0,0,0,0.10)',
@@ -241,7 +237,7 @@ function ViewToggle({ activeView, onSelect, compact }: ViewToggleProps) {
               if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.92)';
             }}
           >
-            {compact ? icon : label}
+            {label}
           </button>
         );
       })}
@@ -296,7 +292,8 @@ export default function BodyMap3D(props: BodyMap3DProps) {
   const scrollFriendlyPortal = patientPortalInteractive && coarsePointer;
 
   const streakVal = streak ?? streakForGlow ?? 0;
-  const streakEnergy = streakVal >= 3;
+  const streakEnergy =
+    streakVal >= 3 && !patientPortalInteractive;
 
   const xpPct =
     xp != null && xpForNextLevel != null && xpForNextLevel > 0
@@ -326,10 +323,10 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         position: 'relative',
         borderRadius: '16px',
         overflow: 'hidden',
-        touchAction: scrollFriendlyPortal
+        touchAction: patientPortalInteractive
           ? 'pan-y'
-          : patientPortalInteractive
-            ? 'manipulation'
+          : scrollFriendlyPortal
+            ? 'pan-y'
             : undefined,
       }}
       onMouseEnter={() => setAvatarHovered(true)}
@@ -337,10 +334,10 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     >
       <Canvas
         style={{
-          touchAction: scrollFriendlyPortal
+          touchAction: patientPortalInteractive
             ? 'pan-y'
-            : patientPortalInteractive
-              ? 'manipulation'
+            : scrollFriendlyPortal
+              ? 'pan-y'
               : undefined,
         }}
         camera={{ position: [0, 1, 5], fov: 45, near: 0.08, far: 45 }}
@@ -388,7 +385,11 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         {/* Environment HDR for realistic PBR reflections on clearcoat */}
         <Environment preset="studio" />
 
-        <Suspense fallback={<Loader minimal={patientPortalInteractive} />}>
+        <Suspense
+          fallback={
+            patientPortalInteractive ? null : <Loader minimal={false} />
+          }
+        >
           <group scale={avatarScale}>
             <StreakEnergyFloat enabled={streakEnergy && !stableInteraction}>
               <AnatomyModel
@@ -470,26 +471,31 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           </EffectComposer>
         )}
 
-        {/* Camera smooth-animation controller */}
-        <CameraAnimator targetRef={cameraTargetRef} orbitActiveRef={orbitActiveRef} />
-
-        {/* OrbitControls – user can always override by dragging */}
-        <OrbitControls
-          enablePan={false}
-          enableRotate={!scrollFriendlyPortal}
-          enableZoom={!scrollFriendlyPortal}
-          minDistance={1.8}
-          maxDistance={6.0}
-          target={[0, 0.15, 0]}
-          enableDamping
-          dampingFactor={0.07}
-          rotateSpeed={0.72}
-          zoomSpeed={0.85}
-          onStart={() => {
-            orbitActiveRef.current = true;
-            setActiveView(null);
-          }}
-        />
+        {/* Camera — פורטל מטופל: מבט קבוע מול הגוף, ללא סיבוב/זום */}
+        {!patientPortalInteractive && (
+          <>
+            <CameraAnimator
+              targetRef={cameraTargetRef}
+              orbitActiveRef={orbitActiveRef}
+            />
+            <OrbitControls
+              enablePan={false}
+              enableRotate={!scrollFriendlyPortal}
+              enableZoom={!scrollFriendlyPortal}
+              minDistance={1.8}
+              maxDistance={6.0}
+              target={[0, 0.15, 0]}
+              enableDamping
+              dampingFactor={0.07}
+              rotateSpeed={0.72}
+              zoomSpeed={0.85}
+              onStart={() => {
+                orbitActiveRef.current = true;
+                setActiveView(null);
+              }}
+            />
+          </>
+        )}
       </Canvas>
 
       {/* ── HTML overlays ───────────────────────────────────────── */}
@@ -523,25 +529,21 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         </div>
       )}
 
-      {/* View toggle */}
-      <ViewToggle
-        activeView={activeView}
-        onSelect={handleView}
-        compact={patientPortalInteractive}
-      />
+      {/* View toggle — לא בפורטל מטופל (מפה ללא פקדים) */}
+      {!patientPortalInteractive && (
+        <ViewToggle activeView={activeView} onSelect={handleView} />
+      )}
 
-      {/* מקרא צבעים — בפורטל: קטן בפינה, רק כשיש אזורי פרהאב נבחרים */}
-      {(!patientPortalInteractive ||
-        (selfCareSelectedAreas?.length ?? 0) > 0) && (
+      {/* מקרא צבעים — דשבורד מטפל בלבד */}
+      {!patientPortalInteractive && (
         <div
           style={{
             position: 'absolute',
-            bottom: patientPortalInteractive ? 6 : 10,
-            insetInlineEnd: patientPortalInteractive ? 6 : undefined,
-            insetInlineStart: patientPortalInteractive ? undefined : 10,
+            bottom: 10,
+            insetInlineStart: 10,
             display: 'flex',
             flexDirection: 'column',
-            gap: patientPortalInteractive ? 2 : 4,
+            gap: 4,
             pointerEvents: 'none',
           }}
         >
@@ -555,11 +557,11 @@ export default function BodyMap3D(props: BodyMap3DProps) {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: patientPortalInteractive ? 3 : 5,
+                gap: 5,
                 background: 'rgba(255,255,255,0.82)',
-                padding: patientPortalInteractive ? '1px 5px' : '2px 7px',
-                borderRadius: patientPortalInteractive ? 5 : 7,
-                fontSize: patientPortalInteractive ? 9 : 11,
+                padding: '2px 7px',
+                borderRadius: 7,
+                fontSize: 11,
                 color: '#334155',
                 fontFamily: 'Inter, system-ui, sans-serif',
                 backdropFilter: 'blur(6px)',
@@ -569,8 +571,8 @@ export default function BodyMap3D(props: BodyMap3DProps) {
             >
               <span
                 style={{
-                  width: patientPortalInteractive ? 6 : 8,
-                  height: patientPortalInteractive ? 6 : 8,
+                  width: 8,
+                  height: 8,
                   borderRadius: '50%',
                   background: dot,
                   flexShrink: 0,
