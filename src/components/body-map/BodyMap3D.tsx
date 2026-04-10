@@ -52,6 +52,8 @@ export interface BodyMap3DProps {
   patientPortalInteractive?: boolean;
   /** מכפילי נפח שריר לפי מקטע (השוואת גיבורים וכו') */
   segmentGrowthMul?: Partial<Record<BodyArea, number>>;
+  /** מחלקות נוספות לעטיפת הקנבס — למשל גובה קבוע בפורטל מובייל */
+  wrapperClassName?: string;
 }
 
 // ── View presets ──────────────────────────────────────────────────
@@ -129,8 +131,8 @@ function StreakRimLight() {
 function SceneSetup() {
   return (
     <>
-      <color attach="background" args={['#d8f0f4']} />
-      <fog attach="fog" args={['#d8f0f4', 10, 22]} />
+      <color attach="background" args={['#eef2f7']} />
+      <fog attach="fog" args={['#eef2f7', 10, 22]} />
     </>
   );
 }
@@ -139,7 +141,14 @@ function SceneSetup() {
 function Loader() {
   return (
     <Html center>
-      <div style={{ color: '#0d9488', fontSize: 13, fontFamily: 'Arial', direction: 'rtl' }}>
+      <div
+        style={{
+          color: '#2563eb',
+          fontSize: 14,
+          fontFamily: 'Inter, system-ui, sans-serif',
+          direction: 'rtl',
+        }}
+      >
         טוען מודל...
       </div>
     </Html>
@@ -179,13 +188,13 @@ function ViewToggle({ activeView, onSelect }: ViewToggleProps) {
             style={{
               padding: '4px 11px',
               borderRadius: '9px',
-              border: `1.5px solid ${isActive ? '#0d9488' : 'rgba(13,148,136,0.30)'}`,
+              border: `1.5px solid ${isActive ? '#2563eb' : 'rgba(37,99,235,0.28)'}`,
               background: isActive
-                ? 'linear-gradient(135deg,#0d9488,#10b981)'
-                : 'rgba(255,255,255,0.82)',
-              color: isActive ? '#fff' : '#0d9488',
-              fontSize: '11px',
-              fontFamily: '"Arial Hebrew", Arial, sans-serif',
+                ? 'linear-gradient(135deg,#2563eb,#1d4ed8)'
+                : 'rgba(255,255,255,0.9)',
+              color: isActive ? '#fff' : '#2563eb',
+              fontSize: '12px',
+              fontFamily: 'Inter, system-ui, sans-serif',
               fontWeight: 600,
               cursor: 'pointer',
               backdropFilter: 'blur(6px)',
@@ -236,6 +245,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     stableInteraction = true,
     patientPortalInteractive = false,
     segmentGrowthMul,
+    wrapperClassName,
   } = props;
 
   const equippedGear = equippedGearProp ?? EMPTY_EQUIPPED_GEAR;
@@ -263,13 +273,15 @@ export default function BodyMap3D(props: BodyMap3DProps) {
 
   return (
     <div
+      className={wrapperClassName ?? ''}
       style={{
         width: '100%',
         height: '100%',
-        minHeight: `${minHeightPx}px`,
+        minHeight: minHeightPx > 0 ? `${minHeightPx}px` : undefined,
         position: 'relative',
         borderRadius: '16px',
         overflow: 'hidden',
+        touchAction: patientPortalInteractive ? 'none' : undefined,
       }}
       onMouseEnter={() => setAvatarHovered(true)}
       onMouseLeave={() => setAvatarHovered(false)}
@@ -354,15 +366,15 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                 >
                   <div
                     style={{
-                      background: 'linear-gradient(145deg,#0f766e,#14b8a6)',
+                      background: 'linear-gradient(145deg,#1d4ed8,#2563eb)',
                       color: '#fff',
                       borderRadius: 12,
                       padding: '4px 11px',
                       fontSize: 12,
                       fontWeight: 800,
-                      fontFamily: '"Arial Hebrew", Arial, sans-serif',
+                      fontFamily: 'Inter, system-ui, sans-serif',
                       boxShadow:
-                        '0 0 14px rgba(20,184,166,0.55), 0 2px 10px rgba(13,148,136,0.35)',
+                        '0 0 14px rgba(37,99,235,0.45), 0 2px 10px rgba(29,78,216,0.35)',
                       border: '1px solid rgba(255,255,255,0.35)',
                       direction: 'ltr',
                       textAlign: 'center',
@@ -427,9 +439,9 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       {/* Orbit hint */}
       <div style={{
         position: 'absolute', top: 9, left: '50%', transform: 'translateX(-50%)',
-        background: 'rgba(255,255,255,0.78)', backdropFilter: 'blur(6px)',
-        padding: '2px 10px', borderRadius: '8px', fontSize: 9.5,
-        color: '#0d9488', fontFamily: '"Arial Hebrew",Arial,sans-serif',
+        background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(6px)',
+        padding: '4px 12px', borderRadius: '8px', fontSize: 11,
+        color: '#2563eb', fontFamily: 'Inter, system-ui, sans-serif',
         pointerEvents: 'none', direction: 'rtl', whiteSpace: 'nowrap',
         boxShadow: '0 1px 6px rgba(0,0,0,0.08)',
       }}>
@@ -439,11 +451,11 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       {/* Level badge */}
       {showLevelChrome && (
         <div style={{
-          position: 'absolute', top: 9, right: 10,
-          background: 'linear-gradient(135deg,#0d9488,#10b981)',
-          color: '#fff', borderRadius: 10, padding: '3px 10px',
-          fontSize: 12, fontWeight: 800, fontFamily: 'Arial',
-          boxShadow: '0 2px 9px rgba(13,148,136,0.38)',
+          position: 'absolute', top: 9, insetInlineEnd: 10,
+          background: 'linear-gradient(135deg,#2563eb,#1d4ed8)',
+          color: '#fff', borderRadius: 10, padding: '4px 12px',
+          fontSize: 13, fontWeight: 800, fontFamily: 'Inter, system-ui, sans-serif',
+          boxShadow: '0 2px 12px rgba(37,99,235,0.35)',
         }}>
           Lv.{level}
         </div>
@@ -452,9 +464,9 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       {/* View toggle */}
       <ViewToggle activeView={activeView} onSelect={handleView} />
 
-      {/* Colour legend */}
+      {/* Colour legend — inset-inline-start = קצה התחלה ב־RTL */}
       <div style={{
-        position: 'absolute', bottom: 10, left: 10,
+        position: 'absolute', bottom: 10, insetInlineStart: 10,
         display: 'flex', flexDirection: 'column', gap: 4,
         pointerEvents: 'none',
       }}>
@@ -466,8 +478,8 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           <div key={label} style={{
             display: 'flex', alignItems: 'center', gap: 5,
             background: 'rgba(255,255,255,0.80)', padding: '2px 7px',
-            borderRadius: 7, fontSize: 9.5,
-            color: '#334155', fontFamily: '"Arial Hebrew",Arial,sans-serif',
+            borderRadius: 7, fontSize: 11,
+            color: '#334155', fontFamily: 'Inter, system-ui, sans-serif',
             backdropFilter: 'blur(6px)', direction: 'rtl',
             boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
           }}>

@@ -11,11 +11,11 @@ import {
 } from 'lucide-react';
 import { RewardLabel } from '../ui/RewardLabel';
 
-const THUMB_W = 64;
-const THUMB_H = 40;
+const THUMB_W = 80;
+const THUMB_H = 56;
 
 const typeStyle: Record<string, { bg: string; text: string; label: string }> = {
-  clinical: { bg: '#e0f2fe', text: '#0369a1', label: 'קליני' },
+  clinical: { bg: '#dbeafe', text: '#1d4ed8', label: 'קליני' },
   standard: { bg: '#f3e8ff', text: '#6b21a8', label: 'סטנדרטי' },
   custom: { bg: '#fff7ed', text: '#c2410c', label: 'מותאם' },
 };
@@ -37,21 +37,16 @@ export interface PortalExerciseCardProps {
   subtitle: string;
   xpReward: number;
   videoUrl: string | null;
-  /** פותח את ממשק האימון המלא (וידאו, טיימר, מאמץ — הכל במודאל) */
   onOpenTraining: () => void;
-  /** תצוגת פרס שקופה (בסיס XP + מטבעות לדיווח) */
   rewardLabelXp?: number;
   rewardLabelCoins?: number;
   disabled?: boolean;
-  /** rehab */
   typeKey?: string;
   isCustomExercise?: boolean;
   onOpenDetails?: () => void;
-  /** self-care */
   levelLine?: string;
   canAdvance?: boolean;
   onAdvance?: () => void;
-  /** בורר קל/בינוני/קשה — מתאים לשלבי L1–L3 במסד */
   selfCareStrengthTier?: 0 | 1 | 2;
   onSelfCareStrengthTierChange?: (tier: 0 | 1 | 2) => void;
 }
@@ -104,48 +99,46 @@ export default function PortalExerciseCard({
       ? typeStyle[typeKey] ?? typeStyle.standard
       : null;
 
-  const borderColor = isCompleted
-    ? '#86efac'
-    : isCustomExercise
-      ? '#fed7aa'
-      : '#d1fae5';
-
-  const bgMain = isCustomExercise ? '#fffdf8' : '#ffffff';
-
-  const cardShadow = '0 1px 2px rgba(13, 148, 136, 0.06)';
-
   const tierLabels: Record<0 | 1 | 2, string> = { 0: 'קל', 1: 'בינוני', 2: 'קשה' };
 
   return (
-    <div
-      className={`rounded-xl border w-full outline-none transition-colors ${
-        disabled ? 'opacity-40 pointer-events-none' : ''
-      } ${isCompleted ? '' : 'focus-within:ring-2 focus-within:ring-teal-400 focus-within:ring-offset-1'}`}
-      style={{
-        background: bgMain,
-        borderColor,
-        borderWidth: 1,
-        boxShadow: cardShadow,
-        opacity: isCompleted ? 0.88 : 1,
-        minHeight: THUMB_H + 16,
-      }}
+    <article
+      className={`rounded-2xl border border-slate-200/90 bg-white w-full shadow-sm outline-none transition-shadow ${
+        disabled ? 'opacity-40 pointer-events-none' : 'hover:shadow-md'
+      } ${!isCompleted && !disabled ? 'focus-within:ring-2 focus-within:ring-medical-primary/30 focus-within:ring-offset-2' : ''}`}
       dir="rtl"
+      aria-label={isCompleted ? `${title} — הושלם` : `משימה ${index}: ${title}`}
     >
-      <div className="flex items-center gap-2 py-2 pr-2 pl-2">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={onOpenTraining}
+      {/* סרגל התקדמות למשימה בודדת */}
+      <div className="px-4 pt-4">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <span className="text-sm font-semibold text-slate-600 tabular-nums">משימה {index}</span>
+          {isCompleted ? (
+            <span className="inline-flex items-center gap-1 text-sm font-bold text-medical-success">
+              <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden />
+              הושלם
+            </span>
+          ) : (
+            <span className="text-sm font-medium text-slate-500">ממתין</span>
+          )}
+        </div>
+        <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden" role="progressbar" aria-valuenow={isCompleted ? 100 : 0} aria-valuemin={0} aria-valuemax={100}>
+          <div
+            className="h-full rounded-full transition-all duration-500 ease-out"
+            style={{
+              width: isCompleted ? '100%' : '12%',
+              background: isCompleted ? '#10b981' : '#cbd5e1',
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="flex gap-3 p-4 pt-3 items-start">
+        <div
+          className="shrink-0 rounded-xl overflow-hidden border border-slate-200 relative bg-slate-50"
+          style={{ width: THUMB_W, height: THUMB_H }}
           onMouseEnter={handleThumbEnter}
           onMouseLeave={handleThumbLeave}
-          className="shrink-0 rounded-lg overflow-hidden border relative cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
-          style={{
-            width: THUMB_W,
-            height: THUMB_H,
-            borderColor: '#99f6e4',
-            background: '#ecfdf5',
-          }}
-          aria-label="פתח ממשק אימון"
         >
           {hasVideo ? (
             <video
@@ -158,99 +151,81 @@ export default function PortalExerciseCard({
               preload="metadata"
             />
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-teal-50 to-emerald-100">
-              <PersonStanding className="w-5 h-5 text-teal-600/70" strokeWidth={1.75} />
+            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
+              <PersonStanding className="w-7 h-7 text-slate-400" strokeWidth={1.75} />
             </div>
           )}
           <div
             className="absolute inset-0 flex items-center justify-center pointer-events-none"
-            style={{ background: 'rgba(0,0,0,0.08)' }}
+            style={{ background: 'rgba(15,23,42,0.12)' }}
+            aria-hidden
           >
-            <Play className="w-3.5 h-3.5 text-white drop-shadow-sm" style={{ marginRight: '-1px' }} />
+            <Play className="w-5 h-5 text-white drop-shadow-md" style={{ marginInlineStart: '2px' }} />
           </div>
-        </button>
-
-        <div
-          className="w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-black shrink-0"
-          style={
-            isCompleted
-              ? { background: '#d1fae5', color: '#059669' }
-              : { background: '#e0f7f9', color: '#0d9488' }
-          }
-        >
-          {isCompleted ? <CheckCircle2 className="w-3.5 h-3.5" /> : index}
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <h4
-              className="text-xs font-semibold leading-tight truncate"
-              style={{ color: isCompleted ? '#475569' : '#0f172a' }}
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <h3
+              className={`text-base font-bold leading-snug min-w-0 flex-1 ${isCompleted ? 'text-slate-500 line-through decoration-slate-300' : 'text-slate-900'}`}
             >
               {title}
-            </h4>
-            {isCompleted ? (
-              <span
-                className="text-[8px] font-bold px-1 py-0 rounded shrink-0 leading-none whitespace-nowrap"
-                style={{ background: '#d1fae5', color: '#047857' }}
-              >
-                הושלם היום
-              </span>
-            ) : null}
+            </h3>
             {variant === 'rehab' && isCustomExercise && (
-              <Sparkles className="w-3 h-3 shrink-0 text-orange-500" aria-label="מותאם" />
+              <Sparkles className="w-4 h-4 shrink-0 text-orange-500" aria-label="מותאם" />
             )}
             {variant === 'rehab' && !isCustomExercise && type && (
               <span
-                className="text-[8px] font-bold px-1 py-0 rounded shrink-0 leading-none"
+                className="text-xs font-bold px-2 py-0.5 rounded-md shrink-0 leading-none"
                 style={{ background: type.bg, color: type.text }}
               >
-                {type.label.length > 2 ? type.label.slice(0, 2) : type.label}
+                {type.label}
               </span>
             )}
             {variant === 'selfCare' && (
-              <span
-                className="text-[8px] font-bold px-1 py-0 rounded shrink-0 leading-none"
-                style={{ background: '#e0f2fe', color: '#0369a1' }}
-              >
+              <span className="text-xs font-bold px-2 py-0.5 rounded-md shrink-0 leading-none bg-blue-50 text-blue-800">
                 כוח
               </span>
             )}
           </div>
-          <p className="text-[10px] text-slate-500 truncate mt-0.5 leading-tight">{subtitle}</p>
+          <p className="text-sm text-slate-600 mt-1.5 leading-relaxed">{subtitle}</p>
           {variant === 'selfCare' && levelLine && (
-            <p className="text-[9px] text-teal-800/90 font-semibold mt-0.5">{levelLine}</p>
+            <p className="text-sm text-slate-700 font-semibold mt-1">{levelLine}</p>
           )}
           {(rewardLabelXp != null || rewardLabelCoins != null) && (
-            <div className="mt-1">
+            <div className="mt-2">
               <RewardLabel xp={rewardLabelXp} coins={rewardLabelCoins} />
             </div>
           )}
-        </div>
-
-        <div
-          className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold shrink-0"
-          style={{ background: '#fef9c3', color: '#a16207' }}
-        >
-          <Zap className="w-2.5 h-2.5" />
-          {xpReward}
+          <div
+            className="inline-flex items-center gap-1 mt-2 px-2.5 py-1 rounded-lg text-sm font-bold text-amber-900 bg-amber-50 border border-amber-200/80"
+          >
+            <Zap className="w-4 h-4 shrink-0 text-amber-600" aria-hidden />
+            {xpReward} XP
+          </div>
         </div>
       </div>
 
-      <div className="px-2.5 pb-2.5 space-y-2">
+      <div className="px-4 pb-4 space-y-3">
+        <button
+          type="button"
+          disabled={disabled || isCompleted}
+          onClick={onOpenTraining}
+          className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 px-4 text-base font-bold text-white shadow-md transition-opacity disabled:opacity-45 disabled:cursor-not-allowed active:opacity-95"
+          style={{ background: '#2563eb', boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}
+        >
+          <Play className="w-5 h-5 shrink-0" fill="currentColor" aria-hidden />
+          {isCompleted ? 'הושלם להיום' : 'נגן / התחל אימון'}
+        </button>
+
         {variant === 'selfCare' &&
           onSelfCareStrengthTierChange != null &&
           selfCareStrengthTier !== undefined && (
-            <div className="flex flex-col gap-1 pr-0.5 w-full min-w-0">
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[9px] font-bold text-slate-600 shrink-0">רמת קושי</span>
+            <div className="flex flex-col gap-2 w-full min-w-0 pt-1 border-t border-slate-100">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-bold text-slate-700">רמת קושי</span>
                 <span
-                  className="text-[9px] font-black px-1.5 py-0.5 rounded-md shrink-0"
-                  style={{
-                    background: 'linear-gradient(135deg,#ecfdf5,#d1fae5)',
-                    color: '#065f46',
-                    border: '1px solid #99f6e4',
-                  }}
+                  className="text-sm font-black px-2.5 py-1 rounded-lg shrink-0 border border-slate-200 bg-slate-50 text-slate-800"
                 >
                   {tierLabels[selfCareStrengthTier]}
                 </span>
@@ -265,10 +240,10 @@ export default function PortalExerciseCard({
                       (Math.max(0, selfCareStrengthTier - 1) as 0 | 1 | 2)
                     );
                   }}
-                  className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border border-slate-300 bg-white text-slate-700 disabled:opacity-35 disabled:cursor-not-allowed hover:border-teal-400 transition-colors"
+                  className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center border-2 border-slate-200 bg-white text-slate-800 disabled:opacity-35 disabled:cursor-not-allowed hover:border-medical-primary/40 transition-colors"
                   aria-label="הקלה ברמת קושי"
                 >
-                  <Minus className="w-4 h-4" strokeWidth={2.5} />
+                  <Minus className="w-5 h-5" strokeWidth={2.5} />
                 </button>
                 <input
                   type="range"
@@ -282,7 +257,7 @@ export default function PortalExerciseCard({
                     onSelfCareStrengthTierChange(Number(e.target.value) as 0 | 1 | 2);
                   }}
                   onClick={(e) => e.stopPropagation()}
-                  className="flex-1 min-w-0 h-2 rounded-lg appearance-none cursor-pointer accent-teal-600"
+                  className="flex-1 min-w-0 h-3 rounded-lg appearance-none cursor-pointer accent-[#2563eb]"
                   style={{ background: '#e2e8f0' }}
                   aria-valuetext={tierLabels[selfCareStrengthTier]}
                 />
@@ -295,10 +270,10 @@ export default function PortalExerciseCard({
                       (Math.min(2, selfCareStrengthTier + 1) as 0 | 1 | 2)
                     );
                   }}
-                  className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border border-slate-300 bg-white text-slate-700 disabled:opacity-35 disabled:cursor-not-allowed hover:border-teal-400 transition-colors"
+                  className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center border-2 border-slate-200 bg-white text-slate-800 disabled:opacity-35 disabled:cursor-not-allowed hover:border-medical-primary/40 transition-colors"
                   aria-label="החמרת רמת קושי"
                 >
-                  <Plus className="w-4 h-4" strokeWidth={2.5} />
+                  <Plus className="w-5 h-5" strokeWidth={2.5} />
                 </button>
               </div>
             </div>
@@ -308,7 +283,7 @@ export default function PortalExerciseCard({
           <button
             type="button"
             onClick={onOpenDetails}
-            className="text-[10px] font-semibold text-teal-600 hover:text-teal-800 underline-offset-2 hover:underline pr-1"
+            className="text-sm font-semibold text-medical-primary hover:text-blue-800 underline-offset-2 hover:underline ps-0.5"
           >
             הוראות מלאות
           </button>
@@ -320,26 +295,25 @@ export default function PortalExerciseCard({
               type="button"
               disabled={!canAdvance || disabled}
               onClick={onAdvance}
-              className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-[10px] font-bold border transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
-                borderColor: '#34d399',
+                borderColor: canAdvance ? '#10b981' : '#e2e8f0',
                 background: canAdvance ? '#ecfdf5' : '#f8fafc',
                 color: '#065f46',
-                boxShadow: canAdvance ? '0 2px 8px rgba(16, 185, 129, 0.12)' : 'none',
               }}
             >
-              <TrendingUp className="w-3 h-3 shrink-0" />
+              <TrendingUp className="w-4 h-4 shrink-0" />
               {canAdvance ? 'העלאת קושי / משקל' : 'ברמה המקסימלית'}
             </button>
           </div>
         )}
 
-        <p className="text-[10px] text-slate-500 pr-1 leading-snug">
+        <p className="text-sm text-slate-500 leading-snug ps-0.5">
           {hoverPlayEnabled
-            ? 'מעבר עכבר על התמונה מנגן תצוגה מקדימה (מושתק). לחיצה פותחת את מסך האימון.'
-            : 'וידאו, טיימר 30 שניות ומאמץ — בתוך מסך האימון בלחיצה על התמונה.'}
+            ? 'מעבר עכבר על התמונה מנגן תצוגה מקדימה (מושתק). הכפתור הכחול פותח את מסך האימון המלא.'
+            : 'וידאו, טיימר ודיווח מאמץ — במסך האימון דרך הכפתור «נגן». '}
         </p>
       </div>
-    </div>
+    </article>
   );
 }

@@ -61,7 +61,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
-      <Route path="/patient-portal" element={<PatientPortalRoute />} />
+      <Route path="/patient-portal/*" element={<PatientPortalRoute />} />
       <Route path="/therapist" element={<TherapistRoute />} />
       <Route path="/" element={<RootRedirect />} />
       <Route path="*" element={<RootRedirect />} />

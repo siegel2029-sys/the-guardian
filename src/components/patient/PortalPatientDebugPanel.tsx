@@ -16,6 +16,10 @@ export default function PortalPatientDebugPanel() {
     devBreakStreakRemoveYesterday,
     devAdjustPatientLifetimeXp,
     devSetPatientLifetimeXp,
+    supabaseConfigured,
+    supabaseSyncStatus,
+    supabaseSyncError,
+    savePersistedStateToCloud,
   } = usePatient();
   const [open, setOpen] = useState(false);
   const [lifetimeXpInput, setLifetimeXpInput] = useState('');
@@ -202,6 +206,22 @@ export default function PortalPatientDebugPanel() {
             }
           >
             Rich Mode (+1000 מטבעות)
+          </button>
+
+          <p className="text-[9px] font-bold text-slate-300 uppercase tracking-wide pt-0.5">Supabase</p>
+          {!supabaseConfigured && (
+            <p className="text-[9px] text-amber-200/90 leading-snug">אין VITE_SUPABASE_* ב־.env</p>
+          )}
+          {supabaseSyncError && (
+            <p className="text-[9px] text-red-300 whitespace-pre-wrap leading-snug">{supabaseSyncError}</p>
+          )}
+          <button
+            type="button"
+            disabled={!supabaseConfigured || supabaseSyncStatus === 'saving'}
+            className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-sky-950 text-sky-100 hover:bg-sky-900 border border-sky-700/50 disabled:opacity-40"
+            onClick={() => void savePersistedStateToCloud()}
+          >
+            {supabaseSyncStatus === 'saving' ? 'שומר…' : 'שמירה ל-Supabase (כל המטופלים)'}
           </button>
         </div>
       )}

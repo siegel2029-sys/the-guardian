@@ -11,6 +11,10 @@ import type {
 } from '../types';
 import { invalidatePersistedBootstrapCache } from '../bootstrap/invalidateBootstrap';
 
+/**
+ * מפתח localStorage לכל מצב המטופלים והקשר הקליני.
+ * אסטרטגיית hybrid: קריאה מהירה מכאן; Supabase (ראו PatientContext.savePersistedStateToCloud) לדחיפה לשרת בשלב הבא.
+ */
 export const PATIENT_STATE_STORAGE_KEY = 'guardian-patient-state-v1';
 
 export type PersistedPatientStateV1 = {

@@ -9,6 +9,16 @@ interface ImportMetaEnv {
   readonly VITE_CLINICAL_ALERT_EMAIL?: string;
   /** @deprecated שדה ישן; התראות עוברות לדוא״ל */
   readonly VITE_REDFLAGS_WHATSAPP?: string;
+  /**
+   * כתובת הפרויקט ב-Supabase (חובה ל-prefix `VITE_`).
+   * קובץ: `.env` בשורש הפרויקט ליד `package.json` — לא תחת `src/`.
+   */
+  readonly VITE_SUPABASE_URL?: string;
+  /**
+   * מפתח anon ללקוח בדפדפן בלבד — לא `service_role`.
+   * אותו קובץ `.env` בשורש.
+   */
+  readonly VITE_SUPABASE_ANON_KEY?: string;
 }
 
 interface ImportMeta {

@@ -67,6 +67,8 @@ import {
   isGearItemId,
   type GearEquipSlot,
 } from '../config/gearCatalog';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { pushPersistedStateToSupabase } from '../lib/supabaseSync';
 
 export type { GearEquipSlot } from '../config/gearCatalog';
 
@@ -378,6 +380,16 @@ interface PatientContextValue {
   /** רמת קושי לתרגיל כוח לפי אזור (0–2 → שלבי שרשרת L1–L3) */
   getSelfCareStrengthTier: (patientId: string, area: BodyArea) => 0 | 1 | 2;
   setSelfCareStrengthTier: (patientId: string, area: BodyArea, tier: 0 | 1 | 2) => void;
+
+  /**
+   * Hybrid persistence: האפליקציה קוראת מ־localStorage (מהירות); Supabase — דחיפה ידנית בשלב זה,
+   * לפני סנכרון מלא דו־כיווני.
+   */
+  supabaseConfigured: boolean;
+  supabaseSyncStatus: 'idle' | 'saving' | 'saved' | 'error';
+  supabaseSyncError: string | null;
+  supabaseLastSavedAt: string | null;
+  savePersistedStateToCloud: () => Promise<void>;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -563,6 +575,12 @@ export function PatientProvider({
   const [rewardFeedback, setRewardFeedback] = useState<PatientRewardFeedback | null>(null);
   const rewardFeedbackIdRef = useRef(0);
 
+  const [supabaseSyncStatus, setSupabaseSyncStatus] = useState<
+    'idle' | 'saving' | 'saved' | 'error'
+  >('idle');
+  const [supabaseSyncError, setSupabaseSyncError] = useState<string | null>(null);
+  const [supabaseLastSavedAt, setSupabaseLastSavedAt] = useState<string | null>(null);
+
   const isPatientSessionLocked = restrictPatientSessionId != null && restrictPatientSessionId !== '';
 
   useEffect(() => {
@@ -611,6 +629,7 @@ export function PatientProvider({
     });
   }, [dailyHistoryByPatient, clinicalToday]);
 
+  /** מקור אמת מקומי — נטען מ־localStorage בהפעלה; כל שינוי נשמר חזרה מיד. Supabase = דחיפה נפרדת. */
   useEffect(() => {
     savePersistedPatientState({
       version: 1,
@@ -645,6 +664,61 @@ export function PatientProvider({
     patientRewardMetaByPatientId,
     patientGearByPatientId,
   ]);
+
+  const buildPersistSnapshot = useCallback((): PersistedPatientStateV1 => {
+    return {
+      version: 1,
+      patients: allPatients,
+      messages,
+      exercisePlans,
+      dailySessions,
+      aiSuggestions,
+      selectedPatientId,
+      safetyAlerts,
+      exerciseSafetyLockedPatientIds,
+      selfCareZonesByPatientId,
+      selfCareReportsByPatientId,
+      patientExerciseFinishReportsByPatientId,
+      selfCareStrengthTierByPatientId,
+      patientRewardMetaByPatientId,
+      patientGearByPatientId,
+    };
+  }, [
+    allPatients,
+    messages,
+    exercisePlans,
+    dailySessions,
+    aiSuggestions,
+    selectedPatientId,
+    safetyAlerts,
+    exerciseSafetyLockedPatientIds,
+    selfCareZonesByPatientId,
+    selfCareReportsByPatientId,
+    patientExerciseFinishReportsByPatientId,
+    selfCareStrengthTierByPatientId,
+    patientRewardMetaByPatientId,
+    patientGearByPatientId,
+  ]);
+
+  const savePersistedStateToCloud = useCallback(async () => {
+    if (!supabase) {
+      setSupabaseSyncError(
+        'Supabase לא מוגדר: הוסיפו VITE_SUPABASE_URL ו־VITE_SUPABASE_ANON_KEY לקובץ .env והפעילו מחדש את השרת.'
+      );
+      setSupabaseSyncStatus('idle');
+      return;
+    }
+    setSupabaseSyncStatus('saving');
+    setSupabaseSyncError(null);
+    const result = await pushPersistedStateToSupabase(supabase, buildPersistSnapshot());
+    if (result.ok) {
+      setSupabaseSyncStatus('saved');
+      setSupabaseLastSavedAt(new Date().toISOString());
+    } else {
+      setSupabaseSyncStatus('error');
+      setSupabaseSyncError(result.message);
+    }
+  }, [buildPersistSnapshot]);
 
   const applyExternalSnapshot = useCallback(
     (data: PersistedPatientStateV1) => {
@@ -2398,6 +2472,11 @@ export function PatientProvider({
         getPatientExerciseFinishReports,
         getSelfCareStrengthTier,
         setSelfCareStrengthTier,
+        supabaseConfigured: isSupabaseConfigured,
+        supabaseSyncStatus,
+        supabaseSyncError,
+        supabaseLastSavedAt,
+        savePersistedStateToCloud,
       }}
     >
       {children}

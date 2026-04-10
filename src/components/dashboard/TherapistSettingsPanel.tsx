@@ -1,10 +1,18 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { Mail, Lock, Save, AlertCircle, Shield, User } from 'lucide-react';
+import { Mail, Lock, Save, AlertCircle, Shield, User, CloudUpload } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getTherapistRecord } from '../../context/authPersistence';
+import { usePatient } from '../../context/PatientContext';
 
 export default function TherapistSettingsPanel() {
   const { therapist, updateTherapistProfile } = useAuth();
+  const {
+    supabaseConfigured,
+    supabaseSyncStatus,
+    supabaseSyncError,
+    supabaseLastSavedAt,
+    savePersistedStateToCloud,
+  } = usePatient();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -141,6 +149,47 @@ export default function TherapistSettingsPanel() {
             שמירה
           </button>
         </form>
+
+        <div className="mt-8 bg-slate-50 rounded-2xl border border-slate-200 p-6 space-y-3">
+          <div className="flex items-center gap-2">
+            <CloudUpload className="w-5 h-5 text-slate-600" />
+            <h3 className="text-base font-bold text-slate-800">Supabase (בדיקת חיבור)</h3>
+          </div>
+          <p className="text-sm text-slate-600 leading-relaxed">
+            הנתונים הקליניים נטענים ונשמרים תחילה ב־localStorage. כפתור זה דוחף עותק למסד ב־Supabase
+            (profiles, patients, exercise_plans, session_history) — לפני סנכרון אוטומטי מלא.
+          </p>
+          {!supabaseConfigured && (
+            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+              לא מוגדר: הוסיפו <code className="text-xs">VITE_SUPABASE_URL</code> ו־
+              <code className="text-xs"> VITE_SUPABASE_ANON_KEY</code> ל־.env והריצו מחדש את Vite.
+            </p>
+          )}
+          {supabaseSyncError && (
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span className="whitespace-pre-wrap">{supabaseSyncError}</span>
+            </div>
+          )}
+          {supabaseLastSavedAt && supabaseSyncStatus !== 'error' && (
+            <p className="text-xs text-slate-500">
+              שמירה אחרונה לענן:{' '}
+              {new Date(supabaseLastSavedAt).toLocaleString('he-IL', {
+                dateStyle: 'short',
+                timeStyle: 'short',
+              })}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={!supabaseConfigured || supabaseSyncStatus === 'saving'}
+            onClick={() => void savePersistedStateToCloud()}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm border-2 border-slate-300 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <CloudUpload className="w-4 h-4" />
+            {supabaseSyncStatus === 'saving' ? 'שומר ל-Supabase…' : 'שמירה ל-Supabase'}
+          </button>
+        </div>
       </div>
     </div>
   );

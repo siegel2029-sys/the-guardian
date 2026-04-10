@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Sparkles,
   X,
@@ -55,11 +55,26 @@ import { RewardLabel } from '../ui/RewardLabel';
 import GearStoreArmory from './GearStoreArmory';
 import { buildEquippedGearSnapshot } from '../../utils/gearSnapshot';
 import PortalPatientDebugPanel from './PortalPatientDebugPanel';
-import PatientSidebar from './PatientSidebar';
 import PatientDashboard from './PatientDashboard';
 import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
 import PatientHeroesHallTab from './PatientHeroesHallTab';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
+
+type PortalTab = 'home' | 'activity' | 'gear' | 'messages' | 'heroes';
+
+function tabFromPortalPath(pathname: string): PortalTab {
+  const idx = pathname.indexOf('/patient-portal');
+  if (idx === -1) return 'home';
+  const rest = pathname.slice(idx + '/patient-portal'.length).replace(/^\/+|\/+$/g, '');
+  if (!rest) return 'home';
+  if (rest === 'activity' || rest === 'gear' || rest === 'messages' || rest === 'heroes') return rest;
+  return 'home';
+}
+
+function portalHrefForTab(tab: PortalTab): string {
+  if (tab === 'home') return '/patient-portal';
+  return `/patient-portal/${tab}`;
+}
 
 /** מניעת כפילות חגיגת סיום תחת React StrictMode (אותו מפתח ביום) */
 const gordySessionCompleteDedupe = new Set<string>();
@@ -67,6 +82,7 @@ const gordySessionCompleteDedupe = new Set<string>();
 /** תצוגת יום למטופל — מוצגת רק ב־/patient-portal (מפת גוף, תרגילים, לוח שנה). */
 export default function PatientDailyView() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     sessionRole,
     logout,
@@ -124,14 +140,19 @@ export default function PatientDailyView() {
   const [messageText, setMessageText] = useState('');
   const [painSheetOpen, setPainSheetOpen] = useState(false);
   const [loadSafetyNudge, setLoadSafetyNudge] = useState<string | null>(null);
-  const [portalMessagesOpen, setPortalMessagesOpen] = useState(true);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [pwCurrent, setPwCurrent] = useState('');
   const [pwNew, setPwNew] = useState('');
   const [pwConfirm, setPwConfirm] = useState('');
   const [pwFormError, setPwFormError] = useState<string | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [portalTab, setPortalTab] = useState<'home' | 'gear' | 'heroes'>('home');
+  const [portalTab, setPortalTab] = useState<PortalTab>(() =>
+    tabFromPortalPath(typeof window !== 'undefined' ? window.location.pathname : '/patient-portal')
+  );
+
+  useEffect(() => {
+    setPortalTab(tabFromPortalPath(location.pathname));
+  }, [location.pathname]);
   const [newLoginIdInput, setNewLoginIdInput] = useState('');
   const [loginIdCurrentPw, setLoginIdCurrentPw] = useState('');
   const [loginIdError, setLoginIdError] = useState<string | null>(null);
@@ -172,11 +193,11 @@ export default function PatientDailyView() {
   );
 
   useEffect(() => {
-    if (!selectedPatient || !portalMessagesOpen) return;
+    if (!selectedPatient || portalTab !== 'messages') return;
     portalMessages.forEach((m) => {
       if (!m.fromPatient && !m.isRead) markMessageRead(m.id);
     });
-  }, [selectedPatient?.id, portalMessagesOpen, portalMessages, markMessageRead]);
+  }, [selectedPatient?.id, portalTab, portalMessages, markMessageRead]);
 
   const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
   const session = selectedPatient ? getTodaySession(selectedPatient.id) : null;
@@ -380,7 +401,7 @@ export default function PatientDailyView() {
   };
 
   const gordyCompanionVisible =
-    portalTab === 'home' &&
+    (portalTab === 'home' || portalTab === 'activity') &&
     !patientMustChangePassword &&
     !!selectedPatient &&
     combinedMissionItems.length > 0 &&
@@ -522,11 +543,10 @@ export default function PatientDailyView() {
   if (!selectedPatient) {
     return (
       <div
-        className="min-h-screen flex flex-col items-center justify-center p-6 text-center"
-        style={{ background: '#F0F9FA' }}
+        className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-medical-bg font-sans"
         dir="rtl"
       >
-        <p className="text-teal-900 font-medium mb-4">לא נבחר מטופל או שהחשבון אינו מקושר.</p>
+        <p className="text-slate-800 font-semibold text-base mb-4">לא נבחר מטופל או שהחשבון אינו מקושר.</p>
         <div className="flex flex-wrap gap-2 justify-center">
           {sessionRole === 'patient' && (
             <button
@@ -535,7 +555,7 @@ export default function PatientDailyView() {
                 logout();
                 navigate('/login', { replace: true });
               }}
-              className="px-5 py-2.5 rounded-2xl border border-slate-300 text-slate-700 font-medium"
+              className="px-5 py-3 rounded-2xl border-2 border-slate-300 text-slate-800 font-semibold text-base"
             >
               התנתקות
             </button>
@@ -552,8 +572,7 @@ export default function PatientDailyView() {
 
   return (
     <div
-      className="min-h-screen flex flex-col max-w-lg mx-auto w-full shadow-xl relative"
-      style={{ background: 'linear-gradient(180deg, #ecfdf5 0%, #f0fdfa 35%, #ffffff 100%)' }}
+      className="min-h-screen flex flex-col max-w-lg mx-auto w-full relative bg-medical-bg font-sans"
       dir="rtl"
     >
       <GordyVictorySequence
@@ -563,12 +582,7 @@ export default function PatientDailyView() {
         streakBonusXp={gordyVictoryRewards.streak}
       />
       <header
-        className="sticky top-0 z-20 px-4 pt-4 pb-3 border-b flex items-center gap-3 relative overflow-visible"
-        style={{
-          borderColor: '#99f6e4',
-          background: 'rgba(255,255,255,0.92)',
-          backdropFilter: 'blur(10px)',
-        }}
+        className="sticky top-0 z-20 px-4 pt-4 pb-3 border-b border-slate-200/90 flex items-center gap-3 relative overflow-visible bg-white/95 backdrop-blur-md shadow-sm"
       >
         {sessionRole === 'patient' ? (
           <div className="flex items-center gap-1.5 shrink-0">
@@ -580,7 +594,7 @@ export default function PatientDailyView() {
                   setPasswordModalOpen(true);
                 }}
                 title="שינוי סיסמה"
-                className="flex items-center gap-1 text-sm font-medium text-slate-600 px-2.5 py-2 rounded-xl hover:bg-slate-100 border border-slate-200"
+                className="flex items-center gap-1.5 text-base font-semibold text-slate-700 px-3 py-2.5 rounded-xl hover:bg-slate-50 border-2 border-slate-200"
               >
                 <KeyRound className="w-4 h-4" />
                 <span className="hidden min-[400px]:inline">סיסמה</span>
@@ -593,7 +607,7 @@ export default function PatientDailyView() {
                 navigate('/login', { replace: true });
               }}
               title="התנתקות"
-              className="flex items-center gap-1.5 text-sm font-medium text-slate-600 px-3 py-2 rounded-xl hover:bg-slate-100 border border-slate-200"
+              className="flex items-center gap-1.5 text-base font-semibold text-slate-700 px-3 py-2.5 rounded-xl hover:bg-slate-50 border-2 border-slate-200"
             >
               <LogOut className="w-4 h-4" />
               יציאה
@@ -601,15 +615,15 @@ export default function PatientDailyView() {
           </div>
         ) : null}
         <div className="flex-1 min-w-0 text-end">
-          <p className="text-xs text-teal-600 font-medium">הפורטל האישי שלך</p>
-          <p className="text-base font-semibold text-slate-800 truncate">{selectedPatient.name}</p>
+          <p className="text-sm text-medical-primary font-semibold">הפורטל האישי שלך</p>
+          <p className="text-lg font-bold text-slate-900 truncate">{selectedPatient.name}</p>
           {hasDailyLoginBonusPending(selectedPatient.id) && (
             <div className="flex justify-end mt-1">
               <RewardLabel
                 xp={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.xp}
                 coins={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.coins}
               />
-              <span className="text-[9px] text-slate-500 mr-1.5 self-center">כניסה יומית</span>
+              <span className="text-xs text-slate-500 ms-1.5 self-center">כניסה יומית</span>
             </div>
           )}
         </div>
@@ -617,7 +631,7 @@ export default function PatientDailyView() {
           {rewardFeedback && (
             <div
               key={rewardFeedback.id}
-              className="absolute top-full left-0 mt-1 flex flex-col items-start gap-0.5 pointer-events-none z-30"
+              className="absolute top-full end-0 mt-1 flex flex-col items-end gap-0.5 pointer-events-none z-30"
             >
               {rewardFeedback.xpAdded > 0 && (
                 <span className="text-xs font-black text-teal-600 tabular-nums drop-shadow-sm animate-portal-reward-float">
@@ -643,17 +657,13 @@ export default function PatientDailyView() {
             </div>
           )}
           <div
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold text-teal-900 transition-transform duration-200 ${
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm font-bold text-slate-800 transition-transform duration-200 border-2 border-slate-200 bg-white ${
               coinKick ? 'motion-safe:scale-110' : ''
             }`}
-            style={{
-              background: 'rgba(240, 253, 250, 0.95)',
-              border: '1px solid #99f6e4',
-            }}
             title="מטבעות למידה"
           >
             <Coins
-              className={`w-4 h-4 text-teal-600 motion-safe:transition-transform ${coinKick ? 'motion-safe:scale-125' : ''}`}
+              className={`w-5 h-5 text-amber-600 motion-safe:transition-transform ${coinKick ? 'motion-safe:scale-125' : ''}`}
             />
             {selectedPatient.coins}
           </div>
@@ -664,34 +674,25 @@ export default function PatientDailyView() {
         {portalTab === 'heroes' && selectedPatient && !patientMustChangePassword && <PatientHeroesHallTab />}
 
         {portalTab === 'home' && selectedPatient && !patientMustChangePassword && (
-          <PatientSidebar onOpenRedFlag={() => setRedFlagOpen(true)} />
+          <PatientDashboard onOpenRedFlag={() => setRedFlagOpen(true)} />
         )}
         {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
             <div className="flex items-center justify-between mb-2 px-0.5">
-              <h2 className="text-base font-bold text-slate-800">מפת הגוף שלי</h2>
+              <h2 className="text-lg font-bold text-slate-900">מפת הגוף שלי</h2>
             </div>
-            <p className="text-xs text-slate-500 mb-2 leading-relaxed">
-              <span className="text-red-800/90 font-medium">אדום</span> — אזור השיקום מהמטפל (לא ניתן
-              לבחירה). <span className="text-emerald-800/90 font-medium">ירוק</span> — אזורי כוח שנבחרו;
-              התרגילים שלהם מתווספים לרשימה למטה.
+            <p className="text-sm text-slate-600 mb-3 leading-relaxed">
+              <span className="text-red-800 font-semibold">אדום</span> — אזור השיקום מהמטפל (לא ניתן
+              לבחירה). <span className="text-medical-success font-semibold">ירוק</span> — אזורי כוח
+              שנבחרו; התרגילים שלהם מופיעים בלשונית <strong>פעילות</strong>.
               {exercises.length > 0 && (
-                <span className="block mt-1 text-teal-700/90">
+                <span className="block mt-2 text-slate-700">
                   מוקד שיקום: <strong>{bodyAreaLabels[selectedPatient.primaryBodyArea]}</strong>
                 </span>
               )}
             </p>
-            <div
-              className="rounded-2xl border overflow-hidden flex flex-col items-center mx-auto w-full"
-              style={{
-                borderColor: '#a7f3d0',
-                maxWidth: 400,
-                aspectRatio: '9 / 16',
-                minHeight: 560,
-                maxHeight: 'min(72vh, 720px)',
-              }}
-            >
-              <div className="relative flex-1 w-full h-full min-h-[520px]">
+            <div className="rounded-2xl border-2 border-slate-200/90 bg-white shadow-sm overflow-hidden mx-auto w-full max-w-md">
+              <div className="relative w-full h-[min(48vh,400px)] min-h-[260px] max-h-[min(55vh,440px)] isolate">
                 <BodyMap3D
                   activeAreas={exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
@@ -711,145 +712,147 @@ export default function PatientDailyView() {
                   levelBadgeRevealOnHover
                   avatarScale={0.9}
                   equippedGear={buildEquippedGearSnapshot(patientGearState)}
-                  minHeightPx={520}
+                  minHeightPx={0}
+                  wrapperClassName="h-full min-h-0"
                   onAreaClick={handleAvatarZoneClick}
                 />
               </div>
             </div>
+            {unreadForPatient > 0 && (
+              <button
+                type="button"
+                onClick={() => navigate(portalHrefForTab('messages'))}
+                className="mt-3 w-full rounded-2xl border-2 border-medical-primary/25 bg-white px-4 py-3 flex items-center justify-between gap-3 text-start shadow-sm"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <MessageCircle className="w-6 h-6 text-medical-primary shrink-0" />
+                  <span className="text-base font-bold text-slate-900">הודעות חדשות מהמטפל</span>
+                </div>
+                <span className="shrink-0 min-w-[1.75rem] h-8 px-2 rounded-full text-sm font-black flex items-center justify-center text-white bg-medical-primary">
+                  {unreadForPatient > 9 ? '9+' : unreadForPatient}
+                </span>
+              </button>
+            )}
+            {selectedPatient && !patientMustChangePassword && (
+              <button
+                type="button"
+                onClick={() => navigate(portalHrefForTab('heroes'))}
+                className="mt-3 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3.5 flex items-center justify-center gap-2 text-base font-bold text-slate-800 shadow-sm"
+              >
+                <Sparkles className="w-5 h-5 text-violet-600 shrink-0" />
+                היכל גיבורים
+              </button>
+            )}
           </section>
         )}
 
-        {portalTab === 'home' && selectedPatient && (
-          <section className="mb-5 rounded-2xl border overflow-hidden" style={{ borderColor: '#99f6e4' }}>
-            <button
-              type="button"
-              onClick={() => setPortalMessagesOpen((o) => !o)}
-              className="w-full flex items-center justify-between px-4 py-3 text-start gap-3"
-              style={{ background: 'rgba(255,255,255,0.85)' }}
-            >
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <MessageCircle className="w-5 h-5 text-teal-600 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-slate-800">מרכז הודעות</p>
-                  <p className="text-[11px] text-slate-500 truncate">
-                    שיחה עם {careGiverName}
-                  </p>
+        {portalTab === 'messages' && selectedPatient && (
+          <section className="mb-5 rounded-2xl border-2 border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col min-h-[min(70vh,520px)] max-h-[calc(100dvh-8rem)]">
+            <div className="px-4 py-3 border-b border-slate-100 bg-white shrink-0">
+              <div className="flex items-center gap-3">
+                <MessageCircle className="w-7 h-7 text-medical-primary shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-base font-bold text-slate-900">מרכז הודעות</p>
+                  <p className="text-sm text-slate-500 truncate">שיחה עם {careGiverName}</p>
                 </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
                 {unreadForPatient > 0 && (
-                  <span
-                    className="min-w-[1.25rem] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center text-white"
-                    style={{ background: '#0d9488' }}
-                  >
+                  <span className="shrink-0 min-w-[1.75rem] h-8 px-2 rounded-full text-sm font-black flex items-center justify-center text-white bg-medical-primary">
                     {unreadForPatient > 9 ? '9+' : unreadForPatient}
                   </span>
                 )}
-                <span className="text-xs text-teal-600 font-medium">
-                  {portalMessagesOpen ? 'סגירה' : 'פתיחה'}
-                </span>
               </div>
-            </button>
-            {portalMessagesOpen && (
-              <div
-                className="px-3 pb-3 pt-1 border-t max-h-[min(55vh,420px)] flex flex-col gap-3"
-                style={{ borderColor: '#e0f2f1', background: 'rgba(248, 250, 252, 0.5)' }}
-              >
-                <div className="flex-1 overflow-y-auto space-y-2 min-h-[120px] pr-0.5">
-                  {portalMessages.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-6">אין הודעות עדיין</p>
-                  ) : (
-                    [...portalMessages]
-                      .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-                      .map((msg) => {
-                        const fromMe = msg.fromPatient && !msg.aiClinicalAlert;
-                        const isAi = !!msg.aiClinicalAlert;
-                        const tier = msg.clinicalSafetyTier;
-                        const alignEnd = fromMe;
-                        const alertStyle =
-                          isAi && tier === 'emergency'
-                            ? { background: '#fef2f2', borderColor: '#f87171' }
-                            : isAi && tier === 'high_priority'
-                              ? { background: '#fffbeb', borderColor: '#fbbf24' }
-                              : isAi
-                                ? { background: '#eef2ff', borderColor: '#a5b4fc' }
-                                : fromMe
-                                  ? { background: '#f0fdfa', borderColor: '#a7f3d0' }
-                                  : { background: '#ffffff', borderColor: '#e2e8f0' };
-                        const senderLabel = isAi
-                          ? tier === 'emergency'
-                            ? 'עדכון דחוף'
-                            : tier === 'high_priority'
-                              ? 'עדכון בטיחות'
-                              : 'עדכון מהמערכת'
-                          : fromMe
-                            ? 'אני'
-                            : careGiverName;
-                        return (
+            </div>
+            <div className="flex-1 flex flex-col gap-3 p-3 min-h-0 bg-slate-50/80">
+              <div className="flex-1 overflow-y-auto space-y-2 min-h-[160px] ps-0.5 pe-0.5">
+                {portalMessages.length === 0 ? (
+                  <p className="text-sm text-slate-500 text-center py-10">אין הודעות עדיין</p>
+                ) : (
+                  [...portalMessages]
+                    .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+                    .map((msg) => {
+                      const fromMe = msg.fromPatient && !msg.aiClinicalAlert;
+                      const isAi = !!msg.aiClinicalAlert;
+                      const tier = msg.clinicalSafetyTier;
+                      const alignEnd = fromMe;
+                      const alertStyle =
+                        isAi && tier === 'emergency'
+                          ? { background: '#fef2f2', borderColor: '#f87171' }
+                          : isAi && tier === 'high_priority'
+                            ? { background: '#fffbeb', borderColor: '#fbbf24' }
+                            : isAi
+                              ? { background: '#eef2ff', borderColor: '#a5b4fc' }
+                              : fromMe
+                                ? { background: '#ecfdf5', borderColor: '#6ee7b7' }
+                                : { background: '#ffffff', borderColor: '#e2e8f0' };
+                      const senderLabel = isAi
+                        ? tier === 'emergency'
+                          ? 'עדכון דחוף'
+                          : tier === 'high_priority'
+                            ? 'עדכון בטיחות'
+                            : 'עדכון מהמערכת'
+                        : fromMe
+                          ? 'אני'
+                          : careGiverName;
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex ${alignEnd ? 'justify-end' : 'justify-start'}`}
+                        >
                           <div
-                            key={msg.id}
-                            className={`flex ${alignEnd ? 'justify-end' : 'justify-start'}`}
+                            className="max-w-[88%] rounded-2xl px-3 py-2.5 border-2 shadow-sm"
+                            style={alertStyle}
                           >
-                            <div
-                              className="max-w-[88%] rounded-2xl px-3 py-2.5 border shadow-sm"
-                              style={alertStyle}
-                            >
-                              <div className="flex items-center gap-1.5 mb-1">
-                                {isAi ? (
-                                  <Bot className="w-3.5 h-3.5 text-indigo-600" />
-                                ) : (
-                                  <User className="w-3.5 h-3.5 text-teal-600" />
-                                )}
-                                <span className="text-[10px] font-semibold text-slate-500">
-                                  {senderLabel}
-                                </span>
-                              </div>
-                              <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                                {msg.content}
-                              </p>
-                              <div className="flex items-center gap-1 mt-1">
-                                <Clock className="w-3 h-3 text-slate-300" />
-                                <span className="text-[10px] text-slate-400">
-                                  {new Date(msg.timestamp).toLocaleString('he-IL', {
-                                    day: 'numeric',
-                                    month: 'short',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}
-                                </span>
-                              </div>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              {isAi ? (
+                                <Bot className="w-4 h-4 text-indigo-600 shrink-0" />
+                              ) : (
+                                <User className="w-4 h-4 text-medical-primary shrink-0" />
+                              )}
+                              <span className="text-xs font-bold text-slate-600">{senderLabel}</span>
+                            </div>
+                            <p className="text-base text-slate-800 whitespace-pre-wrap leading-relaxed">
+                              {msg.content}
+                            </p>
+                            <div className="flex items-center gap-1 mt-1.5">
+                              <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span className="text-xs text-slate-500">
+                                {new Date(msg.timestamp).toLocaleString('he-IL', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
                             </div>
                           </div>
-                        );
-                      })
-                  )}
-                </div>
-                <div className="flex gap-2 items-end border-t pt-3" style={{ borderColor: '#e0f2f1' }}>
-                  <textarea
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    placeholder={`הודעה ל־${careGiverShort}…`}
-                    rows={2}
-                    className="flex-1 resize-none rounded-xl border border-teal-200/90 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-400/40"
-                    style={{ background: '#fafefd' }}
-                  />
-                  <button
-                    type="button"
-                    disabled={!messageText.trim()}
-                    onClick={() => {
-                      if (!selectedPatient || !messageText.trim()) return;
-                      sendPatientMessage(selectedPatient.id, messageText.trim());
-                      setMessageText('');
-                    }}
-                    className="shrink-0 h-10 w-10 rounded-xl flex items-center justify-center text-white disabled:opacity-40"
-                    style={{ background: 'linear-gradient(135deg, #0d9488, #059669)' }}
-                    aria-label="שלח הודעה"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </div>
+                        </div>
+                      );
+                    })
+                )}
               </div>
-            )}
+              <div className="flex gap-2 items-end border-t-2 border-slate-200 pt-3 shrink-0">
+                <textarea
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  placeholder={`הודעה ל־${careGiverShort}…`}
+                  rows={2}
+                  className="flex-1 resize-none rounded-xl border-2 border-slate-200 px-3 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-medical-primary/30 bg-white"
+                />
+                <button
+                  type="button"
+                  disabled={!messageText.trim()}
+                  onClick={() => {
+                    if (!selectedPatient || !messageText.trim()) return;
+                    sendPatientMessage(selectedPatient.id, messageText.trim());
+                    setMessageText('');
+                  }}
+                  className="shrink-0 h-12 w-12 rounded-xl flex items-center justify-center text-white disabled:opacity-40 bg-medical-primary shadow-md"
+                  aria-label="שלח הודעה"
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
           </section>
         )}
 
@@ -951,22 +954,15 @@ export default function PatientDailyView() {
           </section>
         )}
 
-        {portalTab === 'home' && (
+        {portalTab === 'activity' && (
         <>
-        {selectedPatient && !patientMustChangePassword && (
-          <PatientDashboard onOpenRedFlag={() => setRedFlagOpen(true)} />
-        )}
         <div
-          className="rounded-2xl p-4 mb-5 border"
-          style={{
-            borderColor: '#a7f3d0',
-            background: 'linear-gradient(135deg, #f0fdfa, #ffffff)',
-          }}
+          className="rounded-2xl p-4 mb-5 border-2 border-slate-200 bg-white shadow-sm"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-teal-600" />
-              <span className="text-sm font-semibold text-teal-900">התקדמות</span>
+              <Sparkles className="w-5 h-5 text-medical-primary shrink-0" />
+              <span className="text-base font-bold text-slate-900">התקדמות</span>
             </div>
             <div
               className="text-sm font-black tabular-nums px-3 py-1 rounded-xl border"
@@ -987,27 +983,23 @@ export default function PatientDailyView() {
               {xp} / {next} נק׳
             </span>
           </div>
-          <div className="h-2 rounded-full bg-teal-100 overflow-hidden mb-3">
+          <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden mb-3">
             <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${pct}%`,
-                background: 'linear-gradient(90deg, #14b8a6, #059669)',
-              }}
+              className="h-full rounded-full transition-all duration-500 bg-medical-primary"
+              style={{ width: `${pct}%` }}
             />
           </div>
 
           <button
             type="button"
             onClick={() => setPainSheetOpen(true)}
-            className="w-full rounded-xl border border-teal-200/90 px-3 py-2.5 flex items-center justify-between gap-2 text-start transition-colors hover:bg-teal-50/80 active:bg-teal-50"
-            style={{ background: 'rgba(255,255,255,0.65)' }}
+            className="w-full rounded-xl border-2 border-slate-200 px-3 py-3 flex items-center justify-between gap-2 text-start transition-colors hover:bg-slate-50 active:bg-slate-100 bg-white"
           >
             <div className="flex items-center gap-2 min-w-0">
-              <Activity className="w-4 h-4 text-teal-600 shrink-0" />
+              <Activity className="w-5 h-5 text-medical-primary shrink-0" />
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-teal-900">מעקב כאב</p>
-                <p className="text-[11px] text-slate-500 truncate">
+                <p className="text-sm font-bold text-slate-900">מעקב כאב</p>
+                <p className="text-sm text-slate-600 truncate">
                   ממוצע {selectedPatient.analytics.averageOverallPain.toFixed(1)}/10
                   {lastPainRecord != null && (
                     <span className="text-slate-600">
@@ -1019,17 +1011,17 @@ export default function PatientDailyView() {
                 </p>
               </div>
             </div>
-            <span className="text-xs font-medium text-teal-700 shrink-0">גרף</span>
+            <span className="text-sm font-bold text-medical-primary shrink-0">גרף</span>
           </button>
         </div>
 
         <ClinicalMonthCalendar dayMap={patientDayMap} clinicalToday={clinicalToday} />
 
-        <h1 className="text-lg font-bold text-slate-800 mb-1">המשימות להיום</h1>
-        <p className="text-sm text-slate-500 mb-4 leading-relaxed">
-          קודם תרגילי השיקום מהמטפל, אחריהם תרגילי כוח לאזורים הירוקים במפה. תצוגה מקדימה במעבר עכבר;
-          לחיצה פותחת וידאו גדול, הוראות, טיימר 30 שניות ורק אז «בוצע». כוח/פרהאב מעניקים חצי מנקודות
-          ה-XP והמטבעות לעומת השיקום.
+        <h1 className="text-xl font-bold text-slate-900 mb-2">המשימות להיום</h1>
+        <p className="text-base text-slate-600 mb-4 leading-relaxed">
+          קודם תרגילי השיקום מהמטפל, אחריהם תרגילי כוח לאזורים הירוקים במפה (בלשונית <strong>בית</strong>).
+          בכל משימה: כפתור <strong>נגן</strong> פותח וידאו, טיימר 30 שניות ודיווח מאמץ. כוח/פרהאב מעניקים
+          חצי מנקודות ה-XP והמטבעות לעומת השיקום.
         </p>
 
         {loadSafetyNudge && (
@@ -1095,7 +1087,7 @@ export default function PatientDailyView() {
                 aria-hidden
               />
             )}
-            <ul className="space-y-2 flex flex-col">
+            <ul className="space-y-4 flex flex-col">
               {combinedMissionItems.map((row, i) => {
                 const idx = i + 1;
                 if (row.kind === 'rehab') {
@@ -1199,44 +1191,59 @@ export default function PatientDailyView() {
       {import.meta.env.DEV && <PortalPatientDebugPanel />}
 
       <nav
-        className="fixed bottom-0 left-0 right-0 z-[35] border-t flex justify-center backdrop-blur-md"
-        style={{
-          background: 'rgba(255,255,255,0.94)',
-          borderColor: '#99f6e4',
-          paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
-        }}
+        className="fixed bottom-0 inset-x-0 z-[35] border-t-2 border-slate-200 flex justify-center bg-white/95 backdrop-blur-md shadow-[0_-4px_24px_rgba(15,23,42,0.06)]"
+        style={{ paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}
         aria-label="ניווט פורטל"
       >
         <div className="flex w-full max-w-lg">
           <button
             type="button"
-            onClick={() => setPortalTab('home')}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[10px] sm:text-[11px] font-bold transition-colors ${
-              portalTab === 'home' ? 'text-teal-800' : 'text-slate-500'
+            onClick={() => navigate(portalHrefForTab('home'))}
+            className={`flex-1 flex flex-col items-center gap-1 py-3 text-sm font-bold transition-colors ${
+              portalTab === 'home' || portalTab === 'heroes'
+                ? 'text-medical-primary'
+                : 'text-slate-500'
             }`}
           >
-            <Home className="w-5 h-5" />
+            <Home className="w-6 h-6 shrink-0" strokeWidth={portalTab === 'home' || portalTab === 'heroes' ? 2.5 : 2} />
             בית
           </button>
           <button
             type="button"
-            onClick={() => setPortalTab('heroes')}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[10px] sm:text-[11px] font-bold transition-colors ${
-              portalTab === 'heroes' ? 'text-violet-800' : 'text-slate-500'
+            onClick={() => navigate(portalHrefForTab('activity'))}
+            className={`flex-1 flex flex-col items-center gap-1 py-3 text-sm font-bold transition-colors ${
+              portalTab === 'activity' ? 'text-medical-primary' : 'text-slate-500'
             }`}
           >
-            <Sparkles className="w-5 h-5" />
-            <span className="text-center leading-tight">היכל גיבורים</span>
+            <Activity className="w-6 h-6 shrink-0" strokeWidth={portalTab === 'activity' ? 2.5 : 2} />
+            פעילות
           </button>
           <button
             type="button"
-            onClick={() => setPortalTab('gear')}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[10px] sm:text-[11px] font-bold transition-colors ${
-              portalTab === 'gear' ? 'text-violet-800' : 'text-slate-500'
+            onClick={() => navigate(portalHrefForTab('gear'))}
+            className={`flex-1 flex flex-col items-center gap-1 py-3 text-sm font-bold transition-colors ${
+              portalTab === 'gear' ? 'text-medical-primary' : 'text-slate-500'
             }`}
           >
-            <ShoppingBag className="w-5 h-5" />
-            חנות ציוד
+            <ShoppingBag className="w-6 h-6 shrink-0" strokeWidth={portalTab === 'gear' ? 2.5 : 2} />
+            ציוד
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(portalHrefForTab('messages'))}
+            className={`relative flex-1 flex flex-col items-center gap-1 py-3 text-sm font-bold transition-colors ${
+              portalTab === 'messages' ? 'text-medical-primary' : 'text-slate-500'
+            }`}
+          >
+            <span className="relative inline-flex">
+              <MessageCircle className="w-6 h-6 shrink-0" strokeWidth={portalTab === 'messages' ? 2.5 : 2} />
+              {unreadForPatient > 0 && portalTab !== 'messages' && (
+                <span className="absolute -top-1 -end-1 min-w-[1.1rem] h-[1.1rem] px-0.5 rounded-full bg-red-600 text-[10px] font-black text-white flex items-center justify-center border-2 border-white">
+                  {unreadForPatient > 9 ? '!' : unreadForPatient}
+                </span>
+              )}
+            </span>
+            הודעות
           </button>
         </div>
       </nav>
@@ -1357,7 +1364,7 @@ export default function PatientDailyView() {
           setMessageText(
             'דחוף: דיווחתי על תסמינים שעלולים לחייב בדיקה רפואית דחופה. נא ליצור קשר בהקדם.'
           );
-          setPortalMessagesOpen(true);
+          navigate(portalHrefForTab('messages'));
         }}
       />
 
