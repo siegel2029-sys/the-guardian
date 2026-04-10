@@ -47,7 +47,6 @@ import { bodyAreaBlocksSelfCare, bodyAreaIsClinicalFocus } from '../body/bodyPic
 import { isChainReactionZoneForPrimary } from '../body/chainReactionZones';
 import { getTherapistAlertEmail, openClinicalMailto } from '../utils/clinicalAlertEmail';
 import {
-  PATIENT_MAX_LEVEL,
   xpRequiredToReachNextLevel,
   normalizePatientProgressFields,
   clampPatientLevel,
@@ -57,11 +56,12 @@ import {
 import { computeStreakForPatient } from '../utils/exerciseStreak';
 import { sendDataToTherapist } from '../utils/therapistAnalytics';
 import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../data/exerciseVideoDefaults';
+import { PATIENT_REWARDS } from '../config/patientRewards';
 import {
-  PATIENT_REWARDS,
-  exerciseBaseXp,
-  getStreakXpMultiplier,
-} from '../config/patientRewards';
+  applyXpCoinsLevelUp,
+  computeExerciseCompletionRewards,
+  computeStreakAfterFirstDailyCompletion,
+} from '../utils/gamification-utils';
 import {
   GEAR_BY_ID,
   isGearItemId,
@@ -78,8 +78,6 @@ export type GearPurchaseResult =
   | 'insufficient_xp'
   | 'already_owned'
   | 'invalid';
-
-const XP_BOOSTER_MULT = 1.15;
 
 function defaultPatientGear(): PatientGearState {
   return {
@@ -144,24 +142,6 @@ function clampPain(n: number): PainLevel {
 function clampEffort(n: number): 1 | 2 | 3 | 4 | 5 {
   const r = Math.round(Math.min(5, Math.max(1, n)));
   return r as 1 | 2 | 3 | 4 | 5;
-}
-
-function applyXpCoinsLevelUp(p: Patient, xpDelta: number, coinsDelta: number): Patient {
-  let { xp, level, xpForNextLevel, coins } = p;
-  coins += coinsDelta;
-  xp += xpDelta;
-  while (xp >= xpForNextLevel && level < PATIENT_MAX_LEVEL) {
-    xp -= xpForNextLevel;
-    level += 1;
-    xpForNextLevel = xpRequiredToReachNextLevel(level);
-  }
-  return {
-    ...p,
-    coins,
-    xp,
-    level: level as Patient['level'],
-    xpForNextLevel,
-  };
 }
 
 export type PatientRewardFeedback = {
@@ -1335,39 +1315,35 @@ export function PatientProvider({
       const clinicalTwoDaysAgo = addClinicalDays(clinicalDay, -2);
       const gearSnap = patientGearByPatientId[patientId] ?? defaultPatientGear();
 
-      let nextStreak = patientBefore.currentStreak;
-      let consumeStreakShield = false;
-      if (firstOfDay) {
-        const last = patientBefore.lastSessionDate;
-        if (last === clinicalYesterday) {
-          nextStreak = patientBefore.currentStreak + 1;
-        } else if (last === clinicalDay) {
-          nextStreak = patientBefore.currentStreak;
-        } else if (last === clinicalTwoDaysAgo && gearSnap.streakShieldCharges > 0) {
-          nextStreak = patientBefore.currentStreak + 1;
-          consumeStreakShield = true;
-        } else if (last !== clinicalDay) {
-          nextStreak = 1;
-        }
-      }
+      const { nextStreak, consumeStreakShield } = computeStreakAfterFirstDailyCompletion({
+        firstOfDay,
+        currentStreak: patientBefore.currentStreak,
+        lastSessionDate: patientBefore.lastSessionDate,
+        clinicalDay,
+        clinicalYesterday,
+        clinicalTwoDaysAgo,
+        streakShieldCharges: gearSnap.streakShieldCharges,
+      });
 
-      const baseXp = exerciseBaseXp(xpReward);
-      const streakMult = getStreakXpMultiplier(nextStreak);
-      const xpBeforeBoost = Math.round(baseXp * streakMult);
-      const hasXpBoost =
-        gearSnap.equippedPassiveId === 'xp_booster' &&
-        gearSnap.ownedGearIds.includes('xp_booster');
-      const xpGain = hasXpBoost
-        ? Math.round(xpBeforeBoost * XP_BOOSTER_MULT)
-        : xpBeforeBoost;
-      const streakBonusXp = Math.max(0, xpBeforeBoost - baseXp);
-      const coinsGain = PATIENT_REWARDS.EXERCISE_COMPLETE.coins;
+      const streakForXpMultiplier = firstOfDay ? nextStreak : patientBefore.currentStreak;
+      const {
+        xpGain,
+        streakBonusXp,
+        coinsGain,
+        rewardMessage,
+      } = computeExerciseCompletionRewards({
+        planXpReward: xpReward,
+        streakForXpMultiplier,
+        xpBoosterEquippedAndOwned:
+          gearSnap.equippedPassiveId === 'xp_booster' &&
+          gearSnap.ownedGearIds.includes('xp_booster'),
+      });
 
       pushRewardFeedback(
         xpGain,
         coinsGain,
         streakBonusXp > 0 ? streakBonusXp : undefined,
-        streakBonusXp > 0 ? `בונוס רצף ×${streakMult}` : undefined
+        rewardMessage
       );
 
       setDailySessions((prev) => {
