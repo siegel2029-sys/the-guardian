@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   LineChart,
   Line,
@@ -9,7 +9,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import { Activity, MessageSquare, ShieldAlert, Sparkles, ListChecks } from 'lucide-react';
+import { Activity, Loader2, MessageSquare, ShieldAlert, Sparkles, ListChecks } from 'lucide-react';
 import type {
   BodyArea,
   DailyHistoryEntry,
@@ -21,6 +21,11 @@ import type {
 import type { ClinicalProgressInsight } from '../../../ai/clinicalCommandInsight';
 import { aggregateClinicalInsights } from '../../../services/clinicalInsightsAggregation';
 import { buildUnifiedClinicalNarrative } from '../../../ai/clinicalInsightsNarrative';
+import {
+  analyzeSmartClinicalCenterWithGemini,
+  getGeminiApiKey,
+  GeminiRateLimitedError,
+} from '../../../ai/geminiSmartClinicalCenter';
 import { getPatientAvatarPresentation } from './clinical-patient-presentation';
 
 type Props = {
@@ -50,7 +55,7 @@ export default function SmartClinicalAnalysisCenter({
 }: Props) {
   const presentation = useMemo(() => getPatientAvatarPresentation(patient), [patient]);
 
-  const { aggregated, narrative } = useMemo(() => {
+  const { aggregated, localNarrative } = useMemo(() => {
     const aggregated = aggregateClinicalInsights({
       patient,
       clinicalToday,
@@ -60,12 +65,12 @@ export default function SmartClinicalAnalysisCenter({
       selfCareReports,
       finishReports,
     });
-    const narrative = buildUnifiedClinicalNarrative(
+    const localNarrative = buildUnifiedClinicalNarrative(
       aggregated,
       patient.name,
       progressInsight
     );
-    return { aggregated, narrative };
+    return { aggregated, localNarrative };
   }, [
     patient,
     clinicalToday,
@@ -76,6 +81,55 @@ export default function SmartClinicalAnalysisCenter({
     finishReports,
     progressInsight,
   ]);
+
+  const [geminiNarrative, setGeminiNarrative] = useState<typeof localNarrative | null>(null);
+  const [geminiLoading, setGeminiLoading] = useState(false);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!getGeminiApiKey()) {
+      setGeminiNarrative(null);
+      setGeminiError(null);
+      setGeminiLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setGeminiLoading(true);
+    setGeminiError(null);
+
+    void analyzeSmartClinicalCenterWithGemini({
+      patientDisplayName: patient.name,
+      aggregated,
+      progressInsight,
+    })
+      .then((n) => {
+        if (!cancelled) {
+          setGeminiNarrative(n);
+          setGeminiLoading(false);
+        }
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setGeminiNarrative(null);
+        setGeminiLoading(false);
+        const msg =
+          e instanceof GeminiRateLimitedError
+            ? e.message
+            : e instanceof Error
+              ? e.message
+              : 'שגיאת Gemini';
+        setGeminiError(msg);
+        console.warn('[SmartClinicalAnalysisCenter] Gemini failed, using local narrative', e);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [aggregated, progressInsight, patient.name, patient.id]);
+
+  const narrative = geminiNarrative ?? localNarrative;
+  const narrativeSource: 'gemini' | 'local' = geminiNarrative ? 'gemini' : 'local';
 
   const hasChartPoint = aggregated.daySeries7.some(
     (d) => d.pain != null || d.effort1to5 != null
@@ -231,10 +285,26 @@ export default function SmartClinicalAnalysisCenter({
         </section>
 
         <section className="rounded-xl border border-violet-100 bg-violet-50/25 px-4 py-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="w-4 h-4 text-violet-600 shrink-0" />
-            <span className="text-xs font-bold text-violet-900">סיכום AI קליני (מבוסס הגרף)</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Sparkles className="w-4 h-4 text-violet-600 shrink-0" />
+              <span className="text-xs font-bold text-violet-900">
+                סיכום AI קליני
+                {narrativeSource === 'gemini' ? ' (Gemini)' : ' (מקומי)'}
+              </span>
+            </div>
+            {geminiLoading && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-violet-800">
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                טוען Gemini…
+              </span>
+            )}
           </div>
+          {geminiError && getGeminiApiKey() && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200/80 rounded-lg px-3 py-2 mb-2 leading-relaxed">
+              Gemini לא זמין ({geminiError}). מוצג ניתוח מקומי.
+            </p>
+          )}
           <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-line">
             {narrative.graphAnchoredSummary}
           </p>
