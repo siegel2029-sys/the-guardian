@@ -2,7 +2,7 @@ import type { Patient, PatientExercise } from '../types';
 import { bodyAreaLabels } from '../types';
 import { geminiGenerateChat, getGeminiApiKey, type GeminiChatTurn } from './geminiClient';
 
-const LOG_PREFIX = '[GeminiGordy]';
+const LOG_PREFIX = '[GeminiPatientRehab]';
 
 function exerciseListSummary(exercises: PatientExercise[]): string {
   return exercises
@@ -47,13 +47,13 @@ function buildPatientSnapshotBlock(
   ].join('\n');
 }
 
-function gordySystemInstruction(
+function patientRehabAssistantSystemInstruction(
   patient: Patient,
   exerciseCount: number,
   exercises: PatientExercise[]
 ): string {
   const snapshot = buildPatientSnapshotBlock(patient, exerciseCount, exercises);
-  return `אתה "גורדי" — עוזר אישי לשיקום בתוך אפליקציה. קהל היעד: מטופל ביומיום (לא צוות רפואי).
+  return `אתה עוזר שיקום דיגיטלי בתוך אפליקציה. אל תציג את עצמך כדמות בעלת שם או כינוי. קהל היעד: מטופל ביומיום (לא צוות רפואי).
 
 טון: מעודד, ידידותי, מניע לפעולה, עם נגיעה של גיימיפיקציה (רמות, רצף, "נקודות" כעידוד — אין לך גישה לשמירת נקודות אמיתית; השתמש בזה כמטאפורה חיובית בלבד).
 
@@ -76,7 +76,7 @@ ${snapshot}
 }
 
 /**
- * תשובת צ'אט גורדי למטופל (מול Gemini). history ללא ההודעה הנוכחית.
+ * תשובת צ'אט עוזר שיקום למטופל (מול Gemini). history ללא ההודעה הנוכחית.
  */
 export async function gordyPatientChatWithGemini(params: {
   patient: Patient;
@@ -89,7 +89,7 @@ export async function gordyPatientChatWithGemini(params: {
     throw new Error('Missing VITE_GEMINI_API_KEY');
   }
 
-  const systemInstruction = gordySystemInstruction(
+  const systemInstruction = patientRehabAssistantSystemInstruction(
     params.patient,
     params.exerciseCount,
     params.exercises

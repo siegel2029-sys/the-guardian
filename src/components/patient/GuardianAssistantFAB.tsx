@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { X, Send, Loader2, Sparkles } from 'lucide-react';
-import GordyMascotIcon from './GordyMascotIcon';
 import type { Patient, PatientExercise } from '../../types';
 import {
   buildGuardianTurn,
@@ -25,7 +24,7 @@ interface GuardianAssistantFABProps {
   ) => void;
   /** התראת AI קלינית לתיבת המטפל */
   onTherapistClinicalAlert?: (detailHebrew?: string) => void;
-  /** מילות מפתח חירום בטקסט המטופל — לגורדי המלווה */
+  /** מילות מפתח חירום בטקסט המטופל — לזרימת הבטיחות */
   onPatientEmergencyText?: () => void;
   hidden?: boolean;
   /** ניסוח רך לפורטל מטופל (ללא מונחי דשבורד מטפל) */
@@ -175,6 +174,7 @@ export default function GuardianAssistantFAB({
 
   const portalBarBottom = 'calc(5.75rem + env(safe-area-inset-bottom, 0px))';
   const portalBarLeft = 'max(12px, env(safe-area-inset-left, 0px))';
+  const PORTAL_INPUT_PLACEHOLDER = 'יש לך שאלה על השיקום? כתוב כאן';
 
   return (
     <>
@@ -182,17 +182,21 @@ export default function GuardianAssistantFAB({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed z-[65] flex w-[min(calc(100vw-1.5rem),22rem)] min-h-[3.125rem] items-center gap-2.5 overflow-hidden rounded-2xl border border-slate-200/95 bg-slate-50/95 px-3 py-2.5 text-start shadow-sm transition-all hover:border-slate-300 hover:bg-white active:scale-[0.99] motion-safe:duration-150"
+          className="fixed z-[65] flex w-[min(calc(100vw-1.5rem),22rem)] min-h-[3rem] items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/92 px-3.5 py-2.5 text-start shadow-sm backdrop-blur-md transition-all hover:border-slate-300/90 hover:bg-white active:scale-[0.99] motion-safe:duration-150"
           style={{ bottom: portalBarBottom, left: portalBarLeft }}
           dir="ltr"
-          aria-label="פתיחת צ׳אט עם גורדי"
+          aria-label="פתיחת עוזר שיקום"
         >
-          <Sparkles className="h-4 w-4 shrink-0 text-sky-600" strokeWidth={2} aria-hidden />
+          <Sparkles
+            className="h-5 w-5 shrink-0 text-medical-primary"
+            strokeWidth={2}
+            aria-hidden
+          />
           <span
-            className="min-w-0 flex-1 truncate text-end text-[0.9375rem] font-medium text-slate-400"
+            className="min-w-0 flex-1 truncate text-end text-[0.9375rem] font-medium text-slate-500"
             dir="rtl"
           >
-            יש לך שאלה? שאל את גורדי...
+            {PORTAL_INPUT_PLACEHOLDER}
           </span>
         </button>
       )}
@@ -201,14 +205,14 @@ export default function GuardianAssistantFAB({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed z-[65] bottom-6 left-4 flex h-14 w-14 items-center justify-center rounded-2xl text-white shadow-lg"
+          className="fixed z-[65] bottom-6 left-4 flex h-14 w-14 items-center justify-center rounded-xl text-white shadow-lg"
           style={{
-            background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
-            boxShadow: '0 12px 28px -8px rgba(234, 88, 12, 0.5)',
+            background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+            boxShadow: '0 10px 26px -8px rgba(37, 99, 235, 0.45)',
           }}
-          aria-label="עוזר Guardian"
+          aria-label="פתיחת עוזר שיקום"
         >
-          <GordyMascotIcon className="w-9 h-9" />
+          <Sparkles className="w-7 h-7 shrink-0" strokeWidth={2} aria-hidden />
         </button>
       )}
 
@@ -236,18 +240,16 @@ export default function GuardianAssistantFAB({
               style={{ borderColor: '#e0e7ff' }}
             >
               <div className="flex items-center gap-2 min-w-0">
-                <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-amber-100"
-                >
-                  <GordyMascotIcon className="w-8 h-8" />
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-sky-50 border border-sky-100">
+                  <Sparkles className="w-5 h-5 text-medical-primary shrink-0" strokeWidth={2} aria-hidden />
                 </div>
                 <div className="min-w-0">
                   <h2 id="guardian-title" className="text-sm font-bold text-indigo-950 truncate">
-                    {isPortal ? 'גורדי — העוזר שלך' : 'עוזר Guardian'}
+                    {isPortal ? 'עוזר השיקום' : 'עוזר Guardian'}
                   </h2>
                   <p className="text-[11px] text-indigo-600/90">
                     {isPortal
-                      ? 'איתך בתרגול ובהתקדמות — לצד צוות הטיפול'
+                      ? 'שאלות על התרגול וההתקדמות — לצד צוות הטיפול'
                       : 'ניתוח כאב, רצף והתאמת עומס (ללא תחליף למטפל)'}
                   </p>
                 </div>
@@ -291,7 +293,7 @@ export default function GuardianAssistantFAB({
                     className="max-w-[92%] rounded-2xl px-3 py-2 text-sm flex items-center gap-2 border border-indigo-100 bg-white text-indigo-700"
                   >
                     <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                    גורדי חושב…
+                    מכין תשובה…
                   </div>
                 </div>
               )}
@@ -313,7 +315,9 @@ export default function GuardianAssistantFAB({
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !replyLoading && void send()}
                 placeholder={
-                  isPortal ? 'שאלה או «כן» לשליחה לצוות הטיפול…' : 'שאלה או «כן» לאישור שליחה למטפל…'
+                  isPortal
+                    ? PORTAL_INPUT_PLACEHOLDER
+                    : 'שאלה או «כן» לאישור שליחה למטפל…'
                 }
                 className="flex-1 min-w-0 rounded-2xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
                 style={{ background: '#fafafa' }}

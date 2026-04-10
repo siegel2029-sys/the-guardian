@@ -140,11 +140,13 @@ function computeMatProps(
   isHovered: boolean,
   level: number,
   stage: MuscleEvolutionStage,
-  injuryHighlight: boolean
+  injuryHighlight: boolean,
+  patientPortalInteractive = false
 ): MatProps {
   const tier = getLevelTier(level);
   const lf = Math.min(Math.max(level, 1), 100) / 100;
-  const hv = isHovered ? 0.06 : 0;
+  const hoverK = patientPortalInteractive ? 0.11 : 0.06;
+  const hv = isHovered ? hoverK : 0;
   const envAccent =
     clinicalLocked || clinicalSecondary || selfCareSelected ? 2.15 : 1.42;
   const volBoost = muscleStageVolumeBoost(stage);
@@ -494,7 +496,8 @@ export default function MuscleSegment({
         hovered,
         level,
         muscleStage,
-        injuryHighlight
+        injuryHighlight,
+        patientPortalInteractive
       ),
     [
       area,
@@ -510,6 +513,7 @@ export default function MuscleSegment({
       level,
       muscleStage,
       injuryHighlight,
+      patientPortalInteractive,
     ]
   );
 

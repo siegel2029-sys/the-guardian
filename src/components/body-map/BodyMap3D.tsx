@@ -306,6 +306,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
 
   const [activeView, setActiveView] = useState<ViewPreset | null>('front');
   const [avatarHovered, setAvatarHovered] = useState(false);
+  const [walkPausedByPointerOver, setWalkPausedByPointerOver] = useState(false);
   const cameraTargetRef = useRef<THREE.Vector3 | null>(VIEW_POSITIONS.front.clone());
   const orbitActiveRef = useRef(false);
 
@@ -333,8 +334,14 @@ export default function BodyMap3D(props: BodyMap3DProps) {
             ? 'pan-y'
             : undefined,
       }}
-      onMouseEnter={() => setAvatarHovered(true)}
-      onMouseLeave={() => setAvatarHovered(false)}
+      onPointerEnter={() => {
+        setAvatarHovered(true);
+        if (patientPortalInteractive) setWalkPausedByPointerOver(true);
+      }}
+      onPointerLeave={() => {
+        setAvatarHovered(false);
+        if (patientPortalInteractive) setWalkPausedByPointerOver(false);
+      }}
     >
       <Canvas
         style={{
@@ -414,6 +421,9 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                 secondaryClinicalBodyAreas={secondaryClinicalBodyAreas}
                 stableInteraction={stableInteraction}
                 patientPortalInteractive={patientPortalInteractive}
+                pauseWalkAnimation={
+                  patientPortalInteractive && walkPausedByPointerOver
+                }
                 segmentGrowthMul={segmentGrowthMul}
               />
 

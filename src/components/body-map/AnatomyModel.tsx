@@ -607,6 +607,8 @@ interface AnatomyModelProps {
   stableInteraction?: boolean;
   /** פורטל מטופל — עכבר «אסור» על אזורים חסומים לפרהאב */
   patientPortalInteractive?: boolean;
+  /** פורטל: הקפאת הליכה במקום בזמן hover על המפה (שומר פוזה; חידוש חלק מהשעון) */
+  pauseWalkAnimation?: boolean;
   /** מכפילי נפח צמיחה לפי מקטע (שכבת «פתרון»), ברירת מחדל 1 */
   segmentGrowthMul?: Partial<Record<BodyArea, number>>;
 }
@@ -629,6 +631,7 @@ export default function AnatomyModel({
   secondaryClinicalBodyAreas = [],
   stableInteraction = true,
   patientPortalInteractive = false,
+  pauseWalkAnimation = false,
   segmentGrowthMul,
 }: AnatomyModelProps) {
   const gearGoldSkin = equippedGear.skin === 'gold_skin';
@@ -717,6 +720,9 @@ export default function AnatomyModel({
       if (leftKneeRef.current) leftKneeRef.current.rotation.x = 0;
       if (rightThighRef.current) rightThighRef.current.rotation.x = 0;
       if (rightKneeRef.current) rightKneeRef.current.rotation.x = 0;
+      return;
+    }
+    if (pauseWalkAnimation) {
       return;
     }
     const t = clock.elapsedTime * (Math.PI * 2) * 1.08;
