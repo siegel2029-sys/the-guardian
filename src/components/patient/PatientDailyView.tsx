@@ -23,7 +23,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getTherapistDisplayName } from '../../context/authPersistence';
 import BodyMap3D from '../body-map/BodyMap3D';
 import GordyVictorySequence from './GordyVictorySequence';
-import GordyCompanion from './GordyCompanion';
+import GordyCompanion, { type GordyTransientAppearance } from './GordyCompanion';
 import GordyFullScreenCelebration from './GordyFullScreenCelebration';
 import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseDetailModal from './ExerciseDetailModal';
@@ -152,10 +152,26 @@ export default function PatientDailyView() {
   const [portalTab, setPortalTab] = useState<PortalTab>(() =>
     tabFromPortalPath(typeof window !== 'undefined' ? window.location.pathname : '/patient-portal')
   );
+  const [gordyTransient, setGordyTransient] = useState<GordyTransientAppearance | null>(null);
 
   useEffect(() => {
     setPortalTab(tabFromPortalPath(location.pathname));
   }, [location.pathname]);
+
+  useEffect(() => {
+    setGordyTransient(null);
+  }, [portalTab]);
+
+  useEffect(() => {
+    if (!gordyTransient) return;
+    const left = gordyTransient.until - Date.now();
+    if (left <= 0) {
+      setGordyTransient(null);
+      return;
+    }
+    const t = window.setTimeout(() => setGordyTransient(null), left);
+    return () => clearTimeout(t);
+  }, [gordyTransient]);
   const [newLoginIdInput, setNewLoginIdInput] = useState('');
   const [loginIdCurrentPw, setLoginIdCurrentPw] = useState('');
   const [loginIdError, setLoginIdError] = useState<string | null>(null);
@@ -277,7 +293,15 @@ export default function PatientDailyView() {
 
   useEffect(() => {
     if (!selectedPatient) return;
-    claimDailyLoginBonusIfNeeded(selectedPatient.id);
+    const granted = claimDailyLoginBonusIfNeeded(selectedPatient.id);
+    if (granted) {
+      setGordyTransient({
+        key: `daily_${clinicalToday}_${Date.now()}`,
+        mood: 'joy',
+        bubble: 'בוקר טוב! ההתמדה שלכם נספרת — יום חזק 💚',
+        until: Date.now() + 6000,
+      });
+    }
   }, [selectedPatient, clinicalToday, claimDailyLoginBonusIfNeeded]);
 
   useEffect(() => {
@@ -351,35 +375,6 @@ export default function PatientDailyView() {
     [combinedMissionItems, completedSet]
   );
 
-  const [halfwayBubbleOpen, setHalfwayBubbleOpen] = useState(false);
-  useEffect(() => {
-    if (!selectedPatient || exercisesLocked || totalMissions < 2) {
-      setHalfwayBubbleOpen(false);
-      return;
-    }
-    const sk = `gordy_half_${selectedPatient.id}_${clinicalToday}`;
-    if (sessionStorage.getItem(sk) === '1') {
-      setHalfwayBubbleOpen(false);
-      return;
-    }
-    const met =
-      completedMissionCount >= Math.ceil(totalMissions / 2) &&
-      completedMissionCount < totalMissions;
-    setHalfwayBubbleOpen(met);
-  }, [
-    selectedPatient?.id,
-    clinicalToday,
-    exercisesLocked,
-    totalMissions,
-    completedMissionCount,
-  ]);
-
-  const dismissHalfwayEncouragement = () => {
-    if (!selectedPatient) return;
-    sessionStorage.setItem(`gordy_half_${selectedPatient.id}_${clinicalToday}`, '1');
-    setHalfwayBubbleOpen(false);
-  };
-
   const [sessionCelebrationBurst, setSessionCelebrationBurst] = useState(0);
   useEffect(() => {
     if (!selectedPatient || exercisesLocked || totalMissions === 0) return;
@@ -408,7 +403,7 @@ export default function PatientDailyView() {
     setSessionCelebrationBurst(0);
   };
 
-  const gordyCompanionVisible =
+  const gordyCompanionEligible =
     (portalTab === 'home' || portalTab === 'activity') &&
     !patientMustChangePassword &&
     !!selectedPatient &&
@@ -416,6 +411,15 @@ export default function PatientDailyView() {
     !detailFor &&
     !reportFor &&
     !exerciseVideoModal;
+
+  const pushExerciseCompleteMilestone = () => {
+    setGordyTransient({
+      key: `like_${Date.now()}`,
+      mood: 'like',
+      bubble: 'כל הכבוד! עוד צעד קטן בדרך לשיקום 👍',
+      until: Date.now() + 5500,
+    });
+  };
 
   const handleTrainingComplete = (payload: ExerciseTrainingCompletePayload) => {
     const m = exerciseVideoModal;
@@ -447,6 +451,7 @@ export default function PatientDailyView() {
       });
       if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
       else setLoadSafetyNudge(null);
+      pushExerciseCompleteMilestone();
     } else {
       const pain = payload.painLevel;
       submitExerciseReport(selectedPatient.id, m.exercise.id, pain, payload.effort, m.xpAward, {
@@ -464,6 +469,7 @@ export default function PatientDailyView() {
       if (pain >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
       else if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
       else setLoadSafetyNudge(null);
+      pushExerciseCompleteMilestone();
     }
   };
 
@@ -527,6 +533,7 @@ export default function PatientDailyView() {
     if (painLevel >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
     else if (effortRating === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
     else setLoadSafetyNudge(null);
+    pushExerciseCompleteMilestone();
     setReportFor(null);
     setReportInitialEffort(undefined);
   };
@@ -1339,11 +1346,10 @@ export default function PatientDailyView() {
         )}
 
       <GordyCompanion
-        visible={gordyCompanionVisible}
+        eligible={gordyCompanionEligible}
         exerciseSafetyLocked={exerciseSafetyLocked}
         redFlagPortalLock={redFlagPortalLock}
-        showHalfwayEncouragement={halfwayBubbleOpen}
-        onDismissHalfway={dismissHalfwayEncouragement}
+        transient={gordyTransient}
       />
 
       {sessionCelebrationBurst > 0 && (
@@ -1368,6 +1374,15 @@ export default function PatientDailyView() {
           )
         }
         onTherapistClinicalAlert={(detail) => sendAiClinicalAlert(selectedPatient.id, detail)}
+        onPatientEmergencyText={() =>
+          setGordyTransient({
+            key: `redflag_text_${Date.now()}`,
+            mood: 'concerned',
+            bubble:
+              'זיהינו ניסוח שעשוי להצביע על מצב דחוף — צוות הטיפול עודכן. אם יש סיכון מיידי, התקשרו ל־101.',
+            until: Date.now() + 9000,
+          })
+        }
         hidden={
           !!detailFor ||
           !!reportFor ||

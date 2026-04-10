@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { X, Send, Loader2 } from 'lucide-react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { X, Send, Loader2, Sparkles } from 'lucide-react';
 import GordyMascotIcon from './GordyMascotIcon';
 import type { Patient, PatientExercise } from '../../types';
 import {
@@ -25,6 +25,8 @@ interface GuardianAssistantFABProps {
   ) => void;
   /** התראת AI קלינית לתיבת המטפל */
   onTherapistClinicalAlert?: (detailHebrew?: string) => void;
+  /** מילות מפתח חירום בטקסט המטופל — לגורדי המלווה */
+  onPatientEmergencyText?: () => void;
   hidden?: boolean;
   /** ניסוח רך לפורטל מטופל (ללא מונחי דשבורד מטפל) */
   variant?: 'default' | 'portal';
@@ -36,6 +38,7 @@ export default function GuardianAssistantFAB({
   exercises,
   onSubmitGuardianRepsRequest,
   onTherapistClinicalAlert,
+  onPatientEmergencyText,
   hidden,
   variant = 'default',
 }: GuardianAssistantFABProps) {
@@ -47,20 +50,28 @@ export default function GuardianAssistantFAB({
   const [pendingOffer, setPendingOffer] = useState<GuardianPendingOffer | null>(null);
   const [replyLoading, setReplyLoading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
-
+  const modalInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, open]);
+
+  useLayoutEffect(() => {
+    if (!open || !isPortal) return;
+    const id = requestAnimationFrame(() => modalInputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [open, isPortal]);
 
   if (hidden) return null;
 
   const send = async () => {
     const text = input.trim();
     if (!text || replyLoading) return;
+    if (!open) setOpen(true);
 
     // חובה: סינון חירום לפני כל לוגיקה אחרת (הצעות, אישורים, buildGuardianTurn)
     const emergency = screenPatientFreeTextForEmergency(text);
     if (emergency.isEmergency) {
+      onPatientEmergencyText?.();
       screenAndHandleEmergencyText(patient.id, text, 'צ׳אט Guardian');
       setMessages((m) => [
         ...m,
@@ -162,20 +173,44 @@ export default function GuardianAssistantFAB({
     setMessages((m) => [...m, { role: 'assistant', text: assistantText }]);
   };
 
+  const portalBarBottom = 'calc(5.75rem + env(safe-area-inset-bottom, 0px))';
+  const portalBarLeft = 'max(12px, env(safe-area-inset-left, 0px))';
+
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="fixed z-[65] bottom-6 left-4 flex items-center justify-center w-14 h-14 rounded-2xl shadow-lg text-white"
-        style={{
-          background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
-          boxShadow: '0 12px 28px -8px rgba(234, 88, 12, 0.5)',
-        }}
-        aria-label={isPortal ? 'גורדי — העוזר שלך' : 'עוזר Guardian'}
-      >
-        <GordyMascotIcon className="w-9 h-9" />
-      </button>
+      {isPortal && !open && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="fixed z-[65] flex w-[min(calc(100vw-1.5rem),22rem)] min-h-[3.125rem] items-center gap-2.5 overflow-hidden rounded-2xl border border-slate-200/95 bg-slate-50/95 px-3 py-2.5 text-start shadow-sm transition-all hover:border-slate-300 hover:bg-white active:scale-[0.99] motion-safe:duration-150"
+          style={{ bottom: portalBarBottom, left: portalBarLeft }}
+          dir="ltr"
+          aria-label="פתיחת צ׳אט עם גורדי"
+        >
+          <Sparkles className="h-4 w-4 shrink-0 text-sky-600" strokeWidth={2} aria-hidden />
+          <span
+            className="min-w-0 flex-1 truncate text-end text-[0.9375rem] font-medium text-slate-400"
+            dir="rtl"
+          >
+            יש לך שאלה? שאל את גורדי...
+          </span>
+        </button>
+      )}
+
+      {!isPortal && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="fixed z-[65] bottom-6 left-4 flex h-14 w-14 items-center justify-center rounded-2xl text-white shadow-lg"
+          style={{
+            background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
+            boxShadow: '0 12px 28px -8px rgba(234, 88, 12, 0.5)',
+          }}
+          aria-label="עוזר Guardian"
+        >
+          <GordyMascotIcon className="w-9 h-9" />
+        </button>
+      )}
 
       {open && (
         <div
@@ -272,6 +307,7 @@ export default function GuardianAssistantFAB({
 
             <div className="p-3 border-t shrink-0 flex gap-2" style={{ borderColor: '#e0e7ff' }}>
               <input
+                ref={modalInputRef}
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}

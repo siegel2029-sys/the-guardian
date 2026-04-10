@@ -1,92 +1,99 @@
-import { X } from 'lucide-react';
 import GordyMascotIcon, { type GordyMood } from './GordyMascotIcon';
 
+export type GordyTransientAppearance = {
+  key: string;
+  mood: 'like' | 'joy' | 'concerned';
+  bubble: string;
+  until: number;
+};
+
 type Props = {
-  /** מסך בית פעיל, בלי מודאלים חוסמים */
-  visible: boolean;
-  /** נעילת בטיחות (כאב גבוה במוקד פגיעה) */
+  /** מסך בית/אימונים בלי מודאלים חוסמים */
+  eligible: boolean;
   exerciseSafetyLocked: boolean;
-  /** נעילת דגל אדום בפורטל */
   redFlagPortalLock: boolean;
-  /** הצגת עידוד חצי־דרך */
-  showHalfwayEncouragement: boolean;
-  onDismissHalfway: () => void;
+  /** סיום תרגיל, דיווח יומי, או זיהוי מילות מפתח חירום בצ׳אט */
+  transient: GordyTransientAppearance | null;
 };
 
 /**
- * גורדי כמלווה צף (סגנון Duolingo) — עידוד, מצב שומר, בועת טקסט.
- * חגיגת סיום מלאה מטופלת ב־GordyFullScreenCelebration נפרד.
+ * גורדי למטה-ימין — מוסתר כברירת מחדל; מופיע בפייד עדין לאבני דרך או במצב שומר קליני.
  */
 export default function GordyCompanion({
-  visible,
+  eligible,
   exerciseSafetyLocked,
   redFlagPortalLock,
-  showHalfwayEncouragement,
-  onDismissHalfway,
+  transient,
 }: Props) {
-  if (!visible) return null;
-
   const protectiveSafety = exerciseSafetyLocked;
   const protectiveRed = redFlagPortalLock && !exerciseSafetyLocked;
 
-  let mood: GordyMood = 'default';
+  const transientLive =
+    transient != null && typeof transient.until === 'number' && Date.now() < transient.until;
+
+  const show = eligible && (protectiveSafety || protectiveRed || transientLive);
+
+  if (!show) return null;
+
+  let mascotMood: GordyMood = 'default';
   let bubble: string | null = null;
   let bubbleTitle = 'גורדי';
+  let bubbleProtective = false;
 
   if (protectiveSafety) {
-    mood = 'concerned';
+    mascotMood = 'concerned';
     bubbleTitle = 'מצב שומר';
+    bubbleProtective = true;
     bubble =
       'עצרתי את האימון לרגע למען הבטיחות — דווח כאב חזק מדי באזור השיקום. המטפל קיבל עדכון. נשארים בזהירות!';
   } else if (protectiveRed) {
-    mood = 'concerned';
+    mascotMood = 'concerned';
     bubbleTitle = 'מצב שומר';
+    bubbleProtective = true;
     bubble =
       'התרגול נעול כרגע לפי הנחיית הצוות. המטפל עודכן. אם יש חשד לחירום — התקשרו ל־101.';
-  } else if (showHalfwayEncouragement) {
-    bubble = 'חצי דרך עברה, ממשיכים בכל הכוח!';
+  } else if (transientLive && transient) {
+    mascotMood = transient.mood;
+    bubbleTitle = 'גורדי';
+    bubble = transient.bubble;
   }
 
   const showBubble = bubble != null;
 
+  const animKey = [
+    protectiveSafety ? 's1' : '',
+    protectiveRed ? 'r1' : '',
+    transientLive && transient ? transient.key : '',
+  ].join('-');
+
   return (
     <div
-      className="fixed z-[62] flex flex-col items-center gap-2 pointer-events-none max-w-[min(300px,calc(100vw-5.5rem))]"
+      className="fixed z-[62] flex flex-col items-center gap-2 pointer-events-none max-w-[min(300px,calc(100vw-5.5rem))] animate-gordy-companion-enter"
       style={{
         bottom: 'calc(5.75rem + env(safe-area-inset-bottom, 0px))',
         insetInlineStart: 'max(12px, env(safe-area-inset-left, 0px))',
       }}
+      key={animKey}
       aria-live="polite"
     >
       {showBubble && (
         <div
-          className="pointer-events-auto relative rounded-2xl border-2 shadow-xl px-3.5 py-2.5 pe-9 animate-gordy-welcome-in"
+          className="pointer-events-none relative rounded-2xl border-2 px-3.5 py-2.5 animate-gordy-welcome-in"
           style={{
-            borderColor: protectiveSafety || protectiveRed ? '#fecaca' : '#a7f3d0',
-            background:
-              protectiveSafety || protectiveRed
-                ? 'linear-gradient(145deg,#fef2f2,#fff)'
-                : 'linear-gradient(145deg,#ecfdf5,#ffffff)',
+            borderColor: bubbleProtective ? '#fecaca' : '#a7f3d0',
+            background: bubbleProtective
+              ? 'linear-gradient(145deg,#fef2f2,#fff)'
+              : 'linear-gradient(145deg,#ecfdf5,#ffffff)',
             boxShadow: '0 12px 32px -10px rgba(15,23,42,0.25)',
           }}
           role="status"
         >
-          {!protectiveSafety && !protectiveRed && (
-            <button
-              type="button"
-              onClick={onDismissHalfway}
-              className="absolute top-2 end-2 p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              aria-label="סגור"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
           <p className="text-[10px] font-black uppercase tracking-wide text-slate-500 mb-0.5">
             {bubbleTitle}
           </p>
           <p
             className={`text-xs sm:text-sm font-semibold leading-snug ${
-              protectiveSafety || protectiveRed ? 'text-red-950' : 'text-teal-950'
+              bubbleProtective ? 'text-red-950' : 'text-teal-950'
             }`}
           >
             {bubble}
@@ -94,8 +101,8 @@ export default function GordyCompanion({
           <span
             className="absolute -bottom-1.5 start-8 w-3 h-3 rotate-45 border-2 border-t-0 border-e-0"
             style={{
-              background: protectiveSafety || protectiveRed ? '#fff' : '#ffffff',
-              borderColor: protectiveSafety || protectiveRed ? '#fecaca' : '#a7f3d0',
+              background: '#ffffff',
+              borderColor: bubbleProtective ? '#fecaca' : '#a7f3d0',
             }}
             aria-hidden
           />
@@ -104,7 +111,7 @@ export default function GordyCompanion({
 
       <div
         className={`pointer-events-none flex items-center justify-center rounded-3xl p-1.5 shadow-lg border-2 animate-gordy-companion-float ${
-          protectiveSafety || protectiveRed
+          bubbleProtective
             ? 'border-red-300/90 bg-red-50/95'
             : 'border-amber-200/90 bg-gradient-to-br from-amber-50 to-white'
         }`}
@@ -112,7 +119,7 @@ export default function GordyCompanion({
           boxShadow: '0 10px 28px -8px rgba(245, 158, 11, 0.45)',
         }}
       >
-        <GordyMascotIcon mood={mood} className="w-14 h-14 sm:w-16 sm:h-16" />
+        <GordyMascotIcon mood={mascotMood} className="w-14 h-14 sm:w-16 sm:h-16" />
       </div>
     </div>
   );

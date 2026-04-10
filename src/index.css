@@ -7,7 +7,8 @@
   --font-sans:
     "Inter", ui-sans-serif, system-ui, sans-serif, "Segoe UI", "Arial Hebrew", Arial;
   --font-dyk-bubble:
-    "Heebo", "Inter", ui-sans-serif, system-ui, sans-serif, "Segoe UI", "Arial Hebrew", Arial;
+    "Heebo", "Assistant", "Inter", ui-sans-serif, system-ui, sans-serif, "Segoe UI", "Arial Hebrew",
+    Arial;
 }
 
 @layer base {
@@ -162,6 +163,37 @@
 
   .animate-gordy-companion-float {
     animation: gordy-companion-float 2.8s ease-in-out infinite;
+  }
+
+  @keyframes gordy-companion-enter {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-gordy-companion-enter {
+    animation: gordy-companion-enter 0.45s ease-out forwards;
+  }
+
+  @keyframes guardian-input-focus-pulse {
+    0% {
+      box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.35);
+    }
+    70% {
+      box-shadow: 0 0 0 6px rgba(99, 102, 241, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+    }
+  }
+
+  .animate-guardian-input-focus-pulse {
+    animation: guardian-input-focus-pulse 0.65s ease-out 1;
   }
 
   @keyframes gordy-victory-hop {
