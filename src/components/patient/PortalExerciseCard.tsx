@@ -103,8 +103,8 @@ export default function PortalExerciseCard({
 
   return (
     <article
-      className={`rounded-2xl border border-slate-200/90 bg-white w-full shadow-sm outline-none transition-shadow ${
-        disabled ? 'opacity-40 pointer-events-none' : 'hover:shadow-md'
+      className={`rounded-2xl border border-slate-200/80 bg-white w-full shadow-md shadow-slate-200/45 outline-none transition-shadow ${
+        disabled ? 'opacity-40 pointer-events-none' : 'hover:shadow-lg hover:shadow-slate-200/50'
       } ${!isCompleted && !disabled ? 'focus-within:ring-2 focus-within:ring-medical-primary/30 focus-within:ring-offset-2' : ''}`}
       dir="rtl"
       aria-label={isCompleted ? `${title} — הושלם` : `משימה ${index}: ${title}`}
@@ -112,14 +112,14 @@ export default function PortalExerciseCard({
       {/* סרגל התקדמות למשימה בודדת */}
       <div className="px-4 pt-4">
         <div className="flex items-center justify-between gap-2 mb-2">
-          <span className="text-sm font-semibold text-slate-600 tabular-nums">משימה {index}</span>
+          <span className="text-base font-semibold text-slate-600 tabular-nums">משימה {index}</span>
           {isCompleted ? (
-            <span className="inline-flex items-center gap-1 text-sm font-bold text-medical-success">
-              <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden />
+            <span className="inline-flex items-center gap-1 text-base font-bold text-medical-success">
+              <CheckCircle2 className="w-5 h-5 shrink-0" aria-hidden />
               הושלם
             </span>
           ) : (
-            <span className="text-sm font-medium text-slate-500">ממתין</span>
+            <span className="text-base font-medium text-slate-500">ממתין</span>
           )}
         </div>
         <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden" role="progressbar" aria-valuenow={isCompleted ? 100 : 0} aria-valuemin={0} aria-valuemax={100}>
@@ -167,7 +167,7 @@ export default function PortalExerciseCard({
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2 min-w-0">
             <h3
-              className={`text-base font-bold leading-snug min-w-0 flex-1 ${isCompleted ? 'text-slate-500 line-through decoration-slate-300' : 'text-slate-900'}`}
+              className={`text-lg font-bold leading-snug min-w-0 flex-1 ${isCompleted ? 'text-slate-500 line-through decoration-slate-300' : 'text-slate-900'}`}
             >
               {title}
             </h3>
@@ -188,7 +188,7 @@ export default function PortalExerciseCard({
               </span>
             )}
           </div>
-          <p className="text-sm text-slate-600 mt-1.5 leading-relaxed">{subtitle}</p>
+          <p className="text-base text-slate-600 mt-1.5 leading-relaxed">{subtitle}</p>
           {variant === 'selfCare' && levelLine && (
             <p className="text-sm text-slate-700 font-semibold mt-1">{levelLine}</p>
           )}
@@ -211,11 +211,11 @@ export default function PortalExerciseCard({
           type="button"
           disabled={disabled || isCompleted}
           onClick={onOpenTraining}
-          className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 px-4 text-base font-bold text-white shadow-md transition-opacity disabled:opacity-45 disabled:cursor-not-allowed active:opacity-95"
-          style={{ background: '#2563eb', boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}
+          className="w-full min-h-14 flex items-center justify-center gap-2.5 rounded-2xl py-4 px-4 text-lg font-bold text-white shadow-md transition-opacity disabled:opacity-45 disabled:cursor-not-allowed active:opacity-95 active:scale-[0.99] motion-safe:transition-transform bg-medical-primary"
+          style={{ boxShadow: '0 6px 20px rgba(37, 99, 235, 0.32)' }}
         >
-          <Play className="w-5 h-5 shrink-0" fill="currentColor" aria-hidden />
-          {isCompleted ? 'הושלם להיום' : 'נגן / התחל אימון'}
+          <Play className="w-6 h-6 shrink-0" fill="currentColor" aria-hidden />
+          {isCompleted ? 'הושלם להיום' : 'התחל אימון'}
         </button>
 
         {variant === 'selfCare' &&
@@ -240,7 +240,7 @@ export default function PortalExerciseCard({
                       (Math.max(0, selfCareStrengthTier - 1) as 0 | 1 | 2)
                     );
                   }}
-                  className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center border-2 border-slate-200 bg-white text-slate-800 disabled:opacity-35 disabled:cursor-not-allowed hover:border-medical-primary/40 transition-colors"
+                  className="shrink-0 min-h-12 min-w-12 rounded-xl flex items-center justify-center border-2 border-slate-200 bg-white text-slate-800 disabled:opacity-35 disabled:cursor-not-allowed hover:border-medical-primary/40 transition-colors"
                   aria-label="הקלה ברמת קושי"
                 >
                   <Minus className="w-5 h-5" strokeWidth={2.5} />
@@ -270,7 +270,7 @@ export default function PortalExerciseCard({
                       (Math.min(2, selfCareStrengthTier + 1) as 0 | 1 | 2)
                     );
                   }}
-                  className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center border-2 border-slate-200 bg-white text-slate-800 disabled:opacity-35 disabled:cursor-not-allowed hover:border-medical-primary/40 transition-colors"
+                  className="shrink-0 min-h-12 min-w-12 rounded-xl flex items-center justify-center border-2 border-slate-200 bg-white text-slate-800 disabled:opacity-35 disabled:cursor-not-allowed hover:border-medical-primary/40 transition-colors"
                   aria-label="החמרת רמת קושי"
                 >
                   <Plus className="w-5 h-5" strokeWidth={2.5} />
@@ -308,10 +308,10 @@ export default function PortalExerciseCard({
           </div>
         )}
 
-        <p className="text-sm text-slate-500 leading-snug ps-0.5">
+        <p className="text-base text-slate-500 leading-snug ps-0.5">
           {hoverPlayEnabled
             ? 'מעבר עכבר על התמונה מנגן תצוגה מקדימה (מושתק). הכפתור הכחול פותח את מסך האימון המלא.'
-            : 'וידאו, טיימר ודיווח מאמץ — במסך האימון דרך הכפתור «נגן». '}
+            : 'וידאו, טיימר ודיווח מאמץ — במסך האימון דרך כפתור «התחל אימון». '}
         </p>
       </div>
     </article>

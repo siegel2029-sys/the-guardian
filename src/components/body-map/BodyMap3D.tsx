@@ -1,4 +1,11 @@
-import { Suspense, useRef, useState, useCallback, type ReactNode } from 'react';
+import {
+  Suspense,
+  useRef,
+  useState,
+  useCallback,
+  useEffect,
+  type ReactNode,
+} from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Environment, Html } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -219,6 +226,19 @@ function ViewToggle({ activeView, onSelect }: ViewToggleProps) {
   );
 }
 
+/** פורטל מובייל: מניעת חטיפת גלילה ע״י OrbitControls במגע אחד */
+function usePreferCoarsePointer(): boolean {
+  const [coarse, setCoarse] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(pointer: coarse)');
+    const apply = () => setCoarse(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+  return coarse;
+}
+
 // ── Main exported component ───────────────────────────────────────
 export default function BodyMap3D(props: BodyMap3DProps) {
   const {
@@ -249,6 +269,8 @@ export default function BodyMap3D(props: BodyMap3DProps) {
   } = props;
 
   const equippedGear = equippedGearProp ?? EMPTY_EQUIPPED_GEAR;
+  const coarsePointer = usePreferCoarsePointer();
+  const scrollFriendlyPortal = patientPortalInteractive && coarsePointer;
 
   const streakVal = streak ?? streakForGlow ?? 0;
   const streakEnergy = streakVal >= 3;
@@ -281,12 +303,23 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         position: 'relative',
         borderRadius: '16px',
         overflow: 'hidden',
-        touchAction: patientPortalInteractive ? 'none' : undefined,
+        touchAction: scrollFriendlyPortal
+          ? 'pan-y'
+          : patientPortalInteractive
+            ? 'manipulation'
+            : undefined,
       }}
       onMouseEnter={() => setAvatarHovered(true)}
       onMouseLeave={() => setAvatarHovered(false)}
     >
       <Canvas
+        style={{
+          touchAction: scrollFriendlyPortal
+            ? 'pan-y'
+            : patientPortalInteractive
+              ? 'manipulation'
+              : undefined,
+        }}
         camera={{ position: [0, 1, 5], fov: 45, near: 0.08, far: 45 }}
         shadows="soft"
         gl={{
@@ -420,6 +453,8 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         {/* OrbitControls – user can always override by dragging */}
         <OrbitControls
           enablePan={false}
+          enableRotate={!scrollFriendlyPortal}
+          enableZoom={!scrollFriendlyPortal}
           minDistance={1.8}
           maxDistance={6.0}
           target={[0, 0.15, 0]}
@@ -445,11 +480,13 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         pointerEvents: 'none', direction: 'rtl', whiteSpace: 'nowrap',
         boxShadow: '0 1px 6px rgba(0,0,0,0.08)',
       }}>
-        גרור לסיבוב · אדום = מוקד ראשי · כתום = משני · ירוק = פרהאב (לחיצה)
+        {scrollFriendlyPortal
+          ? 'גלילה מחוץ למפה — גללו מטה לתרגילים · זווית: כפתורים למטה'
+          : 'גרור לסיבוב · אדום = מוקד ראשי · כתום = משני · ירוק = פרהאב (לחיצה)'}
       </div>
 
-      {/* Level badge */}
-      {showLevelChrome && (
+      {/* Level badge (מוסתר כשהתג מוצג ב־3D — פורטל מטופל) */}
+      {showLevelChrome && !floatingLevelBadge && (
         <div style={{
           position: 'absolute', top: 9, insetInlineEnd: 10,
           background: 'linear-gradient(135deg,#2563eb,#1d4ed8)',

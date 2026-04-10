@@ -72,7 +72,9 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppRoutes />
+      <div className="min-h-dvh antialiased text-base text-slate-900">
+        <AppRoutes />
+      </div>
     </AuthProvider>
   );
 }

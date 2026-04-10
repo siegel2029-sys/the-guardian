@@ -16,6 +16,9 @@
   html {
     direction: rtl;
     font-family: var(--font-sans);
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   body {
@@ -23,6 +26,8 @@
     color: #1e293b;
     margin: 0;
     padding: 0;
+    font-size: 1rem;
+    line-height: 1.5;
   }
 
   ::-webkit-scrollbar {

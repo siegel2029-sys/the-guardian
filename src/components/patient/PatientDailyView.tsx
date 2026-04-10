@@ -15,6 +15,7 @@ import {
   KeyRound,
   Home,
   ShoppingBag,
+  CloudUpload,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
@@ -130,6 +131,8 @@ export default function PatientDailyView() {
     getPatientExerciseFinishReports,
     getSelfCareStrengthTier,
     setSelfCareStrengthTier,
+    supabaseLastSavedAt,
+    supabaseSyncStatus,
   } = usePatient();
 
   const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
@@ -582,10 +585,10 @@ export default function PatientDailyView() {
         streakBonusXp={gordyVictoryRewards.streak}
       />
       <header
-        className="sticky top-0 z-20 px-4 pt-4 pb-3 border-b border-slate-200/90 flex items-center gap-3 relative overflow-visible bg-white/95 backdrop-blur-md shadow-sm"
+        className="sticky top-0 z-20 px-3 sm:px-4 pt-3 pb-2.5 border-b border-slate-200/80 flex items-center gap-2 sm:gap-3 relative overflow-visible bg-white shadow-md shadow-slate-200/40"
       >
         {sessionRole === 'patient' ? (
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
             {!patientMustChangePassword && (
               <button
                 type="button"
@@ -594,10 +597,10 @@ export default function PatientDailyView() {
                   setPasswordModalOpen(true);
                 }}
                 title="שינוי סיסמה"
-                className="flex items-center gap-1.5 text-base font-semibold text-slate-700 px-3 py-2.5 rounded-xl hover:bg-slate-50 border-2 border-slate-200"
+                className="flex items-center justify-center min-h-11 min-w-11 rounded-xl hover:bg-slate-50 border border-slate-200 text-slate-700"
+                aria-label="שינוי סיסמה"
               >
-                <KeyRound className="w-4 h-4" />
-                <span className="hidden min-[400px]:inline">סיסמה</span>
+                <KeyRound className="w-5 h-5" />
               </button>
             )}
             <button
@@ -607,16 +610,53 @@ export default function PatientDailyView() {
                 navigate('/login', { replace: true });
               }}
               title="התנתקות"
-              className="flex items-center gap-1.5 text-base font-semibold text-slate-700 px-3 py-2.5 rounded-xl hover:bg-slate-50 border-2 border-slate-200"
+              className="flex items-center justify-center gap-1 min-h-11 ps-2 pe-2.5 rounded-xl hover:bg-slate-50 border border-slate-200 text-slate-700"
+              aria-label="התנתקות"
             >
-              <LogOut className="w-4 h-4" />
-              יציאה
+              <LogOut className="w-5 h-5 shrink-0" />
+              <span className="text-sm font-semibold hidden sm:inline">יציאה</span>
             </button>
           </div>
         ) : null}
         <div className="flex-1 min-w-0 text-end">
-          <p className="text-sm text-medical-primary font-semibold">הפורטל האישי שלך</p>
-          <p className="text-lg font-bold text-slate-900 truncate">{selectedPatient.name}</p>
+          <div className="flex items-center justify-end gap-2">
+            <span
+              className="shrink-0 inline-flex"
+              aria-label={
+                supabaseLastSavedAt
+                  ? `נשמר בענן ${new Date(supabaseLastSavedAt).toLocaleString('he-IL')}`
+                  : supabaseSyncStatus === 'saving'
+                    ? 'שומר לענן'
+                    : 'סנכרון ענן — ממתין לשמירה'
+              }
+              title={
+                supabaseLastSavedAt
+                  ? `נשמר בענן · ${new Date(supabaseLastSavedAt).toLocaleString('he-IL', {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}`
+                  : supabaseSyncStatus === 'saving'
+                    ? 'שומר לענן…'
+                    : 'סנכרון ענן (ממתין לשמירה)'
+              }
+            >
+              <CloudUpload
+                className={`w-5 h-5 motion-safe:transition-colors ${
+                  supabaseLastSavedAt
+                    ? 'text-medical-success'
+                    : supabaseSyncStatus === 'saving'
+                      ? 'text-medical-primary animate-pulse'
+                      : 'text-slate-400'
+                }`}
+                strokeWidth={supabaseLastSavedAt ? 2.5 : 2}
+                aria-hidden
+              />
+            </span>
+            <p className="text-sm text-medical-primary font-semibold leading-tight">הפורטל האישי שלך</p>
+          </div>
+          <p className="text-xl font-bold text-slate-900 truncate mt-0.5">{selectedPatient.name}</p>
           {hasDailyLoginBonusPending(selectedPatient.id) && (
             <div className="flex justify-end mt-1">
               <RewardLabel
@@ -679,20 +719,20 @@ export default function PatientDailyView() {
         {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
             <div className="flex items-center justify-between mb-2 px-0.5">
-              <h2 className="text-lg font-bold text-slate-900">מפת הגוף שלי</h2>
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">מפת הגוף שלי</h2>
             </div>
-            <p className="text-sm text-slate-600 mb-3 leading-relaxed">
+            <p className="text-base text-slate-600 mb-3 leading-relaxed">
               <span className="text-red-800 font-semibold">אדום</span> — אזור השיקום מהמטפל (לא ניתן
               לבחירה). <span className="text-medical-success font-semibold">ירוק</span> — אזורי כוח
-              שנבחרו; התרגילים שלהם מופיעים בלשונית <strong>פעילות</strong>.
+              שנבחרו; התרגילים שלהם מופיעים בלשונית <strong>אימונים</strong>.
               {exercises.length > 0 && (
                 <span className="block mt-2 text-slate-700">
                   מוקד שיקום: <strong>{bodyAreaLabels[selectedPatient.primaryBodyArea]}</strong>
                 </span>
               )}
             </p>
-            <div className="rounded-2xl border-2 border-slate-200/90 bg-white shadow-sm overflow-hidden mx-auto w-full max-w-md">
-              <div className="relative w-full h-[min(48vh,400px)] min-h-[260px] max-h-[min(55vh,440px)] isolate">
+            <div className="rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden mx-auto w-full max-w-md touch-pan-y">
+              <div className="relative w-full h-[260px] sm:h-[300px] max-h-[40dvh] isolate overscroll-y-contain">
                 <BodyMap3D
                   activeAreas={exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
@@ -747,12 +787,12 @@ export default function PatientDailyView() {
         )}
 
         {portalTab === 'messages' && selectedPatient && (
-          <section className="mb-5 rounded-2xl border-2 border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col min-h-[min(70vh,520px)] max-h-[calc(100dvh-8rem)]">
+          <section className="mb-5 rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden flex flex-col min-h-[min(70vh,520px)] max-h-[calc(100dvh-8rem)]">
             <div className="px-4 py-3 border-b border-slate-100 bg-white shrink-0">
               <div className="flex items-center gap-3">
                 <MessageCircle className="w-7 h-7 text-medical-primary shrink-0" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-base font-bold text-slate-900">מרכז הודעות</p>
+                  <p className="text-xl font-bold text-slate-900">מרכז הודעות</p>
                   <p className="text-sm text-slate-500 truncate">שיחה עם {careGiverName}</p>
                 </div>
                 {unreadForPatient > 0 && (
@@ -957,7 +997,7 @@ export default function PatientDailyView() {
         {portalTab === 'activity' && (
         <>
         <div
-          className="rounded-2xl p-4 mb-5 border-2 border-slate-200 bg-white shadow-sm"
+          className="rounded-2xl p-4 mb-5 border border-slate-200/90 bg-white shadow-md shadow-slate-200/50"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-2">
@@ -1017,7 +1057,7 @@ export default function PatientDailyView() {
 
         <ClinicalMonthCalendar dayMap={patientDayMap} clinicalToday={clinicalToday} />
 
-        <h1 className="text-xl font-bold text-slate-900 mb-2">המשימות להיום</h1>
+        <h1 className="text-xl font-bold text-slate-900 mb-2 tracking-tight">המשימות להיום</h1>
         <p className="text-base text-slate-600 mb-4 leading-relaxed">
           קודם תרגילי השיקום מהמטפל, אחריהם תרגילי כוח לאזורים הירוקים במפה (בלשונית <strong>בית</strong>).
           בכל משימה: כפתור <strong>נגן</strong> פותח וידאו, טיימר 30 שניות ודיווח מאמץ. כוח/פרהאב מעניקים
@@ -1191,59 +1231,59 @@ export default function PatientDailyView() {
       {import.meta.env.DEV && <PortalPatientDebugPanel />}
 
       <nav
-        className="fixed bottom-0 inset-x-0 z-[35] border-t-2 border-slate-200 flex justify-center bg-white/95 backdrop-blur-md shadow-[0_-4px_24px_rgba(15,23,42,0.06)]"
-        style={{ paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}
+        className="fixed bottom-0 inset-x-0 z-[35] rounded-t-2xl border border-slate-200/90 border-b-0 flex justify-center bg-white shadow-[0_-8px_30px_rgba(15,23,42,0.08)]"
+        style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
         aria-label="ניווט פורטל"
       >
-        <div className="flex w-full max-w-lg">
+        <div className="flex w-full max-w-lg px-1">
           <button
             type="button"
             onClick={() => navigate(portalHrefForTab('home'))}
-            className={`flex-1 flex flex-col items-center gap-1 py-3 text-sm font-bold transition-colors ${
+            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 ${
               portalTab === 'home' || portalTab === 'heroes'
                 ? 'text-medical-primary'
                 : 'text-slate-500'
             }`}
           >
-            <Home className="w-6 h-6 shrink-0" strokeWidth={portalTab === 'home' || portalTab === 'heroes' ? 2.5 : 2} />
+            <Home className="w-7 h-7 shrink-0" strokeWidth={portalTab === 'home' || portalTab === 'heroes' ? 2.5 : 2} />
             בית
           </button>
           <button
             type="button"
             onClick={() => navigate(portalHrefForTab('activity'))}
-            className={`flex-1 flex flex-col items-center gap-1 py-3 text-sm font-bold transition-colors ${
+            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 ${
               portalTab === 'activity' ? 'text-medical-primary' : 'text-slate-500'
             }`}
           >
-            <Activity className="w-6 h-6 shrink-0" strokeWidth={portalTab === 'activity' ? 2.5 : 2} />
-            פעילות
+            <Activity className="w-7 h-7 shrink-0" strokeWidth={portalTab === 'activity' ? 2.5 : 2} />
+            אימונים
           </button>
           <button
             type="button"
             onClick={() => navigate(portalHrefForTab('gear'))}
-            className={`flex-1 flex flex-col items-center gap-1 py-3 text-sm font-bold transition-colors ${
+            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 ${
               portalTab === 'gear' ? 'text-medical-primary' : 'text-slate-500'
             }`}
           >
-            <ShoppingBag className="w-6 h-6 shrink-0" strokeWidth={portalTab === 'gear' ? 2.5 : 2} />
-            ציוד
+            <ShoppingBag className="w-7 h-7 shrink-0" strokeWidth={portalTab === 'gear' ? 2.5 : 2} />
+            חנות
           </button>
           <button
             type="button"
             onClick={() => navigate(portalHrefForTab('messages'))}
-            className={`relative flex-1 flex flex-col items-center gap-1 py-3 text-sm font-bold transition-colors ${
+            className={`relative flex-1 flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 ${
               portalTab === 'messages' ? 'text-medical-primary' : 'text-slate-500'
             }`}
           >
             <span className="relative inline-flex">
-              <MessageCircle className="w-6 h-6 shrink-0" strokeWidth={portalTab === 'messages' ? 2.5 : 2} />
+              <MessageCircle className="w-7 h-7 shrink-0" strokeWidth={portalTab === 'messages' ? 2.5 : 2} />
               {unreadForPatient > 0 && portalTab !== 'messages' && (
                 <span className="absolute -top-1 -end-1 min-w-[1.1rem] h-[1.1rem] px-0.5 rounded-full bg-red-600 text-[10px] font-black text-white flex items-center justify-center border-2 border-white">
                   {unreadForPatient > 9 ? '!' : unreadForPatient}
                 </span>
               )}
             </span>
-            הודעות
+            צ&apos;אט
           </button>
         </div>
       </nav>
