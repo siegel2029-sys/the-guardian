@@ -1,18 +1,36 @@
 import { useMemo, useState } from 'react';
-import { X, Stethoscope, Dumbbell, BookOpen, Microscope, Link2, Check, Pencil } from 'lucide-react';
+import {
+  X,
+  Stethoscope,
+  Dumbbell,
+  BookOpen,
+  Microscope,
+  Link2,
+  Check,
+  Pencil,
+  AlertTriangle,
+  Loader2,
+} from 'lucide-react';
 import { EXERCISE_LIBRARY } from '../../data/mockData';
-import type { BodyArea } from '../../types';
+import type { BodyArea, Exercise, InitialClinicalProfileExtras } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { exerciseMatchesPrimary } from '../../utils/clinicalBodyArea';
 import { getClinicalIntakeAdvice } from '../../ai/clinicalIntakeAdvisor';
-import { analyzeClinicalNote } from '../../utils/clinicalParser';
+import { analyzeClinicalNote, type ClinicalIntakeAnalysis } from '../../utils/clinicalParser';
+import {
+  getGeminiApiKey,
+  analyzeIntakeStoryWithGemini,
+  GeminiRateLimitedError,
+} from '../../ai/geminiClinicalIntake';
+import { isJointBodyArea, filterToJointBodyAreas } from '../../body/jointBodyAreas';
+import {
+  extractHeuristicIntakeRedFlags,
+  heuristicIntakeRedFlagDetected,
+} from '../../utils/intakeRedFlagHeuristics';
+
+export type ClinicalProfileSaveExtras = InitialClinicalProfileExtras;
 
 const ALL_AREAS = Object.keys(bodyAreaLabels) as BodyArea[];
-
-export type ClinicalProfileSaveExtras = {
-  displayName?: string;
-  intakeStory?: string;
-};
 
 type Props = {
   initialPatientName: string;
@@ -26,6 +44,109 @@ type Props = {
 
 type Step = 'intake' | 'review';
 
+type AnalysisBundle = {
+  primaryBodyArea: BodyArea;
+  proposedExercises: Exercise[];
+  rationaleLinesHe: string[];
+  clinicalDiagnosis: string;
+  redFlags: string[];
+  redFlagDetected: boolean;
+  injuryHighlightSegments: BodyArea[];
+  secondaryClinicalBodyAreas: BodyArea[];
+  source: 'gemini' | 'local';
+  /** הודעה למטפל (למשל מכסת Gemini מלאה) */
+  intakeNoticeHe?: string;
+};
+
+function buildLocalBundle(story: string, local: ClinicalIntakeAnalysis): AnalysisBundle {
+  const primaryBodyArea = local.primaryBodyArea ?? 'back_lower';
+  const jointAreas = filterToJointBodyAreas(local.bodyAreas);
+  let injuryHighlightSegments: BodyArea[] = [];
+  if (isJointBodyArea(primaryBodyArea)) {
+    injuryHighlightSegments = [primaryBodyArea];
+  } else if (jointAreas.length > 0) {
+    injuryHighlightSegments = [jointAreas[0]];
+  }
+  const secondaryClinicalBodyAreas = jointAreas.filter((a) => !injuryHighlightSegments.includes(a));
+  const redFlags = extractHeuristicIntakeRedFlags(story);
+  const redFlagDetected = heuristicIntakeRedFlagDetected(redFlags);
+  return {
+    primaryBodyArea,
+    proposedExercises: local.proposedExercises,
+    rationaleLinesHe: local.rationaleLinesHe,
+    clinicalDiagnosis: `מוקד טיפול: ${bodyAreaLabels[primaryBodyArea]}`,
+    redFlags,
+    redFlagDetected,
+    injuryHighlightSegments,
+    secondaryClinicalBodyAreas,
+    source: 'local',
+  };
+}
+
+async function runIntakeAnalysis(story: string, followUp: boolean): Promise<AnalysisBundle> {
+  const trimmed = story.trim();
+  const local = analyzeClinicalNote(trimmed);
+
+  if (!getGeminiApiKey()) {
+    return buildLocalBundle(trimmed, local);
+  }
+
+  try {
+    const g = await analyzeIntakeStoryWithGemini(trimmed, { followUp });
+    const primaryBodyArea =
+      g.primaryInjuryZoneJoint ?? local.primaryBodyArea ?? 'back_lower';
+
+    let proposedExercises = [...g.proposedExercises];
+    if (proposedExercises.length < 4) {
+      const seen = new Set(proposedExercises.map((e) => e.id));
+      for (const ex of local.proposedExercises) {
+        if (proposedExercises.length >= 5) break;
+        if (!seen.has(ex.id)) {
+          proposedExercises.push(ex);
+          seen.add(ex.id);
+        }
+      }
+    }
+    if (proposedExercises.length < 4) {
+      proposedExercises = EXERCISE_LIBRARY.filter((ex) =>
+        exerciseMatchesPrimary(ex, primaryBodyArea)
+      ).slice(0, 5);
+    }
+
+    const injuryHighlightSegments: BodyArea[] = g.primaryInjuryZoneJoint
+      ? [g.primaryInjuryZoneJoint]
+      : isJointBodyArea(primaryBodyArea)
+        ? [primaryBodyArea]
+        : [];
+
+    const rationaleLinesHe =
+      g.clinicalReasoningHe.length > 0 ? g.clinicalReasoningHe : local.rationaleLinesHe;
+
+    return {
+      primaryBodyArea,
+      proposedExercises,
+      rationaleLinesHe,
+      clinicalDiagnosis: g.clinicalDiagnosis,
+      redFlags: g.redFlags,
+      redFlagDetected: g.redFlagDetected,
+      injuryHighlightSegments,
+      secondaryClinicalBodyAreas: [...g.chainReactionZoneJoints],
+      source: 'gemini',
+    };
+  } catch (e) {
+    const bundle = buildLocalBundle(trimmed, local);
+    if (e instanceof GeminiRateLimitedError) {
+      return {
+        ...bundle,
+        intakeNoticeHe:
+          e.message ||
+          'מכסת הבקשות ל-Gemini מלאה כרגע. מוצג ניתוח מקומי. נסו שוב בעוד מספר דקות או בדקו מכסה ב-Google AI Studio.',
+      };
+    }
+    return bundle;
+  }
+}
+
 export default function ClinicalAiIntakeWizard({
   initialPatientName,
   onClose,
@@ -34,7 +155,11 @@ export default function ClinicalAiIntakeWizard({
   const [step, setStep] = useState<Step>('intake');
   const [intakeName, setIntakeName] = useState(initialPatientName);
   const [intakeStory, setIntakeStory] = useState('');
+  const [followUpIntake, setFollowUpIntake] = useState(false);
   const [detailedEdit, setDetailedEdit] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisBundle, setAnalysisBundle] = useState<AnalysisBundle | null>(null);
 
   const [primary, setPrimary] = useState<BodyArea>('back_lower');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -46,16 +171,24 @@ export default function ClinicalAiIntakeWizard({
 
   const intakeAdvice = useMemo(() => getClinicalIntakeAdvice(primary), [primary]);
 
-  const reviewAnalysis = useMemo(() => analyzeClinicalNote(intakeStory), [intakeStory]);
-
-  const runAnalysisAndGoReview = () => {
-    const analysis = analyzeClinicalNote(intakeStory);
-    const p = analysis.primaryBodyArea ?? 'back_lower';
-    const ids = [...new Set(analysis.proposedExercises.map((e) => e.id))];
-    setPrimary(p);
-    setSelectedIds(new Set(ids.length > 0 ? ids : []));
-    setDetailedEdit(false);
-    setStep('review');
+  const runAnalysisAndGoReview = async () => {
+    const story = intakeStory.trim();
+    if (!story) return;
+    setAnalysisError(null);
+    setIsAnalyzing(true);
+    try {
+      const bundle = await runIntakeAnalysis(story, followUpIntake);
+      setAnalysisBundle(bundle);
+      setPrimary(bundle.primaryBodyArea);
+      setSelectedIds(new Set(bundle.proposedExercises.map((e) => e.id)));
+      setDetailedEdit(false);
+      setStep('review');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'שגיאת ניתוח';
+      setAnalysisError(msg);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const toggleLibId = (libId: string) => {
@@ -79,6 +212,12 @@ export default function ClinicalAiIntakeWizard({
     const out: ClinicalProfileSaveExtras = {};
     if (name) out.displayName = name;
     if (story) out.intakeStory = story;
+    if (analysisBundle) {
+      out.injuryHighlightSegments = [...analysisBundle.injuryHighlightSegments];
+      out.secondaryClinicalBodyAreas = [...analysisBundle.secondaryClinicalBodyAreas];
+      out.clinicalDiagnosis = analysisBundle.clinicalDiagnosis;
+      if (analysisBundle.redFlagDetected) out.intakeRedFlag = true;
+    }
     return Object.keys(out).length ? out : undefined;
   };
 
@@ -89,16 +228,12 @@ export default function ClinicalAiIntakeWizard({
   };
 
   const approveAi = () => {
-    const analysis = analyzeClinicalNote(intakeStory);
-    const p = analysis.primaryBodyArea ?? 'back_lower';
-    const ids = [...new Set(analysis.proposedExercises.map((e) => e.id))];
+    if (!analysisBundle) return;
+    const p = analysisBundle.primaryBodyArea;
+    let ids = analysisBundle.proposedExercises.map((e) => e.id);
     if (ids.length === 0) {
       const fb = EXERCISE_LIBRARY.filter((ex) => exerciseMatchesPrimary(ex, p)).slice(0, 4);
-      commitSave(
-        p,
-        fb.map((e) => e.id)
-      );
-      return;
+      ids = fb.map((e) => e.id);
     }
     commitSave(p, ids);
   };
@@ -106,6 +241,8 @@ export default function ClinicalAiIntakeWizard({
   const saveFromEditor = () => {
     commitSave(primary, [...selectedIds]);
   };
+
+  const reviewLines = analysisBundle?.rationaleLinesHe ?? [];
 
   return (
     <div
@@ -164,27 +301,103 @@ export default function ClinicalAiIntakeWizard({
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800 resize-y min-h-[120px]"
                 />
               </div>
+              <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={followUpIntake}
+                  onChange={(e) => setFollowUpIntake(e.target.checked)}
+                  className="rounded border-slate-300 text-teal-600 focus:ring-teal-500/40"
+                />
+                אינטייק משכי (מטופל חוזר — Gemini יתמקד בשינוי, לא בדמוגרפיה)
+              </label>
+              {analysisError && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {analysisError}
+                </p>
+              )}
+              {!getGeminiApiKey() && (
+                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                  מפתח Gemini לא הוגדר — הניתוח יבוצע במצב מקומי. הוסיפו VITE_GEMINI_API_KEY בקובץ{' '}
+                  <code className="font-mono text-[10px]">.env</code> בשורש הפרויקט והפעילו מחדש את
+                  השרת.
+                </p>
+              )}
             </>
           )}
 
-          {step === 'review' && !detailedEdit && (
+          {step === 'review' && analysisBundle?.intakeNoticeHe && (
+            <div
+              className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 leading-relaxed"
+              role="status"
+            >
+              <p className="font-semibold text-amber-900 mb-1">התראת מערכת</p>
+              <p>{analysisBundle.intakeNoticeHe}</p>
+            </div>
+          )}
+
+          {step === 'review' && analysisBundle?.redFlagDetected && (
+            <div
+              className="rounded-xl border-2 border-red-600 bg-red-50 p-3 flex gap-2.5 shadow-md"
+              style={{
+                animation: 'clinical-intake-red-pulse 1.1s ease-in-out infinite',
+              }}
+              role="alert"
+            >
+              <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-sm font-black text-red-800">דגל אדום — נדרשת בדיקה קלינית</p>
+                <p className="text-[11px] text-red-900 mt-1 leading-relaxed">
+                  זוהו ממצאים חשודים בסיפור. יש לאמת היסטוריה, בדיקה גופנית ומתן הפניות לפי הפרוטוקול.
+                </p>
+                {analysisBundle.redFlags.length > 0 && (
+                  <ul className="mt-2 text-[11px] text-red-950 list-disc list-inside space-y-0.5">
+                    {analysisBundle.redFlags.map((f, i) => (
+                      <li key={i}>{f}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+
+          {step === 'review' && !detailedEdit && analysisBundle && (
             <>
               <div
                 className="rounded-xl border border-indigo-200 bg-indigo-50/90 p-3 space-y-2 text-[11px] text-indigo-950 leading-relaxed"
                 role="region"
               >
-                {reviewAnalysis.rationaleLinesHe.map((line, i) => (
+                {analysisBundle.source === 'gemini' && (
+                  <p className="text-[10px] font-semibold text-indigo-700 uppercase tracking-wide">
+                    ניתוח Gemini Flash
+                  </p>
+                )}
+                {reviewLines.map((line, i) => (
                   <p key={i}>{line}</p>
                 ))}
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-sm text-slate-800">
-                <p className="text-xs font-semibold text-slate-500 mb-1">מוקד מוצע</p>
-                <p className="font-bold">
-                  {bodyAreaLabels[reviewAnalysis.primaryBodyArea ?? 'back_lower']}
+                <p className="text-xs font-semibold text-slate-500 mb-1">אבחון / רושם</p>
+                <p className="font-bold text-slate-900">{analysisBundle.clinicalDiagnosis}</p>
+                <p className="text-xs font-semibold text-slate-500 mt-2 mb-1">מוקד מוצע (תוכנית)</p>
+                <p className="font-bold">{bodyAreaLabels[analysisBundle.primaryBodyArea]}</p>
+                <p className="text-xs font-semibold text-slate-500 mt-2 mb-1">
+                  מפרקים במפה (אדום / כתום)
+                </p>
+                <p className="text-xs text-slate-700">
+                  <span className="font-semibold text-red-700">אדום: </span>
+                  {analysisBundle.injuryHighlightSegments.length
+                    ? analysisBundle.injuryHighlightSegments.map((a) => bodyAreaLabels[a]).join(', ')
+                    : '—'}
+                </p>
+                <p className="text-xs text-slate-700 mt-0.5">
+                  <span className="font-semibold text-orange-700">כתום: </span>
+                  {analysisBundle.secondaryClinicalBodyAreas.length
+                    ? analysisBundle.secondaryClinicalBodyAreas.map((a) => bodyAreaLabels[a]).join(', ')
+                    : '—'}
                 </p>
                 <p className="text-xs font-semibold text-slate-500 mt-2 mb-1">תרגילים מוצעים</p>
                 <ul className="list-disc list-inside text-xs space-y-0.5 text-slate-700">
-                  {reviewAnalysis.proposedExercises.slice(0, 8).map((ex) => (
+                  {analysisBundle.proposedExercises.slice(0, 8).map((ex) => (
                     <li key={ex.id}>{ex.name}</li>
                   ))}
                 </ul>
@@ -315,18 +528,26 @@ export default function ClinicalAiIntakeWizard({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-sm font-medium"
+                disabled={isAnalyzing}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-sm font-medium disabled:opacity-50"
               >
                 ביטול
               </button>
               <button
                 type="button"
-                onClick={runAnalysisAndGoReview}
-                disabled={!intakeStory.trim()}
-                className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-45"
+                onClick={() => void runAnalysisAndGoReview()}
+                disabled={!intakeStory.trim() || isAnalyzing}
+                className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-45 flex items-center justify-center gap-2"
                 style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
               >
-                המשך לסקירה
+                {isAnalyzing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden />
+                    מנתח…
+                  </>
+                ) : (
+                  'המשך לסקירה'
+                )}
               </button>
             </div>
           )}
@@ -335,7 +556,10 @@ export default function ClinicalAiIntakeWizard({
             <div className="flex flex-col sm:flex-row gap-2">
               <button
                 type="button"
-                onClick={() => setStep('intake')}
+                onClick={() => {
+                  setStep('intake');
+                  setAnalysisBundle(null);
+                }}
                 className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-sm font-medium"
               >
                 חזרה
@@ -351,7 +575,8 @@ export default function ClinicalAiIntakeWizard({
               <button
                 type="button"
                 onClick={approveAi}
-                className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2"
+                disabled={!analysisBundle}
+                className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-45"
                 style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
               >
                 <Check className="w-4 h-4" />
@@ -382,6 +607,12 @@ export default function ClinicalAiIntakeWizard({
           )}
         </div>
       </div>
+      <style>{`
+        @keyframes clinical-intake-red-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55); opacity: 1; }
+          50% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); opacity: 0.92; }
+        }
+      `}</style>
     </div>
   );
 }

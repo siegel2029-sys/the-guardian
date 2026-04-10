@@ -4,6 +4,8 @@ import type { Patient } from '../../../types';
 import { bodyAreaLabels } from '../../../types';
 import { usePatient } from '../../../context/PatientContext';
 import { analyzeClinicalNote, type ClinicalIntakeAnalysis } from '../../../utils/clinicalParser';
+import { summarizeTherapistIntakeNote } from '../../../ai/geminiTherapistDive';
+import { getGeminiApiKey, GeminiRateLimitedError } from '../../../ai/geminiClient';
 
 export default function ClinicalIntakePanel({ patient }: { patient: Patient }) {
   const { applyIntakeExercisePlan, updateTherapistNotes } = usePatient();
@@ -11,10 +13,17 @@ export default function ClinicalIntakePanel({ patient }: { patient: Patient }) {
   const [analysis, setAnalysis] = useState<ClinicalIntakeAnalysis | null>(null);
   const [busy, setBusy] = useState(false);
   const [appliedFlash, setAppliedFlash] = useState(false);
+  const [followUpMode, setFollowUpMode] = useState(false);
+  const [geminiSummary, setGeminiSummary] = useState<string | null>(null);
+  const [geminiBusy, setGeminiBusy] = useState(false);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
 
   useEffect(() => {
     setNote('');
     setAnalysis(null);
+    setFollowUpMode(false);
+    setGeminiSummary(null);
+    setGeminiError(null);
   }, [patient.id]);
 
   const runAnalysis = () => {
@@ -30,6 +39,30 @@ export default function ClinicalIntakePanel({ patient }: { patient: Patient }) {
     }, 280);
   };
 
+  const runGeminiIntake = async () => {
+    const t = note.trim();
+    if (!t || !getGeminiApiKey()) {
+      setGeminiError('הגדירו VITE_GEMINI_API_KEY ב־.env והפעילו מחדש את השרת.');
+      return;
+    }
+    setGeminiBusy(true);
+    setGeminiError(null);
+    try {
+      const text = await summarizeTherapistIntakeNote(patient, t, followUpMode ? 'follow_up' : 'initial');
+      setGeminiSummary(text);
+    } catch (e) {
+      const msg =
+        e instanceof GeminiRateLimitedError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : 'שגיאת Gemini';
+      setGeminiError(msg);
+    } finally {
+      setGeminiBusy(false);
+    }
+  };
+
   const applyPlan = () => {
     if (!analysis?.primaryBodyArea || analysis.proposedExercises.length === 0) return;
     applyIntakeExercisePlan(patient.id, analysis.proposedExercises, analysis.primaryBodyArea);
@@ -41,9 +74,24 @@ export default function ClinicalIntakePanel({ patient }: { patient: Patient }) {
   return (
     <div className="space-y-4" dir="rtl">
       <p className="text-sm text-slate-600 leading-relaxed">
-        הזינו תיאור קליני חופשי (אנגלית או עברית). המערכת מזהה אזור גוף, כאב ומטרות, ומציעה תרגילים
-        מהספרייה. לחצו «ניתוח הערה» לעדכון מיידי של התוכנית המוצעת.
+        הזינו תיאור קליני חופשי (אנגלית או עברית). «ניתוח הערה» מריץ מנוע מקומי לתרגילים. «סיכום AI
+        (Gemini)» מיועד למטפל — ניתוח מקצועי (דגלים, אבחנה מבדלת, דגשי תוכנית) לפי הטקסט ומפת הגוף
+        במערכת.
       </p>
+
+      <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={followUpMode}
+          onChange={(e) => {
+            setFollowUpMode(e.target.checked);
+            setGeminiSummary(null);
+            setGeminiError(null);
+          }}
+          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500/40"
+        />
+        מצב אינטייק משכי (מטופל חוזר — Gemini יתמקד בשינוי, לא בדמוגרפיה)
+      </label>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
         <div className="flex flex-col gap-3 min-h-[320px]">
@@ -55,16 +103,37 @@ export default function ClinicalIntakePanel({ patient }: { patient: Patient }) {
             className="flex-1 min-h-[280px] w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-800 leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/35"
             placeholder="לדוגמה: Patient has ACL strain and limited ROM&#10;או: כאב כתף ימין, VAS 6, מגבלה בטווח תנועה"
           />
-          <button
-            type="button"
-            onClick={runAnalysis}
-            disabled={busy || !note.trim()}
-            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-45"
-            style={{ background: 'linear-gradient(135deg, #1d4ed8, #2563eb)' }}
-          >
-            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            ניתוח הערה (סימולציית AI)
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              onClick={runAnalysis}
+              disabled={busy || !note.trim()}
+              className="inline-flex flex-1 items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-45"
+              style={{ background: 'linear-gradient(135deg, #1d4ed8, #2563eb)' }}
+            >
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              ניתוח הערה (מקומי)
+            </button>
+            <button
+              type="button"
+              onClick={() => void runGeminiIntake()}
+              disabled={geminiBusy || !note.trim()}
+              className="inline-flex flex-1 items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-45"
+              style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)' }}
+            >
+              {geminiBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              סיכום AI (Gemini)
+            </button>
+          </div>
+          {geminiError && (
+            <p className="text-xs text-red-600 font-medium whitespace-pre-wrap">{geminiError}</p>
+          )}
+          {geminiSummary && (
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-xs text-slate-800 whitespace-pre-wrap leading-relaxed max-h-[220px] overflow-y-auto">
+              <p className="font-bold text-indigo-900 mb-1">Gemini — למטפל</p>
+              {geminiSummary}
+            </div>
+          )}
         </div>
 
         <div className="rounded-xl border border-blue-100 bg-slate-50/80 p-4 flex flex-col min-h-[320px]">

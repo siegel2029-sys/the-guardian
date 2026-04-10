@@ -23,6 +23,8 @@ export type BodyArea =
   | 'forearm_left'
   | 'wrist_right'
   | 'wrist_left'
+  | 'hand_right'
+  | 'hand_left'
   | 'back_upper'
   | 'back_lower'
   | 'hip_right'
@@ -34,7 +36,9 @@ export type BodyArea =
   | 'shin_right'
   | 'shin_left'
   | 'ankle_right'
-  | 'ankle_left';
+  | 'ankle_left'
+  | 'foot_right'
+  | 'foot_left';
 
 export const bodyAreaLabels: Record<BodyArea, string> = {
   neck: 'צוואר',
@@ -50,6 +54,8 @@ export const bodyAreaLabels: Record<BodyArea, string> = {
   forearm_left: 'אמה שמאל',
   wrist_right: 'פרק כף יד ימין',
   wrist_left: 'פרק כף יד שמאל',
+  hand_right: 'כף יד ימין',
+  hand_left: 'כף יד שמאל',
   back_upper: 'גב עליון',
   back_lower: 'גב תחתון',
   hip_right: 'עכוז / אגן ימין',
@@ -62,6 +68,8 @@ export const bodyAreaLabels: Record<BodyArea, string> = {
   shin_left: 'שוק שמאל',
   ankle_right: 'קרסול ימין',
   ankle_left: 'קרסול שמאל',
+  foot_right: 'כף רגל ימין',
+  foot_left: 'כף רגל שמאל',
 };
 
 export interface PainRecord {
@@ -174,6 +182,20 @@ export interface Patient {
   /** שדה קשר ישן (מספר בינלאומי ללא +) — נשמר לתאימות; התראות קליניות נשלחות בדוא״ל בלבד */
   contactWhatsappE164?: string;
 }
+
+/** שדות נוספים לשמירת פרופיל קליני ראשוני (אינטייק AI) */
+export type InitialClinicalProfileExtras = {
+  displayName?: string;
+  intakeStory?: string;
+  /** מפרקים להדגשה אדומה (מוקד פגיעה) */
+  injuryHighlightSegments?: BodyArea[];
+  /** מפרקים משניים — כתום במפה */
+  secondaryClinicalBodyAreas?: BodyArea[];
+  /** אבחון/רושם קליני קצר */
+  clinicalDiagnosis?: string;
+  /** דגל אדום שזוהה בסיפור — התראה למטפל */
+  intakeRedFlag?: boolean;
+};
 
 export interface AuthUser {
   therapist: Therapist;
@@ -311,6 +333,8 @@ export function getMuscleGroupLabel(area: BodyArea): string {
     forearm_left: 'אמה',
     wrist_right: 'פרק יד',
     wrist_left: 'פרק יד',
+    hand_right: 'כף יד',
+    hand_left: 'כף יד',
     back_upper: 'גב עליון',
     back_lower: 'גב תחתון',
     hip_right: 'עכוז',
@@ -323,6 +347,8 @@ export function getMuscleGroupLabel(area: BodyArea): string {
     shin_left: 'שוק',
     ankle_right: 'קרסול',
     ankle_left: 'קרסול',
+    foot_right: 'כף רגל',
+    foot_left: 'כף רגל',
   };
   return map[area];
 }

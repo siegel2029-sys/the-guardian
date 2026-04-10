@@ -15,6 +15,7 @@ import type {
   SafetyAlert, ClinicalSafetyTier, DailyHistoryEntry, BodyArea,
   SelfCareSessionReport,
   PatientExerciseFinishReport,
+  InitialClinicalProfileExtras,
 } from '../types';
 import { bodyAreaLabels } from '../types';
 import {
@@ -326,7 +327,7 @@ interface PatientContextValue {
     patientId: string,
     primaryBodyArea: BodyArea,
     libraryExerciseIds: string[],
-    extras?: { displayName?: string; intakeStory?: string }
+    extras?: InitialClinicalProfileExtras
   ) => void;
 
   /** הערות מטפל — נשמרות ב-localStorage */
@@ -1780,7 +1781,7 @@ export function PatientProvider({
       patientId: string,
       primaryBodyArea: BodyArea,
       libraryExerciseIds: string[],
-      extras?: { displayName?: string; intakeStory?: string }
+      extras?: InitialClinicalProfileExtras
     ) => {
       const lib = EXERCISE_LIBRARY.filter((e) => libraryExerciseIds.includes(e.id));
       const addedAt = new Date().toISOString();
@@ -1799,13 +1800,29 @@ export function PatientProvider({
           const therapistNotes = extras?.intakeStory?.trim()
             ? extras.intakeStory.trim()
             : p.therapistNotes;
+          const diagnosisFromAi = extras?.clinicalDiagnosis?.trim();
+          const diagnosis =
+            diagnosisFromAi && diagnosisFromAi.length > 0
+              ? diagnosisFromAi
+              : `מוקד טיפול: ${bodyAreaLabels[primaryBodyArea]}`;
+          const injury =
+            extras?.injuryHighlightSegments !== undefined
+              ? [...extras.injuryHighlightSegments]
+              : p.injuryHighlightSegments;
+          const secondary =
+            extras?.secondaryClinicalBodyAreas !== undefined
+              ? [...extras.secondaryClinicalBodyAreas]
+              : p.secondaryClinicalBodyAreas;
           return {
             ...p,
             name,
             primaryBodyArea,
             status: 'active',
-            diagnosis: `מוקד טיפול: ${bodyAreaLabels[primaryBodyArea]}`,
+            diagnosis,
             therapistNotes,
+            injuryHighlightSegments: injury,
+            secondaryClinicalBodyAreas: secondary,
+            hasRedFlag: p.hasRedFlag || !!extras?.intakeRedFlag,
           };
         })
       );

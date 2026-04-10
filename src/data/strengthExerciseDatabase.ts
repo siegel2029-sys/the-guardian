@@ -218,10 +218,14 @@ const STRENGTH_CHAIN_ANCHOR: Partial<Record<BodyArea, BodyArea>> = {
   upper_arm_right: 'shoulder_right',
   forearm_left: 'elbow_left',
   forearm_right: 'elbow_right',
+  hand_left: 'wrist_left',
+  hand_right: 'wrist_right',
   thigh_left: 'hip_left',
   thigh_right: 'hip_right',
   shin_left: 'knee_left',
   shin_right: 'knee_right',
+  foot_left: 'ankle_left',
+  foot_right: 'ankle_right',
 };
 
 export function getStrengthChainForArea(area: BodyArea): StrengthChainDef {

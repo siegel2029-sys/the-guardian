@@ -26,7 +26,7 @@ import {
   createKnee,
   createGlute,
 } from './geometry/muscleGeometry';
-import { getLevelTier } from '../../body/levelTier';
+import { getLevelTier, type LevelTier } from '../../body/levelTier';
 import { getMuscleEvolutionStage, getMuscleVertexInflation } from '../../body/anatomicalEvolution';
 import type { MuscleEvolutionStage } from '../../body/anatomicalEvolution';
 import { createMuscleFiberTextures } from './proceduralMuscleTextures';
@@ -70,6 +70,104 @@ const AREA_GLOW: Partial<Record<BodyArea, [number, number, number]>> = {
 const BASE_SKIN = '#8fb8c8';
 const GOLD_SKIN = '#c9a227';
 
+type LimbPickOverlay = 'none' | 'injury' | 'orange' | 'clinical' | 'selfCare';
+
+function limbPickOverlayKind(
+  injuryHighlight: boolean,
+  clinicalSecondary: boolean,
+  clinicalLocked: boolean,
+  selfCareSelected: boolean
+): LimbPickOverlay {
+  if (injuryHighlight) return 'injury';
+  if (clinicalSecondary) return 'orange';
+  if (clinicalLocked) return 'clinical';
+  if (selfCareSelected) return 'selfCare';
+  return 'none';
+}
+
+/** הדגשות על גלילי זרוע/ירך — עוצמת emissive וחומר כמו ב־MuscleSegment */
+function limbPickPhysicalTint(
+  kind: LimbPickOverlay,
+  goldSkin: boolean,
+  levelTier: LevelTier
+): {
+  color: string;
+  emissive: string;
+  emissiveIntensity: number;
+  metalness: number;
+  roughness: number;
+  clearcoat: number;
+  clearcoatRoughness: number;
+  envMapIntensity: number;
+  iridescence: number;
+  iridescenceIOR: number;
+  iridescenceThicknessRange: [number, number];
+} | null {
+  if (goldSkin || kind === 'none') return null;
+  const inj = levelTier === 'injured';
+  if (kind === 'injury') {
+    return {
+      color: '#fecaca',
+      emissive: '#dc2626',
+      emissiveIntensity: 1.22,
+      metalness: 0.2,
+      roughness: 0.38,
+      clearcoat: 0.45,
+      clearcoatRoughness: 0.35,
+      envMapIntensity: 1.55,
+      iridescence: 0.12,
+      iridescenceIOR: 1.12,
+      iridescenceThicknessRange: [60, 200],
+    };
+  }
+  if (kind === 'selfCare') {
+    return {
+      color: '#22c55e',
+      emissive: '#15803d',
+      emissiveIntensity: 1.45 + (inj ? 0 : 0.08),
+      metalness: inj ? 0.14 : 0.28,
+      roughness: inj ? 0.38 : 0.18,
+      clearcoat: inj ? 0.22 : 0.62,
+      clearcoatRoughness: inj ? 0.42 : 0.24,
+      envMapIntensity: Math.max(1.9, 2.05),
+      iridescence: inj ? 0.12 : 0.25,
+      iridescenceIOR: 1.15,
+      iridescenceThicknessRange: [80, 280],
+    };
+  }
+  if (kind === 'clinical') {
+    return {
+      color: '#dc2626',
+      emissive: '#7f1d1d',
+      emissiveIntensity: 1.35,
+      metalness: inj ? 0.14 : 0.28,
+      roughness: inj ? 0.32 : 0.24,
+      clearcoat: inj ? 0.28 : 0.52,
+      clearcoatRoughness: inj ? 0.4 : 0.3,
+      envMapIntensity: 1.78,
+      iridescence: 0.15,
+      iridescenceIOR: 1.12,
+      iridescenceThicknessRange: [70, 220],
+    };
+  }
+  if (kind === 'orange') {
+    return {
+      color: '#ea580c',
+      emissive: '#9a3412',
+      emissiveIntensity: 1.18,
+      metalness: 0.24,
+      roughness: 0.34,
+      clearcoat: 0.52,
+      clearcoatRoughness: 0.32,
+      envMapIntensity: 1.72,
+      iridescence: 0.18,
+      iridescenceIOR: 1.14,
+      iridescenceThicknessRange: [70, 240],
+    };
+  }
+  return null;
+}
+
 interface BaseProps {
   geometry: THREE.BufferGeometry;
   position: [number, number, number];
@@ -87,6 +185,10 @@ interface BaseProps {
   pickArea?: BodyArea | null;
   injuryHighlight?: boolean;
   clinicalLocked?: boolean;
+  clinicalSecondary?: boolean;
+  selfCareSelected?: boolean;
+  clinicalBlockSelfCare?: boolean;
+  patientPortalInteractive?: boolean;
   onAreaClick?: (area: BodyArea) => void;
   /** true = mesh לא חוסם raycast (מעבר בחירה למקטע מאחור, למשל שוק מול שכבת עגל) */
   disableRaycast?: boolean;
@@ -106,6 +208,10 @@ function BaseSegment({
   pickArea = null,
   injuryHighlight = false,
   clinicalLocked = false,
+  clinicalSecondary = false,
+  selfCareSelected = false,
+  clinicalBlockSelfCare = false,
+  patientPortalInteractive = false,
   onAreaClick,
   disableRaycast = false,
   motionSteady = false,
@@ -164,7 +270,8 @@ function BaseSegment({
     ? {
         onPointerOver: (e: { stopPropagation: () => void }) => {
           e.stopPropagation();
-          document.body.style.cursor = 'pointer';
+          document.body.style.cursor =
+            patientPortalInteractive && clinicalBlockSelfCare ? 'not-allowed' : 'pointer';
         },
         onPointerOut: () => {
           document.body.style.cursor = '';
@@ -176,7 +283,44 @@ function BaseSegment({
       }
     : {};
 
+  const limbKind = limbPickOverlayKind(
+    injuryHighlight,
+    clinicalSecondary,
+    clinicalLocked,
+    selfCareSelected
+  );
+  const tier = getLevelTier(level);
+  const limbTint = limbPickPhysicalTint(limbKind, goldSkin ?? false, tier);
+  const hasLimbVisualOverlay = limbTint != null && !goldSkin;
+  const injuredSelfCareGlass = tier === 'injured' && limbKind === 'selfCare' && hasLimbVisualOverlay;
+
   if (!goldSkin && muscleStage === 'post_injury') {
+    if (hasLimbVisualOverlay) {
+      return (
+        <group position={position} rotation={rot} scale={[0.96, 0.97, 0.96]}>
+          {injuryLight}
+          <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
+            <meshPhysicalMaterial
+              ref={matRef}
+              color={limbTint.color}
+              roughness={limbTint.roughness}
+              metalness={limbTint.metalness}
+              clearcoat={limbTint.clearcoat}
+              clearcoatRoughness={limbTint.clearcoatRoughness}
+              envMapIntensity={limbTint.envMapIntensity}
+              emissive={limbTint.emissive}
+              emissiveIntensity={limbTint.emissiveIntensity}
+              iridescence={limbTint.iridescence}
+              iridescenceIOR={limbTint.iridescenceIOR}
+              iridescenceThicknessRange={limbTint.iridescenceThicknessRange}
+              transparent
+              opacity={injuredSelfCareGlass ? 0.78 : 0.92}
+              depthWrite={!injuredSelfCareGlass}
+            />
+          </mesh>
+        </group>
+      );
+    }
     return (
       <group position={position} rotation={rot} scale={[0.96, 0.97, 0.96]}>
         {injuryLight}
@@ -196,9 +340,33 @@ function BaseSegment({
     );
   }
 
-  const tier = getLevelTier(level);
-
   if (tier === 'injured') {
+    if (hasLimbVisualOverlay) {
+      return (
+        <group position={position} rotation={rot}>
+          {injuryLight}
+          <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
+            <meshPhysicalMaterial
+              ref={matRef}
+              color={limbTint.color}
+              roughness={limbTint.roughness}
+              metalness={limbTint.metalness}
+              clearcoat={limbTint.clearcoat}
+              clearcoatRoughness={limbTint.clearcoatRoughness}
+              envMapIntensity={limbTint.envMapIntensity}
+              emissive={limbTint.emissive}
+              emissiveIntensity={limbTint.emissiveIntensity}
+              iridescence={limbTint.iridescence}
+              iridescenceIOR={limbTint.iridescenceIOR}
+              iridescenceThicknessRange={limbTint.iridescenceThicknessRange}
+              transparent={injuredSelfCareGlass}
+              opacity={injuredSelfCareGlass ? 0.72 : 1}
+              depthWrite={!injuredSelfCareGlass}
+            />
+          </mesh>
+        </group>
+      );
+    }
     return (
       <group position={position} rotation={rot}>
         {injuryLight}
@@ -224,12 +392,17 @@ function BaseSegment({
         <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
           <meshPhysicalMaterial
             ref={matRef}
-            color={baseColor}
-            roughness={goldSkin ? 0.35 : 0.82}
-            metalness={goldSkin ? 0.65 : 0.05}
-            clearcoat={goldSkin ? 0.55 : 0.1}
-            clearcoatRoughness={0.42}
-            envMapIntensity={goldSkin ? 1.45 : 1.22}
+            color={limbTint?.color ?? baseColor}
+            roughness={limbTint ? limbTint.roughness : goldSkin ? 0.35 : 0.82}
+            metalness={limbTint ? limbTint.metalness : goldSkin ? 0.65 : 0.05}
+            clearcoat={limbTint ? limbTint.clearcoat : goldSkin ? 0.55 : 0.1}
+            clearcoatRoughness={limbTint ? limbTint.clearcoatRoughness : 0.42}
+            envMapIntensity={limbTint ? limbTint.envMapIntensity : goldSkin ? 1.45 : 1.22}
+            emissive={limbTint?.emissive ?? (goldSkin ? '#3d2a06' : '#082830')}
+            emissiveIntensity={limbTint?.emissiveIntensity ?? (goldSkin ? 0.04 : 0.06)}
+            iridescence={limbTint ? limbTint.iridescence : 0}
+            iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1.22}
+            iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [120, 420]}
           />
         </mesh>
       </group>
@@ -242,17 +415,17 @@ function BaseSegment({
       <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
         <meshPhysicalMaterial
           ref={matRef}
-          color={injuryHighlight ? '#fecaca' : baseColor}
-          roughness={goldSkin ? 0.22 : 0.26}
-          metalness={goldSkin ? 0.78 : 0.55}
-          clearcoat={goldSkin ? 0.9 : 0.82}
-          clearcoatRoughness={0.2}
-          envMapIntensity={goldSkin ? 1.95 : 1.85}
-          emissive={goldSkin ? '#3d2a06' : '#082830'}
-          emissiveIntensity={goldSkin ? 0.04 : 0.06}
-          iridescence={goldSkin ? 0.35 : 1}
-          iridescenceIOR={1.22}
-          iridescenceThicknessRange={[120, 420]}
+          color={limbTint?.color ?? (injuryHighlight ? '#fecaca' : baseColor)}
+          roughness={limbTint ? limbTint.roughness : goldSkin ? 0.22 : 0.26}
+          metalness={limbTint ? limbTint.metalness : goldSkin ? 0.78 : 0.55}
+          clearcoat={limbTint ? limbTint.clearcoat : goldSkin ? 0.9 : 0.82}
+          clearcoatRoughness={limbTint ? limbTint.clearcoatRoughness : 0.2}
+          envMapIntensity={limbTint ? limbTint.envMapIntensity : goldSkin ? 1.95 : 1.85}
+          emissive={limbTint?.emissive ?? (goldSkin ? '#3d2a06' : '#082830')}
+          emissiveIntensity={limbTint?.emissiveIntensity ?? (goldSkin ? 0.04 : 0.06)}
+          iridescence={limbTint ? limbTint.iridescence : goldSkin ? 0.35 : 1}
+          iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1.22}
+          iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [120, 420]}
         />
       </mesh>
     </group>
@@ -467,6 +640,17 @@ export default function AnatomyModel({
     clinicalArea != null &&
     bodyAreaIsClinicalFocus(a, clinicalArea) &&
     !secondarySet.has(a);
+  const clinicalRefForBlock = clinicalArea ?? primaryArea ?? ('neck' as BodyArea);
+  const limbPickProps = (a: BodyArea) => ({
+    injuryHighlight: injurySet.has(a),
+    clinicalLocked: clinicalLockVisual(a),
+    clinicalSecondary: secondarySet.has(a),
+    selfCareSelected:
+      selfCareSelectedAreas.includes(a) &&
+      !bodyAreaBlocksSelfCare(a, clinicalRefForBlock, secondaryClinicalBodyAreas),
+    clinicalBlockSelfCare: bodyAreaBlocksSelfCare(a, clinicalRefForBlock, secondaryClinicalBodyAreas),
+    patientPortalInteractive,
+  });
   const strengthenedSet = useMemo(
     () => new Set(strengthenedAreasToday),
     [strengthenedAreasToday]
@@ -582,68 +766,86 @@ export default function AnatomyModel({
       {/* ══ LEFT ARM (+x) ══════════════════════════════════════ */}
       <BaseSegment
         geometry={geos.upperArmL}
-        position={[0.56, 0.9, 0]}
+        position={[0.56, 0.9, 0.048]}
         level={level}
         goldSkin={gearGoldSkin}
         muscleStage={muscleStage}
         vertexInflationWeight={1}
         growthLayerWeight={growthOf('upper_arm_left')}
         pickArea="upper_arm_left"
-        injuryHighlight={injurySet.has('upper_arm_left')}
-        clinicalLocked={clinicalLockVisual('upper_arm_left')}
+        {...limbPickProps('upper_arm_left')}
         motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
       <MuscleSegment {...S('elbow_left')} geometry={geos.elbowL} position={[0.58, 0.6, 0.07]} />
       <BaseSegment
         geometry={geos.forearmL}
-        position={[0.56, 0.21, 0]}
+        position={[0.56, 0.21, 0.048]}
         level={level}
         goldSkin={gearGoldSkin}
         muscleStage={muscleStage}
         vertexInflationWeight={1}
         growthLayerWeight={growthOf('forearm_left')}
         pickArea="forearm_left"
-        injuryHighlight={injurySet.has('forearm_left')}
-        clinicalLocked={clinicalLockVisual('forearm_left')}
+        {...limbPickProps('forearm_left')}
         motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
       <MuscleSegment {...S('wrist_left')} geometry={geos.wristL} position={[0.57, -0.04, 0.075]} />
-      <BaseSegment geometry={geos.handL} position={[0.57, -0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
+      <BaseSegment
+        geometry={geos.handL}
+        position={[0.57, -0.22, 0.045]}
+        level={level}
+        goldSkin={gearGoldSkin}
+        muscleStage={muscleStage}
+        vertexInflationWeight={0}
+        pickArea="hand_left"
+        {...limbPickProps('hand_left')}
+        motionSteady={stableInteraction}
+        onAreaClick={onAreaClick}
+      />
 
       {/* ══ RIGHT ARM (-x) ═════════════════════════════════════ */}
       <BaseSegment
         geometry={geos.upperArmR}
-        position={[-0.56, 0.9, 0]}
+        position={[-0.56, 0.9, 0.048]}
         level={level}
         goldSkin={gearGoldSkin}
         muscleStage={muscleStage}
         vertexInflationWeight={1}
         growthLayerWeight={growthOf('upper_arm_right')}
         pickArea="upper_arm_right"
-        injuryHighlight={injurySet.has('upper_arm_right')}
-        clinicalLocked={clinicalLockVisual('upper_arm_right')}
+        {...limbPickProps('upper_arm_right')}
         motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
       <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR} position={[-0.58, 0.6, 0.07]} />
       <BaseSegment
         geometry={geos.forearmR}
-        position={[-0.56, 0.21, 0]}
+        position={[-0.56, 0.21, 0.048]}
         level={level}
         goldSkin={gearGoldSkin}
         muscleStage={muscleStage}
         vertexInflationWeight={1}
         growthLayerWeight={growthOf('forearm_right')}
         pickArea="forearm_right"
-        injuryHighlight={injurySet.has('forearm_right')}
-        clinicalLocked={clinicalLockVisual('forearm_right')}
+        {...limbPickProps('forearm_right')}
         motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
       <MuscleSegment {...S('wrist_right')} geometry={geos.wristR} position={[-0.57, -0.04, 0.075]} />
-      <BaseSegment geometry={geos.handR} position={[-0.57, -0.22, 0.02]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
+      <BaseSegment
+        geometry={geos.handR}
+        position={[-0.57, -0.22, 0.045]}
+        level={level}
+        goldSkin={gearGoldSkin}
+        muscleStage={muscleStage}
+        vertexInflationWeight={0}
+        pickArea="hand_right"
+        {...limbPickProps('hand_right')}
+        motionSteady={stableInteraction}
+        onAreaClick={onAreaClick}
+      />
 
       {/* ══ HIPS (עכוז) ═══════════════════════════════════════ */}
       <MuscleSegment {...S('hip_left')} geometry={geos.gluteL} position={[0.24, 0.14, 0.08]} />
@@ -652,68 +854,88 @@ export default function AnatomyModel({
       {/* ══ LEFT LEG (+x) ══════════════════════════════════════ */}
       <BaseSegment
         geometry={geos.thighL}
-        position={[0.24, -0.27, 0]}
+        position={[0.24, -0.27, 0.048]}
         level={level}
         goldSkin={gearGoldSkin}
         muscleStage={muscleStage}
         vertexInflationWeight={1}
         growthLayerWeight={growthOf('thigh_left')}
         pickArea="thigh_left"
-        injuryHighlight={injurySet.has('thigh_left')}
-        clinicalLocked={clinicalLockVisual('thigh_left')}
+        {...limbPickProps('thigh_left')}
         motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
       <MuscleSegment {...S('knee_left')} geometry={geos.kneeL} position={[0.24, -0.62, 0.08]} />
       <BaseSegment
         geometry={geos.shinL}
-        position={[0.24, -0.98, 0]}
+        position={[0.24, -0.98, 0.048]}
         level={level}
         goldSkin={gearGoldSkin}
         muscleStage={muscleStage}
         vertexInflationWeight={1}
         growthLayerWeight={growthOf('shin_left')}
         pickArea="shin_left"
-        injuryHighlight={injurySet.has('shin_left')}
-        clinicalLocked={clinicalLockVisual('shin_left')}
+        {...limbPickProps('shin_left')}
         motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
       <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[0.24, -1.33, 0.085]} />
-      <BaseSegment geometry={geos.footL} position={[0.255, -1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
+      <BaseSegment
+        geometry={geos.footL}
+        position={[0.255, -1.52, 0.1]}
+        rotation={[0.18, 0, 0]}
+        level={level}
+        goldSkin={gearGoldSkin}
+        muscleStage={muscleStage}
+        vertexInflationWeight={0}
+        pickArea="foot_left"
+        {...limbPickProps('foot_left')}
+        motionSteady={stableInteraction}
+        onAreaClick={onAreaClick}
+      />
 
       {/* ══ RIGHT LEG (-x) ═════════════════════════════════════ */}
       <BaseSegment
         geometry={geos.thighR}
-        position={[-0.24, -0.27, 0]}
+        position={[-0.24, -0.27, 0.048]}
         level={level}
         goldSkin={gearGoldSkin}
         muscleStage={muscleStage}
         vertexInflationWeight={1}
         growthLayerWeight={growthOf('thigh_right')}
         pickArea="thigh_right"
-        injuryHighlight={injurySet.has('thigh_right')}
-        clinicalLocked={clinicalLockVisual('thigh_right')}
+        {...limbPickProps('thigh_right')}
         motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
       <MuscleSegment {...S('knee_right')} geometry={geos.kneeR} position={[-0.24, -0.62, 0.08]} />
       <BaseSegment
         geometry={geos.shinR}
-        position={[-0.24, -0.98, 0]}
+        position={[-0.24, -0.98, 0.048]}
         level={level}
         goldSkin={gearGoldSkin}
         muscleStage={muscleStage}
         vertexInflationWeight={1}
         growthLayerWeight={growthOf('shin_right')}
         pickArea="shin_right"
-        injuryHighlight={injurySet.has('shin_right')}
-        clinicalLocked={clinicalLockVisual('shin_right')}
+        {...limbPickProps('shin_right')}
         motionSteady={stableInteraction}
         onAreaClick={onAreaClick}
       />
       <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[-0.24, -1.33, 0.085]} />
-      <BaseSegment geometry={geos.footR} position={[-0.255, -1.52, 0.06]} rotation={[0.18, 0, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
+      <BaseSegment
+        geometry={geos.footR}
+        position={[-0.255, -1.52, 0.1]}
+        rotation={[0.18, 0, 0]}
+        level={level}
+        goldSkin={gearGoldSkin}
+        muscleStage={muscleStage}
+        vertexInflationWeight={0}
+        pickArea="foot_right"
+        {...limbPickProps('foot_right')}
+        motionSteady={stableInteraction}
+        onAreaClick={onAreaClick}
+      />
 
       {/* ══ CALF detail (overlaid on shins for back muscle detail) */}
       <BaseSegment geometry={geos.calfL} position={[ 0.24,-1.00, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />

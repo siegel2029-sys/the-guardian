@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Send } from 'lucide-react';
+import { X, Send, Loader2 } from 'lucide-react';
 import GordyMascotIcon from './GordyMascotIcon';
 import type { Patient, PatientExercise } from '../../types';
 import {
@@ -10,6 +10,8 @@ import {
 import { analyzePatientProgress, buildPatientProgressPayload } from '../../ai/patientProgressReasoning';
 import { screenPatientFreeTextForEmergency } from '../../safety/clinicalEmergencyScreening';
 import { usePatient } from '../../context/PatientContext';
+import { getGeminiApiKey } from '../../ai/geminiClient';
+import { gordyPatientChatWithGemini } from '../../ai/geminiGordyPatient';
 
 interface GuardianAssistantFABProps {
   patient: Patient;
@@ -43,6 +45,7 @@ export default function GuardianAssistantFAB({
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
   const [pendingOffer, setPendingOffer] = useState<GuardianPendingOffer | null>(null);
+  const [replyLoading, setReplyLoading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,9 +54,9 @@ export default function GuardianAssistantFAB({
 
   if (hidden) return null;
 
-  const send = () => {
+  const send = async () => {
     const text = input.trim();
-    if (!text) return;
+    if (!text || replyLoading) return;
 
     // חובה: סינון חירום לפני כל לוגיקה אחרת (הצעות, אישורים, buildGuardianTurn)
     const emergency = screenPatientFreeTextForEmergency(text);
@@ -132,9 +135,31 @@ export default function GuardianAssistantFAB({
     if (sendTherapistClinicalAlert) {
       onTherapistClinicalAlert?.(sendTherapistClinicalAlert.detailHebrew);
     }
-    setMessages((m) => [...m, { role: 'user', text }, { role: 'assistant', text: reply }]);
+
+    setMessages((m) => [...m, { role: 'user', text }]);
     setPendingOffer(offer);
     setInput('');
+
+    let assistantText = reply;
+    if (getGeminiApiKey()) {
+      setReplyLoading(true);
+      try {
+        assistantText = await gordyPatientChatWithGemini({
+          patient,
+          exerciseCount,
+          exercises,
+          history: messages,
+          userMessage: text,
+        });
+      } catch (err) {
+        console.warn('[GuardianAssistantFAB] Gemini fallback to rule reply', err);
+        assistantText = reply;
+      } finally {
+        setReplyLoading(false);
+      }
+    }
+
+    setMessages((m) => [...m, { role: 'assistant', text: assistantText }]);
   };
 
   return (
@@ -225,6 +250,16 @@ export default function GuardianAssistantFAB({
                   </div>
                 </div>
               ))}
+              {replyLoading && (
+                <div className="flex justify-end">
+                  <div
+                    className="max-w-[92%] rounded-2xl px-3 py-2 text-sm flex items-center gap-2 border border-indigo-100 bg-white text-indigo-700"
+                  >
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    גורדי חושב…
+                  </div>
+                </div>
+              )}
               {pendingOffer && (
                 <p className="text-[11px] text-indigo-700 text-center px-2">
                   {isPortal
@@ -240,7 +275,7 @@ export default function GuardianAssistantFAB({
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && send()}
+                onKeyDown={(e) => e.key === 'Enter' && !replyLoading && void send()}
                 placeholder={
                   isPortal ? 'שאלה או «כן» לשליחה לצוות הטיפול…' : 'שאלה או «כן» לאישור שליחה למטפל…'
                 }
@@ -249,8 +284,8 @@ export default function GuardianAssistantFAB({
               />
               <button
                 type="button"
-                onClick={send}
-                disabled={!input.trim()}
+                onClick={() => void send()}
+                disabled={!input.trim() || replyLoading}
                 className="shrink-0 w-11 h-11 rounded-2xl flex items-center justify-center text-white disabled:opacity-40"
                 style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}
                 aria-label="שלח"

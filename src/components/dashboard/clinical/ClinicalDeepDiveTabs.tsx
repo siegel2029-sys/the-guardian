@@ -1,11 +1,13 @@
 import { useState, useMemo, useEffect } from 'react';
-import { LineChart, Dumbbell, Stethoscope, ClipboardList, ClipboardCheck } from 'lucide-react';
+import { LineChart, Dumbbell, Stethoscope, ClipboardList, ClipboardCheck, Loader2, Sparkles } from 'lucide-react';
 import type { Patient } from '../../../types';
 import { bodyAreaLabels } from '../../../types';
 import { usePatient } from '../../../context/PatientContext';
 import ClinicalIntakePanel from './ClinicalIntakePanel';
 import ClinicalSessionLineChart from './ClinicalSessionLineChart';
 import TherapistReportsView from './TherapistReportsView';
+import { summarizeTherapistAssessmentDraft } from '../../../ai/geminiTherapistDive';
+import { getGeminiApiKey, GeminiRateLimitedError } from '../../../ai/geminiClient';
 
 type TabId = 'pain' | 'exercise' | 'finishReports' | 'assessment' | 'intake';
 
@@ -124,9 +126,14 @@ function ClinicalAssessmentPanel({ patient }: { patient: Patient }) {
   const [draft, setDraft] = useState(patient.therapistNotes);
   const [savedFlash, setSavedFlash] = useState(false);
   const [runFlash, setRunFlash] = useState(false);
+  const [geminiSummary, setGeminiSummary] = useState<string | null>(null);
+  const [geminiBusy, setGeminiBusy] = useState(false);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft(patient.therapistNotes);
+    setGeminiSummary(null);
+    setGeminiError(null);
   }, [patient.id]);
 
   const saveOnly = () => {
@@ -139,6 +146,30 @@ function ClinicalAssessmentPanel({ patient }: { patient: Patient }) {
     runClinicalAssessmentEngine(patient.id, draft);
     setRunFlash(true);
     window.setTimeout(() => setRunFlash(false), 3200);
+  };
+
+  const runGeminiAssessment = async () => {
+    const t = draft.trim();
+    if (!t || !getGeminiApiKey()) {
+      setGeminiError('הגדירו VITE_GEMINI_API_KEY ב־.env והפעילו מחדש את השרת.');
+      return;
+    }
+    setGeminiBusy(true);
+    setGeminiError(null);
+    try {
+      const text = await summarizeTherapistAssessmentDraft(patient, t);
+      setGeminiSummary(text);
+    } catch (e) {
+      const msg =
+        e instanceof GeminiRateLimitedError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : 'שגיאת Gemini';
+      setGeminiError(msg);
+    } finally {
+      setGeminiBusy(false);
+    }
   };
 
   return (
@@ -170,7 +201,26 @@ function ClinicalAssessmentPanel({ patient }: { patient: Patient }) {
         >
           שמירה והפעלת המלצת מערכת
         </button>
+        <button
+          type="button"
+          onClick={() => void runGeminiAssessment()}
+          disabled={geminiBusy || !draft.trim()}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white disabled:opacity-45"
+          style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)' }}
+        >
+          {geminiBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+          סיכום AI (Gemini)
+        </button>
       </div>
+      {geminiError && (
+        <p className="text-xs text-red-600 font-medium whitespace-pre-wrap">{geminiError}</p>
+      )}
+      {geminiSummary && (
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
+          <p className="text-xs font-bold text-indigo-900 mb-2">ניתוח מקצועי (Gemini)</p>
+          {geminiSummary}
+        </div>
+      )}
       {savedFlash && <p className="text-xs text-emerald-600 font-medium">ההערות נשמרו.</p>}
       {runFlash && (
         <p className="text-xs text-blue-700 font-medium">

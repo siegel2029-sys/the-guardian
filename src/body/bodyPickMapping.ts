@@ -14,18 +14,22 @@ export type GranularPickKey =
   | 'l_shoulder'
   | 'l_upper_arm'
   | 'l_forearm'
+  | 'l_wrist_joint'
   | 'l_hand'
   | 'r_shoulder'
   | 'r_upper_arm'
   | 'r_forearm'
+  | 'r_wrist_joint'
   | 'r_hand'
   | 'torso_upper'
   | 'pelvis'
   | 'l_thigh'
   | 'l_shin'
+  | 'l_ankle_joint'
   | 'l_foot'
   | 'r_thigh'
   | 'r_shin'
+  | 'r_ankle_joint'
   | 'r_foot';
 
 export const GRANULAR_PICK_LABELS: Record<GranularPickKey, string> = {
@@ -34,19 +38,23 @@ export const GRANULAR_PICK_LABELS: Record<GranularPickKey, string> = {
   l_shoulder: 'כתף שמאל',
   l_upper_arm: 'זרוע עליונה שמאל (דו-ראשי)',
   l_forearm: 'אמה שמאל',
+  l_wrist_joint: 'פרק כף יד שמאל',
   l_hand: 'כף יד שמאל',
   r_shoulder: 'כתף ימין',
   r_upper_arm: 'זרוע עליונה ימין (דו-ראשי)',
   r_forearm: 'אמה ימין',
+  r_wrist_joint: 'פרק כף יד ימין',
   r_hand: 'כף יד ימין',
   torso_upper: 'גב/חזה עליון',
   pelvis: 'אגן / גב תחתון',
   l_thigh: 'ירך שמאל (מרבעים)',
   l_shin: 'שוק/ברך שמאל',
-  l_foot: 'קרסול/כף רגל שמאל',
+  l_ankle_joint: 'קרסול שמאל',
+  l_foot: 'כף רגל שמאל',
   r_thigh: 'ירך ימין (מרבעים)',
   r_shin: 'שוק/ברך ימין',
-  r_foot: 'קרסול/כף רגל ימין',
+  r_ankle_joint: 'קרסול ימין',
+  r_foot: 'כף רגל ימין',
 };
 
 const TRUNK_AREAS: BodyArea[] = ['chest', 'abdomen', 'back_upper', 'back_lower'];
@@ -57,6 +65,7 @@ const LEG_LEFT_CHAIN: BodyArea[] = [
   'knee_left',
   'shin_left',
   'ankle_left',
+  'foot_left',
 ];
 const LEG_RIGHT_CHAIN: BodyArea[] = [
   'hip_right',
@@ -64,6 +73,7 @@ const LEG_RIGHT_CHAIN: BodyArea[] = [
   'knee_right',
   'shin_right',
   'ankle_right',
+  'foot_right',
 ];
 
 /**
@@ -85,6 +95,14 @@ export function bodyAreaIsClinicalFocus(
     ['elbow_right', 'forearm_right'],
     ['wrist_left', 'forearm_left'],
     ['wrist_right', 'forearm_right'],
+    ['wrist_left', 'hand_left'],
+    ['wrist_right', 'hand_right'],
+    ['forearm_left', 'hand_left'],
+    ['forearm_right', 'hand_right'],
+    ['ankle_left', 'foot_left'],
+    ['ankle_right', 'foot_right'],
+    ['shin_left', 'foot_left'],
+    ['shin_right', 'foot_right'],
   ];
   for (const [a, b] of armPairs) {
     if ((zone === a && primaryBodyArea === b) || (zone === b && primaryBodyArea === a)) {
@@ -131,19 +149,23 @@ export function pickKeyToBodyArea(key: GranularPickKey): BodyArea {
     l_shoulder: 'shoulder_left',
     l_upper_arm: 'upper_arm_left',
     l_forearm: 'forearm_left',
-    l_hand: 'wrist_left',
+    l_wrist_joint: 'wrist_left',
+    l_hand: 'hand_left',
     r_shoulder: 'shoulder_right',
     r_upper_arm: 'upper_arm_right',
     r_forearm: 'forearm_right',
-    r_hand: 'wrist_right',
+    r_wrist_joint: 'wrist_right',
+    r_hand: 'hand_right',
     torso_upper: 'back_upper',
     pelvis: 'back_lower',
     l_thigh: 'thigh_left',
     l_shin: 'shin_left',
-    l_foot: 'ankle_left',
+    l_ankle_joint: 'ankle_left',
+    l_foot: 'foot_left',
     r_thigh: 'thigh_right',
     r_shin: 'shin_right',
-    r_foot: 'ankle_right',
+    r_ankle_joint: 'ankle_right',
+    r_foot: 'foot_right',
   };
   return m[key];
 }
@@ -185,8 +207,10 @@ export const DEFAULT_PICK_KEY_FOR_BODY_AREA: Record<BodyArea, GranularPickKey> =
   elbow_right: 'r_forearm',
   forearm_left: 'l_forearm',
   forearm_right: 'r_forearm',
-  wrist_left: 'l_hand',
-  wrist_right: 'r_hand',
+  wrist_left: 'l_wrist_joint',
+  wrist_right: 'r_wrist_joint',
+  hand_left: 'l_hand',
+  hand_right: 'r_hand',
   back_upper: 'torso_upper',
   back_lower: 'pelvis',
   hip_left: 'l_thigh',
@@ -197,8 +221,10 @@ export const DEFAULT_PICK_KEY_FOR_BODY_AREA: Record<BodyArea, GranularPickKey> =
   knee_right: 'r_shin',
   shin_left: 'l_shin',
   shin_right: 'r_shin',
-  ankle_left: 'l_foot',
-  ankle_right: 'r_foot',
+  ankle_left: 'l_ankle_joint',
+  ankle_right: 'r_ankle_joint',
+  foot_left: 'l_foot',
+  foot_right: 'r_foot',
 };
 
 export function isGranularPickKey(s: string): s is GranularPickKey {
