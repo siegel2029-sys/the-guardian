@@ -45,8 +45,8 @@ export const GRANULAR_PICK_LABELS: Record<GranularPickKey, string> = {
   r_forearm: 'אמה ימין',
   r_wrist_joint: 'פרק כף יד ימין',
   r_hand: 'כף יד ימין',
-  torso_upper: 'גב/חזה עליון',
-  pelvis: 'אגן / גב תחתון',
+  torso_upper: 'גו עליון / חזה',
+  pelvis: 'גו תחתון / בטן',
   l_thigh: 'ירך שמאל (מרבעים)',
   l_shin: 'שוק/ברך שמאל',
   l_ankle_joint: 'קרסול שמאל',
@@ -57,7 +57,10 @@ export const GRANULAR_PICK_LABELS: Record<GranularPickKey, string> = {
   r_foot: 'כף רגל ימין',
 };
 
-const TRUNK_AREAS: BodyArea[] = ['chest', 'abdomen', 'back_upper', 'back_lower'];
+/** גזרת גו עליון: חזה + גב צווארי-חזי (נפרדת מגזרת הגו התחתון) */
+export const TRUNK_UPPER_AREAS: BodyArea[] = ['chest', 'back_upper'];
+/** גזרת גו תחתון: בטן + מותן (נפרדת מגזרת הגו העליון) */
+export const TRUNK_LOWER_AREAS: BodyArea[] = ['abdomen', 'back_lower'];
 
 const LEG_LEFT_CHAIN: BodyArea[] = [
   'hip_left',
@@ -84,7 +87,16 @@ export function bodyAreaIsClinicalFocus(
   primaryBodyArea: BodyArea
 ): boolean {
   if (zone === primaryBodyArea) return true;
-  if (TRUNK_AREAS.includes(zone) && TRUNK_AREAS.includes(primaryBodyArea)) {
+  if (
+    TRUNK_UPPER_AREAS.includes(zone) &&
+    TRUNK_UPPER_AREAS.includes(primaryBodyArea)
+  ) {
+    return true;
+  }
+  if (
+    TRUNK_LOWER_AREAS.includes(zone) &&
+    TRUNK_LOWER_AREAS.includes(primaryBodyArea)
+  ) {
     return true;
   }
 

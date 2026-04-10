@@ -700,6 +700,12 @@ export default function AnatomyModel({
   const rightThighRef = useRef<THREE.Group>(null);
   const rightKneeRef = useRef<THREE.Group>(null);
 
+  /** סנכרון הדגשת hover בין חזה↔גב עליון ובטן↔גב תחתון (מקטע קליק נשאר נפרד) */
+  const [chestHover, setChestHover] = useState(false);
+  const [backUpperHover, setBackUpperHover] = useState(false);
+  const [abdomenHover, setAbdomenHover] = useState(false);
+  const [backLowerHover, setBackLowerHover] = useState(false);
+
   // Pulse primary-area glow
   useFrame(({ clock }) => {
     if (!primaryLightRef.current || stableInteraction) return;
@@ -817,11 +823,35 @@ export default function AnatomyModel({
       {/* patient RIGHT = viewer LEFT = -x */}
       <MuscleSegment {...S('shoulder_right')} geometry={geos.shoulderR} position={[-0.44, 1.3, 0.07]} />
 
-      {/* ══ TORSO — חזה/גב עליון · בטן/גב תחתון (מקטעים נפרדים) ═══ */}
-      <MuscleSegment {...S('chest')} geometry={geos.upperTorso} position={[0, 0.98, 0.034]} />
-      <MuscleSegment {...S('back_upper')} geometry={geos.upperTorso} position={[0, 0.98, -0.034]} />
-      <MuscleSegment {...S('abdomen')} geometry={geos.lowerTorso} position={[0, 0.54, 0.028]} />
-      <MuscleSegment {...S('back_lower')} geometry={geos.lowerTorso} position={[0, 0.54, -0.028]} />
+      {/* ══ TORSO — גו עליון (חזה+גב צווארי־חזי) · גו תחתון (בטן+מותן); לחיצה נפרדת לכל BodyArea ═══ */}
+      <MuscleSegment
+        {...S('chest')}
+        geometry={geos.upperTorso}
+        position={[0, 0.98, 0.034]}
+        extraHover={backUpperHover}
+        onHoverChange={setChestHover}
+      />
+      <MuscleSegment
+        {...S('back_upper')}
+        geometry={geos.upperTorso}
+        position={[0, 0.98, -0.034]}
+        extraHover={chestHover}
+        onHoverChange={setBackUpperHover}
+      />
+      <MuscleSegment
+        {...S('abdomen')}
+        geometry={geos.lowerTorso}
+        position={[0, 0.54, 0.028]}
+        extraHover={backLowerHover}
+        onHoverChange={setAbdomenHover}
+      />
+      <MuscleSegment
+        {...S('back_lower')}
+        geometry={geos.lowerTorso}
+        position={[0, 0.54, -0.028]}
+        extraHover={abdomenHover}
+        onHoverChange={setBackLowerHover}
+      />
       <BaseSegment geometry={geos.pelvis} position={[0, 0.24, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
       {/* ══ LEFT ARM (+x) ══════════════════════════════════════ */}

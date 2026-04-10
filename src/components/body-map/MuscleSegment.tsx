@@ -65,6 +65,9 @@ export interface MuscleSegmentProps {
    */
   participatesInHitTest?: boolean;
   onAreaClick?: (area: BodyArea) => void;
+  /** הדגשת hover ממקטע צמוד (חזה↔גב עליון, בטן↔גב תחתון) — ללא שינוי אזור הלחיצה */
+  extraHover?: boolean;
+  onHoverChange?: (hovered: boolean) => void;
   /** ללא לרפות scale/פולס — לחיצות יציבות */
   reduceMotion?: boolean;
   children?: ReactNode;
@@ -457,6 +460,8 @@ export default function MuscleSegment({
   injuryHighlight = false,
   participatesInHitTest = true,
   onAreaClick,
+  extraHover = false,
+  onHoverChange,
   reduceMotion = false,
   children,
 }: MuscleSegmentProps) {
@@ -470,6 +475,7 @@ export default function MuscleSegment({
   const stdRef = useRef<THREE.MeshStandardMaterial>(null);
   const physRef = useRef<THREE.MeshPhysicalMaterial>(null);
   const [hovered, setHovered] = useState(false);
+  const effectiveHovered = hovered || extraHover;
 
   useLayoutEffect(() => {
     const m = meshRef.current;
@@ -493,7 +499,7 @@ export default function MuscleSegment({
         clinicalSecondary,
         selfCareSelected,
         strengthenedToday,
-        hovered,
+        effectiveHovered,
         level,
         muscleStage,
         injuryHighlight,
@@ -509,7 +515,7 @@ export default function MuscleSegment({
       clinicalSecondary,
       selfCareSelected,
       strengthenedToday,
-      hovered,
+      effectiveHovered,
       level,
       muscleStage,
       injuryHighlight,
@@ -667,6 +673,7 @@ export default function MuscleSegment({
             ? (e) => {
                 e.stopPropagation();
                 setHovered(true);
+                onHoverChange?.(true);
                 const blockCursor = patientPortalInteractive && clinicalBlockSelfCare;
                 document.body.style.cursor = blockCursor ? 'not-allowed' : 'pointer';
               }
@@ -674,6 +681,7 @@ export default function MuscleSegment({
               ? (e) => {
                   e.stopPropagation();
                   setHovered(true);
+                  onHoverChange?.(true);
                 }
               : undefined
         }
@@ -681,6 +689,7 @@ export default function MuscleSegment({
           interactive || (clinicalLocked && area)
             ? () => {
                 setHovered(false);
+                onHoverChange?.(false);
                 document.body.style.cursor = '';
               }
             : undefined

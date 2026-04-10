@@ -42,8 +42,8 @@ export type BodyArea =
 
 export const bodyAreaLabels: Record<BodyArea, string> = {
   neck: 'צוואר',
-  chest: 'חזה',
-  abdomen: 'בטן',
+  chest: 'גו עליון / חזה',
+  abdomen: 'גו תחתון / בטן',
   shoulder_right: 'כתף ימין',
   shoulder_left: 'כתף שמאל',
   upper_arm_right: 'זרוע עליונה ימין',
@@ -56,8 +56,8 @@ export const bodyAreaLabels: Record<BodyArea, string> = {
   wrist_left: 'פרק כף יד שמאל',
   hand_right: 'כף יד ימין',
   hand_left: 'כף יד שמאל',
-  back_upper: 'גב עליון',
-  back_lower: 'גב תחתון',
+  back_upper: 'גו עליון / חזה',
+  back_lower: 'גו תחתון / בטן',
   hip_right: 'עכוז / אגן ימין',
   hip_left: 'עכוז / אגן שמאל',
   thigh_right: 'ירך ימין',
@@ -342,8 +342,8 @@ export interface AiSuggestion {
 export function getMuscleGroupLabel(area: BodyArea): string {
   const map: Record<BodyArea, string> = {
     neck: 'צוואר',
-    chest: 'חזה',
-    abdomen: 'בטן',
+    chest: 'גו עליון / חזה',
+    abdomen: 'גו תחתון / בטן',
     shoulder_right: 'כתף',
     shoulder_left: 'כתף',
     upper_arm_right: 'זרוע עליונה',
@@ -356,8 +356,8 @@ export function getMuscleGroupLabel(area: BodyArea): string {
     wrist_left: 'פרק יד',
     hand_right: 'כף יד',
     hand_left: 'כף יד',
-    back_upper: 'גב עליון',
-    back_lower: 'גב תחתון',
+    back_upper: 'גו עליון / חזה',
+    back_lower: 'גו תחתון / בטן',
     hip_right: 'עכוז',
     hip_left: 'עכוז',
     thigh_right: 'ירך',
