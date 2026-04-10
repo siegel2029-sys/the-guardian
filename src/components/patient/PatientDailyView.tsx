@@ -3,7 +3,6 @@ import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToda
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Sparkles,
-  X,
   MessageCircle,
   Coins,
   Activity,
@@ -12,10 +11,9 @@ import {
   User,
   Bot,
   Clock,
-  KeyRound,
+  Settings,
   Home,
   ShoppingBag,
-  CloudUpload,
   Zap,
   Siren,
 } from 'lucide-react';
@@ -60,6 +58,7 @@ import { buildEquippedGearSnapshot } from '../../utils/gearSnapshot';
 import PortalPatientDebugPanel from './PortalPatientDebugPanel';
 import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
 import PatientHeroesHallTab from './PatientHeroesHallTab';
+import PatientPortalSettingsModal from './PatientPortalSettingsModal';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
 
 type PortalTab = 'home' | 'activity' | 'gear' | 'messages' | 'heroes';
@@ -130,8 +129,6 @@ export default function PatientDailyView() {
     getPatientExerciseFinishReports,
     getSelfCareStrengthTier,
     setSelfCareStrengthTier,
-    supabaseLastSavedAt,
-    supabaseSyncStatus,
     knowledgeFacts,
   } = usePatient();
 
@@ -143,12 +140,11 @@ export default function PatientDailyView() {
   const [messageText, setMessageText] = useState('');
   const [painSheetOpen, setPainSheetOpen] = useState(false);
   const [loadSafetyNudge, setLoadSafetyNudge] = useState<string | null>(null);
-  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [pwCurrent, setPwCurrent] = useState('');
   const [pwNew, setPwNew] = useState('');
   const [pwConfirm, setPwConfirm] = useState('');
   const [pwFormError, setPwFormError] = useState<string | null>(null);
-  const [accountOpen, setAccountOpen] = useState(false);
   const [portalTab, setPortalTab] = useState<PortalTab>(() =>
     tabFromPortalPath(typeof window !== 'undefined' ? window.location.pathname : '/patient-portal')
   );
@@ -172,9 +168,6 @@ export default function PatientDailyView() {
     const t = window.setTimeout(() => setGordyTransient(null), left);
     return () => clearTimeout(t);
   }, [gordyTransient]);
-  const [newLoginIdInput, setNewLoginIdInput] = useState('');
-  const [loginIdCurrentPw, setLoginIdCurrentPw] = useState('');
-  const [loginIdError, setLoginIdError] = useState<string | null>(null);
   const [exerciseVideoModal, setExerciseVideoModal] = useState<
     | null
     | { kind: 'rehab'; exercise: PatientExercise; xpAward: number; coinsAward: number }
@@ -552,7 +545,6 @@ export default function PatientDailyView() {
       setPwCurrent('');
       setPwNew('');
       setPwConfirm('');
-      setPasswordModalOpen(false);
     }
   };
 
@@ -598,10 +590,10 @@ export default function PatientDailyView() {
         streakBonusXp={gordyVictoryRewards.streak}
       />
       <header
-        className="sticky top-0 z-20 px-3 sm:px-4 pt-3 pb-2.5 border-b border-slate-200/80 flex items-center gap-2 sm:gap-3 relative overflow-visible bg-white shadow-md shadow-slate-200/40"
+        className="sticky top-0 z-20 px-3 sm:px-4 pt-3 pb-3 border-b border-slate-200/80 flex items-center gap-3 sm:gap-4 relative overflow-visible bg-white shadow-md shadow-slate-200/40"
       >
         {sessionRole === 'patient' ? (
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() => setRedFlagOpen(true)}
@@ -636,15 +628,12 @@ export default function PatientDailyView() {
             {!patientMustChangePassword && (
               <button
                 type="button"
-                onClick={() => {
-                  setPwFormError(null);
-                  setPasswordModalOpen(true);
-                }}
-                title="שינוי סיסמה"
+                onClick={() => setSettingsModalOpen(true)}
+                title="הגדרות"
                 className="flex items-center justify-center min-h-11 min-w-11 rounded-xl hover:bg-slate-50 border border-slate-200 text-slate-700"
-                aria-label="שינוי סיסמה"
+                aria-label="הגדרות"
               >
-                <KeyRound className="w-5 h-5" />
+                <Settings className="w-5 h-5 shrink-0" strokeWidth={2} aria-hidden />
               </button>
             )}
             <button
@@ -657,63 +646,28 @@ export default function PatientDailyView() {
               className="flex items-center justify-center gap-1 min-h-11 ps-2 pe-2.5 rounded-xl hover:bg-slate-50 border border-slate-200 text-slate-700"
               aria-label="התנתקות"
             >
-              <LogOut className="w-5 h-5 shrink-0" />
+              <LogOut className="w-5 h-5 shrink-0" strokeWidth={2} aria-hidden />
               <span className="text-sm font-semibold hidden sm:inline">יציאה</span>
             </button>
           </div>
         ) : null}
-        <div className="flex-1 min-w-0 text-end">
-          <div className="flex items-center justify-end gap-2">
-            <span
-              className="shrink-0 inline-flex"
-              aria-label={
-                supabaseLastSavedAt
-                  ? `נשמר בענן ${new Date(supabaseLastSavedAt).toLocaleString('he-IL')}`
-                  : supabaseSyncStatus === 'saving'
-                    ? 'שומר לענן'
-                    : 'סנכרון ענן — ממתין לשמירה'
-              }
-              title={
-                supabaseLastSavedAt
-                  ? `נשמר בענן · ${new Date(supabaseLastSavedAt).toLocaleString('he-IL', {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}`
-                  : supabaseSyncStatus === 'saving'
-                    ? 'שומר לענן…'
-                    : 'סנכרון ענן (ממתין לשמירה)'
-              }
-            >
-              <CloudUpload
-                className={`w-5 h-5 motion-safe:transition-colors ${
-                  supabaseLastSavedAt
-                    ? 'text-medical-success'
-                    : supabaseSyncStatus === 'saving'
-                      ? 'text-medical-primary animate-pulse'
-                      : 'text-slate-400'
-                }`}
-                strokeWidth={supabaseLastSavedAt ? 2.5 : 2}
-                aria-hidden
-              />
-            </span>
-            <p className="text-sm text-medical-primary font-semibold leading-tight">הפורטל האישי שלך</p>
-          </div>
-          <p className="text-xl font-bold text-slate-900 truncate mt-0.5">{selectedPatient.name}</p>
+        <div className="flex-1 min-w-0 flex flex-col items-end justify-center gap-1 py-0.5">
+          <p className="text-lg sm:text-xl font-bold text-slate-900 truncate w-full text-end leading-snug tracking-tight">
+            {selectedPatient.name}
+          </p>
           {hasDailyLoginBonusPending(selectedPatient.id) && (
-            <div className="flex justify-end mt-1">
+            <div className="flex justify-end items-center gap-1.5 flex-wrap">
               <RewardLabel
                 xp={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.xp}
                 coins={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.coins}
               />
-              <span className="text-xs text-slate-500 ms-1.5 self-center">כניסה יומית</span>
+              <span className="text-xs text-slate-500">כניסה יומית</span>
             </div>
           )}
         </div>
-        <div className="relative shrink-0 flex flex-col items-end gap-1.5">
+        <div className="relative shrink-0 flex flex-col items-end gap-2">
           <div
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold text-teal-900 border border-emerald-200/90 bg-gradient-to-l from-emerald-50 to-teal-50/80"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-teal-900 border border-emerald-200/90 bg-gradient-to-l from-emerald-50 to-teal-50/80"
             title="נקודות ניסיון (XP)"
           >
             <Zap className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden />
@@ -938,85 +892,6 @@ export default function PatientDailyView() {
             onDecline={patientDeclineAiSuggestion}
           />
         </div>
-        )}
-
-        {portalTab === 'home' && sessionRole === 'patient' && !patientMustChangePassword && selectedPatient && (
-          <section className="mb-5 rounded-2xl border overflow-hidden" style={{ borderColor: '#cbd5e1' }}>
-            <button
-              type="button"
-              onClick={() => {
-                setAccountOpen((o) => !o);
-                setLoginIdError(null);
-              }}
-              className="w-full flex items-center justify-between px-4 py-3 text-start gap-2"
-              style={{ background: 'rgba(248, 250, 252, 0.95)' }}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <User className="w-5 h-5 text-slate-600 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-slate-800">פרופיל ומזהה כניסה</p>
-                  <p className="text-[11px] text-slate-500 truncate">
-                    מזהה נוכחי: {patientLoginId ?? '—'}
-                  </p>
-                </div>
-              </div>
-              <span className="text-xs text-slate-600 font-medium shrink-0">
-                {accountOpen ? 'סגירה' : 'פתיחה'}
-              </span>
-            </button>
-            {accountOpen && (
-              <div className="px-4 pb-4 pt-1 border-t border-slate-200 space-y-3 text-sm" dir="rtl">
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  ניתן לשנות את מזהה הגישה (PT-…) לאחר הזנת הסיסמה הנוכחית. הפורמט: PT- ואז אותיות ומספרים
-                  באנגלית (למשל PT-MYID01).
-                </p>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">מזהה חדש</label>
-                  <input
-                    type="text"
-                    value={newLoginIdInput}
-                    onChange={(e) => setNewLoginIdInput(e.target.value.toUpperCase())}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono"
-                    placeholder="PT-..."
-                    autoComplete="off"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">סיסמה נוכחית לאימות</label>
-                  <input
-                    type="password"
-                    value={loginIdCurrentPw}
-                    onChange={(e) => setLoginIdCurrentPw(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    autoComplete="current-password"
-                  />
-                </div>
-                {loginIdError && <p className="text-xs text-red-600">{loginIdError}</p>}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginIdError(null);
-                    const r = changePatientLoginId(loginIdCurrentPw, newLoginIdInput.trim());
-                    if (r === 'invalid_id') {
-                      setLoginIdError('מזהה לא תקין. נדרש פורמט PT- עם לפחות 4 תווים אחרי המקף.');
-                    } else if (r === 'bad_password') {
-                      setLoginIdError('סיסמה שגויה.');
-                    } else if (r === 'taken') {
-                      setLoginIdError('מזהה זה כבר בשימוש.');
-                    } else {
-                      setNewLoginIdInput('');
-                      setLoginIdCurrentPw('');
-                      setLoginIdError(null);
-                    }
-                  }}
-                  className="w-full py-2.5 rounded-xl font-semibold text-white text-sm"
-                  style={{ background: 'linear-gradient(135deg, #475569, #334155)' }}
-                >
-                  עדכון מזהה כניסה
-                </button>
-              </div>
-            )}
-          </section>
         )}
 
         {portalTab === 'activity' && (
@@ -1501,7 +1376,7 @@ export default function PatientDailyView() {
             aria-labelledby="pw-gate-title"
           >
             <div className="flex items-center gap-2 mb-3">
-              <KeyRound className="w-6 h-6 text-teal-600" />
+              <Settings className="w-6 h-6 text-teal-600" strokeWidth={2} aria-hidden />
               <h2 id="pw-gate-title" className="text-lg font-bold text-slate-800">
                 עדכון סיסמה נדרש
               </h2>
@@ -1556,96 +1431,16 @@ export default function PatientDailyView() {
         </div>
       )}
 
-      {sessionRole === 'patient' && !patientMustChangePassword && passwordModalOpen && (
-          <div
-            className="fixed inset-0 z-[200] flex items-center justify-center p-4"
-            style={{ background: 'rgba(15, 118, 110, 0.3)' }}
-            dir="rtl"
-            onClick={() => {
-              setPasswordModalOpen(false);
-              setPwCurrent('');
-              setPwNew('');
-              setPwConfirm('');
-              setPwFormError(null);
-            }}
-            role="presentation"
-          >
-            <div
-              className="w-full max-w-md rounded-3xl border shadow-2xl p-6"
-              style={{ background: '#ffffff', borderColor: '#99f6e4' }}
-              onClick={(e) => e.stopPropagation()}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="pw-opt-title"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <KeyRound className="w-5 h-5 text-teal-600" />
-                  <h2 id="pw-opt-title" className="text-base font-bold text-slate-800">
-                    שינוי סיסמה
-                  </h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPasswordModalOpen(false);
-                    setPwCurrent('');
-                    setPwNew('');
-                    setPwConfirm('');
-                    setPwFormError(null);
-                  }}
-                  className="p-2 rounded-xl text-slate-500 hover:bg-slate-100"
-                  aria-label="סגור"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">סיסמה נוכחית</label>
-                  <input
-                    type="password"
-                    value={pwCurrent}
-                    onChange={(e) => setPwCurrent(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                    autoComplete="current-password"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">סיסמה חדשה</label>
-                  <input
-                    type="password"
-                    value={pwNew}
-                    onChange={(e) => setPwNew(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                    autoComplete="new-password"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">אימות סיסמה</label>
-                  <input
-                    type="password"
-                    value={pwConfirm}
-                    onChange={(e) => setPwConfirm(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                    autoComplete="new-password"
-                  />
-                </div>
-              </div>
-              {pwFormError && (
-                <p className="mt-3 text-sm text-red-600">{pwFormError}</p>
-              )}
-              <button
-                type="button"
-                onClick={submitPasswordChange}
-                className="mt-5 w-full py-3 rounded-2xl font-semibold text-white"
-                style={{ background: 'linear-gradient(135deg, #0d9488, #059669)' }}
-              >
-                עדכון סיסמה
-              </button>
-            </div>
-          </div>
-        )}
+      {sessionRole === 'patient' && !patientMustChangePassword && selectedPatient && (
+        <PatientPortalSettingsModal
+          open={settingsModalOpen}
+          onClose={() => setSettingsModalOpen(false)}
+          patient={selectedPatient}
+          patientLoginId={patientLoginId}
+          changePatientLoginId={changePatientLoginId}
+          completePatientPasswordChange={completePatientPasswordChange}
+        />
+      )}
     </div>
   );
 }
