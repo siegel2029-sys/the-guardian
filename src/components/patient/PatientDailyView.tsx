@@ -16,6 +16,7 @@ import {
   Home,
   ShoppingBag,
   CloudUpload,
+  Zap,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
@@ -667,7 +668,15 @@ export default function PatientDailyView() {
             </div>
           )}
         </div>
-        <div className="relative shrink-0 flex flex-col items-end">
+        <div className="relative shrink-0 flex flex-col items-end gap-1.5">
+          <div
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold text-teal-900 border border-emerald-200/90 bg-gradient-to-l from-emerald-50 to-teal-50/80"
+            title="נקודות ניסיון (XP)"
+          >
+            <Zap className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden />
+            <span className="tabular-nums">{xp}</span>
+            <span className="text-[10px] font-semibold text-teal-700/90">נק׳ ניסיון</span>
+          </div>
           {rewardFeedback && (
             <div
               key={rewardFeedback.id}
@@ -996,6 +1005,38 @@ export default function PatientDailyView() {
 
         {portalTab === 'activity' && (
         <>
+        {totalMissions > 0 && (
+          <div
+            className="rounded-2xl p-4 mb-4 border-2 border-emerald-200/80 bg-gradient-to-br from-emerald-50/95 via-white to-teal-50/40 shadow-md shadow-emerald-900/5"
+            role="region"
+            aria-label="התקדמות יומית"
+          >
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span className="text-sm font-bold text-emerald-950">התקדמות היום</span>
+              <span className="text-sm font-black tabular-nums text-emerald-800">
+                {completedMissionCount}/{totalMissions} משימות
+              </span>
+            </div>
+            <div
+              className="h-3 rounded-full bg-emerald-100/90 overflow-hidden border border-emerald-200/60"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={totalMissions}
+              aria-valuenow={completedMissionCount}
+              aria-label={`הושלמו ${completedMissionCount} מתוך ${totalMissions} משימות להיום`}
+            >
+              <div
+                className="h-full rounded-full motion-safe:transition-all motion-safe:duration-500 ease-out bg-gradient-to-l from-emerald-500 to-medical-success shadow-sm"
+                style={{
+                  width: `${totalMissions > 0 ? Math.round((completedMissionCount / totalMissions) * 100) : 0}%`,
+                }}
+              />
+            </div>
+            <p className="text-xs text-emerald-900/75 mt-2 leading-relaxed">
+              המדד כולל תרגילי שיקום ותרגילי כוח שנבחרו היום. צבע ירוק מנטה מסמן התקדמות חיובית.
+            </p>
+          </div>
+        )}
         <div
           className="rounded-2xl p-4 mb-5 border border-slate-200/90 bg-white shadow-md shadow-slate-200/50"
         >

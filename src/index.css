@@ -222,4 +222,39 @@
   .animate-gordy-victory-loot-fall {
     animation: gordy-victory-loot-fall 2.4s ease-in forwards;
   }
+
+  @keyframes exercise-complete-pop {
+    0% {
+      transform: scale(1);
+    }
+    45% {
+      transform: scale(1.04);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+
+  .animate-exercise-complete-pop {
+    animation: exercise-complete-pop 0.55s cubic-bezier(0.34, 1.2, 0.52, 1) both;
+  }
+
+  @keyframes checkmark-pop {
+    0% {
+      transform: scale(0.6);
+      opacity: 0;
+    }
+    55% {
+      transform: scale(1.15);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  .animate-checkmark-pop {
+    animation: checkmark-pop 0.45s cubic-bezier(0.34, 1.4, 0.52, 1) both;
+  }
 }

@@ -1,12 +1,15 @@
+import { useMemo } from 'react';
 import { Star, Flame, Trophy, Activity, TrendingUp, Dumbbell, BarChart3 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import { addClinicalDays } from '../../utils/clinicalCalendar';
 import StatsCard from './StatsCard';
 import XPProgressBar from './XPProgressBar';
 import SessionHistory from './SessionHistory';
+import Compliance7DayChart from './Compliance7DayChart';
 
 /** היסטוריה, אנליטיקה והתקדמות — ללא לוח שנה/מפת גוף (מופיעים בפורטל מטופל) */
 export default function HistoryAnalyticsPanel() {
-  const { selectedPatient } = usePatient();
+  const { selectedPatient, clinicalToday, dailyHistoryByPatient, getExercisePlan } = usePatient();
 
   if (!selectedPatient) {
     return (
@@ -17,6 +20,18 @@ export default function HistoryAnalyticsPanel() {
   }
 
   const p = selectedPatient;
+  const plan = getExercisePlan(p.id);
+  const plannedExerciseCount = plan?.exercises.length ?? 0;
+
+  const complianceChartKey = useMemo(() => {
+    const m = dailyHistoryByPatient[p.id];
+    let fp = '';
+    for (let i = 6; i >= 0; i--) {
+      const d = addClinicalDays(clinicalToday, -i);
+      fp += `${m?.[d]?.exercisesCompleted ?? 0}-`;
+    }
+    return `${p.id}|${clinicalToday}|${fp}|${plannedExerciseCount}`;
+  }, [dailyHistoryByPatient, p.id, clinicalToday, plannedExerciseCount]);
 
   const completionRate =
     p.analytics.sessionHistory.length > 0
@@ -57,6 +72,14 @@ export default function HistoryAnalyticsPanel() {
         </h3>
         <XPProgressBar xp={p.xp} xpForNextLevel={p.xpForNextLevel} level={p.level} />
       </div>
+
+      <Compliance7DayChart
+        key={complianceChartKey}
+        patientId={p.id}
+        clinicalToday={clinicalToday}
+        localDayMap={dailyHistoryByPatient[p.id]}
+        plannedExerciseCount={plannedExerciseCount}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 mb-5">
         <StatsCard

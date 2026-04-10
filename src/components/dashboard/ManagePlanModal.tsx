@@ -469,61 +469,87 @@ function PlanExerciseRow({
   );
 }
 
-// ── Library card ──────────────────────────────────────────────────
-function LibraryCard({
+// ── Library row: חיפוש + החלפה מהירה בתוכנית ───────────────────────
+function LibraryToggleRow({
   exercise,
   isAdded,
   onAdd,
+  onRemove,
 }: {
   exercise: (typeof EXERCISE_LIBRARY)[0];
   isAdded: boolean;
   onAdd: () => void;
+  onRemove: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
   return (
-    <div className="rounded-xl border transition-all"
-      style={{ borderColor: isAdded ? '#6ee7b7' : '#e2e8f0', background: isAdded ? '#f0fdf9' : 'white' }}
-      dir="rtl">
-      <div className="flex items-center gap-2.5 p-3">
+    <div
+      className={`rounded-xl border transition-colors ${isAdded ? 'border-emerald-300 bg-emerald-50/50' : 'border-slate-200 bg-white'}`}
+      dir="rtl"
+    >
+      <div className="flex items-center gap-3 p-3">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={isAdded}
+          onClick={() => (isAdded ? onRemove() : onAdd())}
+          className={`relative h-7 w-12 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 ${
+            isAdded ? 'bg-emerald-500' : 'bg-slate-300'
+          }`}
+          title={isAdded ? 'הסרה מהתוכנית' : 'הוספה לתוכנית'}
+        >
+          <span
+            className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform duration-200 ${
+              isAdded ? 'end-0.5' : 'start-0.5'
+            }`}
+          />
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-sm font-semibold text-slate-800 truncate">{exercise.name}</span>
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full"
-              style={{ background: typeBg[exercise.type], color: typeText[exercise.type] }}>
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded-full"
+              style={{ background: typeBg[exercise.type], color: typeText[exercise.type] }}
+            >
               {typeLabel[exercise.type]}
             </span>
           </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-xs text-teal-600">{exercise.muscleGroup}</span>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <span className="text-xs text-teal-700">{exercise.muscleGroup}</span>
+            <span className="text-[10px] text-slate-500">{bodyAreaLabels[exercise.targetArea]}</span>
             <span className="text-[10px]" style={{ color: difficultyColor[exercise.difficulty] }}>
               ● {difficultyLabel[exercise.difficulty]}
             </span>
             <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
-              {exercise.holdSeconds && !exercise.reps
-                ? <><Clock className="w-2.5 h-2.5" />{exercise.sets}×{exercise.holdSeconds}שנ'</>
-                : <><RotateCcw className="w-2.5 h-2.5" />{exercise.sets}×{exercise.reps}</>
-              }
+              {exercise.holdSeconds && !exercise.reps ? (
+                <>
+                  <Clock className="w-2.5 h-2.5" />
+                  {exercise.sets}×{exercise.holdSeconds}שנ'
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="w-2.5 h-2.5" />
+                  {exercise.sets}×{exercise.reps}
+                </>
+              )}
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button onClick={() => setOpen((v) => !v)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-slate-100 text-slate-400 transition-colors">
-            {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          </button>
-          <button onClick={onAdd} disabled={isAdded}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            style={isAdded
-              ? { background: '#dcfce7', color: '#16a34a' }
-              : { background: 'linear-gradient(135deg,#0d9488,#10b981)', color: 'white' }}>
-            {isAdded ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-            {isAdded ? 'נוסף' : 'הוסף'}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowDetail((v) => !v)}
+          className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center hover:bg-slate-100 text-slate-400 transition-colors"
+          aria-expanded={showDetail}
+          title="הוראות"
+        >
+          {showDetail ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
       </div>
-      {open && (
-        <div className="px-3 pb-3 pt-1 border-t text-xs text-slate-600 leading-relaxed"
-          style={{ borderColor: '#e2e8f0', background: '#f8fffe' }}>
+      {showDetail && (
+        <div
+          className="px-3 pb-3 pt-1 border-t text-xs text-slate-600 leading-relaxed"
+          style={{ borderColor: '#e2e8f0', background: '#f8fffe' }}
+        >
           {exercise.instructions}
         </div>
       )}
@@ -534,8 +560,11 @@ function LibraryCard({
 // ── Main modal ────────────────────────────────────────────────────
 export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
   const {
-    selectedPatient, getExercisePlan,
-    addExerciseToPlan, removeExerciseFromPlan, updateExerciseInPlan,
+    selectedPatient,
+    getExercisePlan,
+    addExerciseToPlan,
+    removeExerciseFromPlan,
+    updateExerciseInPlan,
   } = usePatient();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -543,29 +572,42 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  if (!selectedPatient) return null;
-  const plan = getExercisePlan(selectedPatient.id);
-  const currentExercises = plan?.exercises ?? [];
+  const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
+  const currentExercises = useMemo(() => plan?.exercises ?? [], [plan]);
+  const patientId = selectedPatient?.id ?? '';
 
-  const currentIds = useMemo(() =>
-    new Set(currentExercises.map((e) =>
-      e.id.replace(`${selectedPatient.id}-`, '').replace(/-\d+$/, '')
-    )),
-    [currentExercises, selectedPatient.id]
-  );
+  const currentIds = useMemo(() => {
+    if (!patientId) return new Set<string>();
+    return new Set(
+      currentExercises.map((e) => e.id.replace(`${patientId}-`, '').replace(/-\d+$/, ''))
+    );
+  }, [currentExercises, patientId]);
 
-  const filteredLibrary = useMemo(() =>
-    EXERCISE_LIBRARY.filter((ex) => {
-      const matchGroup = activeGroup === 'הכל' || ex.muscleGroup === activeGroup;
-      const matchSearch = !searchQuery ||
-        ex.name.includes(searchQuery) || ex.muscleGroup.includes(searchQuery);
-      return matchGroup && matchSearch;
-    }),
+  const filteredLibrary = useMemo(
+    () =>
+      EXERCISE_LIBRARY.filter((ex) => {
+        const matchGroup = activeGroup === 'הכל' || ex.muscleGroup === activeGroup;
+        const q = searchQuery.trim();
+        const areaLabel = bodyAreaLabels[ex.targetArea];
+        const matchSearch =
+          !q ||
+          ex.name.includes(q) ||
+          ex.muscleGroup.includes(q) ||
+          areaLabel.includes(q);
+        return matchGroup && matchSearch;
+      }),
     [activeGroup, searchQuery]
   );
 
   const isAddedToLibrary = (libId: string) =>
     currentIds.has(libId) || currentExercises.some((e) => e.id.includes(libId));
+
+  const findPlanExerciseIdForLibrary = (libId: string): string | null => {
+    const hit = currentExercises.find((e) => e.id === libId || e.id.includes(libId));
+    return hit?.id ?? null;
+  };
+
+  if (!selectedPatient) return null;
 
   const handleAddCustom = (data: CustomFormData) => {
     const xpReward = data.difficulty * 8 + 12;
@@ -618,6 +660,9 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
           <div>
             <h2 className="text-lg font-bold text-slate-800">ניהול תוכנית תרגול</h2>
             <p className="text-sm text-teal-600 mt-0.5">{selectedPatient.name} — {selectedPatient.diagnosis}</p>
+            <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+              ספרייה: חיפוש מהיר והחלפת תרגילים במתג. שינויים נשמרים מיד במערכת.
+            </p>
           </div>
           <button onClick={onClose}
             className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-red-50 transition-colors">
@@ -738,8 +783,8 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
               <div className="relative mb-2">
                 <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                 <input
-                  type="text"
-                  placeholder="חיפוש תרגיל..."
+                  type="search"
+                  placeholder="חיפוש לפי שם, קבוצת שריר או אזור גוף…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pr-9 pl-3 py-2 text-sm rounded-xl border border-slate-200 focus:outline-none focus:border-teal-400"
@@ -762,11 +807,21 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {filteredLibrary.length === 0
                 ? <div className="text-center text-slate-400 py-8 text-sm">לא נמצאו תרגילים</div>
-                : filteredLibrary.map((ex) => (
-                    <LibraryCard key={ex.id} exercise={ex}
-                      isAdded={isAddedToLibrary(ex.id)}
-                      onAdd={() => addExerciseToPlan(selectedPatient.id, ex)} />
-                  ))
+                : filteredLibrary.map((ex) => {
+                    const added = isAddedToLibrary(ex.id);
+                    const planExId = findPlanExerciseIdForLibrary(ex.id);
+                    return (
+                      <LibraryToggleRow
+                        key={ex.id}
+                        exercise={ex}
+                        isAdded={added}
+                        onAdd={() => addExerciseToPlan(selectedPatient.id, ex)}
+                        onRemove={() => {
+                          if (planExId) removeExerciseFromPlan(selectedPatient.id, planExId);
+                        }}
+                      />
+                    );
+                  })
               }
             </div>
           </div>

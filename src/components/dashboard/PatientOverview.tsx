@@ -15,6 +15,7 @@ import TherapistQuickChat from './clinical/TherapistQuickChat';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import SmartClinicalAnalysisCenter from './clinical/SmartClinicalAnalysisCenter';
 import PatientDataManagement from './clinical/PatientDataManagement';
+import TherapistPatientGrid from './TherapistPatientGrid';
 import { bodyAreaLabels } from '../../types';
 
 const statusLabels: Record<string, string> = {
@@ -110,6 +111,8 @@ export default function PatientOverview() {
             סיכום למטופל הנבחר · נתונים חיים מהמערכת (נשמרים בדפדפן)
           </p>
         </header>
+
+        <TherapistPatientGrid />
 
         {p.hasRedFlag && <RedFlagAlert patient={p} />}
 

@@ -581,6 +581,9 @@ export function PatientProvider({
   const [supabaseSyncError, setSupabaseSyncError] = useState<string | null>(null);
   const [supabaseLastSavedAt, setSupabaseLastSavedAt] = useState<string | null>(null);
 
+  /** דילוג על ריצה ראשונה — מניעת דחיפה מלאה לענן בטעינת דף ללא שינוי */
+  const dailySessionsHydratedRef = useRef(false);
+
   const isPatientSessionLocked = restrictPatientSessionId != null && restrictPatientSessionId !== '';
 
   useEffect(() => {
@@ -719,6 +722,19 @@ export function PatientProvider({
       setSupabaseSyncError(result.message);
     }
   }, [buildPersistSnapshot]);
+
+  /** אחרי עדכון סשנים יומיים — דחיפה מהירה ל־Supabase (כולל session_history) */
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    if (!dailySessionsHydratedRef.current) {
+      dailySessionsHydratedRef.current = true;
+      return;
+    }
+    const t = window.setTimeout(() => {
+      void savePersistedStateToCloud();
+    }, 320);
+    return () => window.clearTimeout(t);
+  }, [dailySessions, savePersistedStateToCloud]);
 
   const applyExternalSnapshot = useCallback(
     (data: PersistedPatientStateV1) => {

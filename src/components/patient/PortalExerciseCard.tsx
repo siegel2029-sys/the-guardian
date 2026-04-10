@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import {
   Play,
   CheckCircle2,
@@ -74,6 +74,18 @@ export default function PortalExerciseCard({
 }: PortalExerciseCardProps) {
   const hasVideo = Boolean(videoUrl);
   const thumbVideoRef = useRef<HTMLVideoElement>(null);
+  const prevCompletedRef = useRef(isCompleted); // מניעת אנימציה בטעינה כשכבר מסומן
+  const [completionBurst, setCompletionBurst] = useState(false);
+
+  useEffect(() => {
+    if (isCompleted && !prevCompletedRef.current) {
+      setCompletionBurst(true);
+      const t = window.setTimeout(() => setCompletionBurst(false), 600);
+      prevCompletedRef.current = isCompleted;
+      return () => clearTimeout(t);
+    }
+    prevCompletedRef.current = isCompleted;
+  }, [isCompleted]);
   const hoverPlayEnabled = hasVideo && isLikelyDirectVideoUrl(videoUrl);
 
   const handleThumbEnter = () => {
@@ -103,9 +115,11 @@ export default function PortalExerciseCard({
 
   return (
     <article
-      className={`rounded-2xl border border-slate-200/80 bg-white w-full shadow-md shadow-slate-200/45 outline-none transition-shadow ${
+      className={`rounded-2xl border border-slate-200/80 bg-white w-full shadow-md shadow-slate-200/45 outline-none transition-shadow motion-safe:transition-transform ${
         disabled ? 'opacity-40 pointer-events-none' : 'hover:shadow-lg hover:shadow-slate-200/50'
-      } ${!isCompleted && !disabled ? 'focus-within:ring-2 focus-within:ring-medical-primary/30 focus-within:ring-offset-2' : ''}`}
+      } ${completionBurst ? 'motion-safe:animate-exercise-complete-pop' : ''} ${
+        !isCompleted && !disabled ? 'focus-within:ring-2 focus-within:ring-medical-primary/30 focus-within:ring-offset-2' : ''
+      }`}
       dir="rtl"
       aria-label={isCompleted ? `${title} — הושלם` : `משימה ${index}: ${title}`}
     >
@@ -115,7 +129,10 @@ export default function PortalExerciseCard({
           <span className="text-base font-semibold text-slate-600 tabular-nums">משימה {index}</span>
           {isCompleted ? (
             <span className="inline-flex items-center gap-1 text-base font-bold text-medical-success">
-              <CheckCircle2 className="w-5 h-5 shrink-0" aria-hidden />
+              <CheckCircle2
+                className={`w-5 h-5 shrink-0 ${completionBurst ? 'motion-safe:animate-checkmark-pop' : ''}`}
+                aria-hidden
+              />
               הושלם
             </span>
           ) : (
