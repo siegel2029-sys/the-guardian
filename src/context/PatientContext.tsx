@@ -16,6 +16,7 @@ import type {
   SelfCareSessionReport,
   PatientExerciseFinishReport,
   InitialClinicalProfileExtras,
+  KnowledgeFact,
 } from '../types';
 import { bodyAreaLabels } from '../types';
 import {
@@ -69,6 +70,8 @@ import {
 } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { pushPersistedStateToSupabase } from '../lib/supabaseSync';
+import { mergeKnowledgeFactsWithSeed } from '../data/knowledgeBaseSeed';
+import { fetchAppKnowledgeBaseFromSupabase } from '../services/appKnowledgeRemote';
 
 export type { GearEquipSlot } from '../config/gearCatalog';
 
@@ -390,6 +393,13 @@ interface PatientContextValue {
   supabaseSyncError: string | null;
   supabaseLastSavedAt: string | null;
   savePersistedStateToCloud: () => Promise<void>;
+
+  /** בסיס ידע "הידעת?" — אישור מטפל וסנכרון */
+  knowledgeFacts: KnowledgeFact[];
+  approveKnowledgeFact: (factId: string) => void;
+  appendPendingKnowledgeFactsFromAi: (facts: Omit<KnowledgeFact, 'isApproved'>[]) => void;
+  /** טעינה מ־Supabase ומיזוג (מקור ענן אחרון גובר על שדות זהים) */
+  refreshKnowledgeBaseFromCloud: () => Promise<void>;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -572,6 +582,10 @@ export function PatientProvider({
     return out;
   });
 
+  const [knowledgeFacts, setKnowledgeFacts] = useState<KnowledgeFact[]>(() =>
+    mergeKnowledgeFactsWithSeed(readPersistedOnce().patient?.knowledgeFacts)
+  );
+
   const [rewardFeedback, setRewardFeedback] = useState<PatientRewardFeedback | null>(null);
   const rewardFeedbackIdRef = useRef(0);
 
@@ -583,6 +597,7 @@ export function PatientProvider({
 
   /** דילוג על ריצה ראשונה — מניעת דחיפה מלאה לענן בטעינת דף ללא שינוי */
   const dailySessionsHydratedRef = useRef(false);
+  const knowledgeFactsHydratedRef = useRef(false);
 
   const isPatientSessionLocked = restrictPatientSessionId != null && restrictPatientSessionId !== '';
 
@@ -650,6 +665,7 @@ export function PatientProvider({
       selfCareStrengthTierByPatientId,
       patientRewardMetaByPatientId,
       patientGearByPatientId,
+      knowledgeFacts,
     });
   }, [
     allPatients,
@@ -666,6 +682,7 @@ export function PatientProvider({
     selfCareStrengthTierByPatientId,
     patientRewardMetaByPatientId,
     patientGearByPatientId,
+    knowledgeFacts,
   ]);
 
   const buildPersistSnapshot = useCallback((): PersistedPatientStateV1 => {
@@ -685,6 +702,7 @@ export function PatientProvider({
       selfCareStrengthTierByPatientId,
       patientRewardMetaByPatientId,
       patientGearByPatientId,
+      knowledgeFacts,
     };
   }, [
     allPatients,
@@ -701,6 +719,7 @@ export function PatientProvider({
     selfCareStrengthTierByPatientId,
     patientRewardMetaByPatientId,
     patientGearByPatientId,
+    knowledgeFacts,
   ]);
 
   const savePersistedStateToCloud = useCallback(async () => {
@@ -736,6 +755,18 @@ export function PatientProvider({
     return () => window.clearTimeout(t);
   }, [dailySessions, savePersistedStateToCloud]);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    if (!knowledgeFactsHydratedRef.current) {
+      knowledgeFactsHydratedRef.current = true;
+      return;
+    }
+    const t = window.setTimeout(() => {
+      void savePersistedStateToCloud();
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [knowledgeFacts, savePersistedStateToCloud]);
+
   const applyExternalSnapshot = useCallback(
     (data: PersistedPatientStateV1) => {
       setAllPatients(normalizePatientsTherapistIds(data.patients));
@@ -767,6 +798,7 @@ export function PatientProvider({
         nextGear[pid] = normalizePatientGear(v);
       }
       setPatientGearByPatientId(nextGear);
+      setKnowledgeFacts(mergeKnowledgeFactsWithSeed(data.knowledgeFacts));
       if (!restrictPatientSessionId) {
         setSelectedPatientId(data.selectedPatientId ?? '');
       }
@@ -1224,6 +1256,30 @@ export function PatientProvider({
       (patientRewardMetaByPatientId[patientId]?.articleLinkOpenedIds ?? []).includes(articleId),
     [patientRewardMetaByPatientId]
   );
+
+  const approveKnowledgeFact = useCallback((factId: string) => {
+    setKnowledgeFacts((prev) =>
+      mergeKnowledgeFactsWithSeed(
+        prev.map((f) => (f.id === factId ? { ...f, isApproved: true } : f))
+      )
+    );
+  }, []);
+
+  const appendPendingKnowledgeFactsFromAi = useCallback(
+    (facts: Omit<KnowledgeFact, 'isApproved'>[]) => {
+      if (facts.length === 0) return;
+      const withPending: KnowledgeFact[] = facts.map((f) => ({ ...f, isApproved: false }));
+      setKnowledgeFacts((prev) => mergeKnowledgeFactsWithSeed([...prev, ...withPending]));
+    },
+    []
+  );
+
+  const refreshKnowledgeBaseFromCloud = useCallback(async () => {
+    if (!supabase) return;
+    const remote = await fetchAppKnowledgeBaseFromSupabase(supabase);
+    if (!remote?.length) return;
+    setKnowledgeFacts((prev) => mergeKnowledgeFactsWithSeed([...prev, ...remote]));
+  }, []);
 
   const hasDailyLoginBonusPending = useCallback(
     (patientId: string) => {
@@ -2493,6 +2549,10 @@ export function PatientProvider({
         supabaseSyncError,
         supabaseLastSavedAt,
         savePersistedStateToCloud,
+        knowledgeFacts,
+        approveKnowledgeFact,
+        appendPendingKnowledgeFactsFromAi,
+        refreshKnowledgeBaseFromCloud,
       }}
     >
       {children}

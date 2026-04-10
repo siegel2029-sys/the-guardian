@@ -8,6 +8,7 @@ import type {
   BodyArea,
   SelfCareSessionReport,
   PatientExerciseFinishReport,
+  KnowledgeFact,
 } from '../types';
 import { invalidatePersistedBootstrapCache } from '../bootstrap/invalidateBootstrap';
 
@@ -50,6 +51,8 @@ export type PersistedPatientStateV1 = {
   >;
   /** ציוד ויזואלי / מגן רצף — לפי מזהה מטופל */
   patientGearByPatientId?: Record<string, PatientGearPersistedV1>;
+  /** בסיס ידע "הידעת?" — אישור מטפל וסנכרון לענן */
+  knowledgeFacts?: KnowledgeFact[];
 };
 
 /** נתוני ציוד שנשמרים ב־localStorage */

@@ -9,6 +9,7 @@ const sectionTitles: Record<NavSection, string> = {
   analytics: 'היסטוריה ואנליטיקה',
   messages: 'הודעות וצ׳אט',
   settings: 'הגדרות',
+  knowledge: 'בסיס ידע — הידעת?',
 };
 
 /** תאימות לסשן ישן לפני שינוי NavSection */

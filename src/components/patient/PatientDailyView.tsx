@@ -134,6 +134,7 @@ export default function PatientDailyView() {
     setSelfCareStrengthTier,
     supabaseLastSavedAt,
     supabaseSyncStatus,
+    knowledgeFacts,
   } = usePatient();
 
   const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
@@ -234,6 +235,11 @@ export default function PatientDailyView() {
         ? computeStreakForPatient(selectedPatient, patientDayMap, clinicalToday)
         : 0,
     [selectedPatient, patientDayMap, clinicalToday]
+  );
+
+  const approvedKnowledgeFacts = useMemo(
+    () => knowledgeFacts.filter((f) => f.isApproved),
+    [knowledgeFacts]
   );
 
   const exerciseSafetyLocked = selectedPatient
@@ -907,15 +913,6 @@ export default function PatientDailyView() {
 
         {portalTab === 'home' && (
         <div className="mb-5 space-y-3">
-          <DidYouKnowBubble
-            patient={selectedPatient}
-            onCollectReward={(articleId, opts) =>
-              markArticleAsRead(selectedPatient.id, articleId, opts)
-            }
-            hasReadArticle={hasReadArticle}
-            hasArticleLinkOpened={hasArticleLinkOpened}
-            onArticleLinkOpened={recordArticleLinkOpened}
-          />
           <PatientAiSuggestionCards
             suggestions={pendingAiSuggestions}
             onApprove={patientAgreeToAiSuggestion}
@@ -1328,6 +1325,22 @@ export default function PatientDailyView() {
           </button>
         </div>
       </nav>
+
+      {(portalTab === 'home' || portalTab === 'activity') &&
+        selectedPatient &&
+        !patientMustChangePassword &&
+        approvedKnowledgeFacts.length > 0 && (
+          <DidYouKnowBubble
+            patient={selectedPatient}
+            approvedFacts={approvedKnowledgeFacts}
+            onCollectReward={(articleId, opts) =>
+              markArticleAsRead(selectedPatient.id, articleId, opts)
+            }
+            hasReadArticle={hasReadArticle}
+            hasArticleLinkOpened={hasArticleLinkOpened}
+            onArticleLinkOpened={recordArticleLinkOpened}
+          />
+        )}
 
       <GordyCompanion
         visible={gordyCompanionVisible}

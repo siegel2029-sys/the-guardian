@@ -7,6 +7,7 @@ import {
   BarChart3,
   MessageSquare,
   Settings,
+  BookOpen,
   LogOut,
   ChevronDown,
   AlertTriangle,
@@ -27,6 +28,7 @@ const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ cla
   { id: 'overview', label: 'סקירה קלינית', icon: LayoutDashboard },
   { id: 'clinical', label: 'דוחות קליניים', icon: FileText },
   { id: 'analytics', label: 'היסטוריה ואנליטיקה', icon: BarChart3 },
+  { id: 'knowledge', label: 'בסיס ידע', icon: BookOpen },
   { id: 'messages', label: 'הודעות וצ׳אט', icon: MessageSquare },
   { id: 'settings', label: 'הגדרות', icon: Settings },
 ];

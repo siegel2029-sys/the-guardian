@@ -257,4 +257,24 @@
   .animate-checkmark-pop {
     animation: checkmark-pop 0.45s cubic-bezier(0.34, 1.4, 0.52, 1) both;
   }
+
+  @keyframes dyk-cloud-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-6px);
+    }
+  }
+
+  .animate-dyk-cloud-float {
+    animation: dyk-cloud-float 3.2s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-dyk-cloud-float {
+      animation: none;
+    }
+  }
 }

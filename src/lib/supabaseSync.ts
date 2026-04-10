@@ -93,6 +93,17 @@ export async function pushPersistedStateToSupabase(
       if (error) return { ok: false, message: `session_history: ${error.message}` };
     }
 
+    const knowledgeItems = state.knowledgeFacts ?? [];
+    const { error: kbError } = await client.from('app_knowledge_base').upsert(
+      {
+        id: 'global',
+        items: knowledgeItems,
+        updated_at: now,
+      },
+      { onConflict: 'id' }
+    );
+    if (kbError) return { ok: false, message: `app_knowledge_base: ${kbError.message}` };
+
     return { ok: true };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) };

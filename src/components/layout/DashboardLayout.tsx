@@ -5,6 +5,7 @@ import MessagesPanel from '../dashboard/MessagesPanel';
 import ClinicalReportsPanel from '../dashboard/ClinicalReportsPanel';
 import HistoryAnalyticsPanel from '../dashboard/HistoryAnalyticsPanel';
 import TherapistSettingsPanel from '../dashboard/TherapistSettingsPanel';
+import ManageKnowledgeBasePanel from '../dashboard/ManageKnowledgeBasePanel';
 import { usePatient } from '../../context/PatientContext';
 import type { NavSection } from '../../types';
 
@@ -27,6 +28,8 @@ export default function DashboardLayout() {
         return <MessagesPanel />;
       case 'settings':
         return <TherapistSettingsPanel />;
+      case 'knowledge':
+        return <ManageKnowledgeBasePanel />;
       default:
         return <PatientOverview />;
     }

@@ -228,7 +228,25 @@ export interface SafetyAlert {
 }
 
 /** ניווט דשבורד מטפל — ללא תצוגת מטופל (פורטל נפרד) */
-export type NavSection = 'overview' | 'clinical' | 'analytics' | 'messages' | 'settings';
+export type NavSection =
+  | 'overview'
+  | 'clinical'
+  | 'analytics'
+  | 'messages'
+  | 'settings'
+  | 'knowledge';
+
+/** עובדת "הידעת?" — מאושרת ע״י מטפל לפני הצגה למטופל */
+export interface KnowledgeFact {
+  id: string;
+  title: string;
+  explanation: string;
+  /** קישור למאמר/מחקר מקצועי */
+  sourceUrl: string;
+  isApproved: boolean;
+  source: 'seed' | 'ai';
+  createdAt?: string;
+}
 
 // ── Exercise System ──────────────────────────────────────────────
 
