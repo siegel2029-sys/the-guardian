@@ -73,6 +73,10 @@ const VIEW_POSITIONS: Record<ViewPreset, THREE.Vector3> = {
 };
 const LOOK_AT = new THREE.Vector3(0, 0.15, 0);
 
+/** מרחק מצלמה ממוקד הגוף — פורטל מטופל (זום מוגבל, קרוב מספיק לפרטים קטנים) */
+const PORTAL_ORBIT_MIN_DIST = 1.32;
+const PORTAL_ORBIT_MAX_DIST = 5.15;
+
 // ── Camera animator (lives inside Canvas) ────────────────────────
 interface CameraAnimatorProps {
   targetRef: React.MutableRefObject<THREE.Vector3 | null>;
@@ -324,7 +328,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         borderRadius: '16px',
         overflow: 'hidden',
         touchAction: patientPortalInteractive
-          ? 'pan-y'
+          ? 'none'
           : scrollFriendlyPortal
             ? 'pan-y'
             : undefined,
@@ -335,7 +339,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       <Canvas
         style={{
           touchAction: patientPortalInteractive
-            ? 'pan-y'
+            ? 'none'
             : scrollFriendlyPortal
               ? 'pan-y'
               : undefined,
@@ -471,8 +475,25 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           </EffectComposer>
         )}
 
-        {/* Camera — פורטל מטופל: מבט קבוע מול הגוף, ללא סיבוב/זום */}
-        {!patientPortalInteractive && (
+        {/* מצלמה — פורטל: סיבוב/זום ידניים בלבד (ללא אנימציית מבטים); דשבורד מטפל: אנימטור + מסלולי מבט */}
+        {patientPortalInteractive ? (
+          <OrbitControls
+            makeDefault
+            enablePan={false}
+            enableRotate
+            enableZoom
+            minDistance={PORTAL_ORBIT_MIN_DIST}
+            maxDistance={PORTAL_ORBIT_MAX_DIST}
+            minPolarAngle={0.1}
+            maxPolarAngle={Math.PI - 0.08}
+            target={[0, 0.15, 0]}
+            enableDamping
+            dampingFactor={0.075}
+            rotateSpeed={0.68}
+            zoomSpeed={0.72}
+            screenSpacePanning={false}
+          />
+        ) : (
           <>
             <CameraAnimator
               targetRef={cameraTargetRef}
