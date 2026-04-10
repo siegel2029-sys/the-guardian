@@ -145,7 +145,23 @@ function SceneSetup() {
 }
 
 // ── Loading fallback ──────────────────────────────────────────────
-function Loader() {
+function Loader({ minimal }: { minimal?: boolean }) {
+  if (minimal) {
+    return (
+      <Html center>
+        <div
+          style={{
+            width: 26,
+            height: 26,
+            borderRadius: '50%',
+            border: '2.5px solid #cbd5e1',
+            borderTopColor: '#2563eb',
+            animation: 'bodymap-spin 0.75s linear infinite',
+          }}
+        />
+      </Html>
+    );
+  }
   return (
     <Html center>
       <div
@@ -166,47 +182,54 @@ function Loader() {
 interface ViewToggleProps {
   activeView: ViewPreset | null;
   onSelect: (v: ViewPreset) => void;
+  /** פורטל מטופל — כפתורים קומפקטיים ללא טקסט */
+  compact?: boolean;
 }
 const VIEW_LABELS: { id: ViewPreset; label: string; icon: string }[] = [
-  { id: 'front', label: 'פנים',  icon: '⬛' },
-  { id: 'back',  label: 'גב',    icon: '⬜' },
-  { id: 'left',  label: 'שמאל',  icon: '◀' },
-  { id: 'right', label: 'ימין',  icon: '▶' },
+  { id: 'front', label: 'פנים', icon: '◎' },
+  { id: 'back', label: 'גב', icon: '◉' },
+  { id: 'left', label: 'שמאל', icon: '◀' },
+  { id: 'right', label: 'ימין', icon: '▶' },
 ];
-function ViewToggle({ activeView, onSelect }: ViewToggleProps) {
+function ViewToggle({ activeView, onSelect, compact }: ViewToggleProps) {
   return (
     <div
       style={{
         position: 'absolute',
-        bottom: '38px',
+        bottom: compact ? 8 : 38,
         left: '50%',
         transform: 'translateX(-50%)',
         display: 'flex',
-        gap: '5px',
+        gap: compact ? 4 : 5,
         zIndex: 20,
       }}
     >
-      {VIEW_LABELS.map(({ id, label }) => {
+      {VIEW_LABELS.map(({ id, label, icon }) => {
         const isActive = activeView === id;
         return (
           <button
             key={id}
+            type="button"
+            title={label}
+            aria-label={label}
             onClick={() => onSelect(id)}
             style={{
-              padding: '4px 11px',
-              borderRadius: '9px',
+              minWidth: compact ? 30 : undefined,
+              padding: compact ? '5px 7px' : '4px 11px',
+              borderRadius: compact ? 8 : 9,
               border: `1.5px solid ${isActive ? '#2563eb' : 'rgba(37,99,235,0.28)'}`,
               background: isActive
                 ? 'linear-gradient(135deg,#2563eb,#1d4ed8)'
-                : 'rgba(255,255,255,0.9)',
+                : 'rgba(255,255,255,0.92)',
               color: isActive ? '#fff' : '#2563eb',
-              fontSize: '12px',
+              fontSize: compact ? 13 : 12,
               fontFamily: 'Inter, system-ui, sans-serif',
               fontWeight: 600,
               cursor: 'pointer',
               backdropFilter: 'blur(6px)',
               transition: 'all 0.18s ease',
-              direction: 'rtl',
+              direction: 'ltr',
+              lineHeight: 1,
               boxShadow: isActive
                 ? '0 2px 8px rgba(13,148,136,0.35)'
                 : '0 1px 4px rgba(0,0,0,0.10)',
@@ -215,10 +238,10 @@ function ViewToggle({ activeView, onSelect }: ViewToggleProps) {
               if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = '#e0f7f9';
             }}
             onMouseLeave={(e) => {
-              if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.82)';
+              if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.92)';
             }}
           >
-            {label}
+            {compact ? icon : label}
           </button>
         );
       })}
@@ -365,7 +388,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         {/* Environment HDR for realistic PBR reflections on clearcoat */}
         <Environment preset="studio" />
 
-        <Suspense fallback={<Loader />}>
+        <Suspense fallback={<Loader minimal={patientPortalInteractive} />}>
           <group scale={avatarScale}>
             <StreakEnergyFloat enabled={streakEnergy && !stableInteraction}>
               <AnatomyModel
@@ -389,7 +412,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                 segmentGrowthMul={segmentGrowthMul}
               />
 
-              {floatingLevelBadge && showLevelChrome && (
+              {floatingLevelBadge && showLevelChrome && !patientPortalInteractive && (
                 <Html
                   position={[0.34, 1.9, 0.14]}
                   center
@@ -471,22 +494,24 @@ export default function BodyMap3D(props: BodyMap3DProps) {
 
       {/* ── HTML overlays ───────────────────────────────────────── */}
 
-      {/* Orbit hint */}
-      <div style={{
-        position: 'absolute', top: 9, left: '50%', transform: 'translateX(-50%)',
-        background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(6px)',
-        padding: '4px 12px', borderRadius: '8px', fontSize: 11,
-        color: '#2563eb', fontFamily: 'Inter, system-ui, sans-serif',
-        pointerEvents: 'none', direction: 'rtl', whiteSpace: 'nowrap',
-        boxShadow: '0 1px 6px rgba(0,0,0,0.08)',
-      }}>
-        {scrollFriendlyPortal
-          ? 'גלילה מחוץ למפה — גללו מטה לתרגילים · זווית: כפתורים למטה'
-          : 'גרור לסיבוב · אדום = מוקד ראשי · כתום = משני · ירוק = פרהאב (לחיצה)'}
-      </div>
+      {/* Orbit hint — לא בפורטל מטופל (מפה ויזואלית בלבד) */}
+      {!patientPortalInteractive && (
+        <div style={{
+          position: 'absolute', top: 9, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(6px)',
+          padding: '4px 12px', borderRadius: '8px', fontSize: 11,
+          color: '#2563eb', fontFamily: 'Inter, system-ui, sans-serif',
+          pointerEvents: 'none', direction: 'rtl', whiteSpace: 'nowrap',
+          boxShadow: '0 1px 6px rgba(0,0,0,0.08)',
+        }}>
+          {scrollFriendlyPortal
+            ? 'גלילה מחוץ למפה — גללו מטה לתרגילים · זווית: כפתורים למטה'
+            : 'גרור לסיבוב · אדום = מוקד ראשי · כתום = משני · ירוק = פרהאב (לחיצה)'}
+        </div>
+      )}
 
       {/* Level badge (מוסתר כשהתג מוצג ב־3D — פורטל מטופל) */}
-      {showLevelChrome && !floatingLevelBadge && (
+      {showLevelChrome && !floatingLevelBadge && !patientPortalInteractive && (
         <div style={{
           position: 'absolute', top: 9, insetInlineEnd: 10,
           background: 'linear-gradient(135deg,#2563eb,#1d4ed8)',
@@ -499,32 +524,63 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       )}
 
       {/* View toggle */}
-      <ViewToggle activeView={activeView} onSelect={handleView} />
+      <ViewToggle
+        activeView={activeView}
+        onSelect={handleView}
+        compact={patientPortalInteractive}
+      />
 
-      {/* Colour legend — inset-inline-start = קצה התחלה ב־RTL */}
-      <div style={{
-        position: 'absolute', bottom: 10, insetInlineStart: 10,
-        display: 'flex', flexDirection: 'column', gap: 4,
-        pointerEvents: 'none',
-      }}>
-        {[
-          { dot: '#10b981', label: 'בריא' },
-          { dot: '#0d9488', label: 'אזור תרגול' },
-          { dot: '#fb923c', label: 'כאב גבוה' },
-        ].map(({ dot, label }) => (
-          <div key={label} style={{
-            display: 'flex', alignItems: 'center', gap: 5,
-            background: 'rgba(255,255,255,0.80)', padding: '2px 7px',
-            borderRadius: 7, fontSize: 11,
-            color: '#334155', fontFamily: 'Inter, system-ui, sans-serif',
-            backdropFilter: 'blur(6px)', direction: 'rtl',
-            boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
-          }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0 }} />
-            {label}
-          </div>
-        ))}
-      </div>
+      {/* מקרא צבעים — בפורטל: קטן בפינה, רק כשיש אזורי פרהאב נבחרים */}
+      {(!patientPortalInteractive ||
+        (selfCareSelectedAreas?.length ?? 0) > 0) && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: patientPortalInteractive ? 6 : 10,
+            insetInlineEnd: patientPortalInteractive ? 6 : undefined,
+            insetInlineStart: patientPortalInteractive ? undefined : 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: patientPortalInteractive ? 2 : 4,
+            pointerEvents: 'none',
+          }}
+        >
+          {[
+            { dot: '#10b981', label: 'בריא' },
+            { dot: '#0d9488', label: 'אזור תרגול' },
+            { dot: '#fb923c', label: 'כאב גבוה' },
+          ].map(({ dot, label }) => (
+            <div
+              key={label}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: patientPortalInteractive ? 3 : 5,
+                background: 'rgba(255,255,255,0.82)',
+                padding: patientPortalInteractive ? '1px 5px' : '2px 7px',
+                borderRadius: patientPortalInteractive ? 5 : 7,
+                fontSize: patientPortalInteractive ? 9 : 11,
+                color: '#334155',
+                fontFamily: 'Inter, system-ui, sans-serif',
+                backdropFilter: 'blur(6px)',
+                direction: 'rtl',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+              }}
+            >
+              <span
+                style={{
+                  width: patientPortalInteractive ? 6 : 8,
+                  height: patientPortalInteractive ? 6 : 8,
+                  borderRadius: '50%',
+                  background: dot,
+                  flexShrink: 0,
+                }}
+              />
+              {label}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

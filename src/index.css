@@ -84,6 +84,12 @@
     animation: portal-reward-float 2.15s ease-out forwards;
   }
 
+  @keyframes bodymap-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   @keyframes article-reward-success {
     0% {
       opacity: 0;
@@ -194,6 +200,66 @@
 
   .animate-guardian-input-focus-pulse {
     animation: guardian-input-focus-pulse 0.65s ease-out 1;
+  }
+
+  /* צלילה: סיבוב 3D סביב ציר Y + scaleX ודופק אטימות (2.5s) */
+  .red-flag-siren-stage {
+    perspective: 14rem;
+    perspective-origin: center center;
+  }
+
+  .red-flag-siren-rotor {
+    transform-style: preserve-3d;
+    transform-origin: center center;
+    will-change: transform, opacity;
+    animation: red-flag-siren-spin-3d 2.5s linear infinite;
+  }
+
+  @keyframes red-flag-siren-spin-3d {
+    0% {
+      transform: rotateY(0deg) scaleX(1);
+      opacity: 1;
+    }
+    12.5% {
+      transform: rotateY(45deg) scaleX(0.62);
+      opacity: 0.9;
+    }
+    25% {
+      transform: rotateY(90deg) scaleX(0.12);
+      opacity: 0.35;
+    }
+    37.5% {
+      transform: rotateY(135deg) scaleX(0.62);
+      opacity: 0.52;
+    }
+    50% {
+      transform: rotateY(180deg) scaleX(1);
+      opacity: 0.45;
+    }
+    62.5% {
+      transform: rotateY(225deg) scaleX(0.62);
+      opacity: 0.52;
+    }
+    75% {
+      transform: rotateY(270deg) scaleX(0.12);
+      opacity: 0.35;
+    }
+    87.5% {
+      transform: rotateY(315deg) scaleX(0.62);
+      opacity: 0.9;
+    }
+    100% {
+      transform: rotateY(360deg) scaleX(1);
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .red-flag-siren-rotor {
+      animation: none;
+      transform: none;
+      opacity: 1;
+    }
   }
 
   @keyframes gordy-victory-hop {

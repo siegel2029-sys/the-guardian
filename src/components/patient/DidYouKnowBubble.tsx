@@ -64,7 +64,9 @@ const CLOUD_STROKE = '#0f172a';
 const CLOUD_PATH =
   'M 40 78 C 40 52 62 38 92 40 C 108 28 140 28 156 40 C 186 36 208 52 208 74 C 208 96 186 110 124 108 C 62 110 40 96 40 78 Z';
 
-/** ענן מחשבה + גורדי — מודאל עם title + explanation מהדשבורד */
+const TRAIL_DOT = '#1e3a8a';
+
+/** ענן מחשבה — מודאל עם Modal Title + Detailed Explanation מהדשבורד */
 export default function DidYouKnowBubble({
   patient,
   approvedFacts,
@@ -192,6 +194,7 @@ export default function DidYouKnowBubble({
               onScroll={onScrollBody}
               className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 sm:px-6 pt-5 scroll-smooth"
             >
+              {/* Modal Title + Detailed Explanation — שדות מהדשבורד (בסיס ידע) */}
               <h2
                 id="dyk-expanded-title"
                 className="text-lg sm:text-xl font-extrabold text-slate-900 leading-snug font-dyk-bubble"
@@ -308,6 +311,18 @@ export default function DidYouKnowBubble({
                   {cloudTeaser}
                 </span>
               </span>
+            </div>
+
+            {/* שתי נקודות מתחת לענן — כחול מלא, קטן יותר למטה (סגנון Image 4) */}
+            <div className="mt-1 flex flex-col items-center gap-2 pt-2" aria-hidden>
+              <span
+                className="shrink-0 rounded-full"
+                style={{ width: 8, height: 8, backgroundColor: TRAIL_DOT }}
+              />
+              <span
+                className="shrink-0 rounded-full"
+                style={{ width: 4, height: 4, backgroundColor: TRAIL_DOT }}
+              />
             </div>
           </button>
         </div>

@@ -17,6 +17,7 @@ import {
   ShoppingBag,
   CloudUpload,
   Zap,
+  Siren,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
@@ -57,7 +58,6 @@ import { RewardLabel } from '../ui/RewardLabel';
 import GearStoreArmory from './GearStoreArmory';
 import { buildEquippedGearSnapshot } from '../../utils/gearSnapshot';
 import PortalPatientDebugPanel from './PortalPatientDebugPanel';
-import PatientDashboard from './PatientDashboard';
 import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
 import PatientHeroesHallTab from './PatientHeroesHallTab';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
@@ -187,6 +187,7 @@ export default function PatientDailyView() {
       }
   >(null);
   const [redFlagOpen, setRedFlagOpen] = useState(false);
+  const [redFlagSirenAssetFailed, setRedFlagSirenAssetFailed] = useState(false);
 
   const careGiverName = useMemo(
     () => (selectedPatient ? getTherapistDisplayName(selectedPatient.therapistId) : ''),
@@ -601,6 +602,37 @@ export default function PatientDailyView() {
       >
         {sessionRole === 'patient' ? (
           <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => setRedFlagOpen(true)}
+              title="דיווח דחוף — Red Flag"
+              className="flex items-center justify-center min-h-11 min-w-11 rounded-xl border border-red-200 bg-red-50/90 text-red-600 hover:bg-red-100 hover:border-red-300 transition-colors"
+              aria-label="דיווח דחוף — Red Flag"
+            >
+              {/* אייקון: public/image_5f21a1.png; סיבוב 3D; גיבוי Lucide אם הקובץ חסר */}
+              <span
+                className="red-flag-siren-stage inline-flex h-6 w-6 items-center justify-center [direction:ltr]"
+                aria-hidden
+              >
+                <span className="red-flag-siren-rotor inline-flex h-6 w-6 items-center justify-center">
+                  {redFlagSirenAssetFailed ? (
+                    <Siren className="h-6 w-6 shrink-0" strokeWidth={2.25} />
+                  ) : (
+                    <img
+                      src="/image_5f21a1.png"
+                      alt=""
+                      width={24}
+                      height={24}
+                      decoding="async"
+                      draggable={false}
+                      className="h-6 w-6 max-h-6 object-contain pointer-events-none select-none"
+                      style={{ transform: 'translateZ(0.5px)' }}
+                      onError={() => setRedFlagSirenAssetFailed(true)}
+                    />
+                  )}
+                </span>
+              </span>
+            </button>
             {!patientMustChangePassword && (
               <button
                 type="button"
@@ -733,24 +765,8 @@ export default function PatientDailyView() {
       <div className="flex-1 px-4 py-4 pb-36">
         {portalTab === 'heroes' && selectedPatient && !patientMustChangePassword && <PatientHeroesHallTab />}
 
-        {portalTab === 'home' && selectedPatient && !patientMustChangePassword && (
-          <PatientDashboard onOpenRedFlag={() => setRedFlagOpen(true)} />
-        )}
         {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
-            <div className="flex items-center justify-between mb-2 px-0.5">
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">מפת הגוף שלי</h2>
-            </div>
-            <p className="text-base text-slate-600 mb-3 leading-relaxed">
-              <span className="text-red-800 font-semibold">אדום</span> — אזור השיקום מהמטפל (לא ניתן
-              לבחירה). <span className="text-medical-success font-semibold">ירוק</span> — אזורי כוח
-              שנבחרו; התרגילים שלהם מופיעים בלשונית <strong>אימונים</strong>.
-              {exercises.length > 0 && (
-                <span className="block mt-2 text-slate-700">
-                  מוקד שיקום: <strong>{bodyAreaLabels[selectedPatient.primaryBodyArea]}</strong>
-                </span>
-              )}
-            </p>
             <div className="rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden mx-auto w-full max-w-md touch-pan-y">
               <div className="relative w-full h-[260px] sm:h-[300px] max-h-[40dvh] isolate overscroll-y-contain">
                 <BodyMap3D
@@ -768,8 +784,6 @@ export default function PatientDailyView() {
                   streak={displayStreak}
                   strengthenedAreasToday={strengthenedAreasToday}
                   injuryHighlightSegments={selectedPatient.injuryHighlightSegments}
-                  floatingLevelBadge
-                  levelBadgeRevealOnHover
                   avatarScale={0.9}
                   equippedGear={buildEquippedGearSnapshot(patientGearState)}
                   minHeightPx={0}

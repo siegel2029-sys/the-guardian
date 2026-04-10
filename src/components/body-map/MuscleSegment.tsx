@@ -731,7 +731,7 @@ export default function MuscleSegment({
         {children}
       </mesh>
 
-      {hovered && area && (
+      {hovered && area && !patientPortalInteractive && (
         <Html position={[0, 0.28, 0]} center distanceFactor={8} zIndexRange={[200, 0]}>
           <div
             style={{
