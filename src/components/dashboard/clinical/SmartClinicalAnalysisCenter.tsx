@@ -21,7 +21,7 @@ import type {
 import type { ClinicalProgressInsight } from '../../../ai/clinicalCommandInsight';
 import { aggregateClinicalInsights } from '../../../services/clinicalInsightsAggregation';
 import { buildUnifiedClinicalNarrative } from '../../../ai/clinicalInsightsNarrative';
-import { getPatientAvatarPresentation } from './clinicalPatientPresentation';
+import { getPatientAvatarPresentation } from './clinical-patient-presentation';
 
 type Props = {
   patient: Patient;

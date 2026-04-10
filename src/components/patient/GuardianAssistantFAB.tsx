@@ -6,7 +6,7 @@ import {
   buildGuardianTurn,
   isGuardianOfferConfirmation,
   type GuardianPendingOffer,
-} from './buildGuardianReply';
+} from './build-guardian-reply';
 import { analyzePatientProgress, buildPatientProgressPayload } from '../../ai/patientProgressReasoning';
 import { screenPatientFreeTextForEmergency } from '../../safety/clinicalEmergencyScreening';
 import { usePatient } from '../../context/PatientContext';

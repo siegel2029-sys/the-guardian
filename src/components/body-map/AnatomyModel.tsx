@@ -34,7 +34,7 @@ import {
   installMuscleVertexInflation,
   clearMuscleVertexInflationPatch,
 } from './muscleVertexInflation';
-import EquippedGearAttachments from './equippedGear/EquippedGearAttachments';
+import EquippedGearAttachments from './equipped-gear/equipped-gear-attachments';
 import type { EquippedGearSnapshot } from '../../config/gearCatalog';
 
 // ── Static world-position for each area's pulsing glow light ─────

@@ -27,7 +27,7 @@ import {
   createCeramicHighlightMaterial,
   setPickHighlightBones,
 } from './skinningHighlightMaterial';
-import { GLTF_ANATOMY_URLS } from './gltfAnatomySources';
+import { GLTF_ANATOMY_URLS } from './gltf-anatomy-sources';
 import FallbackHumanoidPick from './FallbackHumanoidPick';
 
 export interface GltfAnatomyModelProps {
