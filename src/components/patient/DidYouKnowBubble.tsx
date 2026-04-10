@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef, useId } from 'react';
 import { Lightbulb, ExternalLink, Gift, Lock, X } from 'lucide-react';
 import type { KnowledgeFact, Patient } from '../../types';
 import { KNOWLEDGE_ENRICHMENT_DISCLAIMER_HE } from '../../config/clinicalDisclaimers';
@@ -23,9 +23,19 @@ function scrollReachedEnd(el: HTMLElement): boolean {
 
 function pickFactForSession(patientId: string, approved: KnowledgeFact[]): KnowledgeFact | null {
   if (approved.length === 0) return null;
-  const key = `guardian-dyk-pick-v1-${patientId}`;
+  const pickKey = `guardian-dyk-pick-v3-${patientId}`;
+  const sigKey = `guardian-dyk-sig-v3-${patientId}`;
+  const sigNow = approved
+    .map((f) => f.id)
+    .sort()
+    .join(',');
   try {
-    const saved = sessionStorage.getItem(key);
+    const prevSig = sessionStorage.getItem(sigKey);
+    if (prevSig !== sigNow) {
+      sessionStorage.removeItem(pickKey);
+      sessionStorage.setItem(sigKey, sigNow);
+    }
+    const saved = sessionStorage.getItem(pickKey);
     if (saved) {
       const hit = approved.find((f) => f.id === saved);
       if (hit) return hit;
@@ -35,22 +45,26 @@ function pickFactForSession(patientId: string, approved: KnowledgeFact[]): Knowl
   }
   const pick = approved[Math.floor(Math.random() * approved.length)];
   try {
-    sessionStorage.setItem(key, pick.id);
+    sessionStorage.setItem(pickKey, pick.id);
   } catch {
     /* ignore */
   }
   return pick;
 }
 
-/**
- * ענן צף — בחירה אקראית אחת לסשן דפדפן מתוך עובדות מאושרות.
- */
+/** צורת ענן וקטורית רכה — פופים אופייניים, קו נקי */
+const CLOUD_PATH =
+  'M 52 148 C 28 148 18 124 36 108 C 32 84 54 62 80 68 C 96 44 132 40 158 54 C 184 46 218 62 214 90 C 242 96 248 132 222 148 H 52 Z';
+
+/** ענן מחשבה צף — תוכן מהמאגר; מודאל עם title + explanation */
 export default function DidYouKnowBubble({
   patient,
   approvedFacts,
   onCollectReward,
   hasReadArticle,
 }: DidYouKnowBubbleProps) {
+  const cloudFilterId = `dyk-cloud-${useId().replace(/:/g, '')}`;
+
   const fact = useMemo(
     () => pickFactForSession(patient.id, approvedFacts),
     [patient.id, approvedFacts]
@@ -125,8 +139,8 @@ export default function DidYouKnowBubble({
     <>
       {expanded && (
         <div
-          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4 pb-28 sm:p-6"
-          style={{ background: 'rgba(15, 23, 42, 0.45)' }}
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6"
+          style={{ background: 'rgba(15, 23, 42, 0.5)' }}
           dir="rtl"
           role="dialog"
           aria-modal="true"
@@ -136,7 +150,8 @@ export default function DidYouKnowBubble({
           }}
         >
           <div
-            className="w-full max-w-md max-h-[min(88vh,680px)] flex flex-col rounded-3xl border-2 border-sky-200/80 bg-white shadow-2xl shadow-sky-900/15 overflow-hidden relative"
+            key={fact.id}
+            className="w-full max-w-2xl max-h-[min(92vh,800px)] flex flex-col rounded-2xl border-[3px] border-[#2563eb] bg-white shadow-2xl shadow-blue-900/20 overflow-hidden relative"
             onClick={(e) => e.stopPropagation()}
           >
             {successBurst && (
@@ -147,10 +162,10 @@ export default function DidYouKnowBubble({
                 <span className="text-lg font-black text-emerald-800 drop-shadow-sm">מעולה! הפרס נאסף</span>
               </div>
             )}
-            <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-100 bg-gradient-to-l from-sky-50 to-white">
-              <div className="flex items-center gap-2 min-w-0">
-                <Lightbulb className="w-5 h-5 text-sky-600 shrink-0" />
-                <span className="text-xs font-bold text-sky-800 uppercase tracking-wide">הידעת?</span>
+            <div className="shrink-0 flex items-center justify-between gap-2 px-5 py-4 border-b-2 border-blue-100 bg-gradient-to-l from-blue-50/90 to-white">
+              <div className="flex items-center gap-2 min-w-0 font-dyk-bubble">
+                <Lightbulb className="w-6 h-6 text-[#2563eb] shrink-0" strokeWidth={1.5} />
+                <span className="text-sm font-extrabold text-[#1e40af] tracking-wide">הידעת?</span>
                 <RewardLabel xp={rxp} coins={rcoins} />
               </div>
               <button
@@ -166,12 +181,15 @@ export default function DidYouKnowBubble({
             <div
               ref={scrollBodyRef}
               onScroll={onScrollBody}
-              className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 pt-4"
+              className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 sm:px-6 pt-5 scroll-smooth"
             >
-              <h2 id="dyk-expanded-title" className="text-base font-bold text-slate-900 leading-snug">
+              <h2
+                id="dyk-expanded-title"
+                className="text-lg sm:text-xl font-extrabold text-slate-900 leading-snug font-dyk-bubble"
+              >
                 {fact.title}
               </h2>
-              <div className="text-sm text-slate-700 leading-relaxed mt-3 whitespace-pre-wrap break-words">
+              <div className="text-base sm:text-[1.05rem] text-slate-700 leading-[1.75] mt-4 whitespace-pre-wrap break-words font-dyk-bubble">
                 {fact.explanation}
               </div>
 
@@ -196,7 +214,7 @@ export default function DidYouKnowBubble({
                 href={fact.sourceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mb-4 mt-3 w-full min-h-12 text-sm font-bold text-sky-950 px-4 py-3 rounded-2xl border-2 border-sky-400 bg-sky-50 hover:bg-sky-100 active:bg-sky-100 transition-colors inline-flex items-center justify-center gap-2 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+                className="mb-4 mt-3 w-full min-h-12 text-sm font-bold text-[#1e3a8a] px-4 py-3 rounded-2xl border-[3px] border-[#2563eb] bg-blue-50/80 hover:bg-blue-100 active:bg-blue-100 transition-colors inline-flex items-center justify-center gap-2 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-2 font-dyk-bubble"
               >
                 <ExternalLink className="w-4 h-4 shrink-0" aria-hidden />
                 למקור המאמר המלא
@@ -235,75 +253,76 @@ export default function DidYouKnowBubble({
         </div>
       )}
 
+      {/* ענן מחשבה רך (וקטור) + נקודות זנב — אנימציית ציפה על כל הקבוצה */}
       <div
-        className="fixed z-[45] motion-safe:animate-dyk-cloud-float overflow-visible pointer-events-none"
+        className="fixed z-[45] overflow-visible pointer-events-none"
         style={{
-          bottom: 'max(5.5rem, calc(4.5rem + env(safe-area-inset-bottom)))',
-          insetInlineEnd: 'max(1rem, env(safe-area-inset-end))',
-          width: '6.25rem',
-          height: '5.25rem',
+          top: 'calc(24px + env(safe-area-inset-top, 0px))',
+          left: 'calc(24px + env(safe-area-inset-left, 0px))',
         }}
       >
-        {/* אפקט &quot;בועות מחשבה&quot; — שלושה עיגולים בפינה העליונה-הצידית */}
-        <div
-          className="pointer-events-none absolute z-[1] flex flex-col-reverse items-center gap-0.5"
-          style={{
-            top: '-0.125rem',
-            insetInlineStart: '0.25rem',
-          }}
-          aria-hidden
-        >
-          <span className="rounded-full w-2.5 h-2.5 bg-white border-2 border-sky-400 shadow-sm" />
-          <span
-            className="rounded-full w-2 h-2 bg-white border border-sky-400 shadow-sm"
-            style={{ marginInlineStart: '0.35rem' }}
-          />
-          <span
-            className="rounded-full w-1.5 h-1.5 bg-white border border-sky-400/90 shadow-sm"
-            style={{ marginInlineStart: '0.65rem' }}
-          />
-        </div>
+        <div className="animate-dyk-cloud-float relative inline-block w-[min(92vw,17.75rem)] pointer-events-auto">
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="relative z-[2] w-full cursor-pointer border-0 bg-transparent p-0 text-center outline-none focus-visible:ring-2 focus-visible:ring-[#2563eb]/45 focus-visible:ring-offset-2 rounded-[3rem]"
+            style={{ aspectRatio: '260 / 165' }}
+            aria-label={`הידעת? ${fact.teaser} — הקישו לפתיחה`}
+          >
+            <span className="sr-only">
+              הידעת? {fact.teaser} — פתיחת עובדה
+            </span>
+            <svg
+              className="absolute inset-0 h-full w-full text-[#2563eb]"
+              viewBox="0 0 260 165"
+              preserveAspectRatio="xMidYMid meet"
+              aria-hidden
+            >
+              <defs>
+                <filter id={cloudFilterId} x="-15%" y="-15%" width="130%" height="130%">
+                  <feDropShadow dx="0" dy="3" stdDeviation="6" floodColor="#2563eb" floodOpacity="0.11" />
+                </filter>
+              </defs>
+              <path
+                d={CLOUD_PATH}
+                fill="#ffffff"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                filter={`url(#${cloudFilterId})`}
+              />
+            </svg>
 
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="pointer-events-auto absolute bottom-0 end-0 outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 rounded-[50%]"
-          style={{
-            width: '5.75rem',
-            height: '4.25rem',
-          }}
-          aria-label={`הידעת? ${fact.teaser} — הקישו לפתיחה`}
-        >
-          <span className="sr-only">
-            הידעת? {fact.teaser} — פתיחת עובדה
-          </span>
-          <svg
-            viewBox="0 0 120 88"
-            className="w-full h-full drop-shadow-lg"
+            <span className="relative z-[3] flex h-full w-full flex-col items-center justify-center gap-2 px-[13%] pb-[20%] pt-[11%] pointer-events-none">
+              <span className="relative flex h-11 w-11 shrink-0 items-center justify-center sm:h-12 sm:w-12" aria-hidden>
+                <span className="absolute rounded-full bg-[#2563eb]/18 blur-xl" style={{ width: '2.5rem', height: '2.5rem' }} />
+                <Lightbulb
+                  className="relative z-[1] h-9 w-9 text-[#2563eb] sm:h-10 sm:w-10"
+                  strokeWidth={1.5}
+                  aria-hidden
+                />
+              </span>
+              <span className="font-dyk-bubble line-clamp-5 max-h-[5.5rem] max-w-[10.5rem] break-words text-center text-[0.9375rem] font-bold leading-[1.5] text-slate-900 sm:max-h-[6.25rem] sm:max-w-[11.75rem] sm:text-lg sm:leading-[1.48]">
+                {fact.teaser}
+              </span>
+            </span>
+          </button>
+
+          <div
+            dir="ltr"
+            className="pointer-events-none absolute z-[1] flex flex-row items-end"
+            style={{
+              bottom: '6%',
+              left: '54%',
+              gap: '0.7rem',
+            }}
             aria-hidden
           >
-            <defs>
-              <linearGradient id="dykCloudGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#f0f9ff" stopOpacity="0.96" />
-                <stop offset="100%" stopColor="#e0f2fe" stopOpacity="0.92" />
-              </linearGradient>
-            </defs>
-            <path
-              fill="url(#dykCloudGrad)"
-              stroke="#7dd3fc"
-              strokeWidth="1.5"
-              d="M78 24c8 0 15 5 18 12 10 1 18 9 18 19 0 11-9 20-20 20H28c-11 0-20-9-20-20 0-9 6-16 14-18 2-10 11-17 22-17 2 0 4 0 6 1 4-7 11-11 19-11 10 0 18 6 21 14z"
-            />
-            <ellipse cx="42" cy="52" rx="22" ry="16" fill="url(#dykCloudGrad)" stroke="#7dd3fc" strokeWidth="1.2" />
-            <ellipse cx="88" cy="48" rx="18" ry="14" fill="url(#dykCloudGrad)" stroke="#7dd3fc" strokeWidth="1.2" />
-          </svg>
-          <span className="absolute inset-0 flex flex-col items-center justify-center pt-0.5 px-1 pointer-events-none min-w-0">
-            <Lightbulb className="w-5 h-5 text-sky-600 mb-0.5 shrink-0" aria-hidden />
-            <span className="text-[8px] font-black text-sky-900 leading-tight text-center line-clamp-3 break-words max-w-[5.25rem]">
-              {fact.teaser}
-            </span>
-          </span>
-        </button>
+            <span className="h-2 w-2 shrink-0 rounded-full bg-[#2563eb]" />
+            <span className="h-1.5 w-1.5 shrink-0 translate-x-0.5 translate-y-3.5 rounded-full bg-[#2563eb]/85" />
+          </div>
+        </div>
       </div>
     </>
   );

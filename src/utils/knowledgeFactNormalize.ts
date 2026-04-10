@@ -23,7 +23,8 @@ export function normalizeKnowledgeFact(raw: unknown): KnowledgeFact | null {
   const sourceUrl = typeof o.sourceUrl === 'string' ? o.sourceUrl.trim() : '';
   if (!explanation || !sourceUrl) return null;
 
-  const isApproved = o.isApproved === true;
+  /** ברירת מחדל: מוצג בפורטל אלא אם סומן במפורש false (תאימות ל-JSON ישן) */
+  const isApproved = o.isApproved !== false;
   const createdAt = typeof o.createdAt === 'string' ? o.createdAt : undefined;
 
   return {
