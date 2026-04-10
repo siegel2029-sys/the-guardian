@@ -236,15 +236,18 @@ export type NavSection =
   | 'settings'
   | 'knowledge';
 
-/** עובדת "הידעת?" — מאושרת ע״י מטפל לפני הצגה למטופל */
+/** עובדת "הידעת?" — נוספה ידנית ע״י מטפל; מאושרת לפני הצגה למטופל */
 export interface KnowledgeFact {
   id: string;
+  /** טקסט קצר לבועה הצפה (עד 50 תווים) */
+  teaser: string;
+  /** כותרת במודאל המורחב */
   title: string;
   explanation: string;
-  /** קישור למאמר/מחקר מקצועי */
+  /** קישור למאמר/מקור */
   sourceUrl: string;
   isApproved: boolean;
-  source: 'seed' | 'ai';
+  source: 'manual';
   createdAt?: string;
 }
 

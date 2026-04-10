@@ -98,6 +98,7 @@ export async function pushPersistedStateToSupabase(
       {
         id: 'global',
         items: knowledgeItems,
+        deleted_seed_ids: [],
         updated_at: now,
       },
       { onConflict: 'id' }

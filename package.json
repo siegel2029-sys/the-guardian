@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "seed:knowledge": "tsx scripts/seed-knowledge-base.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
@@ -34,6 +35,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "tailwindcss": "^4.2.2",
+    "tsx": "^4.21.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.0",
     "vite": "^8.0.4"

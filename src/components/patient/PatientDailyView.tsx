@@ -107,8 +107,6 @@ export default function PatientDailyView() {
     patientDeclineAiSuggestion,
     markArticleAsRead,
     hasReadArticle,
-    recordArticleLinkOpened,
-    hasArticleLinkOpened,
     hasDailyLoginBonusPending,
     getPatientGear,
     purchaseGearItem,
@@ -1337,8 +1335,6 @@ export default function PatientDailyView() {
               markArticleAsRead(selectedPatient.id, articleId, opts)
             }
             hasReadArticle={hasReadArticle}
-            hasArticleLinkOpened={hasArticleLinkOpened}
-            onArticleLinkOpened={recordArticleLinkOpened}
           />
         )}
 

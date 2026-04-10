@@ -11,7 +11,7 @@ export function RewardLabel({
   className?: string;
 }) {
   const parts: string[] = [];
-  if (xp != null && xp > 0) parts.push(`+${xp} XP`);
+  if (xp != null && xp > 0) parts.push(`+${xp} נק׳`);
   if (coins != null && coins > 0) parts.push(`+${coins} מטבעות`);
   if (parts.length === 0) return null;
   return (

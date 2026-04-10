@@ -70,8 +70,11 @@ import {
 } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { pushPersistedStateToSupabase } from '../lib/supabaseSync';
-import { mergeKnowledgeFactsWithSeed } from '../data/knowledgeBaseSeed';
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/appKnowledgeRemote';
+import {
+  KNOWLEDGE_TEASER_MAX_CHARS,
+  normalizeKnowledgeFactsList,
+} from '../utils/knowledgeFactNormalize';
 
 export type { GearEquipSlot } from '../config/gearCatalog';
 
@@ -396,9 +399,14 @@ interface PatientContextValue {
 
   /** בסיס ידע "הידעת?" — אישור מטפל וסנכרון */
   knowledgeFacts: KnowledgeFact[];
-  approveKnowledgeFact: (factId: string) => void;
-  appendPendingKnowledgeFactsFromAi: (facts: Omit<KnowledgeFact, 'isApproved'>[]) => void;
-  /** טעינה מ־Supabase ומיזוג (מקור ענן אחרון גובר על שדות זהים) */
+  addManualKnowledgeFact: (input: {
+    teaser: string;
+    title: string;
+    explanation: string;
+    sourceUrl: string;
+  }) => void;
+  removeKnowledgeFact: (factId: string) => void;
+  /** טעינה מ־Supabase — מחליפה את רשימת העובדות מהענן */
   refreshKnowledgeBaseFromCloud: () => Promise<void>;
 }
 
@@ -582,9 +590,10 @@ export function PatientProvider({
     return out;
   });
 
-  const [knowledgeFacts, setKnowledgeFacts] = useState<KnowledgeFact[]>(() =>
-    mergeKnowledgeFactsWithSeed(readPersistedOnce().patient?.knowledgeFacts)
-  );
+  const [knowledgeFacts, setKnowledgeFacts] = useState<KnowledgeFact[]>(() => {
+    const persisted = readPersistedOnce().patient;
+    return normalizeKnowledgeFactsList(persisted?.knowledgeFacts);
+  });
 
   const [rewardFeedback, setRewardFeedback] = useState<PatientRewardFeedback | null>(null);
   const rewardFeedbackIdRef = useRef(0);
@@ -798,7 +807,7 @@ export function PatientProvider({
         nextGear[pid] = normalizePatientGear(v);
       }
       setPatientGearByPatientId(nextGear);
-      setKnowledgeFacts(mergeKnowledgeFactsWithSeed(data.knowledgeFacts));
+      setKnowledgeFacts(normalizeKnowledgeFactsList(data.knowledgeFacts));
       if (!restrictPatientSessionId) {
         setSelectedPatientId(data.selectedPatientId ?? '');
       }
@@ -1209,7 +1218,6 @@ export function PatientProvider({
       setPatientRewardMetaByPatientId((prev) => {
         const cur = prev[patientId] ?? defaultPatientRewardMeta();
         if (cur.readArticleIds.includes(articleId)) return prev;
-        if (!cur.articleLinkOpenedIds.includes(articleId)) return prev;
         granted = true;
         return {
           ...prev,
@@ -1225,7 +1233,7 @@ export function PatientProvider({
           p.id === patientId ? applyXpCoinsLevelUp(p, rxp, rcoins) : p
         )
       );
-      pushRewardFeedback(rxp, rcoins, undefined, 'מאמר נקרא');
+      pushRewardFeedback(rxp, rcoins, undefined, 'תוכן הידעת נקרא');
       return true;
     },
     [pushRewardFeedback]
@@ -1257,28 +1265,50 @@ export function PatientProvider({
     [patientRewardMetaByPatientId]
   );
 
-  const approveKnowledgeFact = useCallback((factId: string) => {
-    setKnowledgeFacts((prev) =>
-      mergeKnowledgeFactsWithSeed(
-        prev.map((f) => (f.id === factId ? { ...f, isApproved: true } : f))
-      )
-    );
+  const removeKnowledgeFact = useCallback((factId: string) => {
+    setKnowledgeFacts((prev) => prev.filter((f) => f.id !== factId));
   }, []);
 
-  const appendPendingKnowledgeFactsFromAi = useCallback(
-    (facts: Omit<KnowledgeFact, 'isApproved'>[]) => {
-      if (facts.length === 0) return;
-      const withPending: KnowledgeFact[] = facts.map((f) => ({ ...f, isApproved: false }));
-      setKnowledgeFacts((prev) => mergeKnowledgeFactsWithSeed([...prev, ...withPending]));
+  const addManualKnowledgeFact = useCallback(
+    (input: { teaser: string; title: string; explanation: string; sourceUrl: string }) => {
+      const title = input.title.trim();
+      const explanation = input.explanation.trim();
+      let teaser = input.teaser.trim().slice(0, KNOWLEDGE_TEASER_MAX_CHARS);
+      if (!teaser && title) teaser = title.slice(0, KNOWLEDGE_TEASER_MAX_CHARS);
+      let sourceUrl = input.sourceUrl.trim();
+      if (!title || !explanation || !sourceUrl) return;
+      if (!/^https?:\/\//i.test(sourceUrl)) {
+        sourceUrl = `https://${sourceUrl}`;
+      }
+      try {
+        const u = new URL(sourceUrl);
+        if (u.protocol !== 'https:' && u.protocol !== 'http:') return;
+        sourceUrl = u.toString();
+      } catch {
+        return;
+      }
+      const id = `dyk-m-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const row: KnowledgeFact = {
+        id,
+        teaser,
+        title,
+        explanation,
+        sourceUrl,
+        isApproved: true,
+        source: 'manual',
+        createdAt: new Date().toISOString(),
+      };
+      setKnowledgeFacts((prev) => [...prev, row]);
     },
     []
   );
 
   const refreshKnowledgeBaseFromCloud = useCallback(async () => {
     if (!supabase) return;
-    const remote = await fetchAppKnowledgeBaseFromSupabase(supabase);
-    if (!remote?.length) return;
-    setKnowledgeFacts((prev) => mergeKnowledgeFactsWithSeed([...prev, ...remote]));
+    const kbRow = await fetchAppKnowledgeBaseFromSupabase(supabase);
+    if (kbRow) {
+      setKnowledgeFacts(normalizeKnowledgeFactsList(kbRow.items));
+    }
   }, []);
 
   const hasDailyLoginBonusPending = useCallback(
@@ -2550,8 +2580,8 @@ export function PatientProvider({
         supabaseLastSavedAt,
         savePersistedStateToCloud,
         knowledgeFacts,
-        approveKnowledgeFact,
-        appendPendingKnowledgeFactsFromAi,
+        addManualKnowledgeFact,
+        removeKnowledgeFact,
         refreshKnowledgeBaseFromCloud,
       }}
     >
