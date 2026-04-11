@@ -1,189 +1,219 @@
 # Application Status Report — The Guardian
 
-**Report type:** Codebase audit (static analysis)  
+**Report type:** Codebase audit (static analysis, April 2026)  
 **Scope:** Repository as of audit date  
-**Audience:** Engineering leads and future maintainers  
+**Audience:** Engineering leads, product, and clinical stakeholders  
+**Artifact:** `PROJECT_STATUS_REPORT.md` (repository root)
 
 ---
 
-## 1. Tech Stack & Architecture
+## Current Status
 
-### Core runtime & tooling
+The Guardian is a **Hebrew-first, RTL** single-page application built with **React 19**, **Vite 8**, and **TypeScript ~6**. It delivers a **feature-rich clinical rehabilitation prototype**: therapist dashboard, patient portal with 3D anatomy, gamification, AI-assisted flows (Google Gemini via direct HTTP), heuristic safety screening, and **optional Supabase** persistence (manual push and selective reads—not a full real-time multi-tenant backend).
 
-- **Framework:** React 19 with **Vite 8** and **TypeScript** (~6.0).
-- **Routing:** `react-router-dom` v7 — three logical areas: `/login`, `/therapist` (dashboard), `/patient-portal` (patient-facing).
-- **Build:** `vite.config.ts` uses `@vitejs/plugin-react` and `@tailwindcss/vite`.
-
-### UI & visualization
-
-- **Styling:** **Tailwind CSS v4** (utility-first), plus inline gradients and RTL (`dir="rtl"`) for Hebrew-first UX.
-- **Icons:** `lucide-react`.
-- **Charts:** `recharts` for therapist-side analytics.
-- **3D:** `three`, `@react-three/fiber`, `@react-three/drei`, `@react-three/postprocessing`, `postprocessing` — used for the anatomical / body-map experience and related visuals.
-
-### Architectural pattern
-
-- **Single-page application (SPA)** with **no dedicated backend** in this repo.
-- **Global state:** Two large **React Context** providers — `AuthProvider` and `PatientProvider` — not Redux, Zustand, or TanStack Query.
-- **Persistence:** **Browser `localStorage`** for authentication snapshot (`authPersistence`) and full patient domain state (`patientPersistence`, versioned `PersistedPatientStateV1`). Cross-tab sync is partially handled via `storage` events on patient state.
-- **Domain logic:** Mixed between context methods (`PatientContext`), dedicated modules under `src/ai/`, `src/safety/`, `src/utils/`, and `src/body/`.
+**Production readiness:** Suitable for **demonstration and usability research**. It is **not** a validated clinical device, monitored alerting service, or HIPAA-grade deployment without substantial backend, identity, and audit work.
 
 ---
 
-## 2. Feature Inventory
+## 2. Clinical, Avatar, Companion & Security Specifications
 
-| Area | Description | Completion (assessment) |
-|------|-------------|-------------------------|
-| **Authentication & roles** | Therapist login (email-like identifier + password) vs patient login (portal ID + password). Session stored locally; patient first-login password change and login-ID change. Multi-therapist demo data. | **Demo-complete** — not production auth (no server, passwords in local storage). |
-| **Therapist dashboard** | Patient switcher, nav sections: clinical overview, clinical reports, history/analytics, messages/chat, settings. Header + sidebar layout. | **Feature-rich prototype** — flows work end-to-end in-browser. |
-| **Patient overview (therapist)** | Plan management modal, AI clinical intake wizard, red-flag handling, pending AI approvals, quick chat, deep-dive clinical tabs, smart analysis center, patient data management, portal credential display. | **High** for a demo; depends on mock + local state. |
-| **Patient portal (`PatientDailyView`)** | Daily rehab view: 3D body map, prescribed exercises, timers/modals, pain/effort reporting, self-care zones and strength tiers, gear store, Gordy companion/mascot and celebrations, Guardian assistant FAB, clinical month calendar, pain progress, heroes hall, emergency/red-flag modals, optional debug panel. | **High** — broad surface area implemented. |
-| **3D body map** | GLTF anatomy, picking/highlighting, injury highlights, therapist clinical cycling (primary/secondary), equipped gear attachments, fallbacks. | **High** — substantial Three.js integration. |
-| **Exercise library & plans** | Library data (`mockData`, `exerciseBank`, strength DB, video defaults). Per-patient `ExercisePlan` / `PatientExercise` with therapist edits. | **High** for in-app library; content is static TS data, not CMS/API. |
-| **Gamification** | XP, levels, coins, streaks (clinical calendar), rewards config, gear catalog (purchase/equip, streak shield, XP booster). | **High** within local rules. |
-| **AI-assisted flows** | Gemini-backed clinical intake, patient “Gordy” assistant, therapist clinical dive; rule/heuristic layers (`clinicalCommandInsight`, narratives, emergency screening). | **Functional when `VITE_GEMINI_API_KEY` is set**; degrades or errors when missing depending on call site. |
-| **Safety & red flags** | Keyword/heuristic emergency screening, safety alerts, exercise lock after certain events, `mailto:` clinical alerts, AI clinical messages to therapist inbox. | **Prototype-complete** — not a certified medical device; alerting is UX + email client, not monitored service. |
-| **AI suggestion pipeline** | Suggestions with statuses (`pending` → `awaiting_therapist` → `approved` / `declined`), patient agreement, therapist approval applying plan updates; Guardian reps-increase requests; assessment engine tied to therapist notes. | **High** for demo workflow. |
-| **Messaging** | Simulated patient ↔ therapist messages in shared local state; unread counts; AI clinical alerts as messages. | **Demo** — no real-time server. |
+The subsections below record **agreed clinical and product logic** for ongoing implementation. Where behavior is not yet fully reflected in code, the **Master Requirements Matrix** and **implementation notes** in each subsection remain the source of truth for delivery status.
 
-### 2.1. Gamification & Progression Mechanics
+### 2.0 Clinical Safety — Influencing Zone Warning
 
-*Source of truth in code:* `src/context/PatientContext.tsx` (reward application, streak shield, gear purchases), `src/config/patientRewards.ts`, `src/body/patientLevelXp.ts`, `src/utils/exerciseStreak.ts`, `src/config/gearCatalog.ts`, and patient UI in `src/components/patient/PatientDailyView.tsx` / Gordy components.
+**Definition.** An **influencing zone** (also referred to as a chain-reaction or adjacent-area risk) is any body region **Y** that is biomechanically or clinically linked to the region **X** where the patient is currently training. In the UI, **Y** may be **marked in red** (or equivalent high-salience state) on the anatomical map so that both patient and clinician understand that activity in **X** can load, shear, or sensitize **Y**.
 
-#### XP & leveling
+**Required logic.**
 
-- **Patient portal (authoritative rewards):** Each completed exercise is logged via **`submitExerciseReport`**. One completion produces **one** XP grant and **one** coin grant (there is **no separate lump-sum bonus** for finishing every exercise in a day; completing *N* exercises yields *N* grants). **Note:** A second report for the **same** `exerciseId` on the **same** clinical day still adds **XP and coins** again and increases **`sessionXp`**; **`completedIds`** for that day only stores the id once.
-- **Base XP per exercise:** `exerciseBaseXp(planXpReward) = max(exercise.xpReward from the plan, PATIENT_REWARDS.EXERCISE_COMPLETE.xp)` — i.e. at least **50** XP, or the plan’s `xpReward` if higher (`patientRewards.ts`).
-- **Streak multiplier** (applied to that base): `getStreakXpMultiplier(nextStreak)` — **×1** default, **×1.2** if streak ≥ 3, **×1.5** if streak ≥ 5 (`patientRewards.ts`). The streak value used is the one computed for the **first completion of the current clinical day** inside `submitExerciseReport` (see Streak System).
-- **XP Booster gear:** If `xp_booster` is **owned and equipped** as the passive (`equippedPassiveId === 'xp_booster'`), final XP is **`round(round(base × streakMult) × 1.15)`** (`PatientContext.tsx`, constant `XP_BOOSTER_MULT = 1.15`).
-- **Therapist dashboard `toggleExercise`:** Only updates **`DailySession`** (`completedIds` / `sessionXp` on the session row). It does **not** run the patient XP/coin/streak formulas and does **not** trigger `pushRewardFeedback` — treat it as operational toggling, not gamification.
+1. **Mapping.** The system maintains a deterministic graph of influencing relationships (e.g. hip → knee, lumbar → hip) consistent with intake, AI-assisted intake (`chainReactionZoneJoints` in `geminiClinicalIntake.ts`), and `chainReactionZones.ts`. Primary clinical focus and influencing zones must be visually distinguishable (primary vs **red** influencing markers).
 
-- **Level-up formula:** Not `level × 100`. XP required to go from level **L** to **L+1** (for L = 1…99) is:
+2. **During / after training in X.** When the patient completes or reports exertion related to **X**, the runtime compares **pain in zone Y** (any **red** influencing region) against an appropriate baseline (e.g. pre-session value, rolling clinical-day average, or last stable reading—exact baseline to be frozen in implementation).
 
-  `min(26_000, max(280, floor(440 × 1.041^(L − 1))))`
+3. **Escalation — AI + therapist + session stop.** If pain reported for **any influencing zone Y** **increases** relative to that baseline after or during work in **X**, the system **must**:
+   - **Notify the therapist** through the clinical inbox / safety alert channel (and, when integrated, the approved real-time channel—e.g. secure messaging or WhatsApp Business—per deployment policy);
+   - **Record** a structured safety event (tier, zones X/Y, delta pain, timestamp, clinical day);
+   - **Stop the session** from the patient’s perspective: block further prescribed exercises for that clinical session (or equivalent **exercise safety lock** / portal lock) until a therapist **explicitly clears** the lock after review.
 
-  (`xpRequiredToReachNextLevel` in `patientLevelXp.ts`). At level 100, further level-ups are effectively capped (very large threshold). **`applyXpCoinsLevelUp`** in `PatientContext` adds XP and coins, then repeatedly subtracts `xpForNextLevel` while `xp ≥ xpForNextLevel` and `level < PATIENT_MAX_LEVEL` (100).
+**AI role.** The AI layer is responsible for **classifying** the situation (e.g. confirming that the pain change is tied to an influencing-zone pattern rather than noise), **enriching** the therapist notification with concise Hebrew clinical context, and **recommending** hold vs modify-plan actions. **Hard stops** (session halt, lock) must remain **deterministic** in application logic so they do not depend solely on model output.
 
-#### Streak system
-
-- **Definition used for display and history (`exerciseStreak.ts`):** A **daily streak** is the count of **consecutive clinical days** (using `clinicalCalendar`), ending at **today** if today has at least one completed exercise, otherwise ending at **yesterday** — same “fitness app” pattern as in `computeStreakForPatient`. A day counts if **`DailyHistoryEntry.exercisesCompleted > 0`** or **`sessionHistory`** has that date with `exercisesCompleted > 0`.
-- **Definition used for XP multiplier on first daily completion (`PatientContext.submitExerciseReport`):** On the **first** exercise completion of the clinical day (`firstOfDay`), let `last = patient.lastSessionDate`. Then:
-  - If `last === clinicalYesterday` → streak becomes **`currentStreak + 1`**.
-  - If `last === clinicalToday` → streak **unchanged** (additional exercises the same day).
-  - If `last === clinicalTwoDaysAgo` **and** `streakShieldCharges > 0` → streak becomes **`currentStreak + 1`** and **one charge is consumed** (`consumeStreakShield`).
-  - Else if `last !== clinicalToday` (gap of more than one day without shield, or two days with no charge) → streak **resets to 1**.
-- **Persistence:** `PatientContext` also syncs `currentStreak` / `longestStreak` from `computeStreakForPatient` + `dailyHistoryByPatient` in an effect so stored patients stay aligned with calendar history.
-
-##### Streak Shield (consumable)
-
-- **Catalog:** `streak_shield` in `gearCatalog.ts` — **180 coins**, **`xpRequired: 0`** (no XP gate). **`equipSlot: 'none'`** (not worn; it increments **`streakShieldCharges`**).
-- **Purchase:** In `purchaseGearItem`, buying **streak_shield** deducts coins and adds **+1** to **`streakShieldCharges`** (can be bought multiple times to stack charges).
-- **Effect:** Only on the **first** completion of a clinical day, if the patient would otherwise break the chain (last activity was **two clinical days ago**), a charge **bridges** to **`currentStreak + 1`** instead of resetting to 1; **one charge is removed** after use.
-
-#### Currency (coins)
-
-- **Exercise completion:** **`PATIENT_REWARDS.EXERCISE_COMPLETE.coins` = 10** per **`submitExerciseReport`** call — **flat**, not scaled by streak multiplier (streak affects **XP only**).
-- **Articles (“Did You Know”):** **`ARTICLE_READ` → 5 coins** (and 20 XP), once per `articleId`, only after link opened + reader confirmation (`markArticleAsRead` in `PatientContext`).
-- **First login of clinical day:** **`FIRST_LOGIN_OF_DAY` → 10 XP, 0 coins** (`claimDailyLoginBonusIfNeeded`).
-- **Other:** `grantPatientCoins` can add arbitrary amounts (e.g. learning bonuses). **Gear** is bought with coins (and some items require minimum current XP — see Gear Store).
-
-#### Gear store
-
-- **Kinds (`GearKind`):** **`visual`** (cosmetics) vs **`functional`** (`xp_booster`, `streak_shield`).
-- **Equippable vs consumable (by `equipSlot` + purchase logic):**
-  - **Equippable cosmetics:** `equipSlot` is one of `skin | aura | hands | torso | chest | feet | cape`. Purchase adds `id` to **`ownedGearIds`**; **`equipGearItem`** requires ownership and sets the matching slot on `PatientGearState`.
-  - **Functional passive:** `xp_booster` uses **`equipSlot: 'functional_passive'`** and **`equippedPassiveId`** (still must be owned).
-  - **Consumable:** **`streak_shield`** — **`equipSlot: 'none'`**; purchase increments **`streakShieldCharges`** instead of a normal equip flow.
-- **Pricing tiers (`GearTier` in `gearCatalog.ts`):**
-  - **`low`:** 55–95 coins, XP gates 0–100 (e.g. aura_crimson 55/0, trail_sparks 95/100).
-  - **`functional`:** `xp_booster` 100 coins / 150 XP min; `streak_shield` 180 coins / 0 XP.
-  - **`elite`:** 300–500 coins, XP gates 200–400 (e.g. gold_skin 500/400, clinical_cape 450/350).
-- **Purchase rules (`purchaseGearItem`):** Must meet **`patient.coins ≥ priceCoins`** and **`patient.xp ≥ xpRequired`** (except shield path which only checks coins for that item). **`streak_shield`** bypasses normal “add to owned list” for repeat buys; other items return **`already_owned`** if already in **`ownedGearIds`**.
-
-#### Gordy’s role (mascot feedback)
-
-- **Reward events (XP / coins / streak bonus XP):** `pushRewardFeedback` in `PatientContext` sets **`rewardFeedback`**. **`PatientDailyView`** reacts in a `useEffect` on **`rewardFeedback.id`**: triggers **coin kick** animation, and if any of **`xpAdded`**, **`coinsAdded`**, or **`streakBonusXp`** is positive, increments **`gordyVictoryBurst`** and passes amounts into **`GordyVictorySequence`** (short victory UI with Gordy **joy** mood). Feedback is cleared after ~2.4s.
-- **Halfway encouragement:** When **≥ half** of today’s **mission** items (rehab + selected self-care rows) are done but not all, **`GordyCompanion`** shows a dismissible bubble (“חצי דרך…”) unless dismissed for that patient/day in **`sessionStorage`**.
-- **Full “session” celebration (all missions done):** When **`completedMissionCount === totalMissions`**, once per patient/clinical day ( **`sessionStorage`** + in-memory dedupe), **`GordyFullScreenCelebration`** runs. This is **purely celebratory UI** — it does **not** grant extra XP or coins by itself.
-- **Safety / red flag:** **`GordyCompanion`** switches to **concerned** mood and safety copy when exercise safety lock or red-flag portal lock is active (`GordyCompanion.tsx`).
+**Implementation note.** Chain-reaction heuristics and high-pain paths after self-care / strength zones exist in `PatientContext.tsx` with `mailto` and in-app alerts; full parity with the **red-zone pain-increase → mandatory session stop + AI-classified therapist alert** contract above is a **delivery target**, not guaranteed in every edge case in the current build.
 
 ---
 
-## 3. Data Model & State
+### 2.1 Dynamic Limp Scale — Pain–Limp Scale
 
-### Primary types (`src/types/index.ts`)
+**Clinical intent.** Walking is represented as a blend between a **normal gait** animation and an **antalgic (limp-predominant) gait** animation. Reported **pain intensity (VAS 0–10)** drives how much of the limp animation is visible, modeling **pain-avoidant, reduced weight-bearing** behavior consistent with **antalgic gait** in clinical teaching.
 
-- **`Therapist`**, **`Patient`** (analytics, body areas, flags, coins, XP, streaks, etc.).
-- **`BodyArea`** union + **`bodyAreaLabels`** — drives maps, plans, and UI copy.
-- **`Exercise`**, **`PatientExercise`**, **`ExercisePlan`**, **`DailySession`**, **`DailyHistoryEntry`**, **`ClinicalDayStatus`**.
-- **`Message`**, **`SafetyAlert`**, **`AiSuggestion`** (+ status/source enums).
-- **`SelfCareSessionReport`**, **`PatientExerciseFinishReport`**, **`SelfCareExercise`**.
+**Pain–limp intensity (VAS-driven blend).**
 
-### Where state lives
+- Let \( \text{VAS} \in [0,10] \). Define a normalized **limp weight** \( w = \text{VAS} / 10 \) (e.g. **VAS 8/10 → \( w = 0.8 \)** → **80% limp intensity** in the blend).
+- At runtime, the avatar’s locomotion pose is computed as a **blend of two animation states** (or two procedural gait generators):
+  - **Normal:** symmetric cadence, neutral hip/knee moments, bilateral weight acceptance.
+  - **Limp:** reduced stance time / reduced vertical reaction on the affected side, increased lateral trunk moment, abbreviated push-off—tuned per **primary side** and **primary body area** from intake.
+- **Blending function:** use linear cross-fade of clip weights or equivalent **1D blend tree** \( \text{Pose} = (1-w)\cdot\text{Normal} + w\cdot\text{Limp} \) (with optional easing or clinical caps—e.g. cap \( w \) at 0.95 below VAS 10—to avoid degenerate poses). The **Pain–Limp Scale** is therefore **directly readable** from VAS for demo and education.
 
-- **`AuthContext`:** Current session (`AuthSessionV2`), therapist profile, patient session id, login errors, profile/password helpers. Backed by **`authPersistence`** (`AuthSnapshotV2`, patient account map, therapist records).
-- **`PatientContext`:** Single source of truth for patients, plans, sessions, messages, AI suggestions, safety, self-care, gear, rewards metadata, and most mutations. Auto-saves via **`savePersistedPatientState`** to `localStorage`.
+**Strength, ROM, and antalgic weight-bearing.**
 
-### Data flow (high level)
+- **ROM deficit** (e.g. limited knee flexion or hip extension from intake, expressed in degrees) **modulates** how much load the patient can accept on the affected limb during stance: smaller usable ROM typically **increases** compensatory demand on the contralateral limb and **amplifies** visible asymmetry for a given VAS (the limp clip contribution may be scaled by a **ROM factor** derived from measured vs normative range).
+- **Muscle strength** (manual muscle test grade or isometric score from intake) **modulates weight-bearing confidence**: lower strength on the affected side increases **offloading** behavior—implemented as an additional multiplier on limp visibility or stance-time asymmetry **independent of** raw VAS, then **clamped** with VAS so pain remains the primary patient-reported driver.
+- Together, these produce a **clinically interpretable antalgic gait model**: VAS sets baseline limp blend; ROM and strength **bias** timing and magnitude of reduced weight-bearing and compensatory motion.
 
-1. App bootstraps from **`readPersistedOnce()`** (bootstrap cache) into React state.  
-2. User actions update context → **`useEffect`** persists patient bundle; auth updates merge into auth snapshot.  
-3. Optional cross-tab refresh when **`guardian-patient-state-v1`** changes.  
-4. No REST/GraphQL layer; **`sendDataToTherapist`** is explicitly a **placeholder** (`console.info` only).
+**Implementation note.** The current codebase uses a procedural **walk-in-place** without VAS-weighted dual-clip blending; **Three.js** integration should attach this spec to the rig’s animation mixer or procedural leg phase offsets, with **per-bone** limits described in §2.2.
 
 ---
 
-## 4. User Interface & UX
+### 2.2 Intake-to-Bone Mapping
 
-### Main views
+**Objective.** Quantitative intake (ROM in degrees, strength grades, pain diagrams) maps **directly** to the **Three.js skeleton** so the avatar’s default pose and allowable motion reflect the individual patient.
 
-- **`LoginPage`:** Role-distinguished login (therapist email vs patient ID).
-- **`DashboardLayout`:** Therapist shell — **`PatientOverview`**, **`ClinicalReportsPanel`**, **`HistoryAnalyticsPanel`**, **`MessagesPanel`**, **`TherapistSettingsPanel`** by `NavSection`.
-- **`PatientDailyView`:** Full patient portal (body map, exercises, gamification, assistant, modals).
+**ROM → bone constraints.**
 
-### Design system
+- Intake records joint-specific ROM (e.g. **knee flexion 90°**). For each driven DOF, the engine sets **hard or soft limits** on the corresponding bone’s Euler or quaternion channel:
+  - Example: knee flexion \( \theta_{\max} = 90° \) → convert to radians and set **`maxRotation` / `minRotation`** (or equivalent custom `clampJoint` in the animation loop) on the knee flexion axis so passive visualization, guided exercise ghosts, and overpressure warnings never exceed documented range without an explicit therapist override.
+- **Primary vs influencing zones:** primary injury drives the **strictest** limits; influencing zones may use relaxed or coupled limits (e.g. hip ROM caps when lumbar is primary) per clinical ruleset.
 
-- **No third-party component library** (e.g. no MUI/Chakra). Consistent **Tailwind** utility patterns, **Lucide** icons, and **custom components** under `src/components/` (dashboard, patient, body-map, ui).
-- **Hebrew RTL** is first-class in layout and copy.
+**Visual feedback at pain thresholds.**
 
----
+- **Facial / affect:** at configured VAS thresholds (e.g. ≥4 “discomfort”, ≥7 “severe”), drive **facial expression** via morph targets, substitute simplified **emoji-style** face on the mascot, or **screen-space** vignette—not only material tint on the body.
+- **Hand-to-area contact:** when VAS exceeds a threshold and a **primary pain region** is defined, trigger an **IK or keyed pose** that brings the hand toward that surface region (within anatomical plausibility), reinforcing **patient-reported localization** for education and therapist review.
 
-## 5. External Integrations
-
-| Integration | Role |
-|-------------|------|
-| **Google Gemini (Generative Language API)** | Used via **`src/ai/geminiClient.ts`** (`generateContent`-style HTTP calls). Config: **`VITE_GEMINI_API_KEY`**, optional **`VITE_GEMINI_MODEL`**. |
-| **Email** | **`mailto:`** links for clinical alerts (`clinicalAlertEmail.ts`); optional override **`VITE_CLINICAL_ALERT_EMAIL`**. |
-| **npm `@google/generative-ai`** | Declared in **`package.json`** but **not referenced in `src/`** — Gemini access is implemented with direct HTTP in `geminiClient.ts`. |
-
-**Not present in codebase:** Supabase, Firebase, Postgres, dedicated auth provider (Auth0, Clerk), or application backend API.
+**Implementation note.** Today, intake maps strongly to **`BodyArea`** highlights and AI text; **per-bone `maxRotation` from degrees in intake** and **IK hand contact** are **target behaviors** for the next avatar milestone.
 
 ---
 
-## 6. Technical Debt & Red Flags
+### 2.3 Gordy’s Evolution — Hype Man & 360° Intro
 
-- **Secrets in the browser:** `VITE_*` variables are exposed to the client bundle. Gemini calls from the SPA mean the API key is **not suitable for production** without a server-side proxy or constrained key policies.
-- **Demo security model:** Therapist and patient credentials and sessions live in **`localStorage`**; passwords are compared in plain form in the demo path — acceptable only for prototypes.
-- **Monolithic `PatientContext`:** Very large provider file mixing persistence, gamification, safety, AI hooks, and UI-facing API — harder to test, review, and evolve.
-- **Placeholder analytics pipe:** Exercise finish reports log to console only; therapist “analytics” is local state, not a server aggregate.
-- **Dependency hygiene:** **`@google/generative-ai`** appears **unused**; consider removing or migrating to it consistently.
-- **Medical / regulatory:** Rich clinical UX and copy; implementation is **software demo quality**, not validated clinical workflow or monitored alerting.
-- **Error handling:** Gemini paths have retry/rate-limit awareness in `geminiClient`, but the app overall has **no global error boundary** or unified API error UX pattern (many flows are optimistic local updates).
-- **Naming / paths:** Occasional duplicate or oddly pathed files in the tree (e.g. mixed path separators in tooling listings) — worth normalizing to avoid editor confusion.
+**Roles beyond safety and rewards.**
+
+- **Hype Man / progression messaging:** Gordy surfaces **anticipation copy** tied to the RPG calendar—e.g. *“2 days until Pelvic Dance unlocks”*—driven by server or local **unlock ETA** (clinical day at 04:00, streak gates, level thresholds). Messages must be **non-clinical in tone** but **clinically safe** (no promise of cure; reinforce adherence and upcoming milestones only).
+- **360° intro sequence:** On first session of a clinical day or after major progression events, play Gordy’s **hero intro**: full **Y-axis spin** (documented in `GordyFullScreenCelebration` / `index.css` patterns) plus branded flourish, before returning to the standard companion loop. This is distinct from the **mission-complete** confetti sequence but may reuse the same rotation choreography.
+
+**Implementation note.** Victory confetti + 360° celebration **[V]**; **Hype Man countdown strings** and **dedicated daily intro gate** align with skill-unlock roadmap **[WIP]**.
 
 ---
 
-## 7. Immediate Next Steps (Top 3)
+### 2.4 Security & Confidentiality Policy (UI)
 
-1. **Introduce a real backend and auth** — Replace local credential checks with a proper identity layer; persist patients, plans, and messages server-side (or BaaS) so the product is multi-device and auditable.
+**Mandatory warning (copy).** The following line **must** appear on **Login** and on **Settings** surfaces (therapist **and** patient settings modals/pages), visible without scrolling when reasonable:
 
-2. **Proxy Gemini (or all AI) through a server** — Keep API keys off the client; enforce quotas, logging, and optional content filtering; align with security and licensing expectations.
+> **Do not enter personal data for security and medical confidentiality.**
 
-3. **Split domain logic out of `PatientContext`** — Extract modules (e.g. exercises, safety, rewards, persistence adapters) and add targeted tests for streak rules, suggestion state machine, and clinical date boundaries — before scaling features further.
+For Hebrew-first deployment, an authoritative Hebrew equivalent should be approved by clinical/legal stakeholders and displayed **with equal prominence**.
+
+**Username / login identifier policy.**
+
+- **Only the treating therapist (or delegated clinic admin)** may **assign or change** patient **usernames / portal login identifiers** in production workflows. Patients use credentials issued by the clinic; **self-service identifier changes** are **not** permitted under this policy (even if password updates are allowed).
+
+**Implementation note.** As of the audit date, the patient portal **can** offer login-ID change behind password verification (`PatientPortalSettingsModal`, `changePatientLoginId`); aligning UI with **therapist-only identifier changes** requires removing or gating that path and enforcing the same rule in any future API.
 
 ---
 
-## 8. Document Control
+## Master Requirements Matrix
 
-- **Artifact:** `PROJECT_STATUS_REPORT.md` (repository root).  
-- **Maintenance:** Regenerate or amend after major architectural changes (backend introduction, state library change, or auth overhaul).
+Legend: **[V]** Implemented · **[WIP]** Partially implemented or demo-grade · **[ ]** Missing or not started
+
+### Multi-tenant infrastructure
+
+| Requirement | Status | Evidence / gap |
+|-------------|--------|----------------|
+| Login for **separate therapists** (distinct sessions) | **[V]** | `AuthContext`, `authPersistence`, demo therapists A/B; dashboard uses `PatientProvider` with `therapistScopeId` to filter `patients` by `therapistId` (`App.tsx`, `PatientContext.tsx`). |
+| **Patient** portal login (isolated to one patient) | **[V]** | `restrictPatientSessionId` limits visible patient to the logged-in account. |
+| **Password reset** (self-service, email/SMS, or admin) | **[ ]** | Login shows “שכחת סיסמה?” which toggles **demo credentials only** (`LoginPage.tsx`)—no reset flow. |
+| **Patient data isolation** (server-enforced, per clinic) | **[WIP]** | UI scoping is implemented; all data still lives in **shared browser `localStorage`** for the origin. Supabase push is **manual** and not row-level security–complete for multi-clinic production. |
+| **Confidentiality warning + username policy** (Login / Settings) | **[WIP]** | **Policy:** §2.4 — mandatory **“Do not enter personal data…”** line; **therapist-only** patient login identifier changes. **Gap:** warning string **not** yet in `LoginPage` / settings components; patient **can** still change login ID in portal settings (`PatientPortalSettingsModal`). |
+
+### Clinical avatar engine
+
+| Requirement | Status | Evidence / gap |
+|-------------|--------|----------------|
+| **Intake-based constraints** (ROM/strength → skeletal / bone mapping) | **[WIP]** | **Target:** §2.2 — ROM (e.g. 90° knee) → **Three.js** joint limits (`maxRotation` / clamp). **Current:** intake maps to **`BodyArea`** and highlights; `clinicalBoneIndices` / picking tie picks to anatomy; **no** per-DOF limits from intake degrees yet. |
+| **Dynamic limp / pain scale** (animation **blending** from VAS) | **[WIP]** | **Target:** §2.1 — **Pain–Limp Scale:** blend **Normal** vs **Limp** with \( w=\text{VAS}/10 \) (e.g. 8/10 → 80% limp), ROM/strength **modulate antalgic weight-bearing**. **Current:** procedural **walk-in-place** + `painByArea` visuals only (`AnatomyModel`). |
+| **Real-time pain reflection** (facial expression, hand-to-area at thresholds) | **[WIP]** | **Target:** §2.2 — thresholds → facial / IK **hand-to-area**. **Current:** Gordy moods + area tint; **no** 3D facial rig or IK contact on avatar. |
+
+### AI and safety
+
+| Requirement | Status | Evidence / gap |
+|-------------|--------|----------------|
+| **WhatsApp** red-flag alerts | **[WIP]** | `setPatientContactWhatsapp` stores contact text; **alerts use `mailto:`** and in-app messages (`clinicalAlertEmail.ts`, `PatientContext`). UI copy references push-style messaging in places (e.g. `RedFlagAlert`) without an actual WhatsApp Business API integration. |
+| **AI intake analysis** including **differential diagnosis** | **[V]** * | `geminiClinicalIntake.ts` requests and parses `differentialDiagnosis` (up to three Hebrew strings) plus primary zone and chain joints. *Requires `VITE_GEMINI_API_KEY` (and optional model env). |
+| **“Influencing zone”** (red-zone pain increase → alert + session stop) | **[WIP]** | **Target:** §2.0 — training in **X**; if pain in **red** influencing **Y** **increases**, **AI + therapist alert** and **session stop** / lock. **Current:** `chainReactionZones.ts`, AI `chainReactionZoneJoints`, `submitExerciseReport` path with **mailto + safety messaging** and related locks; **full** red-zone delta + mandatory AI classification parity per §2.0 not verified for all paths. |
+
+### RPG economy and gamification
+
+| Requirement | Status | Evidence / gap |
+|-------------|--------|----------------|
+| **XP / coins** sync (authoritative, multi-device) | **[WIP]** | **Single source of truth:** local state + `localStorage`. `submitExerciseReport` applies XP/coins/streak rules (`PatientContext`, `gamification-utils`, `patientRewards`). Supabase **does not** continuously sync economy fields in the audited paths. |
+| **Item shop** (gear + **pets**) | **[WIP]** | **`GearStoreArmory`**, `gearCatalog.ts` (skins, auras, functional `xp_booster`, consumable `streak_shield`). **No pet companion SKU** or pet progression in catalog. |
+| **Gordy** (**360° intro**, **confetti**, **Hype Man**) | **[WIP]** | **[V]** Mission-complete **confetti + 360° spin** (`GordyFullScreenCelebration`, `index.css`). **Target (§2.3):** **Hype Man** countdown copy (e.g. days until **Pelvic Dance** unlock) + **dedicated daily intro** using same rotation idiom. Companion bubble, victory sequences, safety mood already **[V]**. |
+| **Skill unlocking** (e.g. Pelvic Dance) | **[ ]** | Exercises such as pelvic tilt exist in **`EXERCISE_LIBRARY`** (`mockData.ts`); **no** gated “skill unlock” progression tied to level/quests (feeds §2.3 messaging once built). |
+
+### UI / UX audit
+
+| Requirement | Status | Evidence / gap |
+|-------------|--------|----------------|
+| **“End of day”** control placement | **[WIP]** | Therapist **`ExercisesPanel`**: “✓ סיום יום – סמן הכל כהושלם” after exercise list (marks completions via `toggleExercise` **without** full patient gamification pipeline). **Patient portal** has no equivalent single control; progress is per exercise/mission. |
+| **3-tier pain report** (Current / Average / Area average) | **[WIP]** | `getPainMetricsFromReports` exposes today / 7d / last-known (`patientPainMetrics.ts`) for AI/command logic. Portal home shows **overall average + last report**; **`PatientPainProgressSheet`** adds timeline (daily pain avg) and **per-area averages**—not a single labeled “three-tier” clinical strip. |
+| **Anatomical body map** (visual **evolution** of muscles / vessels) | **[WIP]** | 3D map with clinical/self-care highlights, gear attachments, optional **`segmentGrowthMul`** (e.g. **Heroes Hall** fictional profiles). **No** time-based muscle/vessel remodeling from adherence or physiology data for the live patient avatar. |
+| **Social “Heroes Hall”** | **[V]** | `PatientHeroesHallTab`, `fictionalHeroesHall.ts`, route `/patient-portal/heroes`—curated fictional profiles, not live peer leaderboard. |
+
+### Data persistence and clinical day
+
+| Requirement | Status | Evidence / gap |
+|-------------|--------|----------------|
+| **localStorage** vs **database** | **[WIP]** | Primary: `patientPersistence` / `authPersistence`. **Supabase:** schema under `supabase/migrations/`, client `lib/supabase.ts`, **manual** “save to cloud” from therapist settings / debug, auto-push hooks after some session updates, knowledge base refresh, 7-day compliance chart optional remote read. **No** full bidirectional sync or auth-bound RLS story in app layer. |
+| **New day at 04:00** | **[V]** | `getClinicalDate` in `clinicalCalendar.ts` (local browser clock); `clinicalToday` in `PatientContext`; UI note in `ClinicalMonthCalendar`. |
+
+---
+
+## Completed Milestones (engineering)
+
+- End-to-end **therapist dashboard** and **patient portal** with RTL Hebrew UX, routing, and role separation.
+- **3D anatomy** experience (GLTF, picking, clinical/secondary highlights, self-care zones, gear attachments, injury highlights).
+- **Clinical day boundary** at **04:00** local time, streak and calendar semantics aligned to that definition.
+- **Gamification loop** in the patient portal: XP, levels, coins, streak multipliers, streak shield consumable, gear store, Gordy feedback and celebrations.
+- **Safety layer:** keyword/heuristic emergency screening, red-flag flows, exercise safety lock, chain-reaction high-pain handling, clinical `mailto` alerts.
+- **AI-assisted clinical intake** (Gemini) with structured output including **differential diagnosis** and **chain-reaction joints** when API key is configured.
+- **Supabase groundwork:** migrations, push helper (`supabaseSync.ts`), optional analytics/knowledge reads.
+
+---
+
+## Prioritized Next Steps (gaps)
+
+1. **Real identity and tenant isolation** — Server-side auth, per-tenant data stores, and enforced isolation (replace shared-`localStorage` demo model). Align Supabase RLS and therapist/patient JWT claims before any pilot with PHI.
+
+2. **Security & confidentiality UI (§2.4)** — Add the mandatory **“Do not enter personal data for security and medical confidentiality.”** line to **Login** and **Settings** (therapist + patient). Remove or disable **patient self-service login-ID change** so **only therapists** (or clinic admin) assign identifiers, matching policy.
+
+3. **Password reset and credential lifecycle** — Replace the demo hint with a secure reset channel (email magic link or OIDC provider) and audit patient login-id change flows under server authority.
+
+4. **Alerting channel honesty and integration** — Either implement **WhatsApp Business / SMS** webhooks with delivery receipts or remove push/WhatsApp implications from copy; keep `mailto` as explicit fallback only.
+
+5. **Proxy Gemini and secrets** — Move generative calls to a backend; rotate keys; never ship unconstrained `VITE_*` keys for production.
+
+6. **Avatar clinical fidelity (§2.1–2.2)** — Implement **Pain–Limp** dual-animation blend (\(w=\text{VAS}/10\)), ROM/strength multipliers for antalgic weight-bearing, **intake-driven joint limits** (`maxRotation`), and threshold-driven **facial / hand-to-area** feedback; validate with clinical advisors.
+
+7. **Influencing zone contract (§2.0)** — Ensure **red-zone** pain **increase** after training in **X** always yields **therapist notification**, **structured safety record**, and **session stop** until therapist release; keep deterministic locks independent of model-only output.
+
+8. **Economy and persistence contract** — Define whether XP/coins are server-authoritative; if yes, migrate grants to API + idempotent events; extend Supabase schema and sync beyond manual push.
+
+9. **Product gaps** — Pet shop / companions, skill-gated content (e.g. Pelvic Dance) + **Gordy Hype Man** countdowns (§2.3), and a dedicated **patient** “end of session” control if workflow requires it; align with clinical protocol.
+
+10. **Testing and decomposition** — Extract pure functions from `PatientContext` for streak, suggestions, influencing-zone baselines, and clinical date rules; add automated tests before further feature growth.
+
+---
+
+## Reference: Core Stack (concise)
+
+| Layer | Choice |
+|--------|--------|
+| UI | React 19, Vite 8, TypeScript, Tailwind v4, Lucide, Recharts |
+| 3D | three, @react-three/fiber, drei, postprocessing |
+| Routing | react-router-dom v7 |
+| State | React Context (`AuthProvider`, `PatientProvider`) |
+| Persistence | `localStorage` + optional `@supabase/supabase-js` |
+| AI | `src/ai/geminiClient.ts` + feature modules (no `@google/generative-ai` package in current `package.json`) |
+
+---
+
+## Document Control
+
+**Maintenance:** Regenerate or amend after major changes (production auth, full Supabase sync, **§2.0–2.4** clinical/security spec changes, avatar animation implementation, Gordy progression messaging, or new alerting integrations).
