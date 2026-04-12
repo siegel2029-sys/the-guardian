@@ -84,10 +84,13 @@ export default function GordyFullScreenCelebration({ burstKey, onClose }: Props)
       </div>
 
       <div className="relative z-[1] flex flex-col items-center pointer-events-none">
-        <div className="gordy-hero-spin-stage" style={{ perspective: '920px' }}>
-          <div className="gordy-hero-spin-inner flex items-center justify-center w-28 h-28 sm:w-36 sm:h-36">
-            <GordyMascotIcon mood="joy" className="w-28 h-28 sm:w-36 sm:h-36 drop-shadow-2xl" />
-          </div>
+        <div className="flex items-center justify-center w-28 h-28 sm:w-36 sm:h-36 drop-shadow-2xl">
+          <GordyMascotIcon
+            mood="joy"
+            animationName="Celebrate"
+            className="w-28 h-28 sm:w-36 sm:h-36"
+            celebrateBurstKey={burstKey}
+          />
         </div>
         <p
           id="gordy-celebrate-title"

@@ -406,6 +406,13 @@ export default function PatientDailyView() {
     !reportFor &&
     !exerciseVideoModal;
 
+  const gordyCompanionContextAnimation: string | undefined =
+    portalTab === 'activity'
+      ? 'Exercise1'
+      : portalTab === 'home' || portalTab === 'heroes'
+        ? 'Wave'
+        : undefined;
+
   const pushExerciseCompleteMilestone = () => {
     setGordyTransient({
       key: `like_${Date.now()}`,
@@ -1239,6 +1246,8 @@ export default function PatientDailyView() {
         exerciseSafetyLocked={exerciseSafetyLocked}
         redFlagPortalLock={redFlagPortalLock}
         transient={gordyTransient}
+        celebrateBurstKey={gordyVictoryBurst}
+        contextAnimationName={gordyCompanionContextAnimation}
       />
 
       {sessionCelebrationBurst > 0 && (

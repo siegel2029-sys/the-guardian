@@ -8,12 +8,17 @@ export type GordyTransientAppearance = {
 };
 
 type Props = {
-  /** מסך בית/אימונים בלי מודאלים חוסמים */
   eligible: boolean;
   exerciseSafetyLocked: boolean;
   redFlagPortalLock: boolean;
-  /** סיום תרגיל, דיווח יומי, או זיהוי מילות מפתח חירום בצ׳אט */
   transient: GordyTransientAppearance | null;
+  /** Increment when XP / rewards fire so the 3D mascot can celebrate in-frame. */
+  celebrateBurstKey?: number;
+  /**
+   * Tab / screen context for default clips (e.g. `Exercise1` on workouts). Overridden by transient
+   * bubble moods when those are active.
+   */
+  contextAnimationName?: string;
 };
 
 /**
@@ -24,6 +29,8 @@ export default function GordyCompanion({
   exerciseSafetyLocked,
   redFlagPortalLock,
   transient,
+  celebrateBurstKey = 0,
+  contextAnimationName,
 }: Props) {
   const protectiveSafety = exerciseSafetyLocked;
   const protectiveRed = redFlagPortalLock && !exerciseSafetyLocked;
@@ -59,6 +66,17 @@ export default function GordyCompanion({
   }
 
   const showBubble = bubble != null;
+
+  let resolvedAnimation: string | undefined;
+  if (protectiveSafety || protectiveRed) {
+    resolvedAnimation = 'Idle';
+  } else if (transientLive && transient) {
+    if (transient.mood === 'joy') resolvedAnimation = 'Wave';
+    else if (transient.mood === 'like') resolvedAnimation = 'Like';
+    else resolvedAnimation = 'Idle';
+  } else {
+    resolvedAnimation = contextAnimationName;
+  }
 
   const animKey = [
     protectiveSafety ? 's1' : '',
@@ -110,16 +128,26 @@ export default function GordyCompanion({
       )}
 
       <div
-        className={`pointer-events-none flex items-center justify-center rounded-3xl p-1.5 shadow-lg border-2 animate-gordy-companion-float ${
+        className={`pointer-events-none flex items-center justify-center rounded-3xl p-1.5 shadow-lg border-2 ${
           bubbleProtective
-            ? 'border-red-300/90 bg-red-50/95'
+            ? 'border-red-400/85 bg-white/95 shadow-red-200/25'
             : 'border-amber-200/90 bg-gradient-to-br from-amber-50 to-white'
         }`}
         style={{
-          boxShadow: '0 10px 28px -8px rgba(245, 158, 11, 0.45)',
+          boxShadow: bubbleProtective
+            ? '0 10px 28px -8px rgba(220, 38, 38, 0.18)'
+            : '0 10px 28px -8px rgba(245, 158, 11, 0.45)',
         }}
       >
-        <GordyMascotIcon mood={mascotMood} className="w-14 h-14 sm:w-16 sm:h-16" />
+        <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-50 to-white ring-1 ring-slate-200/70 w-14 h-14 sm:w-16 sm:h-16 shrink-0">
+          <GordyMascotIcon
+            mood={mascotMood}
+            animationName={resolvedAnimation}
+            className="h-full w-full"
+            celebrateBurstKey={celebrateBurstKey}
+            therapistMaterialAlert={bubbleProtective}
+          />
+        </div>
       </div>
     </div>
   );

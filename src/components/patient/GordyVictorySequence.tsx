@@ -83,10 +83,13 @@ export default function GordyVictorySequence({
         style={{ top: 'min(34vh, 280px)' }}
       >
         <div className="relative gordy-victory-hop gordy-victory-aura">
-          <div className="gordy-hero-spin-stage mx-auto" style={{ perspective: '880px' }}>
-            <div className="gordy-hero-spin-inner flex items-center justify-center w-[5.5rem] h-[5.5rem] sm:w-28 sm:h-28">
-              <GordyMascotIcon mood="joy" className="w-full h-full" />
-            </div>
+          <div className="mx-auto flex items-center justify-center w-[5.5rem] h-[5.5rem] sm:w-28 sm:h-28">
+            <GordyMascotIcon
+              mood="joy"
+              animationName="Celebrate"
+              className="w-full h-full"
+              celebrateBurstKey={burstKey}
+            />
           </div>
           <span
             className="absolute -end-1 top-0 text-2xl sm:text-3xl gordy-victory-fist select-none"
