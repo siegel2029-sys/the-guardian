@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import GordieCanvas from './GordieCanvas';
 import type { GordieModelHandle } from './GordieModel';
 
-export type GordyMood = 'default' | 'concerned' | 'joy' | 'thinking' | 'like';
+export type GordyMood = 'default' | 'concerned' | 'joy' | 'thinking' | 'like' | 'sad';
 
 type Props = {
   className?: string;
@@ -16,6 +16,9 @@ type Props = {
    * Usually matches clinical / red-flag concern.
    */
   therapistMaterialAlert?: boolean;
+  displayScaleFactor?: number;
+  poseVariant?: 'default' | 'sad';
+  stylizedEyes?: boolean;
 };
 
 const MOOD_ANIMATION: Record<GordyMood, string | undefined> = {
@@ -24,6 +27,7 @@ const MOOD_ANIMATION: Record<GordyMood, string | undefined> = {
   joy: 'Wave',
   thinking: 'Thinking',
   like: 'Like',
+  sad: 'Sad',
 };
 
 /**
@@ -36,6 +40,9 @@ export default function GordyMascotIcon({
   animationName: animationNameProp,
   celebrateBurstKey = 0,
   therapistMaterialAlert,
+  displayScaleFactor,
+  poseVariant,
+  stylizedEyes,
 }: Props) {
   const gordyRef = useRef<GordieModelHandle>(null);
   const prevBurstRef = useRef(0);
@@ -50,7 +57,12 @@ export default function GordyMascotIcon({
   const alertFromMood = mood === 'concerned';
   const therapistAlert = therapistMaterialAlert ?? alertFromMood;
 
-  const moodAnim = therapistAlert ? MOOD_ANIMATION.concerned : MOOD_ANIMATION[mood];
+  const moodAnim =
+    mood === 'sad'
+      ? MOOD_ANIMATION.sad
+      : therapistAlert
+        ? MOOD_ANIMATION.concerned
+        : MOOD_ANIMATION[mood];
   const animationName = animationNameProp ?? moodAnim;
 
   return (
@@ -59,6 +71,9 @@ export default function GordyMascotIcon({
       className={className}
       variant="icon"
       animationName={animationName}
+      displayScaleFactor={displayScaleFactor}
+      poseVariant={poseVariant}
+      stylizedEyes={stylizedEyes}
     />
   );
 }

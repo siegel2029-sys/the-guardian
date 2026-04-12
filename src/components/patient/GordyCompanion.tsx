@@ -48,19 +48,24 @@ export default function GordyCompanion({
   let bubbleProtective = false;
 
   if (protectiveSafety) {
-    mascotMood = 'concerned';
+    mascotMood = 'sad';
     bubbleTitle = 'מצב שומר';
     bubbleProtective = true;
     bubble =
       'עצרתי את האימון לרגע למען הבטיחות — דווח כאב חזק מדי באזור השיקום. המטפל קיבל עדכון. נשארים בזהירות!';
   } else if (protectiveRed) {
-    mascotMood = 'concerned';
+    mascotMood = 'sad';
     bubbleTitle = 'מצב שומר';
     bubbleProtective = true;
     bubble =
       'התרגול נעול כרגע לפי הנחיית הצוות. המטפל עודכן. אם יש חשד לחירום — התקשרו ל־101.';
   } else if (transientLive && transient) {
-    mascotMood = transient.mood;
+    mascotMood =
+      transient.mood === 'concerned'
+        ? 'sad'
+        : transient.mood === 'joy'
+          ? 'joy'
+          : 'like';
     bubbleTitle = 'גורדי';
     bubble = transient.bubble;
   }
@@ -69,14 +74,17 @@ export default function GordyCompanion({
 
   let resolvedAnimation: string | undefined;
   if (protectiveSafety || protectiveRed) {
-    resolvedAnimation = 'Idle';
+    resolvedAnimation = 'Sad';
   } else if (transientLive && transient) {
     if (transient.mood === 'joy') resolvedAnimation = 'Wave';
     else if (transient.mood === 'like') resolvedAnimation = 'Like';
-    else resolvedAnimation = 'Idle';
+    else resolvedAnimation = 'Sad';
   } else {
     resolvedAnimation = contextAnimationName;
   }
+
+  const poseForCanvas =
+    mascotMood === 'joy' || mascotMood === 'like' ? ('default' as const) : ('sad' as const);
 
   const animKey = [
     protectiveSafety ? 's1' : '',
@@ -86,10 +94,11 @@ export default function GordyCompanion({
 
   return (
     <div
-      className="fixed z-[62] flex flex-col items-center gap-2 pointer-events-none max-w-[min(300px,calc(100vw-5.5rem))] animate-gordy-companion-enter"
+      className="fixed z-[62] flex flex-col items-end gap-2 pointer-events-none max-w-[min(300px,calc(100vw-2rem))] animate-gordy-companion-enter"
       style={{
         bottom: 'calc(5.75rem + env(safe-area-inset-bottom, 0px))',
-        insetInlineStart: 'max(12px, env(safe-area-inset-left, 0px))',
+        right: 'max(12px, env(safe-area-inset-right, 0px))',
+        left: 'auto',
       }}
       key={animKey}
       aria-live="polite"
@@ -117,7 +126,7 @@ export default function GordyCompanion({
             {bubble}
           </p>
           <span
-            className="absolute -bottom-1.5 start-8 w-3 h-3 rotate-45 border-2 border-t-0 border-e-0"
+            className="absolute -bottom-1.5 end-8 w-3 h-3 rotate-45 border-2 border-t-0 border-e-0"
             style={{
               background: '#ffffff',
               borderColor: bubbleProtective ? '#fecaca' : '#a7f3d0',
@@ -128,24 +137,21 @@ export default function GordyCompanion({
       )}
 
       <div
-        className={`pointer-events-none flex items-center justify-center rounded-3xl p-1.5 shadow-lg border-2 ${
-          bubbleProtective
-            ? 'border-red-400/85 bg-white/95 shadow-red-200/25'
-            : 'border-amber-200/90 bg-gradient-to-br from-amber-50 to-white'
-        }`}
+        className="pointer-events-none flex items-center justify-center rounded-3xl p-2 shadow-lg bg-white/95"
         style={{
-          boxShadow: bubbleProtective
-            ? '0 10px 28px -8px rgba(220, 38, 38, 0.18)'
-            : '0 10px 28px -8px rgba(245, 158, 11, 0.45)',
+          boxShadow: '0 12px 32px -10px rgba(15, 23, 42, 0.2)',
         }}
       >
-        <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-50 to-white ring-1 ring-slate-200/70 w-14 h-14 sm:w-16 sm:h-16 shrink-0">
+        <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-50 to-white w-[min(280px,calc(100vw-3rem))] h-[min(280px,calc(100vw-3rem))] shrink-0">
           <GordyMascotIcon
             mood={mascotMood}
             animationName={resolvedAnimation}
             className="h-full w-full"
             celebrateBurstKey={celebrateBurstKey}
             therapistMaterialAlert={bubbleProtective}
+            displayScaleFactor={5}
+            poseVariant={poseForCanvas}
+            stylizedEyes
           />
         </div>
       </div>

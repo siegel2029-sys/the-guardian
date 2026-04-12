@@ -7,8 +7,8 @@ import {
   useMemo,
   useRef,
 } from 'react';
-import type { AnimationAction, Group, Object3D, SkinnedMesh } from 'three';
-import { LoopRepeat, MathUtils } from 'three';
+import type { AnimationAction, Group, Object3D, SkinnedMesh, Skeleton } from 'three';
+import { LoopRepeat, MathUtils, Quaternion, Vector3 } from 'three';
 import { SkeletonUtils } from 'three-stdlib';
 import type { ComponentProps } from 'react';
 
@@ -18,8 +18,9 @@ export const GORDIE_MODEL_DEFAULT_URL = `${import.meta.env.BASE_URL}models/gordy
 /**
  * GLB armature uses scale 0.01 (Mixamo/Blender units → meters). Without this, the mesh is
  * ~2% of a unit tall while the camera sits several units away — effectively invisible.
+ * Higher values fill the viewport for portrait-style hero framing (see GordieCanvas camera).
  */
-const MODEL_DISPLAY_SCALE = 55;
+const MODEL_DISPLAY_SCALE = 82;
 
 export type GordieModelHandle = {
   celebrate: () => void;
@@ -34,6 +35,14 @@ type Props = {
   animationName?: string;
   /** Blend duration when switching clips (seconds). */
   crossfade?: number;
+  /** Multiplies the built-in unit fix scale (e.g. 5 for a large bottom-corner companion). */
+  displayScaleFactor?: number;
+  /**
+   * When the GLB has no facial clips, nudge the armature for a slumped / downcast read (pairs with “sad” mood).
+   */
+  poseVariant?: 'default' | 'sad';
+  /** Cartoon eyes (merged mesh cannot get per-UV eye tint without a new asset). */
+  stylizedEyes?: boolean;
 } & ComponentProps<'group'>;
 
 function pickAnimationKey(
@@ -79,6 +88,88 @@ function pickHipsBone(nodes: Record<string, Object3D>): Object3D | undefined {
   );
 }
 
+function StylizedEyesFollowHead({ skeleton }: { skeleton: Skeleton }) {
+  const head = useMemo(
+    () =>
+      skeleton.bones.find(
+        (b) =>
+          /^mixamorigHead$/i.test(b.name) ||
+          (/^head$/i.test(b.name) && !/neck/i.test(b.name)),
+      ),
+    [skeleton],
+  );
+  const g = useRef<Group>(null);
+  const wp = useMemo(() => new Vector3(), []);
+  const wq = useMemo(() => new Quaternion(), []);
+  const ws = useMemo(() => new Vector3(), []);
+
+  useFrame(() => {
+    const group = g.current;
+    if (!group || !head) return;
+    head.updateWorldMatrix(true, true);
+    head.matrixWorld.decompose(wp, wq, ws);
+    const parent = group.parent;
+    if (parent) parent.worldToLocal(wp);
+    group.position.copy(wp);
+    group.quaternion.copy(wq);
+  });
+
+  if (!head) return null;
+
+  return (
+    <group ref={g}>
+      <group position={[0.036, 0.055, 0.102]}>
+        <mesh scale={0.021}>
+          <sphereGeometry args={[1, 10, 10]} />
+          <meshStandardMaterial
+            color="#f8fafc"
+            roughness={0.35}
+            metalness={0}
+            polygonOffset
+            polygonOffsetFactor={-3}
+            polygonOffsetUnits={-1}
+          />
+        </mesh>
+        <mesh position={[0, 0, 0.017]} scale={0.01}>
+          <sphereGeometry args={[1, 8, 8]} />
+          <meshStandardMaterial
+            color="#0a0a0a"
+            roughness={0.45}
+            metalness={0}
+            polygonOffset
+            polygonOffsetFactor={-4}
+            polygonOffsetUnits={-1}
+          />
+        </mesh>
+      </group>
+      <group position={[-0.036, 0.055, 0.102]}>
+        <mesh scale={0.021}>
+          <sphereGeometry args={[1, 10, 10]} />
+          <meshStandardMaterial
+            color="#f8fafc"
+            roughness={0.35}
+            metalness={0}
+            polygonOffset
+            polygonOffsetFactor={-3}
+            polygonOffsetUnits={-1}
+          />
+        </mesh>
+        <mesh position={[0, 0, 0.017]} scale={0.01}>
+          <sphereGeometry args={[1, 8, 8]} />
+          <meshStandardMaterial
+            color="#0a0a0a"
+            roughness={0.45}
+            metalness={0}
+            polygonOffset
+            polygonOffsetFactor={-4}
+            polygonOffsetUnits={-1}
+          />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
 /** Transparent teal / blue hologram with emissive glow (tone-mapped off reads brighter). */
 function TealHologramMaterial() {
   return (
@@ -96,12 +187,12 @@ function TealHologramMaterial() {
   );
 }
 
-function SolidRedMaterial() {
+function CapeRedMaterial() {
   return (
     <meshStandardMaterial
-      color="#c41e1e"
-      roughness={0.42}
-      metalness={0.12}
+      color="#dc2626"
+      roughness={0.4}
+      metalness={0.1}
     />
   );
 }
@@ -116,6 +207,9 @@ const GordieModel = forwardRef<GordieModelHandle, Props>(function GordieModel(
     url = GORDIE_MODEL_DEFAULT_URL,
     animationName,
     crossfade = 0.4,
+    displayScaleFactor = 1,
+    poseVariant = 'default',
+    stylizedEyes = false,
     ...groupProps
   },
   ref,
@@ -131,11 +225,17 @@ const GordieModel = forwardRef<GordieModelHandle, Props>(function GordieModel(
 
   const hips = pickHipsBone(nodes);
   const explicitBody = pickSkinned(nodes, 'Body');
-  const mergedModel = pickSkinned(nodes, 'model');
+  const mergedModel = pickSkinned(nodes, 'model', 'modelmesh');
   const cape = pickSkinned(nodes, 'Cape');
   const shield = pickSkinned(nodes, 'Shield', 'Logo', 'ChestLogo', 'Chest_Shield');
 
   const bodySkin = explicitBody ?? mergedModel;
+
+  const sceneScale = MODEL_DISPLAY_SCALE * displayScaleFactor;
+  const armatureRotation: [number, number, number] =
+    poseVariant === 'sad'
+      ? [Math.PI / 2 + 0.11, 0.03, -0.09]
+      : [Math.PI / 2, 0, 0];
 
   useEffect(() => {
     if (!actions || Object.keys(actions).length === 0) return;
@@ -177,18 +277,21 @@ const GordieModel = forwardRef<GordieModelHandle, Props>(function GordieModel(
 
   if (!isSkinnedMesh(bodySkin) || !hips) {
     return (
-      <group ref={root} {...groupProps} dispose={null}>
-        <group scale={MODEL_DISPLAY_SCALE}>
-          <primitive object={clone} />
+      <group {...groupProps} dispose={null}>
+        <group ref={root}>
+          <group scale={sceneScale} rotation={poseVariant === 'sad' ? [0.12, -0.06, 0] : [0, 0, 0]}>
+            <primitive object={clone} />
+          </group>
         </group>
       </group>
     );
   }
 
   return (
-    <group ref={root} {...groupProps} dispose={null}>
-      <group name="Scene" scale={MODEL_DISPLAY_SCALE}>
-        <group name="Armature" rotation={[Math.PI / 2, 0, 0]} scale={0.01}>
+    <group {...groupProps} dispose={null}>
+      <group ref={root}>
+        <group name="Scene" scale={sceneScale}>
+        <group name="Armature" rotation={armatureRotation} scale={0.01}>
           <primitive object={hips} />
           <skinnedMesh
             name={bodySkin.name}
@@ -207,7 +310,7 @@ const GordieModel = forwardRef<GordieModelHandle, Props>(function GordieModel(
               morphTargetDictionary={cape.morphTargetDictionary}
               morphTargetInfluences={cape.morphTargetInfluences}
             >
-              <SolidRedMaterial />
+              <CapeRedMaterial />
             </skinnedMesh>
           )}
           {shield && (
@@ -218,9 +321,11 @@ const GordieModel = forwardRef<GordieModelHandle, Props>(function GordieModel(
               morphTargetDictionary={shield.morphTargetDictionary}
               morphTargetInfluences={shield.morphTargetInfluences}
             >
-              <SolidRedMaterial />
+              <CapeRedMaterial />
             </skinnedMesh>
           )}
+        </group>
+        {stylizedEyes && <StylizedEyesFollowHead skeleton={bodySkin.skeleton} />}
         </group>
       </group>
     </group>
