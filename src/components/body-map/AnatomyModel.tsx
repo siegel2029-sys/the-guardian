@@ -163,19 +163,17 @@ const GAIT_TORSO_ROLL_KEYFRAMES: readonly (readonly [number, number])[] = [
   [100, 0],
 ];
 
-/** כתף מול שלב רגל נגדית: קדימה ב־heel strike (~0.35), אחורה ב־terminal stance (~-0.25) */
-const GAIT_OPPOSITE_SHOULDER_KEYFRAMES: readonly (readonly [number, number])[] = [
-  [0, 0.35],
-  [50, -0.25],
-  [100, 0.35],
-];
-
-/** מרפק אותה פאזה: עד ~0.4 קדימה, בסיס ~0.1 אחורה */
+/** מרפק מסונכרן לפאזת רגל נגדית: יותר כיפוף ב־swing קדימה, כמעט ישר ב־stance אחורה */
 const GAIT_OPPOSITE_ELBOW_KEYFRAMES: readonly (readonly [number, number])[] = [
   [0, 0.4],
+  [25, 0.28],
   [50, 0.1],
+  [75, 0.28],
   [100, 0.4],
 ];
+
+/** מקדם כתף מול ירך נגדית (שומר התאמה מתמטית לפאזת הירך) */
+const ARM_HIP_TO_SHOULDER = 0.88;
 
 const GAIT_TORSO_YAW_MAX = 0.08;
 
@@ -1063,9 +1061,14 @@ export default function AnatomyModel({
       rightFootRef.current.rotation.x = lerpAngle(tRight, GAIT_ANKLE_KEYFRAMES);
     }
 
-    /** זרוע שמאל = פאזת רגל ימין (tRight); זרוע ימין = פאזת רגל שמאל (t). היפוך סימן לצד ימין (מראה מראה). */
-    const shL = lerpAngle(tRight, GAIT_OPPOSITE_SHOULDER_KEYFRAMES);
-    const shR = -lerpAngle(t, GAIT_OPPOSITE_SHOULDER_KEYFRAMES);
+    /**
+     * נגדיות לרגל: כתף שמאל ← פאזת ירך ימין (tRight), כתף ימין ← פאזת ירך שמאל (t).
+     * נגזר ישירות מ־hip angle נגדי (× ARM_HIP_TO_SHOULDER) כדי שלא יסתנכרן עם הרגל בטעות.
+     */
+    const hipL = lerpAngle(t, GAIT_HIP_KEYFRAMES);
+    const hipR = lerpAngle(tRight, GAIT_HIP_KEYFRAMES);
+    const shL = hipR * ARM_HIP_TO_SHOULDER;
+    const shR = hipL * ARM_HIP_TO_SHOULDER;
     const elL = lerpAngle(tRight, GAIT_OPPOSITE_ELBOW_KEYFRAMES);
     const elR = -lerpAngle(t, GAIT_OPPOSITE_ELBOW_KEYFRAMES);
     if (leftShoulderPivotRef.current) {
