@@ -4,7 +4,6 @@ import {
   useMemo,
   useLayoutEffect,
   useEffect,
-  type RefObject,
   type ReactNode,
 } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -26,6 +25,8 @@ import {
   createCalf,
   createKnee,
   createGlute,
+  createOpenHandGeometry,
+  createAnkleBridgeGeometry,
 } from './geometry/muscleGeometry';
 import { getLevelTier, type LevelTier } from '../../body/levelTier';
 import { getMuscleEvolutionStage, getMuscleVertexInflation } from '../../body/anatomicalEvolution';
@@ -39,8 +40,15 @@ import EquippedGearAttachments from './equipped-gear/equipped-gear-attachments';
 import type { EquippedGearSnapshot } from '../../config/gearCatalog';
 
 // ── Static world-position for each area's pulsing glow light ─────
+/** ראש בולט יותר, צוואר קצר — מסונכרן עם HEAD_* למטה */
+const HEAD_RADIUS = 0.256;
+const HEAD_CENTER_Y = 1.76;
+const NECK_HEIGHT = 0.19;
+const NECK_CENTER_Y = HEAD_CENTER_Y - HEAD_RADIUS - NECK_HEIGHT / 2;
+const EAR_OFFSET_X = HEAD_RADIUS * 1.045;
+
 const AREA_GLOW: Partial<Record<BodyArea, [number, number, number]>> = {
-  neck: [0, 1.48, 0.22],
+  neck: [0, NECK_CENTER_Y, 0.22],
   chest: [0, 1.0, 0.28],
   abdomen: [0, 0.52, 0.26],
   shoulder_left: [0.44, 1.3, 0.18],
@@ -67,9 +75,128 @@ const AREA_GLOW: Partial<Record<BodyArea, [number, number, number]>> = {
   ankle_right: [-0.24, -1.33, 0.16],
 };
 
+/** מחזור הליכה (שניות) — זמן מנורמל t ∈ [0,1) */
+const WALK_CYCLE_SEC = 1.5;
+
+/**
+ * אינטרפולציה לינארית בין keyframes קליניים: [אחוז מחזור 0–100, זווית ברדיאנים].
+ * Stance ~60% / Swing ~40% משוקפים בצורת העקומה (לא בסימטריה סינוס).
+ */
+function lerpAngle(
+  t01: number,
+  keyframes: ReadonlyArray<readonly [number, number]>
+): number {
+  const t = ((t01 % 1) + 1) % 1;
+  const p = t * 100;
+  const kf = keyframes;
+  const n = kf.length;
+  if (n === 0) return 0;
+  if (n === 1) return kf[0][1];
+
+  let i = 0;
+  while (i < n - 2 && p >= kf[i + 1][0]) {
+    i++;
+  }
+  const [p0, a0] = kf[i];
+  const [p1, a1] = kf[i + 1];
+  const span = p1 - p0;
+  const u = span > 1e-9 ? Math.max(0, Math.min(1, (p - p0) / span)) : 0;
+  return a0 + u * (a1 - a0);
+}
+
+/** ירך — Heel strike → Terminal swing (100% = סגירת מחזור כמו 0%) */
+const GAIT_HIP_KEYFRAMES: readonly (readonly [number, number])[] = [
+  [0, 0.4],
+  [15, 0.2],
+  [30, 0],
+  [50, -0.3],
+  [60, -0.1],
+  [75, 0.2],
+  [90, 0.4],
+  [100, 0.4],
+];
+
+const GAIT_KNEE_KEYFRAMES: readonly (readonly [number, number])[] = [
+  [0, 0],
+  [15, 0.15],
+  [30, 0],
+  [50, 0],
+  [60, 0.4],
+  [75, 1.1],
+  [90, 0.08],
+  [100, 0],
+];
+
+const GAIT_ANKLE_KEYFRAMES: readonly (readonly [number, number])[] = [
+  [0, 0.1],
+  [15, -0.05],
+  [30, 0.1],
+  [50, 0.15],
+  [60, -0.3],
+  [75, 0],
+  [90, 0.1],
+  [100, 0.1],
+];
+
+/** גובה יחסי: מינימום ב־0%/50% (heel strike / heel off), מקסימום ב־30%/80% (mid-stance) */
+const GAIT_BOB_KEYFRAMES: readonly (readonly [number, number])[] = [
+  [0, 0],
+  [30, 1],
+  [50, 0],
+  [80, 1],
+  [100, 0],
+];
+
+const GAIT_TORSO_PITCH_KEYFRAMES: readonly (readonly [number, number])[] = [
+  [0, 0.028],
+  [30, -0.02],
+  [50, 0.028],
+  [80, -0.02],
+  [100, 0.028],
+];
+
+const GAIT_TORSO_ROLL_KEYFRAMES: readonly (readonly [number, number])[] = [
+  [0, 0],
+  [25, 0.017],
+  [50, 0],
+  [75, -0.017],
+  [100, 0],
+];
+
+/** כתף מול שלב רגל נגדית: קדימה ב־heel strike (~0.35), אחורה ב־terminal stance (~-0.25) */
+const GAIT_OPPOSITE_SHOULDER_KEYFRAMES: readonly (readonly [number, number])[] = [
+  [0, 0.35],
+  [50, -0.25],
+  [100, 0.35],
+];
+
+/** מרפק אותה פאזה: עד ~0.4 קדימה, בסיס ~0.1 אחורה */
+const GAIT_OPPOSITE_ELBOW_KEYFRAMES: readonly (readonly [number, number])[] = [
+  [0, 0.4],
+  [50, 0.1],
+  [100, 0.4],
+];
+
+const GAIT_TORSO_YAW_MAX = 0.08;
+
 // ── Simple non-interactive meshes (base body silhouette) ──────────
-const BASE_SKIN = '#8fb8c8';
+/** עור בסיס רך (נייטרלי; מיפוי קליני אדום/ירוק נשאר ב־MuscleSegment / limb tint) */
+const BASE_SKIN = '#e6f3f7';
 const GOLD_SKIN = '#c9a227';
+
+/** כפות יד — פלסטיק/קרמי אטום, בולט מול עור הבסיס */
+const HAND_BASE_PLASTIC = {
+  roughness: 0.35,
+  metalness: 0.1,
+  clearcoat: 0.8,
+  clearcoatRoughness: 0.22,
+  transmission: 0,
+  thickness: 0,
+  ior: 1.5,
+  iridescence: 0,
+  iridescenceIOR: 1,
+  iridescenceThicknessRange: [0, 0] as [number, number],
+} as const;
 
 type LimbPickOverlay = 'none' | 'injury' | 'orange' | 'clinical' | 'selfCare';
 
@@ -99,6 +226,9 @@ function limbPickPhysicalTint(
   roughness: number;
   clearcoat: number;
   clearcoatRoughness: number;
+  transmission: number;
+  thickness: number;
+  ior: number;
   envMapIntensity: number;
   iridescence: number;
   iridescenceIOR: number;
@@ -111,29 +241,35 @@ function limbPickPhysicalTint(
       color: '#fecaca',
       emissive: '#dc2626',
       emissiveIntensity: 1.22,
-      metalness: 0.2,
-      roughness: 0.38,
-      clearcoat: 0.45,
-      clearcoatRoughness: 0.35,
-      envMapIntensity: 1.55,
-      iridescence: 0.12,
-      iridescenceIOR: 1.12,
-      iridescenceThicknessRange: [60, 200],
+      metalness: 0.1,
+      roughness: 0.35,
+      clearcoat: 0.24,
+      clearcoatRoughness: 0.32,
+      transmission: 0,
+      thickness: 0,
+      ior: 1.5,
+      envMapIntensity: 1.48,
+      iridescence: 0,
+      iridescenceIOR: 1,
+      iridescenceThicknessRange: [0, 0],
     };
   }
   if (kind === 'selfCare') {
     return {
-      color: '#22c55e',
+      color: inj ? '#4ade80' : '#22c55e',
       emissive: '#15803d',
       emissiveIntensity: 1.45 + (inj ? 0 : 0.08),
-      metalness: inj ? 0.14 : 0.28,
-      roughness: inj ? 0.38 : 0.18,
-      clearcoat: inj ? 0.22 : 0.62,
-      clearcoatRoughness: inj ? 0.42 : 0.24,
-      envMapIntensity: Math.max(1.9, 2.05),
-      iridescence: inj ? 0.12 : 0.25,
-      iridescenceIOR: 1.15,
-      iridescenceThicknessRange: [80, 280],
+      metalness: 0.1,
+      roughness: inj ? 0.4 : 0.35,
+      clearcoat: inj ? 0.2 : 0.24,
+      clearcoatRoughness: 0.32,
+      transmission: 0,
+      thickness: 0,
+      ior: 1.5,
+      envMapIntensity: Math.max(1.65, 1.85),
+      iridescence: 0,
+      iridescenceIOR: 1,
+      iridescenceThicknessRange: [0, 0],
     };
   }
   if (kind === 'clinical') {
@@ -141,14 +277,17 @@ function limbPickPhysicalTint(
       color: '#dc2626',
       emissive: '#7f1d1d',
       emissiveIntensity: 1.35,
-      metalness: inj ? 0.14 : 0.28,
-      roughness: inj ? 0.32 : 0.24,
-      clearcoat: inj ? 0.28 : 0.52,
-      clearcoatRoughness: inj ? 0.4 : 0.3,
-      envMapIntensity: 1.78,
-      iridescence: 0.15,
-      iridescenceIOR: 1.12,
-      iridescenceThicknessRange: [70, 220],
+      metalness: 0.1,
+      roughness: 0.35,
+      clearcoat: 0.24,
+      clearcoatRoughness: 0.3,
+      transmission: 0,
+      thickness: 0,
+      ior: 1.5,
+      envMapIntensity: 1.65,
+      iridescence: 0,
+      iridescenceIOR: 1,
+      iridescenceThicknessRange: [0, 0],
     };
   }
   if (kind === 'orange') {
@@ -156,14 +295,17 @@ function limbPickPhysicalTint(
       color: '#ea580c',
       emissive: '#9a3412',
       emissiveIntensity: 1.18,
-      metalness: 0.24,
-      roughness: 0.34,
-      clearcoat: 0.52,
-      clearcoatRoughness: 0.32,
-      envMapIntensity: 1.72,
-      iridescence: 0.18,
-      iridescenceIOR: 1.14,
-      iridescenceThicknessRange: [70, 240],
+      metalness: 0.1,
+      roughness: 0.35,
+      clearcoat: 0.24,
+      clearcoatRoughness: 0.3,
+      transmission: 0,
+      thickness: 0,
+      ior: 1.5,
+      envMapIntensity: 1.55,
+      iridescence: 0,
+      iridescenceIOR: 1,
+      iridescenceThicknessRange: [0, 0],
     };
   }
   return null;
@@ -220,7 +362,7 @@ function BaseSegment({
   const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
   const baseColor = goldSkin ? GOLD_SKIN : BASE_SKIN;
   const meshRef = useRef<THREE.Mesh>(null);
-  const matRef = useRef<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial | null>(null);
+  const matRef = useRef<THREE.MeshPhysicalMaterial | null>(null);
   const inflationU = useMemo(() => ({ value: 0 }), []);
   const inflationEnabled = !goldSkin && level > 20 && vertexInflationWeight > 0;
   const pickable = !!pickArea && !!onAreaClick && !goldSkin;
@@ -293,7 +435,9 @@ function BaseSegment({
   const tier = getLevelTier(level);
   const limbTint = limbPickPhysicalTint(limbKind, goldSkin ?? false, tier);
   const hasLimbVisualOverlay = limbTint != null && !goldSkin;
-  const injuredSelfCareGlass = tier === 'injured' && limbKind === 'selfCare' && hasLimbVisualOverlay;
+  const isHandPick =
+    (pickArea === 'hand_left' || pickArea === 'hand_right') && !goldSkin;
+  const handMat = isHandPick ? HAND_BASE_PLASTIC : null;
 
   if (!goldSkin && muscleStage === 'post_injury') {
     if (hasLimbVisualOverlay) {
@@ -308,15 +452,19 @@ function BaseSegment({
               metalness={limbTint.metalness}
               clearcoat={limbTint.clearcoat}
               clearcoatRoughness={limbTint.clearcoatRoughness}
+              transmission={limbTint.transmission}
+              thickness={limbTint.thickness}
+              ior={limbTint.ior}
               envMapIntensity={limbTint.envMapIntensity}
               emissive={limbTint.emissive}
               emissiveIntensity={limbTint.emissiveIntensity}
               iridescence={limbTint.iridescence}
               iridescenceIOR={limbTint.iridescenceIOR}
               iridescenceThicknessRange={limbTint.iridescenceThicknessRange}
-              transparent
-              opacity={injuredSelfCareGlass ? 0.78 : 0.92}
-              depthWrite={!injuredSelfCareGlass}
+              transparent={false}
+              opacity={1}
+              depthWrite
+              {...(handMat ?? {})}
             />
           </mesh>
         </group>
@@ -326,15 +474,26 @@ function BaseSegment({
       <group position={position} rotation={rot} scale={[0.96, 0.97, 0.96]}>
         {injuryLight}
         <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
-          <meshStandardMaterial
+          <meshPhysicalMaterial
             ref={matRef}
             color="#cbd5e1"
-            roughness={0.94}
-            metalness={0.02}
-            envMapIntensity={0.28}
-            transparent
-            opacity={0.88}
+            roughness={0.4}
+            metalness={0.1}
+            clearcoat={0.18}
+            clearcoatRoughness={0.36}
+            transmission={0}
+            thickness={0}
+            ior={1.5}
+            envMapIntensity={0.72}
+            emissive="#0e7490"
+            emissiveIntensity={0.08}
+            iridescence={0}
+            iridescenceIOR={1}
+            iridescenceThicknessRange={[0, 0]}
+            transparent={false}
+            opacity={1}
             depthWrite
+            {...(handMat ?? {})}
           />
         </mesh>
       </group>
@@ -354,15 +513,19 @@ function BaseSegment({
               metalness={limbTint.metalness}
               clearcoat={limbTint.clearcoat}
               clearcoatRoughness={limbTint.clearcoatRoughness}
+              transmission={limbTint.transmission}
+              thickness={limbTint.thickness}
+              ior={limbTint.ior}
               envMapIntensity={limbTint.envMapIntensity}
               emissive={limbTint.emissive}
               emissiveIntensity={limbTint.emissiveIntensity}
               iridescence={limbTint.iridescence}
               iridescenceIOR={limbTint.iridescenceIOR}
               iridescenceThicknessRange={limbTint.iridescenceThicknessRange}
-              transparent={injuredSelfCareGlass}
-              opacity={injuredSelfCareGlass ? 0.72 : 1}
-              depthWrite={!injuredSelfCareGlass}
+              transparent={false}
+              opacity={1}
+              depthWrite
+              {...(handMat ?? {})}
             />
           </mesh>
         </group>
@@ -372,14 +535,26 @@ function BaseSegment({
       <group position={position} rotation={rot}>
         {injuryLight}
         <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
-          <meshStandardMaterial
+          <meshPhysicalMaterial
             ref={matRef}
             color={goldSkin ? '#b8941f' : '#e8eaef'}
-            roughness={0.92}
-            metalness={goldSkin ? 0.35 : 0.02}
-            transparent
-            opacity={0.6}
-            depthWrite={false}
+            roughness={goldSkin ? 0.32 : 0.4}
+            metalness={goldSkin ? 0.45 : 0.1}
+            clearcoat={goldSkin ? 0.35 : 0.14}
+            clearcoatRoughness={goldSkin ? 0.28 : 0.38}
+            transmission={0}
+            thickness={0}
+            ior={1.5}
+            envMapIntensity={goldSkin ? 1.2 : 0.4}
+            emissive={goldSkin ? '#3d2a06' : '#000000'}
+            emissiveIntensity={goldSkin ? 0.04 : 0}
+            iridescence={0}
+            iridescenceIOR={1}
+            iridescenceThicknessRange={[0, 0]}
+            transparent={false}
+            opacity={1}
+            depthWrite
+            {...(handMat ?? {})}
           />
         </mesh>
       </group>
@@ -394,16 +569,23 @@ function BaseSegment({
           <meshPhysicalMaterial
             ref={matRef}
             color={limbTint?.color ?? baseColor}
-            roughness={limbTint ? limbTint.roughness : goldSkin ? 0.35 : 0.82}
-            metalness={limbTint ? limbTint.metalness : goldSkin ? 0.65 : 0.05}
-            clearcoat={limbTint ? limbTint.clearcoat : goldSkin ? 0.55 : 0.1}
-            clearcoatRoughness={limbTint ? limbTint.clearcoatRoughness : 0.42}
+            roughness={limbTint ? limbTint.roughness : goldSkin ? 0.35 : 0.35}
+            metalness={limbTint ? limbTint.metalness : goldSkin ? 0.55 : 0.1}
+            clearcoat={limbTint ? limbTint.clearcoat : goldSkin ? 0.42 : 0.22}
+            clearcoatRoughness={limbTint ? limbTint.clearcoatRoughness : goldSkin ? 0.28 : 0.3}
+            transmission={limbTint ? limbTint.transmission : 0}
+            thickness={limbTint ? limbTint.thickness : 0}
+            ior={limbTint ? limbTint.ior : 1.5}
             envMapIntensity={limbTint ? limbTint.envMapIntensity : goldSkin ? 1.45 : 1.22}
             emissive={limbTint?.emissive ?? (goldSkin ? '#3d2a06' : '#082830')}
             emissiveIntensity={limbTint?.emissiveIntensity ?? (goldSkin ? 0.04 : 0.06)}
             iridescence={limbTint ? limbTint.iridescence : 0}
-            iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1.22}
-            iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [120, 420]}
+            iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1}
+            iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [0, 0]}
+            transparent={false}
+            opacity={1}
+            depthWrite
+            {...(handMat ?? {})}
           />
         </mesh>
       </group>
@@ -417,32 +599,27 @@ function BaseSegment({
         <meshPhysicalMaterial
           ref={matRef}
           color={limbTint?.color ?? (injuryHighlight ? '#fecaca' : baseColor)}
-          roughness={limbTint ? limbTint.roughness : goldSkin ? 0.22 : 0.26}
-          metalness={limbTint ? limbTint.metalness : goldSkin ? 0.78 : 0.55}
-          clearcoat={limbTint ? limbTint.clearcoat : goldSkin ? 0.9 : 0.82}
-          clearcoatRoughness={limbTint ? limbTint.clearcoatRoughness : 0.2}
-          envMapIntensity={limbTint ? limbTint.envMapIntensity : goldSkin ? 1.95 : 1.85}
+          roughness={limbTint ? limbTint.roughness : goldSkin ? 0.28 : 0.32}
+          metalness={limbTint ? limbTint.metalness : goldSkin ? 0.65 : 0.12}
+          clearcoat={limbTint ? limbTint.clearcoat : goldSkin ? 0.38 : 0.28}
+          clearcoatRoughness={limbTint ? limbTint.clearcoatRoughness : goldSkin ? 0.24 : 0.28}
+          transmission={limbTint ? limbTint.transmission : 0}
+          thickness={limbTint ? limbTint.thickness : 0}
+          ior={limbTint ? limbTint.ior : 1.5}
+          envMapIntensity={limbTint ? limbTint.envMapIntensity : goldSkin ? 1.75 : 1.55}
           emissive={limbTint?.emissive ?? (goldSkin ? '#3d2a06' : '#082830')}
           emissiveIntensity={limbTint?.emissiveIntensity ?? (goldSkin ? 0.04 : 0.06)}
-          iridescence={limbTint ? limbTint.iridescence : goldSkin ? 0.35 : 1}
-          iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1.22}
-          iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [120, 420]}
+          iridescence={limbTint ? limbTint.iridescence : 0}
+          iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1}
+          iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [0, 0]}
+          transparent={false}
+          opacity={1}
+          depthWrite
+          {...(handMat ?? {})}
         />
       </mesh>
     </group>
   );
-}
-
-/** Minimal face markers on +Z (camera-facing); does not replace head mesh. Raycast disabled so picks pass through. */
-const FACE_EYE_COLOR = '#2a4554';
-const FACE_MOUTH_COLOR = '#3a5666';
-
-function useNoRaycast<T extends THREE.Object3D>(ref: RefObject<T | null>) {
-  useLayoutEffect(() => {
-    const o = ref.current;
-    if (!o) return;
-    o.raycast = () => {};
-  }, []);
 }
 
 /** עטיפה סטטית — תנודת idle הוסרה לטובת דיוק raycast */
@@ -455,89 +632,177 @@ const WALK_HIP_L: [number, number, number] = [0.24, 0.08, 0.07];
 const WALK_HIP_R: [number, number, number] = [-0.24, 0.08, 0.07];
 const WALK_KNEE_OFF: [number, number, number] = [0, -0.7, 0.01];
 
-function HeadFaceFeatures({ level }: { level: number }) {
-  const headCenterY = 1.73;
-  const headRadius = 0.225;
-  /** Surface Z ≈ +headRadius; features sit slightly inside to avoid z-fighting with head sphere */
-  const faceZ = headRadius - 0.012;
+/**
+ * קנה מידה לתווי פנים: בסיס mobile × +30% נוסף לקריאות מרחוק.
+ * (1.175 × 1.3 ≈ 1.528)
+ */
+const HEAD_FACE_FEATURE_SCALE = 1.175 * 1.3;
 
-  const eyeGeo = useMemo(() => new THREE.SphereGeometry(0.021, 10, 8), []);
+/**
+ * פנים נייטרליות וידידותיות (סטייליזציה פרוצדורלית — לא פוטו־ריאל מלא ללא טקסטורות).
+ * גבות ישרות־רכות, חיוך עדין; raycast כבוי.
+ */
+function HeadFaceFeatures({ level: _level }: { level: number }) {
+  void _level;
+  const zSurf = HEAD_RADIUS - 0.006;
+  const F = HEAD_FACE_FEATURE_SCALE;
+
+  const eyeWhiteGeo = useMemo(
+    () => new THREE.SphereGeometry(0.023 * F, 14, 12),
+    []
+  );
+  const irisGeo = useMemo(() => new THREE.SphereGeometry(0.0095 * F, 10, 8), []);
+  const browGeo = useMemo(
+    () => new THREE.BoxGeometry(0.056 * F, 0.0065 * F, 0.011 * F),
+    []
+  );
+  const noseGeo = useMemo(() => new THREE.CylinderGeometry(0.012, 0.017, 0.044, 10, 1, false), []);
   const mouthTubeGeo = useMemo(() => {
-    const curve = new THREE.QuadraticBezierCurve3(
-      new THREE.Vector3(-0.064, -0.078, faceZ),
-      new THREE.Vector3(0, -0.095, faceZ + 0.004),
-      new THREE.Vector3(0.064, -0.078, faceZ)
+    const curve = new THREE.CubicBezierCurve3(
+      new THREE.Vector3(-0.05 * F, -0.05 * F, zSurf - 0.003),
+      new THREE.Vector3(-0.026 * F, -0.048 * F, zSurf - 0.001),
+      new THREE.Vector3(0.026 * F, -0.048 * F, zSurf - 0.001),
+      new THREE.Vector3(0.05 * F, -0.05 * F, zSurf - 0.003),
     );
-    return new THREE.TubeGeometry(curve, 14, 0.0075, 6, false);
-  }, [faceZ]);
+    return new THREE.TubeGeometry(curve, 22, 0.0062 * F, 7, false);
+  }, [zSurf, F]);
 
-  const eyeLRef = useRef<THREE.Mesh>(null);
-  const eyeRRef = useRef<THREE.Mesh>(null);
-  const mouthRef = useRef<THREE.Mesh>(null);
-  useNoRaycast(eyeLRef);
-  useNoRaycast(eyeRRef);
-  useNoRaycast(mouthRef);
+  const faceRootRef = useRef<THREE.Group>(null);
+  useLayoutEffect(() => {
+    const g = faceRootRef.current;
+    if (!g) return;
+    g.traverse((o) => {
+      if ((o as THREE.Object3D & { isMesh?: boolean }).isMesh) o.raycast = () => {};
+    });
+  }, []);
 
-  const eyeY = 0.046;
-  const eyeX = 0.056;
-  const injured = getLevelTier(level) === 'injured';
-  const faceOpacity = injured ? 0.5 : 1;
-  const faceTransparent = injured;
+  const eyePosMul = 1.12 * 1.3;
+  const eyeX = 0.053 * eyePosMul;
+  const eyeY = 0.05 * eyePosMul;
+  const browY = eyeY + 0.026 * 1.3;
+  const matSkin = {
+    roughness: 0.35,
+    metalness: 0.1,
+    clearcoat: 0.2,
+    clearcoatRoughness: 0.34,
+    envMapIntensity: 0.72,
+    transmission: 0,
+    thickness: 0,
+    ior: 1.5,
+    iridescence: 0,
+    transparent: false,
+    opacity: 1,
+    depthWrite: true,
+  } as const;
 
   return (
-    <group position={[0, headCenterY, 0]}>
+    <group ref={faceRootRef} position={[0, HEAD_CENTER_Y, 0]}>
       <mesh
-        ref={eyeLRef}
-        geometry={eyeGeo}
-        position={[eyeX, eyeY, faceZ]}
+        geometry={eyeWhiteGeo}
+        position={[eyeX, eyeY, zSurf - 0.002]}
+        scale={[1, 0.5, 0.46]}
+        castShadow={false}
+        receiveShadow={false}
+      >
+        <meshPhysicalMaterial color="#f5f9fc" {...matSkin} />
+      </mesh>
+      <mesh
+        geometry={irisGeo}
+        position={[eyeX, eyeY, zSurf + 0.014]}
+        castShadow={false}
+        receiveShadow={false}
+      >
+        <meshBasicMaterial color="#0f172a" depthWrite />
+      </mesh>
+
+      <mesh
+        geometry={eyeWhiteGeo}
+        position={[-eyeX, eyeY, zSurf - 0.002]}
+        scale={[1, 0.5, 0.46]}
+        castShadow={false}
+        receiveShadow={false}
+      >
+        <meshPhysicalMaterial color="#f5f9fc" {...matSkin} />
+      </mesh>
+      <mesh
+        geometry={irisGeo}
+        position={[-eyeX, eyeY, zSurf + 0.014]}
+        castShadow={false}
+        receiveShadow={false}
+      >
+        <meshBasicMaterial color="#0f172a" depthWrite />
+      </mesh>
+
+      <mesh
+        geometry={browGeo}
+        position={[eyeX, browY, zSurf - 0.004]}
+        rotation={[0.03, 0, 0.1]}
+        castShadow={false}
+        receiveShadow={false}
+      >
+        <meshBasicMaterial color="#0f172a" depthWrite />
+      </mesh>
+      <mesh
+        geometry={browGeo}
+        position={[-eyeX, browY, zSurf - 0.004]}
+        rotation={[0.03, 0, -0.1]}
+        castShadow={false}
+        receiveShadow={false}
+      >
+        <meshBasicMaterial color="#0f172a" depthWrite />
+      </mesh>
+
+      <mesh
+        geometry={noseGeo}
+        position={[0, 0.018, zSurf + 0.026]}
+        rotation={[0.35, 0, 0]}
         castShadow={false}
         receiveShadow={false}
       >
         <meshPhysicalMaterial
-          color={FACE_EYE_COLOR}
-          roughness={0.48}
-          metalness={0.06}
-          clearcoat={0.12}
-          clearcoatRoughness={0.45}
-          envMapIntensity={0.85}
-          transparent={faceTransparent}
-          opacity={faceOpacity}
-          depthWrite={!faceTransparent}
+          color="#eef4f6"
+          roughness={0.36}
+          metalness={0.1}
+          clearcoat={0.2}
+          clearcoatRoughness={0.34}
+          envMapIntensity={0.65}
+          transmission={0}
+          thickness={0}
+          ior={1.5}
+          iridescence={0}
+          transparent={false}
+          opacity={1}
+          depthWrite
         />
       </mesh>
-      <mesh
-        ref={eyeRRef}
-        geometry={eyeGeo}
-        position={[-eyeX, eyeY, faceZ]}
-        castShadow={false}
-        receiveShadow={false}
-      >
-        <meshPhysicalMaterial
-          color={FACE_EYE_COLOR}
-          roughness={0.48}
-          metalness={0.06}
-          clearcoat={0.12}
-          clearcoatRoughness={0.45}
-          envMapIntensity={0.85}
-          transparent={faceTransparent}
-          opacity={faceOpacity}
-          depthWrite={!faceTransparent}
-        />
-      </mesh>
-      <mesh ref={mouthRef} geometry={mouthTubeGeo} castShadow={false} receiveShadow={false}>
-        <meshPhysicalMaterial
-          color={FACE_MOUTH_COLOR}
-          roughness={0.55}
-          metalness={0.05}
-          clearcoat={0.08}
-          clearcoatRoughness={0.5}
-          envMapIntensity={0.8}
-          transparent={faceTransparent}
-          opacity={faceOpacity}
-          depthWrite={!faceTransparent}
-        />
+
+      <mesh geometry={mouthTubeGeo} castShadow={false} receiveShadow={false}>
+        <meshBasicMaterial color="#0f172a" depthWrite />
       </mesh>
     </group>
+  );
+}
+
+/** Opaque shin→foot link */
+function SolidAnkleBridge({ geometry }: { geometry: THREE.BufferGeometry }) {
+  return (
+    <mesh geometry={geometry} castShadow receiveShadow>
+      <meshPhysicalMaterial
+        color="#6dd4c0"
+        roughness={0.35}
+        metalness={0.1}
+        clearcoat={0.22}
+        clearcoatRoughness={0.3}
+        transmission={0}
+        opacity={1}
+        transparent={false}
+        depthWrite
+        envMapIntensity={0.95}
+        iridescence={0}
+        iridescenceIOR={1}
+        iridescenceThicknessRange={[0, 0]}
+      />
+    </mesh>
   );
 }
 
@@ -561,14 +826,15 @@ function useGeometries() {
     gluteL:       createGlute(),
     gluteR:       createGlute(),
     // Simple spheres/capsules for non-displaced parts
-    head:         new THREE.SphereGeometry(0.225, 32, 26),
-    ear:          new THREE.SphereGeometry(0.058, 12, 10),
-    neck:         new THREE.CylinderGeometry(0.092, 0.112, 0.31, 18, 8),
+    head:         new THREE.SphereGeometry(HEAD_RADIUS, 36, 30),
+    ear:          new THREE.SphereGeometry(0.062, 12, 10),
+    neck:         new THREE.CylinderGeometry(0.096, 0.114, NECK_HEIGHT, 20, 6),
     pelvis:       new THREE.CylinderGeometry(0.230, 0.212, 0.24, 20, 6),
     wristL:       new THREE.SphereGeometry(0.098, 16, 12),
     wristR:       new THREE.SphereGeometry(0.098, 16, 12),
-    handL:        new THREE.CapsuleGeometry(0.074, 0.20, 4, 10),
-    handR:        new THREE.CapsuleGeometry(0.074, 0.20, 4, 10),
+    handL:        createOpenHandGeometry(false),
+    handR:        createOpenHandGeometry(true),
+    ankleBridge:  createAnkleBridgeGeometry(),
     elbowL:       new THREE.SphereGeometry(0.118, 18, 14),
     elbowR:       new THREE.SphereGeometry(0.118, 18, 14),
     ankleL:       new THREE.SphereGeometry(0.098, 14, 12),
@@ -699,6 +965,12 @@ export default function AnatomyModel({
   const leftKneeRef = useRef<THREE.Group>(null);
   const rightThighRef = useRef<THREE.Group>(null);
   const rightKneeRef = useRef<THREE.Group>(null);
+  const leftShoulderPivotRef = useRef<THREE.Group>(null);
+  const leftElbowPivotRef = useRef<THREE.Group>(null);
+  const rightShoulderPivotRef = useRef<THREE.Group>(null);
+  const rightElbowPivotRef = useRef<THREE.Group>(null);
+  const leftFootRef = useRef<THREE.Group>(null);
+  const rightFootRef = useRef<THREE.Group>(null);
 
   /** סנכרון הדגשת hover בין חזה↔גב עליון ובטן↔גב תחתון (מקטע קליק נשאר נפרד) */
   const [chestHover, setChestHover] = useState(false);
@@ -714,38 +986,100 @@ export default function AnatomyModel({
     primaryLightRef.current.intensity = (0.55 + lf * 1.15) + pulse;
   });
 
-  /** הליכה במקום — קצב עדין, קומה זקופה (סיבוב מתון סביב מפרקי ירך/ברך) */
+  /** הליכה במקום — מחזור קליני (keyframes + lerpAngle), רגל ימין ב־t+0.5, bob/מותן מסונכרנים */
   useFrame(({ clock }) => {
+    const resetArmPivots = () => {
+      for (const r of [
+        leftShoulderPivotRef,
+        rightShoulderPivotRef,
+        leftElbowPivotRef,
+        rightElbowPivotRef,
+      ]) {
+        if (r.current) {
+          r.current.rotation.x = 0;
+          r.current.rotation.y = 0;
+          r.current.rotation.z = 0;
+        }
+      }
+    };
+    const resetFeet = () => {
+      if (leftFootRef.current) leftFootRef.current.rotation.x = 0;
+      if (rightFootRef.current) rightFootRef.current.rotation.x = 0;
+    };
+
     if (!walkInPlace) {
       if (walkRootRef.current) walkRootRef.current.position.y = 0;
       if (torsoSwayRef.current) {
         torsoSwayRef.current.rotation.x = 0;
+        torsoSwayRef.current.rotation.y = 0;
         torsoSwayRef.current.rotation.z = 0;
       }
       if (leftThighRef.current) leftThighRef.current.rotation.x = 0;
       if (leftKneeRef.current) leftKneeRef.current.rotation.x = 0;
       if (rightThighRef.current) rightThighRef.current.rotation.x = 0;
       if (rightKneeRef.current) rightKneeRef.current.rotation.x = 0;
+      resetArmPivots();
+      resetFeet();
       return;
     }
     if (pauseWalkAnimation) {
+      resetArmPivots();
+      resetFeet();
       return;
     }
-    const t = clock.elapsedTime * (Math.PI * 2) * 1.08;
-    const bob = 0.014 * Math.abs(Math.sin(t));
+
+    const t = (clock.elapsedTime % WALK_CYCLE_SEC) / WALK_CYCLE_SEC;
+    const tRight = (t + 0.5) % 1.0;
+
+    const bobAmp = 0.025;
+    const bob = bobAmp * lerpAngle(t, GAIT_BOB_KEYFRAMES);
     if (walkRootRef.current) walkRootRef.current.position.y = bob;
     if (torsoSwayRef.current) {
-      torsoSwayRef.current.rotation.x = -0.026 * Math.sin(t);
-      torsoSwayRef.current.rotation.z = 0.017 * Math.sin(2 * t);
+      torsoSwayRef.current.rotation.x = lerpAngle(t, GAIT_TORSO_PITCH_KEYFRAMES);
+      torsoSwayRef.current.rotation.z = lerpAngle(t, GAIT_TORSO_ROLL_KEYFRAMES);
+      /** סביבת Y: אל הרגל הקדמית/ב־swing (מקס׳ ~0.08) */
+      torsoSwayRef.current.rotation.y =
+        GAIT_TORSO_YAW_MAX * Math.cos(t * Math.PI * 2);
     }
-    const ls = 0.19 * Math.sin(t);
-    const lk = Math.max(0, Math.sin(t - 0.4)) * 0.42;
-    const rs = 0.19 * Math.sin(t + Math.PI);
-    const rk = Math.max(0, Math.sin(t + Math.PI - 0.4)) * 0.42;
-    if (leftThighRef.current) leftThighRef.current.rotation.x = ls + 0.028;
-    if (leftKneeRef.current) leftKneeRef.current.rotation.x = lk;
-    if (rightThighRef.current) rightThighRef.current.rotation.x = rs + 0.028;
-    if (rightKneeRef.current) rightKneeRef.current.rotation.x = rk;
+
+    const thighBias = 0.028;
+    if (leftThighRef.current) {
+      leftThighRef.current.rotation.x = lerpAngle(t, GAIT_HIP_KEYFRAMES) + thighBias;
+    }
+    if (leftKneeRef.current) {
+      leftKneeRef.current.rotation.x = lerpAngle(t, GAIT_KNEE_KEYFRAMES);
+    }
+    if (leftFootRef.current) {
+      leftFootRef.current.rotation.x = lerpAngle(t, GAIT_ANKLE_KEYFRAMES);
+    }
+
+    if (rightThighRef.current) {
+      rightThighRef.current.rotation.x = lerpAngle(tRight, GAIT_HIP_KEYFRAMES) + thighBias;
+    }
+    if (rightKneeRef.current) {
+      rightKneeRef.current.rotation.x = lerpAngle(tRight, GAIT_KNEE_KEYFRAMES);
+    }
+    if (rightFootRef.current) {
+      rightFootRef.current.rotation.x = lerpAngle(tRight, GAIT_ANKLE_KEYFRAMES);
+    }
+
+    /** זרוע שמאל = פאזת רגל ימין (tRight); זרוע ימין = פאזת רגל שמאל (t). היפוך סימן לצד ימין (מראה מראה). */
+    const shL = lerpAngle(tRight, GAIT_OPPOSITE_SHOULDER_KEYFRAMES);
+    const shR = -lerpAngle(t, GAIT_OPPOSITE_SHOULDER_KEYFRAMES);
+    const elL = lerpAngle(tRight, GAIT_OPPOSITE_ELBOW_KEYFRAMES);
+    const elR = -lerpAngle(t, GAIT_OPPOSITE_ELBOW_KEYFRAMES);
+    if (leftShoulderPivotRef.current) {
+      leftShoulderPivotRef.current.rotation.x = shL;
+    }
+    if (rightShoulderPivotRef.current) {
+      rightShoulderPivotRef.current.rotation.x = shR;
+    }
+    if (leftElbowPivotRef.current) {
+      leftElbowPivotRef.current.rotation.x = elL;
+    }
+    if (rightElbowPivotRef.current) {
+      rightElbowPivotRef.current.rotation.x = elR;
+    }
   });
 
   // Shared props factory (מפרקים: ללא אינפלציה; כן ניתן לסמן פגיעה)
@@ -809,13 +1143,13 @@ export default function AnatomyModel({
 
       <group ref={torsoSwayRef}>
       {/* ══ HEAD ═══════════════════════════════════════════════ */}
-      <BaseSegment geometry={geos.head} position={[0, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
-      <BaseSegment geometry={geos.ear}  position={[ 0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
-      <BaseSegment geometry={geos.ear}  position={[-0.235, 1.73, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
+      <BaseSegment geometry={geos.head} position={[0, HEAD_CENTER_Y, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
+      <BaseSegment geometry={geos.ear}  position={[ EAR_OFFSET_X, HEAD_CENTER_Y, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
+      <BaseSegment geometry={geos.ear}  position={[-EAR_OFFSET_X, HEAD_CENTER_Y, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
       <HeadFaceFeatures level={level} />
 
       {/* ══ NECK ═══════════════════════════════════════════════ */}
-      <MuscleSegment {...S('neck')} geometry={geos.neck} position={[0, 1.48, 0]} />
+      <MuscleSegment {...S('neck')} geometry={geos.neck} position={[0, NECK_CENTER_Y, 0]} />
 
       {/* ══ SHOULDERS — מפרק נפרד מזרוע; Z+ קדימה לעדיפות raycast ═══ */}
       {/* patient LEFT = viewer RIGHT = +x */}
@@ -854,89 +1188,101 @@ export default function AnatomyModel({
       />
       <BaseSegment geometry={geos.pelvis} position={[0, 0.24, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
-      {/* ══ LEFT ARM (+x) ══════════════════════════════════════ */}
-      <BaseSegment
-        geometry={geos.upperArmL}
-        position={[0.56, 0.9, 0.048]}
-        level={level}
-        goldSkin={gearGoldSkin}
-        muscleStage={muscleStage}
-        vertexInflationWeight={1}
-        growthLayerWeight={growthOf('upper_arm_left')}
-        pickArea="upper_arm_left"
-        {...limbPickProps('upper_arm_left')}
-        motionSteady={stableInteraction}
-        onAreaClick={onAreaClick}
-      />
-      <MuscleSegment {...S('elbow_left')} geometry={geos.elbowL} position={[0.58, 0.6, 0.07]} />
-      <BaseSegment
-        geometry={geos.forearmL}
-        position={[0.56, 0.21, 0.048]}
-        level={level}
-        goldSkin={gearGoldSkin}
-        muscleStage={muscleStage}
-        vertexInflationWeight={1}
-        growthLayerWeight={growthOf('forearm_left')}
-        pickArea="forearm_left"
-        {...limbPickProps('forearm_left')}
-        motionSteady={stableInteraction}
-        onAreaClick={onAreaClick}
-      />
-      <MuscleSegment {...S('wrist_left')} geometry={geos.wristL} position={[0.57, -0.04, 0.075]} />
-      <BaseSegment
-        geometry={geos.handL}
-        position={[0.57, -0.22, 0.045]}
-        level={level}
-        goldSkin={gearGoldSkin}
-        muscleStage={muscleStage}
-        vertexInflationWeight={0}
-        pickArea="hand_left"
-        {...limbPickProps('hand_left')}
-        motionSteady={stableInteraction}
-        onAreaClick={onAreaClick}
-      />
+      {/* ══ LEFT ARM (+x) — כתף → מרפק → אמה/שורש כף (קואורדינטות מקומיות ממוקדות מפרק) ═══ */}
+      <group ref={leftShoulderPivotRef} position={[0.44, 1.3, 0]}>
+        <BaseSegment
+          geometry={geos.upperArmL}
+          position={[0.12, -0.4, 0.048]}
+          level={level}
+          goldSkin={gearGoldSkin}
+          muscleStage={muscleStage}
+          vertexInflationWeight={1}
+          growthLayerWeight={growthOf('upper_arm_left')}
+          pickArea="upper_arm_left"
+          {...limbPickProps('upper_arm_left')}
+          motionSteady={stableInteraction}
+          onAreaClick={onAreaClick}
+        />
+        <group ref={leftElbowPivotRef} position={[0.14, -0.7, 0.07]}>
+          <MuscleSegment {...S('elbow_left')} geometry={geos.elbowL} position={[0, 0, 0]} />
+          <BaseSegment
+            geometry={geos.forearmL}
+            position={[-0.02, -0.39, -0.022]}
+            level={level}
+            goldSkin={gearGoldSkin}
+            muscleStage={muscleStage}
+            vertexInflationWeight={1}
+            growthLayerWeight={growthOf('forearm_left')}
+            pickArea="forearm_left"
+            {...limbPickProps('forearm_left')}
+            motionSteady={stableInteraction}
+            onAreaClick={onAreaClick}
+          />
+          <group position={[-0.01, -0.64, 0.005]}>
+            <MuscleSegment {...S('wrist_left')} geometry={geos.wristL} position={[0, 0, 0]} />
+            <BaseSegment
+              geometry={geos.handL}
+              position={[0, 0, 0]}
+              level={level}
+              goldSkin={gearGoldSkin}
+              muscleStage={muscleStage}
+              vertexInflationWeight={0}
+              pickArea="hand_left"
+              {...limbPickProps('hand_left')}
+              motionSteady={stableInteraction}
+              onAreaClick={onAreaClick}
+            />
+          </group>
+        </group>
+      </group>
 
       {/* ══ RIGHT ARM (-x) ═════════════════════════════════════ */}
-      <BaseSegment
-        geometry={geos.upperArmR}
-        position={[-0.56, 0.9, 0.048]}
-        level={level}
-        goldSkin={gearGoldSkin}
-        muscleStage={muscleStage}
-        vertexInflationWeight={1}
-        growthLayerWeight={growthOf('upper_arm_right')}
-        pickArea="upper_arm_right"
-        {...limbPickProps('upper_arm_right')}
-        motionSteady={stableInteraction}
-        onAreaClick={onAreaClick}
-      />
-      <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR} position={[-0.58, 0.6, 0.07]} />
-      <BaseSegment
-        geometry={geos.forearmR}
-        position={[-0.56, 0.21, 0.048]}
-        level={level}
-        goldSkin={gearGoldSkin}
-        muscleStage={muscleStage}
-        vertexInflationWeight={1}
-        growthLayerWeight={growthOf('forearm_right')}
-        pickArea="forearm_right"
-        {...limbPickProps('forearm_right')}
-        motionSteady={stableInteraction}
-        onAreaClick={onAreaClick}
-      />
-      <MuscleSegment {...S('wrist_right')} geometry={geos.wristR} position={[-0.57, -0.04, 0.075]} />
-      <BaseSegment
-        geometry={geos.handR}
-        position={[-0.57, -0.22, 0.045]}
-        level={level}
-        goldSkin={gearGoldSkin}
-        muscleStage={muscleStage}
-        vertexInflationWeight={0}
-        pickArea="hand_right"
-        {...limbPickProps('hand_right')}
-        motionSteady={stableInteraction}
-        onAreaClick={onAreaClick}
-      />
+      <group ref={rightShoulderPivotRef} position={[-0.44, 1.3, 0]}>
+        <BaseSegment
+          geometry={geos.upperArmR}
+          position={[-0.12, -0.4, 0.048]}
+          level={level}
+          goldSkin={gearGoldSkin}
+          muscleStage={muscleStage}
+          vertexInflationWeight={1}
+          growthLayerWeight={growthOf('upper_arm_right')}
+          pickArea="upper_arm_right"
+          {...limbPickProps('upper_arm_right')}
+          motionSteady={stableInteraction}
+          onAreaClick={onAreaClick}
+        />
+        <group ref={rightElbowPivotRef} position={[-0.14, -0.7, 0.07]}>
+          <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR} position={[0, 0, 0]} />
+          <BaseSegment
+            geometry={geos.forearmR}
+            position={[0.02, -0.39, -0.022]}
+            level={level}
+            goldSkin={gearGoldSkin}
+            muscleStage={muscleStage}
+            vertexInflationWeight={1}
+            growthLayerWeight={growthOf('forearm_right')}
+            pickArea="forearm_right"
+            {...limbPickProps('forearm_right')}
+            motionSteady={stableInteraction}
+            onAreaClick={onAreaClick}
+          />
+          <group position={[0.01, -0.64, 0.005]}>
+            <MuscleSegment {...S('wrist_right')} geometry={geos.wristR} position={[0, 0, 0]} />
+            <BaseSegment
+              geometry={geos.handR}
+              position={[0, 0, 0]}
+              level={level}
+              goldSkin={gearGoldSkin}
+              muscleStage={muscleStage}
+              vertexInflationWeight={0}
+              pickArea="hand_right"
+              {...limbPickProps('hand_right')}
+              motionSteady={stableInteraction}
+              onAreaClick={onAreaClick}
+            />
+          </group>
+        </group>
+      </group>
 
       </group>
 
@@ -982,19 +1328,22 @@ export default function AnatomyModel({
               disableRaycast
             />
             <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[0, -0.71, 0.005]} />
-            <BaseSegment
-              geometry={geos.footL}
-              position={[0.015, -0.9, 0.02]}
-              rotation={[0.18, 0, 0]}
-              level={level}
-              goldSkin={gearGoldSkin}
-              muscleStage={muscleStage}
-              vertexInflationWeight={0}
-              pickArea="foot_left"
-              {...limbPickProps('foot_left')}
-              motionSteady={stableInteraction}
-              onAreaClick={onAreaClick}
-            />
+            <SolidAnkleBridge geometry={geos.ankleBridge} />
+            <group ref={leftFootRef}>
+              <BaseSegment
+                geometry={geos.footL}
+                position={[0.015, -0.9, 0.02]}
+                rotation={[0.18, 0, 0]}
+                level={level}
+                goldSkin={gearGoldSkin}
+                muscleStage={muscleStage}
+                vertexInflationWeight={0}
+                pickArea="foot_left"
+                {...limbPickProps('foot_left')}
+                motionSteady={stableInteraction}
+                onAreaClick={onAreaClick}
+              />
+            </group>
           </group>
         </group>
       </group>
@@ -1040,19 +1389,22 @@ export default function AnatomyModel({
               disableRaycast
             />
             <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[0, -0.71, 0.005]} />
-            <BaseSegment
-              geometry={geos.footR}
-              position={[-0.015, -0.9, 0.02]}
-              rotation={[0.18, 0, 0]}
-              level={level}
-              goldSkin={gearGoldSkin}
-              muscleStage={muscleStage}
-              vertexInflationWeight={0}
-              pickArea="foot_right"
-              {...limbPickProps('foot_right')}
-              motionSteady={stableInteraction}
-              onAreaClick={onAreaClick}
-            />
+            <SolidAnkleBridge geometry={geos.ankleBridge} />
+            <group ref={rightFootRef}>
+              <BaseSegment
+                geometry={geos.footR}
+                position={[-0.015, -0.9, 0.02]}
+                rotation={[0.18, 0, 0]}
+                level={level}
+                goldSkin={gearGoldSkin}
+                muscleStage={muscleStage}
+                vertexInflationWeight={0}
+                pickArea="foot_right"
+                {...limbPickProps('foot_right')}
+                motionSteady={stableInteraction}
+                onAreaClick={onAreaClick}
+              />
+            </group>
           </group>
         </group>
       </group>
@@ -1061,13 +1413,13 @@ export default function AnatomyModel({
 
       {/* ══ GROUND SHADOW (עם שורש ההליכה — צל עוקב אחרי נשיאת הגוף) ═══ */}
       <ContactShadows
-        position={[0, -1.73, 0]}
-        opacity={0.32}
-        scale={2.4}
-        blur={2.2}
-        far={1.1}
-        color="#0a6e68"
-        resolution={512}
+        position={[0, -1.712, 0]}
+        opacity={0.42}
+        scale={2.75}
+        blur={2.85}
+        far={1.05}
+        color="#1e293b"
+        resolution={768}
       />
         </group>
       </IdleSwayRoot>

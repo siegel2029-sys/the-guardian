@@ -11,6 +11,7 @@
  * Applied in the RADIAL direction so bumps always protrude from the body surface.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // ── Core displacement kernel ─────────────────────────────────────────────────
 
@@ -224,4 +225,60 @@ export function createForearm(): THREE.BufferGeometry {
 
   geo.computeVertexNormals();
   return geo;
+}
+
+// ── Open hand (palm + 5 distinct fingers) — `mirror` for patient right arm (−x side) ─
+// אצבעות ~+25% אורך, ריווח x/y מוגבר; אחרי merge — הזזה כך ש־(0,0,0) סמוך לשורש כף היד (ממשק לפרק כף–שורש)
+export function createOpenHandGeometry(mirror: boolean): THREE.BufferGeometry {
+  const sx = mirror ? -1 : 1;
+  const parts: THREE.BufferGeometry[] = [];
+
+  const L = 1.25;
+  const rad = 0.012;
+  const capSeg = 4;
+  const cylSeg = 10;
+
+  const palm = new THREE.BoxGeometry(0.12, 0.03, 0.132);
+  palm.rotateX(-0.1);
+  palm.translate(0, -0.01, 0.048);
+  parts.push(palm);
+
+  /** ארבע אצבעות: ריווח x ברור, סיבוב Y קל לפרישה */
+  const addFinger = (x: number, z: number, len: number, rotY: number) => {
+    const f = new THREE.CapsuleGeometry(rad, len * L, capSeg, cylSeg);
+    f.rotateX(-Math.PI / 2);
+    f.rotateY(rotY);
+    f.translate(sx * x, 0.004, z);
+    parts.push(f);
+  };
+  addFinger(0.05, 0.098, 0.051, -0.092);
+  addFinger(0.018, 0.104, 0.06, -0.038);
+  addFinger(-0.018, 0.104, 0.06, 0.038);
+  addFinger(-0.05, 0.098, 0.051, 0.092);
+
+  const thumb = new THREE.CapsuleGeometry(0.0145, 0.036 * L, capSeg, cylSeg);
+  thumb.rotateZ(sx * 0.82);
+  thumb.rotateX(-0.38);
+  thumb.translate(sx * 0.06, -0.034, 0.036);
+  parts.push(thumb);
+
+  const merged = mergeGeometries(parts, false);
+  merged.computeVertexNormals();
+  merged.computeBoundingBox();
+  const b = merged.boundingBox;
+  if (b) {
+    const cx = (b.min.x + b.max.x) / 2;
+    const cz = (b.min.z + b.max.z) / 2;
+    merged.translate(-cx, -b.max.y + 0.008, -cz);
+  }
+  return merged;
+}
+
+/** Opaque bridge between shin and foot — fills the ankle visual gap. */
+export function createAnkleBridgeGeometry(): THREE.BufferGeometry {
+  const g = new THREE.CylinderGeometry(0.067, 0.054, 0.22, 22, 1, false);
+  g.rotateX(Math.PI / 2 + 0.1);
+  g.translate(0.006, -0.792, 0.028);
+  g.computeVertexNormals();
+  return g;
 }

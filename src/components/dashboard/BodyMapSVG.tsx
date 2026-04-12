@@ -8,9 +8,9 @@ interface BodyMapSVGProps {
   selectedArea?: BodyArea | null;
 }
 
-// Colour helpers
-const INACTIVE = '#dde8ec';
-const INACTIVE_STROKE = '#b0cdd6';
+// Colour helpers — aligned with 3D body map (medical glass #E0F7FA family)
+const INACTIVE = '#E0F7FA';
+const INACTIVE_STROKE = '#9ec9d4';
 const ACTIVE = '#5eead4';
 const ACTIVE_STROKE = '#0d9488';
 const PRIMARY = '#0d9488';
@@ -85,12 +85,12 @@ export default function BodyMapSVG({
 
       {/* ── HEAD ─────────────────────────────────────────────── */}
       <ellipse cx="100" cy="38" rx="30" ry="34"
-        fill="#dde8ec" stroke="#b0cdd6" strokeWidth="1.5" opacity="0.75"
+        fill="#E8F7FA" stroke="#a8d4e0" strokeWidth="1.5" opacity="0.82"
       />
       {/* Face details (non-interactive) */}
-      <ellipse cx="91" cy="34" rx="4" ry="5" fill="#c8dde4" />
-      <ellipse cx="109" cy="34" rx="4" ry="5" fill="#c8dde4" />
-      <path d="M92,50 Q100,55 108,50" fill="none" stroke="#c8dde4" strokeWidth="1.5" strokeLinecap="round" />
+      <ellipse cx="91" cy="34" rx="4" ry="5" fill="#b8dce8" />
+      <ellipse cx="109" cy="34" rx="4" ry="5" fill="#b8dce8" />
+      <path d="M92,50 Q100,55 108,50" fill="none" stroke="#b8dce8" strokeWidth="1.5" strokeLinecap="round" />
 
       {/* ── NECK ─────────────────────────────────────────────── */}
       <rect

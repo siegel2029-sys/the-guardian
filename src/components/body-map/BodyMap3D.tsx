@@ -4,11 +4,12 @@ import {
   useState,
   useCallback,
   useEffect,
+  useLayoutEffect,
   type ReactNode,
 } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Environment, Html } from '@react-three/drei';
-import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import { EffectComposer, Bloom, SSAO, SMAA } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import AnatomyModel from './AnatomyModel';
 import type { BodyArea } from '../../types';
@@ -61,21 +62,27 @@ export interface BodyMap3DProps {
   segmentGrowthMul?: Partial<Record<BodyArea, number>>;
   /** מחלקות נוספות לעטיפת הקנבס — למשל גובה קבוע בפורטל מובייל */
   wrapperClassName?: string;
+  /**
+   * כבה SSAO + SMAA (פוסט-פרימיום) במכשירים חלשים.
+   * ברירת מחדל: מופעל. Bloom לסטריק נשאר כשהוא רלוונטי.
+   */
+  disablePremiumPostProcessing?: boolean;
 }
 
 // ── View presets ──────────────────────────────────────────────────
 type ViewPreset = 'front' | 'back' | 'left' | 'right';
+/** מבטים — זום החוצה לפריים full-body (portrait) */
 const VIEW_POSITIONS: Record<ViewPreset, THREE.Vector3> = {
-  front: new THREE.Vector3(0, 1, 5),
-  back: new THREE.Vector3(0, 1, -5),
-  left: new THREE.Vector3(-5, 1, 0),
-  right: new THREE.Vector3(5, 1, 0),
+  front: new THREE.Vector3(0, 0.8, 8),
+  back: new THREE.Vector3(0, 0.8, -8),
+  left: new THREE.Vector3(-8, 0.8, 0),
+  right: new THREE.Vector3(8, 0.8, 0),
 };
-const LOOK_AT = new THREE.Vector3(0, 0.15, 0);
+/** מוקד מבט — חזה */
+const LOOK_AT = new THREE.Vector3(0, 0.7, 0);
 
-/** מרחק מצלמה ממוקד הגוף — פורטל מטופל (זום מוגבל, קרוב מספיק לפרטים קטנים) */
-const PORTAL_ORBIT_MIN_DIST = 1.32;
-const PORTAL_ORBIT_MAX_DIST = 5.15;
+/** פורטל מטופל — תחום זום */
+const PORTAL_ORBIT_MIN_DIST = 2.5;
 
 // ── Camera animator (lives inside Canvas) ────────────────────────
 interface CameraAnimatorProps {
@@ -138,13 +145,48 @@ function StreakRimLight() {
   );
 }
 
-// ── Scene background + fog ────────────────────────────────────────
-function SceneSetup() {
+// ── Studio gradient background + soft depth fog (matches medical reference) ──
+function StudioGradientBackground() {
+  const scene = useThree((s) => s.scene);
+  useLayoutEffect(() => {
+    const c = document.createElement('canvas');
+    c.width = 2;
+    c.height = 256;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    const grd = ctx.createLinearGradient(0, 0, 0, 256);
+    grd.addColorStop(0, '#e2e8f0');
+    grd.addColorStop(0.45, '#cbd5e1');
+    grd.addColorStop(1, '#94a3b8');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, 2, 256);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    scene.background = tex;
+    return () => {
+      scene.background = null;
+      tex.dispose();
+    };
+  }, [scene]);
+  return null;
+}
+
+function SceneFog() {
+  return <fog attach="fog" args={['#94a3b8', 9, 26]} />;
+}
+
+/** Thin disc under the avatar — contact shadow receiver (see AnatomyModel ContactShadows). */
+function StudioPedestal() {
   return (
-    <>
-      <color attach="background" args={['#eef2f7']} />
-      <fog attach="fog" args={['#eef2f7', 10, 22]} />
-    </>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.712, 0]} receiveShadow>
+      <circleGeometry args={[0.95, 72]} />
+      <meshStandardMaterial
+        color="#d1d5dc"
+        roughness={0.88}
+        metalness={0.04}
+        envMapIntensity={0.35}
+      />
+    </mesh>
   );
 }
 
@@ -289,6 +331,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     patientPortalInteractive = false,
     segmentGrowthMul,
     wrapperClassName,
+    disablePremiumPostProcessing = false,
   } = props;
 
   const equippedGear = equippedGearProp ?? EMPTY_EQUIPPED_GEAR;
@@ -298,6 +341,9 @@ export default function BodyMap3D(props: BodyMap3DProps) {
   const streakVal = streak ?? streakForGlow ?? 0;
   const streakEnergy =
     streakVal >= 3 && !patientPortalInteractive;
+
+  const premiumPostProcessingEnabled = !disablePremiumPostProcessing;
+  const streakBloomEnabled = streakEnergy && !stableInteraction;
 
   const xpPct =
     xp != null && xpForNextLevel != null && xpForNextLevel > 0
@@ -323,11 +369,16 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       className={wrapperClassName ?? ''}
       style={{
         width: '100%',
-        height: '100%',
-        minHeight: minHeightPx > 0 ? `${minHeightPx}px` : undefined,
+        maxWidth: '380px',
+        aspectRatio: '3 / 4',
+        maxHeight: '600px',
+        margin: '0 auto',
         position: 'relative',
         borderRadius: '16px',
         overflow: 'hidden',
+        ...(minHeightPx > 0
+          ? { minHeight: `${Math.min(minHeightPx, 600)}px` }
+          : {}),
         touchAction: patientPortalInteractive
           ? 'none'
           : scrollFriendlyPortal
@@ -345,56 +396,66 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     >
       <Canvas
         style={{
+          display: 'block',
+          width: '100%',
+          height: '100%',
           touchAction: patientPortalInteractive
             ? 'none'
             : scrollFriendlyPortal
               ? 'pan-y'
               : undefined,
         }}
-        camera={{ position: [0, 1, 5], fov: 45, near: 0.08, far: 45 }}
+        camera={{ position: [0, 0.8, 8], fov: 45, near: 0.1, far: 50 }}
         shadows="soft"
         gl={{
           antialias: true,
           alpha: false,
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.28,
+          toneMappingExposure: 1.22,
+          outputColorSpace: THREE.SRGBColorSpace,
+        }}
+        onCreated={({ gl }) => {
+          gl.shadowMap.enabled = true;
+          gl.shadowMap.type = THREE.PCFSoftShadowMap;
         }}
         dpr={[1, 2]}
       >
-        <SceneSetup />
+        <StudioGradientBackground />
+        <SceneFog />
 
-        {/* ── Lighting ─────────────────────────────────────────── */}
-        {/* Soft ambient fill – blueish mint to match the scene */}
-        <ambientLight intensity={0.72} color="#e8f4f8" />
-        <hemisphereLight args={['#f8fafc', '#94a3b8', 0.45]} />
+        {/* ── Studio lighting: hemisphere fill + dual front keys (muscle highlights) ── */}
+        <hemisphereLight args={['#f7fbff', '#e2e8f0', 0.58]} />
+        <ambientLight intensity={0.38} color="#f4f6f8" />
 
-        {/* Key light – strong, warm, top-right-front (like a studio softbox) */}
         <directionalLight
-          position={[2.8, 5.0, 3.5]}
-          intensity={1.78}
-          color="#fffaf5"
+          position={[3.4, 4.6, 2.9]}
+          intensity={1.42}
+          color="#fffdfb"
           castShadow
           shadow-mapSize={[2048, 2048]}
           shadow-camera-near={0.5}
-          shadow-camera-far={16}
-          shadow-camera-left={-2.5}
-          shadow-camera-right={2.5}
-          shadow-camera-top={3.5}
-          shadow-camera-bottom={-2}
-          shadow-bias={-0.0005}
+          shadow-camera-far={18}
+          shadow-camera-left={-3}
+          shadow-camera-right={3}
+          shadow-camera-top={4}
+          shadow-camera-bottom={-3}
+          shadow-radius={4}
+          shadow-blurSamples={12}
+          shadow-bias={-0.00028}
         />
 
-        {/* Fill light – cool, from the left-back (simulates studio bounce) */}
-        <directionalLight position={[-2.5, 1.5, -2.5]} intensity={0.58} color="#dbeafe" />
+        <directionalLight
+          position={[-3.2, 4.2, 2.7]}
+          intensity={1.22}
+          color="#f2f7ff"
+        />
 
-        {/* Rim / edge light – from directly behind, separates body from bg */}
-        <directionalLight position={[0, 1.0, -3.5]}   intensity={0.55} color="#a7f3d0" />
+        <directionalLight position={[0, 2.2, -2.8]} intensity={0.32} color="#eef2f6" />
 
-        {/* Under-light – very soft uplight that reveals the calf & foot */}
-        <pointLight position={[0, -2.0, 1.0]} intensity={0.22} color="#d1fae5" distance={4} decay={2} />
+        {/* Environment for transmission / clearcoat reflections */}
+        <Environment preset="studio" environmentIntensity={0.95} />
 
-        {/* Environment HDR for realistic PBR reflections on clearcoat */}
-        <Environment preset="studio" />
+        <StudioPedestal />
 
         <Suspense
           fallback={
@@ -429,7 +490,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
 
               {floatingLevelBadge && showLevelChrome && !patientPortalInteractive && (
                 <Html
-                  position={[0.34, 1.9, 0.14]}
+                  position={[0.34, 2.05, 0.14]}
                   center
                   distanceFactor={8.5}
                   style={{ pointerEvents: 'none' }}
@@ -474,7 +535,26 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           </group>
         </Suspense>
 
-        {streakEnergy && !stableInteraction && (
+        {premiumPostProcessingEnabled ? (
+          <EffectComposer enableNormalPass multisampling={4}>
+            <SSAO
+              samples={20}
+              rings={3}
+              intensity={0.55}
+              luminanceInfluence={0.42}
+              radius={9}
+              bias={0.035}
+              distanceThreshold={0.85}
+            />
+            <Bloom
+              intensity={streakBloomEnabled ? 0.42 : 0}
+              luminanceThreshold={0.82}
+              luminanceSmoothing={0.35}
+              mipmapBlur
+            />
+            <SMAA />
+          </EffectComposer>
+        ) : streakBloomEnabled ? (
           <EffectComposer enableNormalPass={false}>
             <Bloom
               intensity={0.42}
@@ -483,7 +563,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
               mipmapBlur
             />
           </EffectComposer>
-        )}
+        ) : null}
 
         {/* מצלמה — פורטל: סיבוב/זום ידניים בלבד (ללא אנימציית מבטים); דשבורד מטפל: אנימטור + מסלולי מבט */}
         {patientPortalInteractive ? (
@@ -493,10 +573,10 @@ export default function BodyMap3D(props: BodyMap3DProps) {
             enableRotate
             enableZoom
             minDistance={PORTAL_ORBIT_MIN_DIST}
-            maxDistance={PORTAL_ORBIT_MAX_DIST}
+            maxDistance={12}
             minPolarAngle={0.1}
             maxPolarAngle={Math.PI - 0.08}
-            target={[0, 0.15, 0]}
+            target={[0, 0.7, 0]}
             enableDamping
             dampingFactor={0.075}
             rotateSpeed={0.68}
@@ -513,9 +593,9 @@ export default function BodyMap3D(props: BodyMap3DProps) {
               enablePan={false}
               enableRotate={!scrollFriendlyPortal}
               enableZoom={!scrollFriendlyPortal}
-              minDistance={1.8}
-              maxDistance={6.0}
-              target={[0, 0.15, 0]}
+              minDistance={2.5}
+              maxDistance={12}
+              target={[0, 0.7, 0]}
               enableDamping
               dampingFactor={0.07}
               rotateSpeed={0.72}
