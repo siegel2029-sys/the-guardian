@@ -236,72 +236,84 @@ export function createOpenHandGeometry(mirror: boolean): THREE.BufferGeometry {
 }
 
 /**
- * כף יד — חמש אצבעות פרושות כלפי מטה (−Y) במקביל לאמה הפרוצדורלית.
- * ציר +Y = כיוון המרפק (שורש כף ב־y=0); אצבעות וכף נמשכות ל־−Y (לרצפה בהליכה).
- * יד שמאל: אגודל ב־+X; יד ימין: mirror −X.
+ * כף יד בסגנון דמוי־תמונת ייחוס: כף טרפזית (רחבה בפרקים, צרה לפרק כף), אצבעות ארוכות
+ * ומפורקות (אמצעית הכי ארוכה), אגודל בזווית V מול המורה, כף פונה קדימה (+Z) ואצבעות −Y.
  */
 export function createNormalHandGeometry(mirror: boolean): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const capSeg = 6;
   const cylSeg = 12;
-  /** קנה מידע מעט גדול יותר — אצבעות קריאות מרחוק */
   const sc = 0.44;
 
-  /** קטע אצבע לאורך −Y; yTop = קצה פרוקסימלי של הקטע */
+  /** שלושה מקטעים עם טaper ברדיוס — קריאות «מפרקים» */
   const segmentDown = (
     x: number,
     yTop: number,
     length: number,
     radius: number,
-    tiltZ: number
+    tiltZ: number,
+    tiltY: number
   ) => {
     const g = new THREE.CapsuleGeometry(radius, length, capSeg, cylSeg);
+    g.rotateY(tiltY);
     g.rotateZ(tiltZ);
     const half = length * 0.5 + radius;
     g.translate(x, yTop - half, 0);
     parts.push(g);
-    return yTop - length - radius * 1.32;
+    return yTop - length - radius * 1.18;
   };
 
   const fingerChain = (
     x: number,
     yBase: number,
     tiltZ: number,
+    tiltY: number,
     r: number,
     l1: number,
     l2: number,
     l3: number
   ) => {
     let y = yBase;
-    y = segmentDown(x, y, l1 * sc, r * sc, tiltZ);
-    y = segmentDown(x, y, l2 * sc, r * 0.92 * sc, tiltZ * 0.94);
-    segmentDown(x, y, l3 * sc, r * 0.86 * sc, tiltZ * 0.9);
+    y = segmentDown(x, y, l1 * sc, r * sc, tiltZ, tiltY);
+    y = segmentDown(x, y, l2 * sc, r * 0.88 * sc, tiltZ * 0.95, tiltY * 0.95);
+    segmentDown(x, y, l3 * sc, r * 0.76 * sc, tiltZ * 0.9, tiltY * 0.9);
   };
 
-  const palmW = 0.082 * sc;
-  const palmLen = 0.048 * sc;
-  const palmT = 0.015 * sc;
-  const palm = new THREE.BoxGeometry(palmW, palmLen, palmT);
-  palm.translate(0, -palmLen * 0.48, 0.005 * sc);
-  parts.push(palm);
+  /** כף טרפזית: לוח פרקים רחב + בסיס צר לפרק כף — חיבור חלק לאמה */
+  const knucklePlate = new THREE.BoxGeometry(0.112 * sc, 0.021 * sc, 0.046 * sc);
+  knucklePlate.rotateX(0.06);
+  knucklePlate.translate(0, -0.01 * sc, 0.022 * sc);
+  parts.push(knucklePlate);
 
-  const yMet = -0.052 * sc;
-  /** פריסה חזקה יותר — הבדל ברור בין 4 האצבעות */
-  const splay = 0.082;
-  fingerChain(0.028 * sc, yMet, -splay, 0.0112, 0.048, 0.038, 0.03);
-  fingerChain(0.009 * sc, yMet - 0.004 * sc, -splay * 0.38, 0.0118, 0.054, 0.043, 0.034);
-  fingerChain(-0.009 * sc, yMet - 0.004 * sc, splay * 0.38, 0.0114, 0.051, 0.041, 0.032);
-  fingerChain(-0.028 * sc, yMet, splay, 0.0105, 0.042, 0.034, 0.026);
+  const palmBody = new THREE.BoxGeometry(0.072 * sc, 0.022 * sc, 0.04 * sc);
+  palmBody.rotateX(0.04);
+  palmBody.translate(0, -0.028 * sc, 0.008 * sc);
+  parts.push(palmBody);
 
-  const rT = 0.0105 * sc;
-  const tMeta = new THREE.CapsuleGeometry(rT, 0.028 * sc, capSeg, cylSeg);
-  tMeta.rotateZ(0.36);
-  tMeta.translate(0.042 * sc, -0.032 * sc, 0.007 * sc);
+  const wristTaper = new THREE.BoxGeometry(0.052 * sc, 0.018 * sc, 0.036 * sc);
+  wristTaper.translate(0, -0.042 * sc, 0.002 * sc);
+  parts.push(wristTaper);
+
+  const yMet = -0.05 * sc;
+  const splay = 0.11;
+  const openY = 0.14;
+  /** עובי אצבע ~פי 1.35 — פרופורציה מול אורך ×2 */
+  const rt = 1.35;
+  fingerChain(0.032 * sc, yMet, -splay, openY, 0.0108 * rt, 0.1, 0.08, 0.062);
+  fingerChain(0.011 * sc, yMet - 0.005 * sc, -splay * 0.38, openY * 0.72, 0.0115 * rt, 0.116, 0.092, 0.072);
+  fingerChain(-0.011 * sc, yMet - 0.005 * sc, splay * 0.38, -openY * 0.72, 0.0112 * rt, 0.11, 0.088, 0.068);
+  fingerChain(-0.032 * sc, yMet, splay, -openY, 0.0102 * rt, 0.092, 0.074, 0.056);
+
+  const rT = 0.0112 * rt * sc;
+  const tMeta = new THREE.CapsuleGeometry(rT, 0.068 * sc, capSeg, cylSeg);
+  tMeta.rotateY(0.42);
+  tMeta.rotateZ(0.88);
+  tMeta.translate(0.05 * sc, -0.026 * sc, 0.022 * sc);
   parts.push(tMeta);
 
-  let yt = -0.056 * sc;
-  yt = segmentDown(0.044 * sc, yt, 0.022 * sc, rT * 1.02, 0.16);
-  segmentDown(0.046 * sc, yt, 0.018 * sc, rT * 0.92, 0.11);
+  let yt = -0.052 * sc;
+  yt = segmentDown(0.052 * sc, yt, 0.052 * sc, rT * 1.03, 0.12, 0.14);
+  segmentDown(0.054 * sc, yt, 0.04 * sc, rT * 0.88, 0.08, 0.1);
 
   const merged = mergeGeometries(parts, false);
 
@@ -318,11 +330,109 @@ export function createNormalHandGeometry(mirror: boolean): THREE.BufferGeometry 
   return merged;
 }
 
-/** Opaque bridge between shin and foot — fills the ankle visual gap. */
-export function createAnkleBridgeGeometry(): THREE.BufferGeometry {
-  const g = new THREE.CylinderGeometry(0.067, 0.054, 0.22, 22, 1, false);
-  g.rotateX(Math.PI / 2 + 0.1);
-  g.translate(0.006, -0.792, 0.028);
-  g.computeVertexNormals();
-  return g;
+/**
+ * כף רגל מפורטת — עקב (calcaneus), קשת, רצועת מטאטארסלים, חמש אצבעות עם רווחים וציפורן מרומזת בקצה.
+ * ציר: +Z קדימה, +Y למעלה (חיבור לשוק ב־y=0), אגודל־רגל ב־−X לפני mirror.
+ */
+export function createDetailedFootGeometry(mirror: boolean): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  /** 0.52×3 ≈ 1.56; +~1.06 כדי לספוג את scale הקבוצה שהוסר מ־AnatomyModel */
+  const sc = 1.65;
+  const capSeg = 6;
+  const cylSeg = 12;
+
+  const heel = new THREE.SphereGeometry(0.032 * sc, 22, 18);
+  heel.scale(0.68, 0.52, 1.08);
+  heel.translate(0, -0.029 * sc, -0.102 * sc);
+  parts.push(heel);
+
+  const ankleMortise = new THREE.SphereGeometry(0.054 * sc, 22, 18);
+  ankleMortise.scale(0.9, 0.7, 0.9);
+  ankleMortise.translate(0, 0.05 * sc, -0.03 * sc);
+  parts.push(ankleMortise);
+
+  const ankleBlend = new THREE.CylinderGeometry(0.048 * sc, 0.042 * sc, 0.064 * sc, 22, 5, false);
+  ankleBlend.translate(0, 0.017 * sc, -0.039 * sc);
+  parts.push(ankleBlend);
+
+  const plantarBase = new THREE.BoxGeometry(0.056 * sc, 0.012 * sc, 0.118 * sc);
+  plantarBase.translate(0, -0.0345 * sc, 0.018 * sc);
+  parts.push(plantarBase);
+
+  const archBlock = new THREE.BoxGeometry(0.03 * sc, 0.018 * sc, 0.092 * sc);
+  archBlock.rotateZ(0.2);
+  archBlock.rotateX(0.16);
+  archBlock.translate(-0.017 * sc, -0.024 * sc, -0.008 * sc);
+  parts.push(archBlock);
+
+  const dorsum = new THREE.BoxGeometry(0.056 * sc, 0.014 * sc, 0.09 * sc);
+  dorsum.rotateX(-0.06);
+  dorsum.translate(0, -0.01 * sc, 0.038 * sc);
+  parts.push(dorsum);
+
+  const metX = [-0.044, -0.022, -0.001, 0.02, 0.039].map((v) => v * sc);
+  const metZ = [0.056, 0.058, 0.06, 0.062, 0.064].map((v) => v * sc);
+  const metR = [0.0128, 0.0118, 0.0112, 0.0106, 0.0098].map((v) => v * sc);
+  for (let i = 0; i < 5; i++) {
+    const head = new THREE.SphereGeometry(metR[i], 14, 12);
+    head.scale(0.92, 0.48, 1.05);
+    head.translate(metX[i], -0.031 * sc, metZ[i]);
+    parts.push(head);
+  }
+
+  type ToeDef = { x: number; z0: number; l1: number; l2: number; r0: number; r1: number };
+  const toeDefs: ToeDef[] = [
+    { x: -0.044, z0: 0.084, l1: 0.024, l2: 0.02, r0: 0.0108, r1: 0.0088 },
+    { x: -0.022, z0: 0.088, l1: 0.022, l2: 0.018, r0: 0.01, r1: 0.0082 },
+    { x: -0.001, z0: 0.09, l1: 0.02, l2: 0.016, r0: 0.0094, r1: 0.0076 },
+    { x: 0.02, z0: 0.091, l1: 0.017, l2: 0.013, r0: 0.0088, r1: 0.007 },
+    { x: 0.039, z0: 0.092, l1: 0.014, l2: 0.011, r0: 0.0078, r1: 0.0062 },
+  ].map((d) => ({
+    ...d,
+    x: d.x * sc,
+    z0: d.z0 * sc,
+    l1: d.l1 * sc,
+    l2: d.l2 * sc,
+    r0: d.r0 * sc,
+    r1: d.r1 * sc,
+  }));
+
+  const toeY = -0.0305 * sc;
+  const toeOverlap = 0.0012 * sc;
+  for (const t of toeDefs) {
+    const cZProx = t.z0 + t.l1 / 2 + t.r0;
+    const prox = new THREE.CapsuleGeometry(t.r0, t.l1, capSeg, cylSeg);
+    prox.rotateX(Math.PI / 2);
+    prox.translate(t.x, toeY, cZProx);
+    parts.push(prox);
+
+    const zTopProx = t.z0 + t.l1 + 2 * t.r0 - toeOverlap;
+    const cZDist = zTopProx + t.l2 / 2 + t.r1;
+    const dist = new THREE.CapsuleGeometry(t.r1, t.l2, capSeg, cylSeg);
+    dist.rotateX(Math.PI / 2);
+    dist.translate(t.x * 0.995, toeY + 0.001 * sc, cZDist);
+    parts.push(dist);
+
+    const zTip = zTopProx + t.l2 + 2 * t.r1 - toeOverlap * 0.5;
+    const nail = new THREE.SphereGeometry(t.r1 * 0.92, 12, 10);
+    nail.scale(1.12, 0.32, 1.08);
+    nail.translate(t.x * 0.99, toeY + 0.0025 * sc, zTip);
+    parts.push(nail);
+  }
+
+  const merged = mergeGeometries(parts, false);
+  if (mirror) merged.scale(-1, 1, 1);
+
+  merged.computeVertexNormals();
+  merged.computeBoundingBox();
+  const b = merged.boundingBox;
+  if (b) {
+    const cx = (b.min.x + b.max.x) / 2;
+    const cz = (b.min.z + b.max.z) / 2;
+    merged.translate(-cx, -b.max.y, -cz);
+  }
+  return merged;
 }
+
+/** @deprecated Use createDetailedFootGeometry */
+export const createAnatomicalFootGeometry = createDetailedFootGeometry;

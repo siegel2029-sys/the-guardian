@@ -26,7 +26,7 @@ import {
   createKnee,
   createGlute,
   createNormalHandGeometry,
-  createAnkleBridgeGeometry,
+  createDetailedFootGeometry,
 } from './geometry/muscleGeometry';
 import { getLevelTier, type LevelTier } from '../../body/levelTier';
 import { getMuscleEvolutionStage, getMuscleVertexInflation } from '../../body/anatomicalEvolution';
@@ -127,16 +127,21 @@ const GAIT_KNEE_KEYFRAMES: readonly (readonly [number, number])[] = [
   [100, 0],
 ];
 
+/** קרסול עדין — כמעט שטוח ב־stance (0–55%), תנועה קלה ב־swing בלבד */
 const GAIT_ANKLE_KEYFRAMES: readonly (readonly [number, number])[] = [
-  [0, 0.1],
-  [15, -0.05],
-  [30, 0.1],
-  [50, 0.15],
-  [60, -0.3],
-  [75, 0],
-  [90, 0.1],
-  [100, 0.1],
+  [0, 0.045],
+  [15, 0.025],
+  [30, 0.05],
+  [45, 0.038],
+  [55, 0.02],
+  [65, -0.09],
+  [78, -0.035],
+  [90, 0.045],
+  [100, 0.045],
 ];
+
+/** מכפיל נוסף על סיבוב כף — שומר על «שטוח» בעמידה */
+const GAIT_ANKLE_ANIM_MUL = 0.52;
 
 /**
  * Bob אנכי: מינימום בעקב (0% / 50%), מקסימום באמצע עמידה (רגל נושאת כמעט אנכית) — ~15% / ~65%.
@@ -333,6 +338,10 @@ interface BaseProps {
   motionSteady?: boolean;
   /** כפות יד — עור שקוף־מעט כמו אמה (לא כובע מפרק ירוק) */
   translucentWhenHealthy?: boolean;
+  /**
+   * `glass` — transmission (ידיים). `frost` — לבן שקוף עם opacity (כפות רגל — לא "רוח").
+   */
+  translucentLimbStyle?: 'glass' | 'frost';
 }
 
 function BaseSegment({
@@ -355,6 +364,7 @@ function BaseSegment({
   disableRaycast = false,
   motionSteady = false,
   translucentWhenHealthy = false,
+  translucentLimbStyle = 'glass',
 }: BaseProps) {
   const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
   const baseColor = goldSkin ? GOLD_SKIN : BASE_SKIN;
@@ -434,13 +444,22 @@ function BaseSegment({
   const hasLimbVisualOverlay = limbTint != null && !goldSkin;
   const transSkin =
     Boolean(translucentWhenHealthy) && !goldSkin && limbTint == null;
+  const useFrostTranslucent = transSkin && translucentLimbStyle === 'frost';
+  const meshRenderOrder = useFrostTranslucent ? 1 : 0;
 
   if (!goldSkin && muscleStage === 'post_injury') {
     if (hasLimbVisualOverlay) {
       return (
         <group position={position} rotation={rot} scale={[0.96, 0.97, 0.96]}>
           {injuryLight}
-          <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
+          <mesh
+            ref={meshRef}
+            geometry={geometry}
+            castShadow
+            receiveShadow
+            renderOrder={meshRenderOrder}
+            {...pointerProps}
+          >
             <meshPhysicalMaterial
               ref={matRef}
               color={limbTint.color}
@@ -468,26 +487,33 @@ function BaseSegment({
     return (
       <group position={position} rotation={rot} scale={[0.96, 0.97, 0.96]}>
         {injuryLight}
-        <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
+        <mesh
+          ref={meshRef}
+          geometry={geometry}
+          castShadow
+          receiveShadow
+          renderOrder={meshRenderOrder}
+          {...pointerProps}
+        >
           <meshPhysicalMaterial
             ref={matRef}
-            color={transSkin ? '#eef8fa' : '#cbd5e1'}
-            roughness={transSkin ? 0.28 : 0.4}
+            color={useFrostTranslucent ? '#ffffff' : transSkin ? '#eef8fa' : '#cbd5e1'}
+            roughness={useFrostTranslucent ? 0.5 : transSkin ? 0.28 : 0.4}
             metalness={0.1}
-            clearcoat={transSkin ? 0.22 : 0.18}
-            clearcoatRoughness={transSkin ? 0.32 : 0.36}
-            transmission={transSkin ? 0.34 : 0}
-            thickness={transSkin ? 0.4 : 0}
+            clearcoat={useFrostTranslucent ? 0.1 : transSkin ? 0.22 : 0.18}
+            clearcoatRoughness={useFrostTranslucent ? 0.45 : transSkin ? 0.32 : 0.36}
+            transmission={useFrostTranslucent ? 0 : transSkin ? 0.34 : 0}
+            thickness={useFrostTranslucent ? 0 : transSkin ? 0.4 : 0}
             ior={1.5}
-            envMapIntensity={transSkin ? 0.95 : 0.72}
-            emissive="#0e7490"
-            emissiveIntensity={0.08}
+            envMapIntensity={useFrostTranslucent ? 0.65 : transSkin ? 0.95 : 0.72}
+            emissive={useFrostTranslucent ? '#000000' : '#0e7490'}
+            emissiveIntensity={useFrostTranslucent ? 0 : 0.08}
             iridescence={0}
             iridescenceIOR={1}
             iridescenceThicknessRange={[0, 0]}
             transparent={transSkin}
-            opacity={1}
-            depthWrite={!transSkin}
+            opacity={useFrostTranslucent ? 0.8 : 1}
+            depthWrite={useFrostTranslucent || !transSkin}
           />
         </mesh>
       </group>
@@ -499,7 +525,14 @@ function BaseSegment({
       return (
         <group position={position} rotation={rot}>
           {injuryLight}
-          <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
+          <mesh
+            ref={meshRef}
+            geometry={geometry}
+            castShadow
+            receiveShadow
+            renderOrder={meshRenderOrder}
+            {...pointerProps}
+          >
             <meshPhysicalMaterial
               ref={matRef}
               color={limbTint.color}
@@ -527,26 +560,33 @@ function BaseSegment({
     return (
       <group position={position} rotation={rot}>
         {injuryLight}
-        <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
+        <mesh
+          ref={meshRef}
+          geometry={geometry}
+          castShadow
+          receiveShadow
+          renderOrder={meshRenderOrder}
+          {...pointerProps}
+        >
           <meshPhysicalMaterial
             ref={matRef}
-            color={goldSkin ? '#b8941f' : transSkin ? '#eef8fa' : '#e8eaef'}
-            roughness={goldSkin ? 0.32 : transSkin ? 0.28 : 0.4}
+            color={goldSkin ? '#b8941f' : useFrostTranslucent ? '#ffffff' : transSkin ? '#eef8fa' : '#e8eaef'}
+            roughness={goldSkin ? 0.32 : useFrostTranslucent ? 0.5 : transSkin ? 0.28 : 0.4}
             metalness={goldSkin ? 0.45 : 0.1}
-            clearcoat={goldSkin ? 0.35 : transSkin ? 0.2 : 0.14}
-            clearcoatRoughness={goldSkin ? 0.28 : transSkin ? 0.34 : 0.38}
-            transmission={goldSkin || !transSkin ? 0 : 0.34}
-            thickness={transSkin ? 0.4 : 0}
+            clearcoat={goldSkin ? 0.35 : useFrostTranslucent ? 0.1 : transSkin ? 0.2 : 0.14}
+            clearcoatRoughness={goldSkin ? 0.28 : useFrostTranslucent ? 0.45 : transSkin ? 0.34 : 0.38}
+            transmission={goldSkin || useFrostTranslucent ? 0 : transSkin ? 0.34 : 0}
+            thickness={useFrostTranslucent ? 0 : transSkin ? 0.4 : 0}
             ior={1.5}
-            envMapIntensity={goldSkin ? 1.2 : transSkin ? 0.9 : 0.4}
+            envMapIntensity={goldSkin ? 1.2 : useFrostTranslucent ? 0.65 : transSkin ? 0.9 : 0.4}
             emissive={goldSkin ? '#3d2a06' : '#000000'}
             emissiveIntensity={goldSkin ? 0.04 : 0}
             iridescence={0}
             iridescenceIOR={1}
             iridescenceThicknessRange={[0, 0]}
             transparent={!goldSkin && transSkin}
-            opacity={1}
-            depthWrite={goldSkin || !transSkin}
+            opacity={useFrostTranslucent ? 0.8 : 1}
+            depthWrite={goldSkin || useFrostTranslucent || !transSkin}
           />
         </mesh>
       </group>
@@ -557,26 +597,54 @@ function BaseSegment({
     return (
       <group position={position} rotation={rot}>
         {injuryLight}
-        <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
+        <mesh
+          ref={meshRef}
+          geometry={geometry}
+          castShadow
+          receiveShadow
+          renderOrder={meshRenderOrder}
+          {...pointerProps}
+        >
           <meshPhysicalMaterial
             ref={matRef}
-            color={limbTint?.color ?? (transSkin ? '#eef8fa' : baseColor)}
-            roughness={limbTint ? limbTint.roughness : goldSkin ? 0.35 : transSkin ? 0.26 : 0.35}
+            color={
+              limbTint?.color ??
+              (useFrostTranslucent ? '#ffffff' : transSkin ? '#eef8fa' : baseColor)
+            }
+            roughness={
+              limbTint ? limbTint.roughness : goldSkin ? 0.35 : useFrostTranslucent ? 0.5 : transSkin ? 0.26 : 0.35
+            }
             metalness={limbTint ? limbTint.metalness : goldSkin ? 0.55 : 0.1}
-            clearcoat={limbTint ? limbTint.clearcoat : goldSkin ? 0.42 : transSkin ? 0.2 : 0.22}
-            clearcoatRoughness={limbTint ? limbTint.clearcoatRoughness : goldSkin ? 0.28 : transSkin ? 0.32 : 0.3}
-            transmission={limbTint ? limbTint.transmission : transSkin ? 0.38 : 0}
-            thickness={limbTint ? limbTint.thickness : transSkin ? 0.42 : 0}
+            clearcoat={
+              limbTint ? limbTint.clearcoat : goldSkin ? 0.42 : useFrostTranslucent ? 0.1 : transSkin ? 0.2 : 0.22
+            }
+            clearcoatRoughness={
+              limbTint
+                ? limbTint.clearcoatRoughness
+                : goldSkin
+                  ? 0.28
+                  : useFrostTranslucent
+                    ? 0.45
+                    : transSkin
+                      ? 0.32
+                      : 0.3
+            }
+            transmission={limbTint ? limbTint.transmission : useFrostTranslucent ? 0 : transSkin ? 0.38 : 0}
+            thickness={limbTint ? limbTint.thickness : useFrostTranslucent ? 0 : transSkin ? 0.42 : 0}
             ior={limbTint ? limbTint.ior : 1.5}
-            envMapIntensity={limbTint ? limbTint.envMapIntensity : goldSkin ? 1.45 : transSkin ? 1.08 : 1.22}
-            emissive={limbTint?.emissive ?? (goldSkin ? '#3d2a06' : '#082830')}
-            emissiveIntensity={limbTint?.emissiveIntensity ?? (goldSkin ? 0.04 : 0.06)}
+            envMapIntensity={
+              limbTint ? limbTint.envMapIntensity : goldSkin ? 1.45 : useFrostTranslucent ? 0.65 : transSkin ? 1.08 : 1.22
+            }
+            emissive={limbTint?.emissive ?? (goldSkin ? '#3d2a06' : useFrostTranslucent ? '#000000' : '#082830')}
+            emissiveIntensity={
+              limbTint?.emissiveIntensity ?? (goldSkin ? 0.04 : useFrostTranslucent ? 0 : 0.06)
+            }
             iridescence={limbTint ? limbTint.iridescence : 0}
             iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1}
             iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [0, 0]}
             transparent={Boolean(limbTint) ? false : transSkin}
-            opacity={1}
-            depthWrite={Boolean(limbTint) || !transSkin}
+            opacity={useFrostTranslucent ? 0.8 : 1}
+            depthWrite={Boolean(limbTint) || useFrostTranslucent || !transSkin}
           />
         </mesh>
       </group>
@@ -586,26 +654,54 @@ function BaseSegment({
   return (
     <group position={position} rotation={rot}>
       {injuryLight}
-      <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
+      <mesh
+        ref={meshRef}
+        geometry={geometry}
+        castShadow
+        receiveShadow
+        renderOrder={meshRenderOrder}
+        {...pointerProps}
+      >
         <meshPhysicalMaterial
           ref={matRef}
-          color={limbTint?.color ?? (injuryHighlight ? '#fecaca' : transSkin ? '#eef8fa' : baseColor)}
-          roughness={limbTint ? limbTint.roughness : goldSkin ? 0.28 : transSkin ? 0.26 : 0.32}
+          color={
+            limbTint?.color ??
+            (injuryHighlight ? '#fecaca' : useFrostTranslucent ? '#ffffff' : transSkin ? '#eef8fa' : baseColor)
+          }
+          roughness={
+            limbTint ? limbTint.roughness : goldSkin ? 0.28 : useFrostTranslucent ? 0.5 : transSkin ? 0.26 : 0.32
+          }
           metalness={limbTint ? limbTint.metalness : goldSkin ? 0.65 : 0.12}
-          clearcoat={limbTint ? limbTint.clearcoat : goldSkin ? 0.38 : transSkin ? 0.22 : 0.28}
-          clearcoatRoughness={limbTint ? limbTint.clearcoatRoughness : goldSkin ? 0.24 : transSkin ? 0.3 : 0.28}
-          transmission={limbTint ? limbTint.transmission : transSkin ? 0.38 : 0}
-          thickness={limbTint ? limbTint.thickness : transSkin ? 0.42 : 0}
+          clearcoat={
+            limbTint ? limbTint.clearcoat : goldSkin ? 0.38 : useFrostTranslucent ? 0.1 : transSkin ? 0.22 : 0.28
+          }
+          clearcoatRoughness={
+            limbTint
+              ? limbTint.clearcoatRoughness
+              : goldSkin
+                ? 0.24
+                : useFrostTranslucent
+                  ? 0.45
+                  : transSkin
+                    ? 0.3
+                    : 0.28
+          }
+          transmission={limbTint ? limbTint.transmission : useFrostTranslucent ? 0 : transSkin ? 0.38 : 0}
+          thickness={limbTint ? limbTint.thickness : useFrostTranslucent ? 0 : transSkin ? 0.42 : 0}
           ior={limbTint ? limbTint.ior : 1.5}
-          envMapIntensity={limbTint ? limbTint.envMapIntensity : goldSkin ? 1.75 : transSkin ? 1.12 : 1.55}
-          emissive={limbTint?.emissive ?? (goldSkin ? '#3d2a06' : '#082830')}
-          emissiveIntensity={limbTint?.emissiveIntensity ?? (goldSkin ? 0.04 : 0.06)}
+          envMapIntensity={
+            limbTint ? limbTint.envMapIntensity : goldSkin ? 1.75 : useFrostTranslucent ? 0.65 : transSkin ? 1.12 : 1.55
+          }
+          emissive={limbTint?.emissive ?? (goldSkin ? '#3d2a06' : useFrostTranslucent ? '#000000' : '#082830')}
+          emissiveIntensity={
+            limbTint?.emissiveIntensity ?? (goldSkin ? 0.04 : useFrostTranslucent ? 0 : 0.06)
+          }
           iridescence={limbTint ? limbTint.iridescence : 0}
           iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1}
           iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [0, 0]}
           transparent={Boolean(limbTint) ? false : transSkin}
-          opacity={1}
-          depthWrite={Boolean(limbTint) || !transSkin}
+          opacity={useFrostTranslucent ? 0.8 : 1}
+          depthWrite={Boolean(limbTint) || useFrostTranslucent || !transSkin}
         />
       </mesh>
     </group>
@@ -621,6 +717,11 @@ function IdleSwayRoot({ children }: { children: ReactNode }) {
 const WALK_HIP_L: [number, number, number] = [0.24, 0.08, 0.07];
 const WALK_HIP_R: [number, number, number] = [-0.24, 0.08, 0.07];
 const WALK_KNEE_OFF: [number, number, number] = [0, -0.7, 0.01];
+
+/** שוק: קפסולה 0.32 + r 0.068; קצה תחתון ≈ −0.588 — כף מיושרת עם חפיפה קלה לקרסול */
+const SHIN_DISTAL_Y = -0.36 - (0.32 / 2 + 0.068);
+/** קודם היה scale 1.06 על קבוצת הרגל — המכפלה משמרת את אותה נקודת חיבור לשוק */
+const FOOT_ATTACH_Y = (SHIN_DISTAL_Y + 0.02) * 1.06;
 
 /**
  * קנה מידה לתווי פנים: בסיס mobile × +30% נוסף לקריאות מרחוק.
@@ -773,29 +874,6 @@ function HeadFaceFeatures({ level: _level }: { level: number }) {
   );
 }
 
-/** Opaque shin→foot link */
-function SolidAnkleBridge({ geometry }: { geometry: THREE.BufferGeometry }) {
-  return (
-    <mesh geometry={geometry} castShadow receiveShadow>
-      <meshPhysicalMaterial
-        color="#6dd4c0"
-        roughness={0.35}
-        metalness={0.1}
-        clearcoat={0.22}
-        clearcoatRoughness={0.3}
-        transmission={0}
-        opacity={1}
-        transparent={false}
-        depthWrite
-        envMapIntensity={0.95}
-        iridescence={0}
-        iridescenceIOR={1}
-        iridescenceThicknessRange={[0, 0]}
-      />
-    </mesh>
-  );
-}
-
 // ── Geometry cache (built once per render) ────────────────────────
 function useGeometries() {
   return useMemo(() => ({
@@ -822,13 +900,10 @@ function useGeometries() {
     pelvis:       new THREE.CylinderGeometry(0.230, 0.212, 0.24, 20, 6),
     handL:        createNormalHandGeometry(false),
     handR:        createNormalHandGeometry(true),
-    ankleBridge:  createAnkleBridgeGeometry(),
     elbowL:       new THREE.SphereGeometry(0.118, 18, 14),
     elbowR:       new THREE.SphereGeometry(0.118, 18, 14),
-    ankleL:       new THREE.SphereGeometry(0.098, 14, 12),
-    ankleR:       new THREE.SphereGeometry(0.098, 14, 12),
-    footL:        new THREE.BoxGeometry(0.158, 0.080, 0.300),
-    footR:        new THREE.BoxGeometry(0.158, 0.080, 0.300),
+    footL:        createDetailedFootGeometry(false),
+    footR:        createDetailedFootGeometry(true),
     shinL:        new THREE.CapsuleGeometry(0.068, 0.32, 4, 14),
     shinR:        new THREE.CapsuleGeometry(0.068, 0.32, 4, 14),
   }), []);
@@ -1043,7 +1118,8 @@ export default function AnatomyModel({
       leftKneeRef.current.rotation.x = lerpAngle(t, GAIT_KNEE_KEYFRAMES);
     }
     if (leftFootRef.current) {
-      leftFootRef.current.rotation.x = lerpAngle(t, GAIT_ANKLE_KEYFRAMES);
+      leftFootRef.current.rotation.x =
+        lerpAngle(t, GAIT_ANKLE_KEYFRAMES) * GAIT_ANKLE_ANIM_MUL;
     }
 
     if (rightThighRef.current) {
@@ -1053,7 +1129,8 @@ export default function AnatomyModel({
       rightKneeRef.current.rotation.x = lerpAngle(tRight, GAIT_KNEE_KEYFRAMES);
     }
     if (rightFootRef.current) {
-      rightFootRef.current.rotation.x = lerpAngle(tRight, GAIT_ANKLE_KEYFRAMES);
+      rightFootRef.current.rotation.x =
+        lerpAngle(tRight, GAIT_ANKLE_KEYFRAMES) * GAIT_ANKLE_ANIM_MUL;
     }
 
     /**
@@ -1218,8 +1295,8 @@ export default function AnatomyModel({
             />
             <BaseSegment
               geometry={geos.handL}
-              position={[-0.002, -0.19, 0.005]}
-              rotation={[0, 0, 0.05]}
+              position={[-0.001, -0.192, 0.006]}
+              rotation={[0.52, -0.2, 0.045]}
               level={level}
               goldSkin={gearGoldSkin}
               muscleStage={muscleStage}
@@ -1267,8 +1344,8 @@ export default function AnatomyModel({
             />
             <BaseSegment
               geometry={geos.handR}
-              position={[0.002, -0.19, 0.005]}
-              rotation={[0, 0, -0.05]}
+              position={[0.001, -0.192, 0.006]}
+              rotation={[-0.52, 0.2, -0.045]}
               level={level}
               goldSkin={gearGoldSkin}
               muscleStage={muscleStage}
@@ -1326,13 +1403,11 @@ export default function AnatomyModel({
               vertexInflationWeight={0}
               disableRaycast
             />
-            <MuscleSegment {...S('ankle_left')} geometry={geos.ankleL} position={[0, -0.71, 0.005]} />
-            <SolidAnkleBridge geometry={geos.ankleBridge} />
             <group ref={leftFootRef}>
               <BaseSegment
                 geometry={geos.footL}
-                position={[0.015, -0.9, 0.02]}
-                rotation={[0.18, 0, 0]}
+                position={[0.01, FOOT_ATTACH_Y, 0.018]}
+                rotation={[0.055, 0.075, 0]}
                 level={level}
                 goldSkin={gearGoldSkin}
                 muscleStage={muscleStage}
@@ -1341,6 +1416,8 @@ export default function AnatomyModel({
                 {...limbPickProps('foot_left')}
                 motionSteady={stableInteraction}
                 onAreaClick={onAreaClick}
+                translucentWhenHealthy
+                translucentLimbStyle="frost"
               />
             </group>
           </group>
@@ -1387,13 +1464,11 @@ export default function AnatomyModel({
               vertexInflationWeight={0}
               disableRaycast
             />
-            <MuscleSegment {...S('ankle_right')} geometry={geos.ankleR} position={[0, -0.71, 0.005]} />
-            <SolidAnkleBridge geometry={geos.ankleBridge} />
             <group ref={rightFootRef}>
               <BaseSegment
                 geometry={geos.footR}
-                position={[-0.015, -0.9, 0.02]}
-                rotation={[0.18, 0, 0]}
+                position={[-0.01, FOOT_ATTACH_Y, 0.018]}
+                rotation={[0.055, -0.075, 0]}
                 level={level}
                 goldSkin={gearGoldSkin}
                 muscleStage={muscleStage}
@@ -1402,6 +1477,8 @@ export default function AnatomyModel({
                 {...limbPickProps('foot_right')}
                 motionSteady={stableInteraction}
                 onAreaClick={onAreaClick}
+                translucentWhenHealthy
+                translucentLimbStyle="frost"
               />
             </group>
           </group>
