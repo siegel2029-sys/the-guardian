@@ -193,31 +193,6 @@ export default function ClinicalMonthCalendar({ dayMap, clinicalToday }: Clinica
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 text-[10px] text-slate-600 mb-2 px-0.5">
-        <span className="inline-flex items-center gap-1">
-          <span className="w-3 h-3 rounded-sm" style={{ background: 'linear-gradient(145deg,#fde68a,#f59e0b)' }} />
-          זהב — כל התוכנית הושלמה
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="w-3 h-3 rounded-sm" style={{ background: 'linear-gradient(145deg,#e2e8f0,#cbd5e1)' }} />
-          כסף — חלקי
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="w-3 h-3 rounded-sm" style={{ background: 'linear-gradient(145deg,#dbeafe,#93c5fd)' }} />
-          קרח — סטזיס / ללא ביצוע
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span
-            className="w-3 h-3 rounded-full shrink-0"
-            style={{ boxShadow: WORKOUT_GLOW, background: 'rgba(187, 247, 208, 0.95)' }}
-          />
-          וי — בוצע לפחות תרגיל אחד
-        </span>
-        <span className="inline-flex items-center gap-1 text-teal-700">
-          קו — רצף ימים עם פעילות
-        </span>
-      </div>
-
       <div className="flex justify-center overflow-x-auto">
         <div className="relative" style={{ width: gridW, minHeight: gridH + 28 }}>
           <div
@@ -312,9 +287,30 @@ export default function ClinicalMonthCalendar({ dayMap, clinicalToday }: Clinica
         </div>
       </div>
 
-      <p className="text-[10px] text-slate-500 mt-2 text-center leading-relaxed">
-        יום נספר מ־04:00 — תואם לפרוטוקול הקליני. רצף וצבעים נשמרים אחרי רענון.
-      </p>
+      <div className="flex flex-wrap gap-x-4 gap-y-2.5 justify-center text-[10px] text-slate-600 mt-5 mb-0.5 px-2 max-w-full">
+        <span className="inline-flex items-center gap-1">
+          <span className="w-3 h-3 rounded-sm" style={{ background: 'linear-gradient(145deg,#fde68a,#f59e0b)' }} />
+          זהב — כל התוכנית הושלמה
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="w-3 h-3 rounded-sm" style={{ background: 'linear-gradient(145deg,#e2e8f0,#cbd5e1)' }} />
+          כסף — חלקי
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="w-3 h-3 rounded-sm" style={{ background: 'linear-gradient(145deg,#dbeafe,#93c5fd)' }} />
+          קרח — סטזיס / ללא ביצוע
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span
+            className="w-3 h-3 rounded-full shrink-0"
+            style={{ boxShadow: WORKOUT_GLOW, background: 'rgba(187, 247, 208, 0.95)' }}
+          />
+          וי — בוצע לפחות תרגיל אחד
+        </span>
+        <span className="inline-flex items-center gap-1 text-teal-700">
+          קו — רצף ימים עם פעילות
+        </span>
+      </div>
     </section>
   );
 }
