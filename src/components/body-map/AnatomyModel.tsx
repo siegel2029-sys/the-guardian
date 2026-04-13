@@ -737,7 +737,7 @@ const HEAD_FACE_FEATURE_SCALE = 1.175 * 1.3;
 
 /**
  * פנים נייטרליות וידידותיות (סטייליזציה פרוצדורלית — לא פוטו־ריאל מלא ללא טקסטורות).
- * גבות ישרות־רכות, חיוך עדין; raycast כבוי.
+ * גבות נייטרליות־מעוגלות (לא מוטות פנימה), פה קשת קוודרטית דקה — חיוך עדין ברמת Mona Lisa; raycast כבוי.
  */
 function HeadFaceFeatures({ level: _level }: { level: number }) {
   void _level;
@@ -749,19 +749,52 @@ function HeadFaceFeatures({ level: _level }: { level: number }) {
     []
   );
   const irisGeo = useMemo(() => new THREE.SphereGeometry(0.0095 * F, 10, 8), []);
-  const browGeo = useMemo(
-    () => new THREE.BoxGeometry(0.056 * F, 0.0065 * F, 0.011 * F),
-    []
+  const browHalfLen = 0.03 * F;
+  const browArch = 0.007 * F;
+  const browTubeR = 0.0029 * F;
+  const browGeoRight = useMemo(
+    () =>
+      new THREE.TubeGeometry(
+        new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(-browHalfLen, 0, 0),
+          new THREE.Vector3(0, browArch, 0.0012 * F),
+          new THREE.Vector3(browHalfLen * 0.92, 0, 0),
+        ),
+        18,
+        browTubeR,
+        6,
+        false,
+      ),
+    [F, browHalfLen, browArch, browTubeR],
+  );
+  const browGeoLeft = useMemo(
+    () =>
+      new THREE.TubeGeometry(
+        new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(browHalfLen, 0, 0),
+          new THREE.Vector3(0, browArch, 0.0012 * F),
+          new THREE.Vector3(-browHalfLen * 0.92, 0, 0),
+        ),
+        18,
+        browTubeR,
+        6,
+        false,
+      ),
+    [F, browHalfLen, browArch, browTubeR],
   );
   const noseGeo = useMemo(() => new THREE.CylinderGeometry(0.012, 0.017, 0.044, 10, 1, false), []);
   const mouthTubeGeo = useMemo(() => {
-    const curve = new THREE.CubicBezierCurve3(
-      new THREE.Vector3(-0.05 * F, -0.05 * F, zSurf - 0.003),
-      new THREE.Vector3(-0.026 * F, -0.048 * F, zSurf - 0.001),
-      new THREE.Vector3(0.026 * F, -0.048 * F, zSurf - 0.001),
-      new THREE.Vector3(0.05 * F, -0.05 * F, zSurf - 0.003),
+    const halfW = 0.032 * F;
+    const yEnds = -0.0504 * F;
+    const smileLift = 0.0032 * F;
+    const zEnds = zSurf - 0.0028;
+    const zPeak = zSurf - 0.0019;
+    const curve = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(-halfW, yEnds, zEnds),
+      new THREE.Vector3(0, yEnds + smileLift, zPeak),
+      new THREE.Vector3(halfW, yEnds, zEnds),
     );
-    return new THREE.TubeGeometry(curve, 22, 0.0062 * F, 7, false);
+    return new THREE.TubeGeometry(curve, 32, 0.0029 * F, 6, false);
   }, [zSurf, F]);
 
   const faceRootRef = useRef<THREE.Group>(null);
@@ -775,8 +808,8 @@ function HeadFaceFeatures({ level: _level }: { level: number }) {
 
   const eyePosMul = 1.12 * 1.3;
   const eyeX = 0.053 * eyePosMul;
-  const eyeY = 0.05 * eyePosMul;
-  const browY = eyeY + 0.026 * 1.3;
+  const eyeY = 0.052 * eyePosMul;
+  const browY = eyeY + 0.035 * 1.3;
   const matSkin = {
     roughness: 0.35,
     metalness: 0.1,
@@ -797,7 +830,7 @@ function HeadFaceFeatures({ level: _level }: { level: number }) {
       <mesh
         geometry={eyeWhiteGeo}
         position={[eyeX, eyeY, zSurf - 0.002]}
-        scale={[1, 0.5, 0.46]}
+        scale={[1, 0.6, 0.48]}
         castShadow={false}
         receiveShadow={false}
       >
@@ -815,7 +848,7 @@ function HeadFaceFeatures({ level: _level }: { level: number }) {
       <mesh
         geometry={eyeWhiteGeo}
         position={[-eyeX, eyeY, zSurf - 0.002]}
-        scale={[1, 0.5, 0.46]}
+        scale={[1, 0.6, 0.48]}
         castShadow={false}
         receiveShadow={false}
       >
@@ -831,18 +864,16 @@ function HeadFaceFeatures({ level: _level }: { level: number }) {
       </mesh>
 
       <mesh
-        geometry={browGeo}
+        geometry={browGeoRight}
         position={[eyeX, browY, zSurf - 0.004]}
-        rotation={[0.03, 0, 0.1]}
         castShadow={false}
         receiveShadow={false}
       >
         <meshBasicMaterial color="#0f172a" depthWrite />
       </mesh>
       <mesh
-        geometry={browGeo}
+        geometry={browGeoLeft}
         position={[-eyeX, browY, zSurf - 0.004]}
-        rotation={[0.03, 0, -0.1]}
         castShadow={false}
         receiveShadow={false}
       >
@@ -874,7 +905,7 @@ function HeadFaceFeatures({ level: _level }: { level: number }) {
       </mesh>
 
       <mesh geometry={mouthTubeGeo} castShadow={false} receiveShadow={false}>
-        <meshBasicMaterial color="#0f172a" depthWrite />
+        <meshBasicMaterial color="#3d4d5c" depthWrite />
       </mesh>
     </group>
   );
