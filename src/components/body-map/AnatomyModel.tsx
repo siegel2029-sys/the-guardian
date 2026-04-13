@@ -138,12 +138,16 @@ const GAIT_ANKLE_KEYFRAMES: readonly (readonly [number, number])[] = [
   [100, 0.1],
 ];
 
-/** גובה יחסי: מינימום ב־0%/50% (heel strike / heel off), מקסימום ב־30%/80% (mid-stance) */
+/**
+ * Bob אנכי: מינימום בעקב (0% / 50%), מקסימום באמצע עמידה (רגל נושאת כמעט אנכית) — ~15% / ~65%.
+ */
 const GAIT_BOB_KEYFRAMES: readonly (readonly [number, number])[] = [
   [0, 0],
-  [30, 1],
+  [15, 1],
+  [28, 0.32],
   [50, 0],
-  [80, 1],
+  [65, 1],
+  [82, 0.3],
   [100, 0],
 ];
 
@@ -174,6 +178,12 @@ const GAIT_OPPOSITE_ELBOW_KEYFRAMES: readonly (readonly [number, number])[] = [
 
 /** מקדם כתף מול ירך נגדית (שומר התאמה מתמטית לפאזת הירך) */
 const ARM_HIP_TO_SHOULDER = 0.88;
+
+/**
+ * היפוך כיוון סיבוב ירך + הקטנת משרעת 20% (×0.8) — מתקן אשלית «הליכה אחורה» / החלקת כף.
+ * ערכי keyframes נשארים; היישום על rotation.x של הירך.
+ */
+const GAIT_HIP_SWING_MUL = -0.8;
 
 const GAIT_TORSO_YAW_MAX = 0.08;
 
@@ -1023,8 +1033,11 @@ export default function AnatomyModel({
     }
 
     const thighBias = 0.028;
+    const hipLRaw = lerpAngle(t, GAIT_HIP_KEYFRAMES);
+    const hipRRaw = lerpAngle(tRight, GAIT_HIP_KEYFRAMES);
+
     if (leftThighRef.current) {
-      leftThighRef.current.rotation.x = lerpAngle(t, GAIT_HIP_KEYFRAMES) + thighBias;
+      leftThighRef.current.rotation.x = hipLRaw * GAIT_HIP_SWING_MUL + thighBias;
     }
     if (leftKneeRef.current) {
       leftKneeRef.current.rotation.x = lerpAngle(t, GAIT_KNEE_KEYFRAMES);
@@ -1034,7 +1047,7 @@ export default function AnatomyModel({
     }
 
     if (rightThighRef.current) {
-      rightThighRef.current.rotation.x = lerpAngle(tRight, GAIT_HIP_KEYFRAMES) + thighBias;
+      rightThighRef.current.rotation.x = hipRRaw * GAIT_HIP_SWING_MUL + thighBias;
     }
     if (rightKneeRef.current) {
       rightKneeRef.current.rotation.x = lerpAngle(tRight, GAIT_KNEE_KEYFRAMES);
@@ -1044,13 +1057,11 @@ export default function AnatomyModel({
     }
 
     /**
-     * נגדיות לרגל: כתף שמאל ← פאזת ירך ימין (tRight), כתף ימין ← פאזת ירך שמאל (t).
-     * נגזר ישירות מ־hip angle נגדי (× ARM_HIP_TO_SHOULDER) כדי שלא יסתנכרן עם הרגל בטעות.
+     * נגדיות לרגל: כתף שמאל ← פאזת ירך ימין, כתף ימין ← פאזת ירך שמאל.
+     * משתמשים באותו כפל כמו הירך כדי לשמור סנכרון מול כיוון ההליכה.
      */
-    const hipL = lerpAngle(t, GAIT_HIP_KEYFRAMES);
-    const hipR = lerpAngle(tRight, GAIT_HIP_KEYFRAMES);
-    const shL = hipR * ARM_HIP_TO_SHOULDER;
-    const shR = hipL * ARM_HIP_TO_SHOULDER;
+    const shL = hipRRaw * GAIT_HIP_SWING_MUL * ARM_HIP_TO_SHOULDER;
+    const shR = hipLRaw * GAIT_HIP_SWING_MUL * ARM_HIP_TO_SHOULDER;
     const elL = lerpAngle(tRight, GAIT_OPPOSITE_ELBOW_KEYFRAMES);
     const elR = -lerpAngle(t, GAIT_OPPOSITE_ELBOW_KEYFRAMES);
     if (leftShoulderPivotRef.current) {
@@ -1207,8 +1218,8 @@ export default function AnatomyModel({
             />
             <BaseSegment
               geometry={geos.handL}
-              position={[-0.004, -0.196, 0.012]}
-              rotation={[0.42, -0.98, 0.5]}
+              position={[-0.002, -0.19, 0.005]}
+              rotation={[0, 0, 0.05]}
               level={level}
               goldSkin={gearGoldSkin}
               muscleStage={muscleStage}
@@ -1256,8 +1267,8 @@ export default function AnatomyModel({
             />
             <BaseSegment
               geometry={geos.handR}
-              position={[0.004, -0.196, 0.012]}
-              rotation={[-0.42, 0.98, -0.5]}
+              position={[0.002, -0.19, 0.005]}
+              rotation={[0, 0, -0.05]}
               level={level}
               goldSkin={gearGoldSkin}
               muscleStage={muscleStage}

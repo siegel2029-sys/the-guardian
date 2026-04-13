@@ -236,84 +236,75 @@ export function createOpenHandGeometry(mirror: boolean): THREE.BufferGeometry {
 }
 
 /**
- * כף יד במנוחה — פרופורציה קטנה (בערך גובה מ־סנטר לאמצע מצח ביחס לראש האווטאר).
- * נבנה בקואורדינטות «קדימה +Z» מהשורש; אחרי סיבוב: המשך האמה ~−Y, שורש כף ב־y=0 (קצה פרוקסימלי).
- * ימין: scale −X על המשולב.
+ * כף יד — חמש אצבעות פרושות כלפי מטה (−Y) במקביל לאמה הפרוצדורלית.
+ * ציר +Y = כיוון המרפק (שורש כף ב־y=0); אצבעות וכף נמשכות ל־−Y (לרצפה בהליכה).
+ * יד שמאל: אגודל ב־+X; יד ימין: mirror −X.
  */
 export function createNormalHandGeometry(mirror: boolean): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  const capSeg = 4;
-  const cylSeg = 8;
-  /** Global scale — smaller than legacy 0.54 so hands match face proportions */
-  const sc = 0.37;
+  const capSeg = 6;
+  const cylSeg = 12;
+  /** קנה מידע מעט גדול יותר — אצבעות קריאות מרחוק */
+  const sc = 0.44;
 
-  const palmW = 0.064 * sc;
-  const palmY = 0.012 * sc;
-  const palmZ = 0.048 * sc;
-  const palm = new THREE.BoxGeometry(palmW, palmY, palmZ);
-  palm.rotateX(-0.045);
-  palm.translate(0, -0.004 * sc, palmZ * 0.52 + 0.006 * sc);
-  parts.push(palm);
-
-  const phalanx = (
+  /** קטע אצבע לאורך −Y; yTop = קצה פרוקסימלי של הקטע */
+  const segmentDown = (
     x: number,
-    z0: number,
+    yTop: number,
     length: number,
     radius: number,
-    rotY: number,
-    curlX: number
+    tiltZ: number
   ) => {
     const g = new THREE.CapsuleGeometry(radius, length, capSeg, cylSeg);
-    g.rotateX(-Math.PI / 2 + curlX);
-    g.rotateY(rotY);
-    g.translate(x, 0.001 * sc, z0 + length * 0.5);
+    g.rotateZ(tiltZ);
+    const half = length * 0.5 + radius;
+    g.translate(x, yTop - half, 0);
     parts.push(g);
-    return z0 + length + radius * 1.05;
+    return yTop - length - radius * 1.32;
   };
 
-  const finger = (
+  const fingerChain = (
     x: number,
-    zStart: number,
-    rotY: number,
+    yBase: number,
+    tiltZ: number,
     r: number,
     l1: number,
     l2: number,
-    l3: number,
-    curl: number
+    l3: number
   ) => {
-    let z = zStart;
-    z = phalanx(x, z, l1 * sc, r * sc, rotY, curl * 0.45);
-    z = phalanx(x, z, l2 * sc, r * 0.9 * sc, rotY * 0.94, curl * 0.78);
-    phalanx(x, z, l3 * sc, r * 0.82 * sc, rotY * 0.88, curl * 0.98);
+    let y = yBase;
+    y = segmentDown(x, y, l1 * sc, r * sc, tiltZ);
+    y = segmentDown(x, y, l2 * sc, r * 0.92 * sc, tiltZ * 0.94);
+    segmentDown(x, y, l3 * sc, r * 0.86 * sc, tiltZ * 0.9);
   };
 
-  const zb = 0.058 * sc;
-  const curl = 0.12;
-  const rIdx = 0.0074 * sc;
-  const rMid = 0.0079 * sc;
-  const rRing = 0.0075 * sc;
-  const rPink = 0.0068 * sc;
+  const palmW = 0.082 * sc;
+  const palmLen = 0.048 * sc;
+  const palmT = 0.015 * sc;
+  const palm = new THREE.BoxGeometry(palmW, palmLen, palmT);
+  palm.translate(0, -palmLen * 0.48, 0.005 * sc);
+  parts.push(palm);
 
-  finger(0.021 * sc, zb, -0.095, rIdx, 0.03, 0.024, 0.018, curl);
-  finger(0.007 * sc, zb + 0.005 * sc, -0.032, rMid, 0.034, 0.027, 0.02, curl);
-  finger(-0.007 * sc, zb + 0.004 * sc, 0.03, rRing, 0.032, 0.025, 0.019, curl);
-  finger(-0.021 * sc, zb - 0.001 * sc, 0.09, rPink, 0.026, 0.02, 0.015, curl);
+  const yMet = -0.052 * sc;
+  /** פריסה חזקה יותר — הבדל ברור בין 4 האצבעות */
+  const splay = 0.082;
+  fingerChain(0.028 * sc, yMet, -splay, 0.0112, 0.048, 0.038, 0.03);
+  fingerChain(0.009 * sc, yMet - 0.004 * sc, -splay * 0.38, 0.0118, 0.054, 0.043, 0.034);
+  fingerChain(-0.009 * sc, yMet - 0.004 * sc, splay * 0.38, 0.0114, 0.051, 0.041, 0.032);
+  fingerChain(-0.028 * sc, yMet, splay, 0.0105, 0.042, 0.034, 0.026);
 
-  const rT = 0.0076 * sc;
-  const thumbMeta = new THREE.CapsuleGeometry(rT, 0.024 * sc, capSeg, cylSeg);
-  thumbMeta.rotateZ(0.82);
-  thumbMeta.rotateX(-0.38);
-  thumbMeta.translate(0.034 * sc, -0.006 * sc, 0.014 * sc);
-  parts.push(thumbMeta);
+  const rT = 0.0105 * sc;
+  const tMeta = new THREE.CapsuleGeometry(rT, 0.028 * sc, capSeg, cylSeg);
+  tMeta.rotateZ(0.36);
+  tMeta.translate(0.042 * sc, -0.032 * sc, 0.007 * sc);
+  parts.push(tMeta);
 
-  let tz = 0.052 * sc;
-  tz = phalanx(0.044 * sc, tz, 0.02 * sc, rT * 1.02, 0.28, 0.09);
-  phalanx(0.044 * sc, tz, 0.016 * sc, rT * 0.88, 0.22, 0.11);
+  let yt = -0.056 * sc;
+  yt = segmentDown(0.044 * sc, yt, 0.022 * sc, rT * 1.02, 0.16);
+  segmentDown(0.046 * sc, yt, 0.018 * sc, rT * 0.92, 0.11);
 
   const merged = mergeGeometries(parts, false);
 
-  merged.rotateY(Math.PI / 2);
-  merged.rotateX(-0.26);
   if (mirror) merged.scale(-1, 1, 1);
 
   merged.computeVertexNormals();
