@@ -236,84 +236,93 @@ export function createOpenHandGeometry(mirror: boolean): THREE.BufferGeometry {
 }
 
 /**
- * כף יד בסגנון דמוי־תמונת ייחוס: כף טרפזית (רחבה בפרקים, צרה לפרק כף), אצבעות ארוכות
- * ומפורקות (אמצעית הכי ארוכה), אגודל בזווית V מול המורה, כף פונה קדימה (+Z) ואצבעות −Y.
+ * כף יד — אותו קנה־מידה כמו כף רגל (`sc`): כף אופקית (פונה למטה −Y), אצבעות לכיוון +Z,
+ * פריסה ב־X וב־Z כדי שבמבט מהצד ייראו חמש אצבעות בבירור.
  */
 export function createNormalHandGeometry(mirror: boolean): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const capSeg = 6;
   const cylSeg = 12;
-  const sc = 0.44;
+  const sc = 1.65;
 
-  /** שלושה מקטעים עם טaper ברדיוס — קריאות «מפרקים» */
-  const segmentDown = (
-    x: number,
-    yTop: number,
-    length: number,
-    radius: number,
-    tiltZ: number,
-    tiltY: number
-  ) => {
-    const g = new THREE.CapsuleGeometry(radius, length, capSeg, cylSeg);
-    g.rotateY(tiltY);
-    g.rotateZ(tiltZ);
-    const half = length * 0.5 + radius;
-    g.translate(x, yTop - half, 0);
-    parts.push(g);
-    return yTop - length - radius * 1.18;
-  };
+  const wristTaper = new THREE.BoxGeometry(0.05 * sc, 0.04 * sc, 0.034 * sc);
+  wristTaper.translate(0, -0.02 * sc, 0.004 * sc);
+  parts.push(wristTaper);
 
-  const fingerChain = (
+  const palmBody = new THREE.BoxGeometry(0.074 * sc, 0.016 * sc, 0.05 * sc);
+  palmBody.translate(0, -0.048 * sc, 0.024 * sc);
+  parts.push(palmBody);
+
+  const knucklePlate = new THREE.BoxGeometry(0.12 * sc, 0.014 * sc, 0.04 * sc);
+  knucklePlate.translate(0, -0.058 * sc, 0.056 * sc);
+  parts.push(knucklePlate);
+
+  const overlap = 0.0014 * sc;
+
+  /** קפסולה לאורך +Z (מפרק כף → קצה) */
+  const fingerAlongZ = (
     x: number,
-    yBase: number,
-    tiltZ: number,
+    y: number,
+    z0: number,
     tiltY: number,
-    r: number,
+    r0: number,
     l1: number,
     l2: number,
     l3: number
   ) => {
-    let y = yBase;
-    y = segmentDown(x, y, l1 * sc, r * sc, tiltZ, tiltY);
-    y = segmentDown(x, y, l2 * sc, r * 0.88 * sc, tiltZ * 0.95, tiltY * 0.95);
-    segmentDown(x, y, l3 * sc, r * 0.76 * sc, tiltZ * 0.9, tiltY * 0.9);
+    let z = z0;
+    const seg = (len: number, rad: number, ty: number) => {
+      const cZ = z + len / 2 + rad;
+      const g = new THREE.CapsuleGeometry(rad, len, capSeg, cylSeg);
+      g.rotateX(Math.PI / 2);
+      g.rotateY(ty);
+      g.translate(x, y, cZ);
+      parts.push(g);
+      z += len + 2 * rad - overlap;
+    };
+    seg(l1, r0, tiltY);
+    seg(l2, r0 * 0.88, tiltY * 0.9);
+    seg(l3, r0 * 0.74, tiltY * 0.82);
   };
 
-  /** כף טרפזית: לוח פרקים רחב + בסיס צר לפרק כף — חיבור חלק לאמה */
-  const knucklePlate = new THREE.BoxGeometry(0.112 * sc, 0.021 * sc, 0.046 * sc);
-  knucklePlate.rotateX(0.06);
-  knucklePlate.translate(0, -0.01 * sc, 0.022 * sc);
-  parts.push(knucklePlate);
+  const yKn = -0.06 * sc;
+  /** Z שונה לכל אצבע — מפריד במבט מהצד (פרופיל) */
+  const zFan = [0.024, 0.01, 0, 0.012, 0.02].map((v) => v * sc);
+  /** מיקום X: מיני → מורה (לפני mirror) */
+  const xPinky = -0.04 * sc;
+  const xRing = -0.02 * sc;
+  const xMid = 0;
+  const xIndex = 0.02 * sc;
+  const splayP = 0.11;
+  const splayR = 0.045;
+  const splayM = 0;
+  const splayI = -0.05;
 
-  const palmBody = new THREE.BoxGeometry(0.072 * sc, 0.022 * sc, 0.04 * sc);
-  palmBody.rotateX(0.04);
-  palmBody.translate(0, -0.028 * sc, 0.008 * sc);
-  parts.push(palmBody);
+  fingerAlongZ(xPinky, yKn, 0.054 * sc + zFan[0], splayP, 0.0102 * sc, 0.078 * sc, 0.062 * sc, 0.048 * sc);
+  fingerAlongZ(xRing, yKn - 0.002 * sc, 0.056 * sc + zFan[1], splayR, 0.0106 * sc, 0.088 * sc, 0.072 * sc, 0.056 * sc);
+  fingerAlongZ(xMid, yKn - 0.003 * sc, 0.058 * sc + zFan[2], splayM, 0.0112 * sc, 0.096 * sc, 0.078 * sc, 0.062 * sc);
+  fingerAlongZ(xIndex, yKn - 0.002 * sc, 0.056 * sc + zFan[3], splayI, 0.0108 * sc, 0.084 * sc, 0.068 * sc, 0.052 * sc);
 
-  const wristTaper = new THREE.BoxGeometry(0.052 * sc, 0.018 * sc, 0.036 * sc);
-  wristTaper.translate(0, -0.042 * sc, 0.002 * sc);
-  parts.push(wristTaper);
-
-  const yMet = -0.05 * sc;
-  const splay = 0.11;
-  const openY = 0.14;
-  /** עובי אצבע ~פי 1.35 — פרופורציה מול אורך ×2 */
-  const rt = 1.35;
-  fingerChain(0.032 * sc, yMet, -splay, openY, 0.0108 * rt, 0.1, 0.08, 0.062);
-  fingerChain(0.011 * sc, yMet - 0.005 * sc, -splay * 0.38, openY * 0.72, 0.0115 * rt, 0.116, 0.092, 0.072);
-  fingerChain(-0.011 * sc, yMet - 0.005 * sc, splay * 0.38, -openY * 0.72, 0.0112 * rt, 0.11, 0.088, 0.068);
-  fingerChain(-0.032 * sc, yMet, splay, -openY, 0.0102 * rt, 0.092, 0.074, 0.056);
-
-  const rT = 0.0112 * rt * sc;
-  const tMeta = new THREE.CapsuleGeometry(rT, 0.068 * sc, capSeg, cylSeg);
-  tMeta.rotateY(0.42);
-  tMeta.rotateZ(0.88);
-  tMeta.translate(0.05 * sc, -0.026 * sc, 0.022 * sc);
+  const rT = 0.0114 * sc;
+  const tMeta = new THREE.CapsuleGeometry(rT, 0.055 * sc, capSeg, cylSeg);
+  tMeta.rotateX(Math.PI / 2);
+  tMeta.rotateY(-0.38);
+  tMeta.rotateZ(0.22);
+  tMeta.translate(0.048 * sc, -0.054 * sc, 0.044 * sc + zFan[4]);
   parts.push(tMeta);
 
-  let yt = -0.052 * sc;
-  yt = segmentDown(0.052 * sc, yt, 0.052 * sc, rT * 1.03, 0.12, 0.14);
-  segmentDown(0.054 * sc, yt, 0.04 * sc, rT * 0.88, 0.08, 0.1);
+  let zt = 0.044 * sc + zFan[4] + 0.055 * sc + 2 * rT - overlap;
+  const thumbSeg = (len: number, rad: number, ty: number, tx: number) => {
+    const cZ = zt + len / 2 + rad;
+    const g = new THREE.CapsuleGeometry(rad, len, capSeg, cylSeg);
+    g.rotateX(Math.PI / 2 + tx);
+    g.rotateY(ty);
+    g.translate(0.05 * sc, -0.056 * sc, cZ);
+    parts.push(g);
+    zt += len + 2 * rad - overlap;
+  };
+  thumbSeg(0.048 * sc, rT * 1.02, -0.28, 0.12);
+  thumbSeg(0.038 * sc, rT * 0.9, -0.18, 0.08);
 
   const merged = mergeGeometries(parts, false);
 

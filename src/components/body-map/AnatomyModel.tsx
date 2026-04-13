@@ -1295,8 +1295,8 @@ export default function AnatomyModel({
             />
             <BaseSegment
               geometry={geos.handL}
-              position={[-0.001, -0.192, 0.006]}
-              rotation={[0.52, -0.2, 0.045]}
+              position={[-0.002, -0.218, 0.014]}
+              rotation={[1.52, -0.24, 0.09]}
               level={level}
               goldSkin={gearGoldSkin}
               muscleStage={muscleStage}
@@ -1306,6 +1306,7 @@ export default function AnatomyModel({
               motionSteady={stableInteraction}
               onAreaClick={onAreaClick}
               translucentWhenHealthy
+              translucentLimbStyle="frost"
             />
           </group>
         </group>
@@ -1344,8 +1345,8 @@ export default function AnatomyModel({
             />
             <BaseSegment
               geometry={geos.handR}
-              position={[0.001, -0.192, 0.006]}
-              rotation={[-0.52, 0.2, -0.045]}
+              position={[0.002, -0.218, 0.014]}
+              rotation={[-1.52, 0.24, -0.09]}
               level={level}
               goldSkin={gearGoldSkin}
               muscleStage={muscleStage}
@@ -1355,6 +1356,7 @@ export default function AnatomyModel({
               motionSteady={stableInteraction}
               onAreaClick={onAreaClick}
               translucentWhenHealthy
+              translucentLimbStyle="frost"
             />
           </group>
         </group>
