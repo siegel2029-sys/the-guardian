@@ -21,7 +21,19 @@ export async function fetchAppKnowledgeBaseFromSupabase(
     .eq('id', 'global')
     .maybeSingle();
 
-  if (error || !data) return null;
+  if (error) {
+    const code = 'code' in error ? String((error as { code?: string }).code) : '';
+    if (
+      import.meta.env.DEV &&
+      (code === 'PGRST205' || /404|not find the table/i.test(error.message ?? ''))
+    ) {
+      console.warn(
+        '[app_knowledge_base] טבלה חסרה או לא בשכבת ה־schema. החילו מיגרציות: supabase/migrations/20260410200000_app_knowledge_base.sql ו־20260411120000_app_knowledge_deleted_seed_ids.sql'
+      );
+    }
+    return null;
+  }
+  if (!data) return null;
   const rawItems = data.items;
   if (!Array.isArray(rawItems)) return null;
   return {

@@ -94,6 +94,11 @@ export async function pushPersistedStateToSupabase(
     }
 
     const knowledgeItems = state.knowledgeFacts ?? [];
+    /**
+     * טבלה: public.app_knowledge_base (מיגרציות supabase/migrations/*app_knowledge*.sql).
+     * Upsert v2 (@supabase/supabase-js): onConflict = עמודות ייחודיות (כאן PK id) — מחרוזת מופרדת בפסיקים ל־composite.
+     * 404 / PGRST205 = הטבלה לא קיימת בפרויקט — הריצו `supabase db push` או החילו את ה־SQL ב־Dashboard → SQL Editor.
+     */
     const { error: kbError } = await client.from('app_knowledge_base').upsert(
       {
         id: 'global',
@@ -103,7 +108,16 @@ export async function pushPersistedStateToSupabase(
       },
       { onConflict: 'id' }
     );
-    if (kbError) return { ok: false, message: `app_knowledge_base: ${kbError.message}` };
+    if (kbError) {
+      const code = 'code' in kbError ? String((kbError as { code?: string }).code) : '';
+      const isMissingTable =
+        code === 'PGRST205' ||
+        /404|not find the table|schema cache/i.test(kbError.message ?? '');
+      const hint = isMissingTable
+        ? ' — יש להחיל מיגרציות (app_knowledge_base + deleted_seed_ids) על פרויקט Supabase המקושר.'
+        : '';
+      return { ok: false, message: `app_knowledge_base: ${kbError.message}${hint}` };
+    }
 
     return { ok: true };
   } catch (e) {

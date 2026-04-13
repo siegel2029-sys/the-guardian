@@ -729,7 +729,7 @@ export default function PatientDailyView() {
         {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
             <div className="rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden mx-auto w-full max-w-md touch-pan-y">
-              <div className="relative w-full h-[260px] sm:h-[300px] max-h-[40dvh] isolate overscroll-y-contain">
+              <div className="relative w-full max-w-[300px] mx-auto aspect-[9/16] min-h-[420px] max-h-[min(640px,68dvh)] isolate overscroll-y-contain">
                 <BodyMap3D
                   activeAreas={exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
@@ -748,7 +748,7 @@ export default function PatientDailyView() {
                   avatarScale={0.9}
                   equippedGear={buildEquippedGearSnapshot(patientGearState)}
                   minHeightPx={0}
-                  wrapperClassName="h-full min-h-0"
+                  wrapperClassName="h-full w-full min-h-0"
                   onAreaClick={handleAvatarZoneClick}
                 />
               </div>

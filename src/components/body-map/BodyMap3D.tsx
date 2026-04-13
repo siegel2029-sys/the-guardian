@@ -9,7 +9,6 @@ import {
 } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Environment, Html } from '@react-three/drei';
-import { EffectComposer, Bloom, SSAO, SMAA } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import AnatomyModel from './AnatomyModel';
 import type { BodyArea } from '../../types';
@@ -46,7 +45,7 @@ export interface BodyMap3DProps {
   avatarScale?: number;
   selectedArea?: BodyArea | null;
   onAreaClick?: (area: BodyArea) => void;
-  /** Default 500. Use a lower value for compact / mobile patient layouts. */
+  /** גובה מינימלי לפריים full-body (ברירת מחדל 640). מתחת לכך הגוף נחתך. */
   minHeightPx?: number;
   /** ציוד מעוגן אנטומית — מטופל; דשבורד מטפל משאיר ריק */
   equippedGear?: EquippedGearSnapshot;
@@ -71,18 +70,15 @@ export interface BodyMap3DProps {
 
 // ── View presets ──────────────────────────────────────────────────
 type ViewPreset = 'front' | 'back' | 'left' | 'right';
-/** מבטים — זום החוצה לפריים full-body (portrait) */
+/** מבטים — מרחק Z + FOV מכוונים לפריים full-body במיכל אנכי צר */
 const VIEW_POSITIONS: Record<ViewPreset, THREE.Vector3> = {
-  front: new THREE.Vector3(0, 0.8, 8),
-  back: new THREE.Vector3(0, 0.8, -8),
-  left: new THREE.Vector3(-8, 0.8, 0),
-  right: new THREE.Vector3(8, 0.8, 0),
+  front: new THREE.Vector3(0, 0.36, 7.65),
+  back: new THREE.Vector3(0, 0.36, -7.65),
+  left: new THREE.Vector3(-7.65, 0.36, 0),
+  right: new THREE.Vector3(7.65, 0.36, 0),
 };
-/** מוקד מבט — חזה */
-const LOOK_AT = new THREE.Vector3(0, 0.7, 0);
-
-/** פורטל מטופל — תחום זום */
-const PORTAL_ORBIT_MIN_DIST = 2.5;
+/** מוקד מבט — אמצע גובה הגוף; OrbitControls + CameraAnimator */
+const LOOK_AT = new THREE.Vector3(0, 0.3, 0);
 
 // ── Camera animator (lives inside Canvas) ────────────────────────
 interface CameraAnimatorProps {
@@ -171,10 +167,6 @@ function StudioGradientBackground() {
   return null;
 }
 
-function SceneFog() {
-  return <fog attach="fog" args={['#94a3b8', 9, 26]} />;
-}
-
 /** Thin disc under the avatar — contact shadow receiver (see AnatomyModel ContactShadows). */
 function StudioPedestal() {
   return (
@@ -187,40 +179,6 @@ function StudioPedestal() {
         envMapIntensity={0.35}
       />
     </mesh>
-  );
-}
-
-// ── Loading fallback ──────────────────────────────────────────────
-function Loader({ minimal }: { minimal?: boolean }) {
-  if (minimal) {
-    return (
-      <Html center>
-        <div
-          style={{
-            width: 26,
-            height: 26,
-            borderRadius: '50%',
-            border: '2.5px solid #cbd5e1',
-            borderTopColor: '#2563eb',
-            animation: 'bodymap-spin 0.75s linear infinite',
-          }}
-        />
-      </Html>
-    );
-  }
-  return (
-    <Html center>
-      <div
-        style={{
-          color: '#2563eb',
-          fontSize: 14,
-          fontFamily: 'Inter, system-ui, sans-serif',
-          direction: 'rtl',
-        }}
-      >
-        טוען מודל...
-      </div>
-    </Html>
   );
 }
 
@@ -323,7 +281,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     avatarScale = 1,
     selectedArea,
     onAreaClick,
-    minHeightPx = 500,
+    minHeightPx: _minHeightPx = 640,
     equippedGear: equippedGearProp,
     injuryHighlightSegments = [],
     secondaryClinicalBodyAreas = [],
@@ -331,7 +289,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     patientPortalInteractive = false,
     segmentGrowthMul,
     wrapperClassName,
-    disablePremiumPostProcessing = false,
+    disablePremiumPostProcessing: _disablePremiumPostProcessing = false,
   } = props;
 
   const equippedGear = equippedGearProp ?? EMPTY_EQUIPPED_GEAR;
@@ -341,9 +299,6 @@ export default function BodyMap3D(props: BodyMap3DProps) {
   const streakVal = streak ?? streakForGlow ?? 0;
   const streakEnergy =
     streakVal >= 3 && !patientPortalInteractive;
-
-  const premiumPostProcessingEnabled = !disablePremiumPostProcessing;
-  const streakBloomEnabled = streakEnergy && !stableInteraction;
 
   const xpPct =
     xp != null && xpForNextLevel != null && xpForNextLevel > 0
@@ -369,16 +324,16 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       className={wrapperClassName ?? ''}
       style={{
         width: '100%',
-        maxWidth: '380px',
-        aspectRatio: '3 / 4',
-        maxHeight: '600px',
-        margin: '0 auto',
+        height: '100%',
+        minHeight: 0,
         position: 'relative',
+        margin: '0 auto',
+        display: 'block',
+        background: '#f0f0f0',
         borderRadius: '16px',
         overflow: 'hidden',
-        ...(minHeightPx > 0
-          ? { minHeight: `${Math.min(minHeightPx, 600)}px` }
-          : {}),
+        flexShrink: 0,
+        alignSelf: 'center',
         touchAction: patientPortalInteractive
           ? 'none'
           : scrollFriendlyPortal
@@ -394,6 +349,17 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         if (patientPortalInteractive) setWalkPausedByPointerOver(false);
       }}
     >
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          minHeight: 'clamp(320px, 52dvh, 680px)',
+          maxWidth: '300px',
+          margin: '0 auto',
+          position: 'relative',
+          overflow: 'hidden',
+        }}
+      >
       <Canvas
         style={{
           display: 'block',
@@ -405,13 +371,13 @@ export default function BodyMap3D(props: BodyMap3DProps) {
               ? 'pan-y'
               : undefined,
         }}
-        camera={{ position: [0, 0.8, 8], fov: 45, near: 0.1, far: 50 }}
+        camera={{ position: [0, 0.36, 7.65], fov: 46, near: 0.08, far: 120 }}
         shadows="soft"
         gl={{
           antialias: true,
           alpha: false,
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.22,
+          toneMappingExposure: 1.35,
           outputColorSpace: THREE.SRGBColorSpace,
         }}
         onCreated={({ gl }) => {
@@ -421,149 +387,100 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         dpr={[1, 2]}
       >
         <StudioGradientBackground />
-        <SceneFog />
 
-        {/* ── Studio lighting: hemisphere fill + dual front keys (muscle highlights) ── */}
-        <hemisphereLight args={['#f7fbff', '#e2e8f0', 0.58]} />
-        <ambientLight intensity={0.38} color="#f4f6f8" />
-
+        <ambientLight intensity={1.5} />
         <directionalLight
-          position={[3.4, 4.6, 2.9]}
-          intensity={1.42}
-          color="#fffdfb"
+          position={[5, 5, 5]}
+          intensity={1.15}
+          color="#ffffff"
           castShadow
-          shadow-mapSize={[2048, 2048]}
+          shadow-mapSize={[1024, 1024]}
           shadow-camera-near={0.5}
-          shadow-camera-far={18}
-          shadow-camera-left={-3}
-          shadow-camera-right={3}
-          shadow-camera-top={4}
-          shadow-camera-bottom={-3}
-          shadow-radius={4}
-          shadow-blurSamples={12}
-          shadow-bias={-0.00028}
+          shadow-camera-far={28}
+          shadow-camera-left={-4}
+          shadow-camera-right={4}
+          shadow-camera-top={5}
+          shadow-camera-bottom={-5}
         />
 
-        <directionalLight
-          position={[-3.2, 4.2, 2.7]}
-          intensity={1.22}
-          color="#f2f7ff"
-        />
+        <Environment preset="studio" environmentIntensity={0.65} />
 
-        <directionalLight position={[0, 2.2, -2.8]} intensity={0.32} color="#eef2f6" />
+        <group position={[0, 0.1, 0]}>
+          <StudioPedestal />
+          <Suspense fallback={null}>
+            <group scale={avatarScale}>
+              <StreakEnergyFloat enabled={streakEnergy && !stableInteraction}>
+                <AnatomyModel
+                  activeAreas={activeAreas}
+                  primaryArea={primaryArea}
+                  clinicalArea={clinicalArea ?? primaryArea}
+                  selfCareSelectedAreas={selfCareSelectedAreas}
+                  painByArea={painByArea}
+                  level={level}
+                  xp={xp}
+                  xpForNextLevel={xpForNextLevel}
+                  streak={streakVal}
+                  strengthenedAreasToday={strengthenedAreasToday}
+                  selectedArea={selectedArea}
+                  onAreaClick={onAreaClick}
+                  equippedGear={equippedGear}
+                  injuryHighlightSegments={injuryHighlightSegments}
+                  secondaryClinicalBodyAreas={secondaryClinicalBodyAreas}
+                  stableInteraction={stableInteraction}
+                  patientPortalInteractive={patientPortalInteractive}
+                  pauseWalkAnimation={
+                    patientPortalInteractive && walkPausedByPointerOver
+                  }
+                  segmentGrowthMul={segmentGrowthMul}
+                />
 
-        {/* Environment for transmission / clearcoat reflections */}
-        <Environment preset="studio" environmentIntensity={0.95} />
-
-        <StudioPedestal />
-
-        <Suspense
-          fallback={
-            patientPortalInteractive ? null : <Loader minimal={false} />
-          }
-        >
-          <group scale={avatarScale}>
-            <StreakEnergyFloat enabled={streakEnergy && !stableInteraction}>
-              <AnatomyModel
-                activeAreas={activeAreas}
-                primaryArea={primaryArea}
-                clinicalArea={clinicalArea ?? primaryArea}
-                selfCareSelectedAreas={selfCareSelectedAreas}
-                painByArea={painByArea}
-                level={level}
-                xp={xp}
-                xpForNextLevel={xpForNextLevel}
-                streak={streakVal}
-                strengthenedAreasToday={strengthenedAreasToday}
-                selectedArea={selectedArea}
-                onAreaClick={onAreaClick}
-                equippedGear={equippedGear}
-                injuryHighlightSegments={injuryHighlightSegments}
-                secondaryClinicalBodyAreas={secondaryClinicalBodyAreas}
-                stableInteraction={stableInteraction}
-                patientPortalInteractive={patientPortalInteractive}
-                pauseWalkAnimation={
-                  patientPortalInteractive && walkPausedByPointerOver
-                }
-                segmentGrowthMul={segmentGrowthMul}
-              />
-
-              {floatingLevelBadge && showLevelChrome && !patientPortalInteractive && (
-                <Html
-                  position={[0.34, 2.05, 0.14]}
-                  center
-                  distanceFactor={8.5}
-                  style={{ pointerEvents: 'none' }}
-                  zIndexRange={[100, 0]}
-                >
-                  <div
-                    style={{
-                      background: 'linear-gradient(145deg,#1d4ed8,#2563eb)',
-                      color: '#fff',
-                      borderRadius: 12,
-                      padding: '4px 11px',
-                      fontSize: 12,
-                      fontWeight: 800,
-                      fontFamily: 'Inter, system-ui, sans-serif',
-                      boxShadow:
-                        '0 0 14px rgba(37,99,235,0.45), 0 2px 10px rgba(29,78,216,0.35)',
-                      border: '1px solid rgba(255,255,255,0.35)',
-                      direction: 'ltr',
-                      textAlign: 'center',
-                    }}
+                {floatingLevelBadge && showLevelChrome && !patientPortalInteractive && (
+                  <Html
+                    position={[0.34, 2.05, 0.14]}
+                    center
+                    distanceFactor={8.5}
+                    style={{ pointerEvents: 'none' }}
+                    zIndexRange={[100, 0]}
                   >
-                    <div>Lv.{level}</div>
-                    {xpPct != null && (
-                      <div
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          opacity: 0.92,
-                          marginTop: 2,
-                          letterSpacing: 0.2,
-                        }}
-                      >
-                        {xpPct}% XP
-                      </div>
-                    )}
-                  </div>
-                </Html>
-              )}
+                    <div
+                      style={{
+                        background: 'linear-gradient(145deg,#1d4ed8,#2563eb)',
+                        color: '#fff',
+                        borderRadius: 12,
+                        padding: '4px 11px',
+                        fontSize: 12,
+                        fontWeight: 800,
+                        fontFamily: 'Inter, system-ui, sans-serif',
+                        boxShadow:
+                          '0 0 14px rgba(37,99,235,0.45), 0 2px 10px rgba(29,78,216,0.35)',
+                        border: '1px solid rgba(255,255,255,0.35)',
+                        direction: 'ltr',
+                        textAlign: 'center',
+                      }}
+                    >
+                      <div>Lv.{level}</div>
+                      {xpPct != null && (
+                        <div
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            opacity: 0.92,
+                            marginTop: 2,
+                            letterSpacing: 0.2,
+                          }}
+                        >
+                          {xpPct}% XP
+                        </div>
+                      )}
+                    </div>
+                  </Html>
+                )}
 
-              {streakEnergy && !stableInteraction && <StreakRimLight />}
-            </StreakEnergyFloat>
-          </group>
-        </Suspense>
-
-        {premiumPostProcessingEnabled ? (
-          <EffectComposer enableNormalPass multisampling={4}>
-            <SSAO
-              samples={20}
-              rings={3}
-              intensity={0.55}
-              luminanceInfluence={0.42}
-              radius={9}
-              bias={0.035}
-              distanceThreshold={0.85}
-            />
-            <Bloom
-              intensity={streakBloomEnabled ? 0.42 : 0}
-              luminanceThreshold={0.82}
-              luminanceSmoothing={0.35}
-              mipmapBlur
-            />
-            <SMAA />
-          </EffectComposer>
-        ) : streakBloomEnabled ? (
-          <EffectComposer enableNormalPass={false}>
-            <Bloom
-              intensity={0.42}
-              luminanceThreshold={0.82}
-              luminanceSmoothing={0.35}
-              mipmapBlur
-            />
-          </EffectComposer>
-        ) : null}
+                {streakEnergy && !stableInteraction && <StreakRimLight />}
+              </StreakEnergyFloat>
+            </group>
+          </Suspense>
+        </group>
 
         {/* מצלמה — פורטל: סיבוב/זום ידניים בלבד (ללא אנימציית מבטים); דשבורד מטפל: אנימטור + מסלולי מבט */}
         {patientPortalInteractive ? (
@@ -572,11 +489,11 @@ export default function BodyMap3D(props: BodyMap3DProps) {
             enablePan={false}
             enableRotate
             enableZoom
-            minDistance={PORTAL_ORBIT_MIN_DIST}
-            maxDistance={12}
-            minPolarAngle={0.1}
-            maxPolarAngle={Math.PI - 0.08}
-            target={[0, 0.7, 0]}
+            minDistance={5.5}
+            maxDistance={24}
+            minPolarAngle={0.12}
+            maxPolarAngle={Math.PI - 0.1}
+            target={[0, 0.3, 0]}
             enableDamping
             dampingFactor={0.075}
             rotateSpeed={0.68}
@@ -590,12 +507,13 @@ export default function BodyMap3D(props: BodyMap3DProps) {
               orbitActiveRef={orbitActiveRef}
             />
             <OrbitControls
+              makeDefault
               enablePan={false}
               enableRotate={!scrollFriendlyPortal}
               enableZoom={!scrollFriendlyPortal}
-              minDistance={2.5}
-              maxDistance={12}
-              target={[0, 0.7, 0]}
+              minDistance={5.5}
+              maxDistance={24}
+              target={[0, 0.3, 0]}
               enableDamping
               dampingFactor={0.07}
               rotateSpeed={0.72}
@@ -608,6 +526,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           </>
         )}
       </Canvas>
+      </div>
 
       {/* ── HTML overlays ───────────────────────────────────────── */}
 

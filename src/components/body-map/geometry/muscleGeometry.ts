@@ -214,62 +214,115 @@ export function createGlute(): THREE.BufferGeometry {
 
 // ── Forearm – brachioradialis + extensor/flexor groups ──────────────────────
 export function createForearm(): THREE.BufferGeometry {
-  const geo = new THREE.CylinderGeometry(0.060, 0.075, 0.36, 28, 16, false);
+  // Distal radius slightly narrower than the hand root so the wrist reads as one piece
+  // (no separate joint sphere in the rig — hand attaches here).
+  const geo = new THREE.CylinderGeometry(0.060, 0.052, 0.36, 28, 16, false);
   const pos = geo.attributes.position as THREE.BufferAttribute;
 
   // Brachioradialis – front-outer ridge (tapers toward wrist)
   gaussBump(pos,  0.045,  0.062,  0.08, 0.14, 0.016, 0.048);
   gaussBump(pos, -0.045,  0.062,  0.08, 0.14, 0.016, 0.048);
-  // Extensor group – back flare (wider at top)
-  gaussBump(pos,  0.000, -0.068,  0.10, 0.14, 0.014, 0.058);
+  // Extensor group – back flare (wider at top); keep distal third subtler so wrist stays clean
+  gaussBump(pos,  0.000, -0.068,  0.10, 0.14, 0.012, 0.052);
 
   geo.computeVertexNormals();
   return geo;
 }
 
-// ── Open hand (palm + 5 distinct fingers) — `mirror` for patient right arm (−x side) ─
-// אצבעות ~+25% אורך, ריווח x/y מוגבר; אחרי merge — הזזה כך ש־(0,0,0) סמוך לשורש כף היד (ממשק לפרק כף–שורש)
+// ── Open hand (legacy name — prefer createNormalHandGeometry) ────────────────
+/** @deprecated Use {@link createNormalHandGeometry} for articulated palm + phalanges. */
 export function createOpenHandGeometry(mirror: boolean): THREE.BufferGeometry {
-  const sx = mirror ? -1 : 1;
+  return createNormalHandGeometry(mirror);
+}
+
+/**
+ * כף יד במנוחה — פרופורציה קטנה (בערך גובה מ־סנטר לאמצע מצח ביחס לראש האווטאר).
+ * נבנה בקואורדינטות «קדימה +Z» מהשורש; אחרי סיבוב: המשך האמה ~−Y, שורש כף ב־y=0 (קצה פרוקסימלי).
+ * ימין: scale −X על המשולב.
+ */
+export function createNormalHandGeometry(mirror: boolean): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-
-  const L = 1.25;
-  const rad = 0.012;
   const capSeg = 4;
-  const cylSeg = 10;
+  const cylSeg = 8;
+  /** Global scale — smaller than legacy 0.54 so hands match face proportions */
+  const sc = 0.37;
 
-  const palm = new THREE.BoxGeometry(0.12, 0.03, 0.132);
-  palm.rotateX(-0.1);
-  palm.translate(0, -0.01, 0.048);
+  const palmW = 0.064 * sc;
+  const palmY = 0.012 * sc;
+  const palmZ = 0.048 * sc;
+  const palm = new THREE.BoxGeometry(palmW, palmY, palmZ);
+  palm.rotateX(-0.045);
+  palm.translate(0, -0.004 * sc, palmZ * 0.52 + 0.006 * sc);
   parts.push(palm);
 
-  /** ארבע אצבעות: ריווח x ברור, סיבוב Y קל לפרישה */
-  const addFinger = (x: number, z: number, len: number, rotY: number) => {
-    const f = new THREE.CapsuleGeometry(rad, len * L, capSeg, cylSeg);
-    f.rotateX(-Math.PI / 2);
-    f.rotateY(rotY);
-    f.translate(sx * x, 0.004, z);
-    parts.push(f);
+  const phalanx = (
+    x: number,
+    z0: number,
+    length: number,
+    radius: number,
+    rotY: number,
+    curlX: number
+  ) => {
+    const g = new THREE.CapsuleGeometry(radius, length, capSeg, cylSeg);
+    g.rotateX(-Math.PI / 2 + curlX);
+    g.rotateY(rotY);
+    g.translate(x, 0.001 * sc, z0 + length * 0.5);
+    parts.push(g);
+    return z0 + length + radius * 1.05;
   };
-  addFinger(0.05, 0.098, 0.051, -0.092);
-  addFinger(0.018, 0.104, 0.06, -0.038);
-  addFinger(-0.018, 0.104, 0.06, 0.038);
-  addFinger(-0.05, 0.098, 0.051, 0.092);
 
-  const thumb = new THREE.CapsuleGeometry(0.0145, 0.036 * L, capSeg, cylSeg);
-  thumb.rotateZ(sx * 0.82);
-  thumb.rotateX(-0.38);
-  thumb.translate(sx * 0.06, -0.034, 0.036);
-  parts.push(thumb);
+  const finger = (
+    x: number,
+    zStart: number,
+    rotY: number,
+    r: number,
+    l1: number,
+    l2: number,
+    l3: number,
+    curl: number
+  ) => {
+    let z = zStart;
+    z = phalanx(x, z, l1 * sc, r * sc, rotY, curl * 0.45);
+    z = phalanx(x, z, l2 * sc, r * 0.9 * sc, rotY * 0.94, curl * 0.78);
+    phalanx(x, z, l3 * sc, r * 0.82 * sc, rotY * 0.88, curl * 0.98);
+  };
+
+  const zb = 0.058 * sc;
+  const curl = 0.12;
+  const rIdx = 0.0074 * sc;
+  const rMid = 0.0079 * sc;
+  const rRing = 0.0075 * sc;
+  const rPink = 0.0068 * sc;
+
+  finger(0.021 * sc, zb, -0.095, rIdx, 0.03, 0.024, 0.018, curl);
+  finger(0.007 * sc, zb + 0.005 * sc, -0.032, rMid, 0.034, 0.027, 0.02, curl);
+  finger(-0.007 * sc, zb + 0.004 * sc, 0.03, rRing, 0.032, 0.025, 0.019, curl);
+  finger(-0.021 * sc, zb - 0.001 * sc, 0.09, rPink, 0.026, 0.02, 0.015, curl);
+
+  const rT = 0.0076 * sc;
+  const thumbMeta = new THREE.CapsuleGeometry(rT, 0.024 * sc, capSeg, cylSeg);
+  thumbMeta.rotateZ(0.82);
+  thumbMeta.rotateX(-0.38);
+  thumbMeta.translate(0.034 * sc, -0.006 * sc, 0.014 * sc);
+  parts.push(thumbMeta);
+
+  let tz = 0.052 * sc;
+  tz = phalanx(0.044 * sc, tz, 0.02 * sc, rT * 1.02, 0.28, 0.09);
+  phalanx(0.044 * sc, tz, 0.016 * sc, rT * 0.88, 0.22, 0.11);
 
   const merged = mergeGeometries(parts, false);
+
+  merged.rotateY(Math.PI / 2);
+  merged.rotateX(-0.26);
+  if (mirror) merged.scale(-1, 1, 1);
+
   merged.computeVertexNormals();
   merged.computeBoundingBox();
   const b = merged.boundingBox;
   if (b) {
     const cx = (b.min.x + b.max.x) / 2;
     const cz = (b.min.z + b.max.z) / 2;
-    merged.translate(-cx, -b.max.y + 0.008, -cz);
+    merged.translate(-cx, -b.max.y, -cz);
   }
   return merged;
 }

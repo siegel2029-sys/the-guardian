@@ -268,8 +268,9 @@ export default function ExercisesPanel() {
             </div>
 
             {/* 3D Canvas – fills the card */}
-            <div style={{ flex: 1, minHeight: '460px' }}>
+            <div className="flex min-h-0 flex-1 flex-col" style={{ minHeight: '460px' }}>
               <BodyMap3D
+                wrapperClassName="h-full min-h-0 flex-1"
                 activeAreas={activeAreas}
                 primaryArea={selectedPatient.primaryBodyArea}
                 clinicalArea={selectedPatient.primaryBodyArea}

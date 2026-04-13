@@ -25,7 +25,7 @@ import {
   createCalf,
   createKnee,
   createGlute,
-  createOpenHandGeometry,
+  createNormalHandGeometry,
   createAnkleBridgeGeometry,
 } from './geometry/muscleGeometry';
 import { getLevelTier, type LevelTier } from '../../body/levelTier';
@@ -182,20 +182,6 @@ const GAIT_TORSO_YAW_MAX = 0.08;
 const BASE_SKIN = '#e6f3f7';
 const GOLD_SKIN = '#c9a227';
 
-/** כפות יד — פלסטיק/קרמי אטום, בולט מול עור הבסיס */
-const HAND_BASE_PLASTIC = {
-  roughness: 0.35,
-  metalness: 0.1,
-  clearcoat: 0.8,
-  clearcoatRoughness: 0.22,
-  transmission: 0,
-  thickness: 0,
-  ior: 1.5,
-  iridescence: 0,
-  iridescenceIOR: 1,
-  iridescenceThicknessRange: [0, 0] as [number, number],
-} as const;
-
 type LimbPickOverlay = 'none' | 'injury' | 'orange' | 'clinical' | 'selfCare';
 
 function limbPickOverlayKind(
@@ -335,6 +321,8 @@ interface BaseProps {
   disableRaycast?: boolean;
   /** ללא אנימציית נפח — לחיצות מדויקות */
   motionSteady?: boolean;
+  /** כפות יד — עור שקוף־מעט כמו אמה (לא כובע מפרק ירוק) */
+  translucentWhenHealthy?: boolean;
 }
 
 function BaseSegment({
@@ -356,6 +344,7 @@ function BaseSegment({
   onAreaClick,
   disableRaycast = false,
   motionSteady = false,
+  translucentWhenHealthy = false,
 }: BaseProps) {
   const rot = rotation ? (rotation as unknown as THREE.Euler) : undefined;
   const baseColor = goldSkin ? GOLD_SKIN : BASE_SKIN;
@@ -433,9 +422,8 @@ function BaseSegment({
   const tier = getLevelTier(level);
   const limbTint = limbPickPhysicalTint(limbKind, goldSkin ?? false, tier);
   const hasLimbVisualOverlay = limbTint != null && !goldSkin;
-  const isHandPick =
-    (pickArea === 'hand_left' || pickArea === 'hand_right') && !goldSkin;
-  const handMat = isHandPick ? HAND_BASE_PLASTIC : null;
+  const transSkin =
+    Boolean(translucentWhenHealthy) && !goldSkin && limbTint == null;
 
   if (!goldSkin && muscleStage === 'post_injury') {
     if (hasLimbVisualOverlay) {
@@ -462,7 +450,6 @@ function BaseSegment({
               transparent={false}
               opacity={1}
               depthWrite
-              {...(handMat ?? {})}
             />
           </mesh>
         </group>
@@ -474,24 +461,23 @@ function BaseSegment({
         <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
           <meshPhysicalMaterial
             ref={matRef}
-            color="#cbd5e1"
-            roughness={0.4}
+            color={transSkin ? '#eef8fa' : '#cbd5e1'}
+            roughness={transSkin ? 0.28 : 0.4}
             metalness={0.1}
-            clearcoat={0.18}
-            clearcoatRoughness={0.36}
-            transmission={0}
-            thickness={0}
+            clearcoat={transSkin ? 0.22 : 0.18}
+            clearcoatRoughness={transSkin ? 0.32 : 0.36}
+            transmission={transSkin ? 0.34 : 0}
+            thickness={transSkin ? 0.4 : 0}
             ior={1.5}
-            envMapIntensity={0.72}
+            envMapIntensity={transSkin ? 0.95 : 0.72}
             emissive="#0e7490"
             emissiveIntensity={0.08}
             iridescence={0}
             iridescenceIOR={1}
             iridescenceThicknessRange={[0, 0]}
-            transparent={false}
+            transparent={transSkin}
             opacity={1}
-            depthWrite
-            {...(handMat ?? {})}
+            depthWrite={!transSkin}
           />
         </mesh>
       </group>
@@ -523,7 +509,6 @@ function BaseSegment({
               transparent={false}
               opacity={1}
               depthWrite
-              {...(handMat ?? {})}
             />
           </mesh>
         </group>
@@ -535,24 +520,23 @@ function BaseSegment({
         <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
           <meshPhysicalMaterial
             ref={matRef}
-            color={goldSkin ? '#b8941f' : '#e8eaef'}
-            roughness={goldSkin ? 0.32 : 0.4}
+            color={goldSkin ? '#b8941f' : transSkin ? '#eef8fa' : '#e8eaef'}
+            roughness={goldSkin ? 0.32 : transSkin ? 0.28 : 0.4}
             metalness={goldSkin ? 0.45 : 0.1}
-            clearcoat={goldSkin ? 0.35 : 0.14}
-            clearcoatRoughness={goldSkin ? 0.28 : 0.38}
-            transmission={0}
-            thickness={0}
+            clearcoat={goldSkin ? 0.35 : transSkin ? 0.2 : 0.14}
+            clearcoatRoughness={goldSkin ? 0.28 : transSkin ? 0.34 : 0.38}
+            transmission={goldSkin || !transSkin ? 0 : 0.34}
+            thickness={transSkin ? 0.4 : 0}
             ior={1.5}
-            envMapIntensity={goldSkin ? 1.2 : 0.4}
+            envMapIntensity={goldSkin ? 1.2 : transSkin ? 0.9 : 0.4}
             emissive={goldSkin ? '#3d2a06' : '#000000'}
             emissiveIntensity={goldSkin ? 0.04 : 0}
             iridescence={0}
             iridescenceIOR={1}
             iridescenceThicknessRange={[0, 0]}
-            transparent={false}
+            transparent={!goldSkin && transSkin}
             opacity={1}
-            depthWrite
-            {...(handMat ?? {})}
+            depthWrite={goldSkin || !transSkin}
           />
         </mesh>
       </group>
@@ -566,24 +550,23 @@ function BaseSegment({
         <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
           <meshPhysicalMaterial
             ref={matRef}
-            color={limbTint?.color ?? baseColor}
-            roughness={limbTint ? limbTint.roughness : goldSkin ? 0.35 : 0.35}
+            color={limbTint?.color ?? (transSkin ? '#eef8fa' : baseColor)}
+            roughness={limbTint ? limbTint.roughness : goldSkin ? 0.35 : transSkin ? 0.26 : 0.35}
             metalness={limbTint ? limbTint.metalness : goldSkin ? 0.55 : 0.1}
-            clearcoat={limbTint ? limbTint.clearcoat : goldSkin ? 0.42 : 0.22}
-            clearcoatRoughness={limbTint ? limbTint.clearcoatRoughness : goldSkin ? 0.28 : 0.3}
-            transmission={limbTint ? limbTint.transmission : 0}
-            thickness={limbTint ? limbTint.thickness : 0}
+            clearcoat={limbTint ? limbTint.clearcoat : goldSkin ? 0.42 : transSkin ? 0.2 : 0.22}
+            clearcoatRoughness={limbTint ? limbTint.clearcoatRoughness : goldSkin ? 0.28 : transSkin ? 0.32 : 0.3}
+            transmission={limbTint ? limbTint.transmission : transSkin ? 0.38 : 0}
+            thickness={limbTint ? limbTint.thickness : transSkin ? 0.42 : 0}
             ior={limbTint ? limbTint.ior : 1.5}
-            envMapIntensity={limbTint ? limbTint.envMapIntensity : goldSkin ? 1.45 : 1.22}
+            envMapIntensity={limbTint ? limbTint.envMapIntensity : goldSkin ? 1.45 : transSkin ? 1.08 : 1.22}
             emissive={limbTint?.emissive ?? (goldSkin ? '#3d2a06' : '#082830')}
             emissiveIntensity={limbTint?.emissiveIntensity ?? (goldSkin ? 0.04 : 0.06)}
             iridescence={limbTint ? limbTint.iridescence : 0}
             iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1}
             iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [0, 0]}
-            transparent={false}
+            transparent={Boolean(limbTint) ? false : transSkin}
             opacity={1}
-            depthWrite
-            {...(handMat ?? {})}
+            depthWrite={Boolean(limbTint) || !transSkin}
           />
         </mesh>
       </group>
@@ -596,24 +579,23 @@ function BaseSegment({
       <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow {...pointerProps}>
         <meshPhysicalMaterial
           ref={matRef}
-          color={limbTint?.color ?? (injuryHighlight ? '#fecaca' : baseColor)}
-          roughness={limbTint ? limbTint.roughness : goldSkin ? 0.28 : 0.32}
+          color={limbTint?.color ?? (injuryHighlight ? '#fecaca' : transSkin ? '#eef8fa' : baseColor)}
+          roughness={limbTint ? limbTint.roughness : goldSkin ? 0.28 : transSkin ? 0.26 : 0.32}
           metalness={limbTint ? limbTint.metalness : goldSkin ? 0.65 : 0.12}
-          clearcoat={limbTint ? limbTint.clearcoat : goldSkin ? 0.38 : 0.28}
-          clearcoatRoughness={limbTint ? limbTint.clearcoatRoughness : goldSkin ? 0.24 : 0.28}
-          transmission={limbTint ? limbTint.transmission : 0}
-          thickness={limbTint ? limbTint.thickness : 0}
+          clearcoat={limbTint ? limbTint.clearcoat : goldSkin ? 0.38 : transSkin ? 0.22 : 0.28}
+          clearcoatRoughness={limbTint ? limbTint.clearcoatRoughness : goldSkin ? 0.24 : transSkin ? 0.3 : 0.28}
+          transmission={limbTint ? limbTint.transmission : transSkin ? 0.38 : 0}
+          thickness={limbTint ? limbTint.thickness : transSkin ? 0.42 : 0}
           ior={limbTint ? limbTint.ior : 1.5}
-          envMapIntensity={limbTint ? limbTint.envMapIntensity : goldSkin ? 1.75 : 1.55}
+          envMapIntensity={limbTint ? limbTint.envMapIntensity : goldSkin ? 1.75 : transSkin ? 1.12 : 1.55}
           emissive={limbTint?.emissive ?? (goldSkin ? '#3d2a06' : '#082830')}
           emissiveIntensity={limbTint?.emissiveIntensity ?? (goldSkin ? 0.04 : 0.06)}
           iridescence={limbTint ? limbTint.iridescence : 0}
           iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1}
           iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [0, 0]}
-          transparent={false}
+          transparent={Boolean(limbTint) ? false : transSkin}
           opacity={1}
-          depthWrite
-          {...(handMat ?? {})}
+          depthWrite={Boolean(limbTint) || !transSkin}
         />
       </mesh>
     </group>
@@ -828,10 +810,8 @@ function useGeometries() {
     ear:          new THREE.SphereGeometry(0.062, 12, 10),
     neck:         new THREE.CylinderGeometry(0.096, 0.114, NECK_HEIGHT, 20, 6),
     pelvis:       new THREE.CylinderGeometry(0.230, 0.212, 0.24, 20, 6),
-    wristL:       new THREE.SphereGeometry(0.098, 16, 12),
-    wristR:       new THREE.SphereGeometry(0.098, 16, 12),
-    handL:        createOpenHandGeometry(false),
-    handR:        createOpenHandGeometry(true),
+    handL:        createNormalHandGeometry(false),
+    handR:        createNormalHandGeometry(true),
     ankleBridge:  createAnkleBridgeGeometry(),
     elbowL:       new THREE.SphereGeometry(0.118, 18, 14),
     elbowR:       new THREE.SphereGeometry(0.118, 18, 14),
@@ -969,6 +949,8 @@ export default function AnatomyModel({
   const rightElbowPivotRef = useRef<THREE.Group>(null);
   const leftFootRef = useRef<THREE.Group>(null);
   const rightFootRef = useRef<THREE.Group>(null);
+  const leftForearmRef = useRef<THREE.Group>(null);
+  const rightForearmRef = useRef<THREE.Group>(null);
 
   /** סנכרון הדגשת hover בין חזה↔גב עליון ובטן↔גב תחתון (מקטע קליק נשאר נפרד) */
   const [chestHover, setChestHover] = useState(false);
@@ -1192,6 +1174,7 @@ export default function AnatomyModel({
       <BaseSegment geometry={geos.pelvis} position={[0, 0.24, 0]} level={level} goldSkin={gearGoldSkin} muscleStage={muscleStage} vertexInflationWeight={0} disableRaycast />
 
       {/* ══ LEFT ARM (+x) — כתף → מרפק → אמה/שורש כף (קואורדינטות מקומיות ממוקדות מפרק) ═══ */}
+      {/* אין כדור מפרק נפרד ל־wrist_left/wrist_right — הבחירה הקלינית ממופה ליד/אמה; האמה מצטמצמת אצל שורש כף */}
       <group ref={leftShoulderPivotRef} position={[0.44, 1.3, 0]}>
         <BaseSegment
           geometry={geos.upperArmL}
@@ -1208,24 +1191,24 @@ export default function AnatomyModel({
         />
         <group ref={leftElbowPivotRef} position={[0.14, -0.7, 0.07]}>
           <MuscleSegment {...S('elbow_left')} geometry={geos.elbowL} position={[0, 0, 0]} />
-          <BaseSegment
-            geometry={geos.forearmL}
-            position={[-0.02, -0.39, -0.022]}
-            level={level}
-            goldSkin={gearGoldSkin}
-            muscleStage={muscleStage}
-            vertexInflationWeight={1}
-            growthLayerWeight={growthOf('forearm_left')}
-            pickArea="forearm_left"
-            {...limbPickProps('forearm_left')}
-            motionSteady={stableInteraction}
-            onAreaClick={onAreaClick}
-          />
-          <group position={[-0.01, -0.64, 0.005]}>
-            <MuscleSegment {...S('wrist_left')} geometry={geos.wristL} position={[0, 0, 0]} />
+          <group ref={leftForearmRef} position={[-0.02, -0.39, -0.022]}>
+            <BaseSegment
+              geometry={geos.forearmL}
+              position={[0, 0, 0]}
+              level={level}
+              goldSkin={gearGoldSkin}
+              muscleStage={muscleStage}
+              vertexInflationWeight={1}
+              growthLayerWeight={growthOf('forearm_left')}
+              pickArea="forearm_left"
+              {...limbPickProps('forearm_left')}
+              motionSteady={stableInteraction}
+              onAreaClick={onAreaClick}
+            />
             <BaseSegment
               geometry={geos.handL}
-              position={[0, 0, 0]}
+              position={[-0.004, -0.196, 0.012]}
+              rotation={[0.42, -0.98, 0.5]}
               level={level}
               goldSkin={gearGoldSkin}
               muscleStage={muscleStage}
@@ -1234,6 +1217,7 @@ export default function AnatomyModel({
               {...limbPickProps('hand_left')}
               motionSteady={stableInteraction}
               onAreaClick={onAreaClick}
+              translucentWhenHealthy
             />
           </group>
         </group>
@@ -1256,24 +1240,24 @@ export default function AnatomyModel({
         />
         <group ref={rightElbowPivotRef} position={[-0.14, -0.7, 0.07]}>
           <MuscleSegment {...S('elbow_right')} geometry={geos.elbowR} position={[0, 0, 0]} />
-          <BaseSegment
-            geometry={geos.forearmR}
-            position={[0.02, -0.39, -0.022]}
-            level={level}
-            goldSkin={gearGoldSkin}
-            muscleStage={muscleStage}
-            vertexInflationWeight={1}
-            growthLayerWeight={growthOf('forearm_right')}
-            pickArea="forearm_right"
-            {...limbPickProps('forearm_right')}
-            motionSteady={stableInteraction}
-            onAreaClick={onAreaClick}
-          />
-          <group position={[0.01, -0.64, 0.005]}>
-            <MuscleSegment {...S('wrist_right')} geometry={geos.wristR} position={[0, 0, 0]} />
+          <group ref={rightForearmRef} position={[0.02, -0.39, -0.022]}>
+            <BaseSegment
+              geometry={geos.forearmR}
+              position={[0, 0, 0]}
+              level={level}
+              goldSkin={gearGoldSkin}
+              muscleStage={muscleStage}
+              vertexInflationWeight={1}
+              growthLayerWeight={growthOf('forearm_right')}
+              pickArea="forearm_right"
+              {...limbPickProps('forearm_right')}
+              motionSteady={stableInteraction}
+              onAreaClick={onAreaClick}
+            />
             <BaseSegment
               geometry={geos.handR}
-              position={[0, 0, 0]}
+              position={[0.004, -0.196, 0.012]}
+              rotation={[-0.42, 0.98, -0.5]}
               level={level}
               goldSkin={gearGoldSkin}
               muscleStage={muscleStage}
@@ -1282,6 +1266,7 @@ export default function AnatomyModel({
               {...limbPickProps('hand_right')}
               motionSteady={stableInteraction}
               onAreaClick={onAreaClick}
+              translucentWhenHealthy
             />
           </group>
         </group>
