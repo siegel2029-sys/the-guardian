@@ -167,9 +167,22 @@ export default function PatientDailyView() {
   useEffect(() => {
     if (portalTab !== 'activity') return;
     const id = location.hash.replace(/^#/, '');
-    if (id !== 'today-missions' && id !== 'training-calendar-anchor') return;
+    if (id !== 'today-missions') return;
     const t = window.setTimeout(() => {
       document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [portalTab, location.pathname, location.hash]);
+
+  useEffect(() => {
+    if (portalTab !== 'home') return;
+    const id = location.hash.replace(/^#/, '');
+    if (id !== 'patient-clinical-dashboard') return;
+    const t = window.setTimeout(() => {
+      document.getElementById('patient-clinical-dashboard')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
     }, 120);
     return () => clearTimeout(t);
   }, [portalTab, location.pathname, location.hash]);
@@ -692,6 +705,20 @@ export default function PatientDailyView() {
     navigate('/patient-portal/activity#today-missions');
   };
 
+  const goToClinicalDashboardFromStreak = useCallback(() => {
+    if (portalTab !== 'home') {
+      navigate('/patient-portal#patient-clinical-dashboard');
+      return;
+    }
+    void navigate('/patient-portal#patient-clinical-dashboard', { replace: true });
+    window.requestAnimationFrame(() => {
+      document.getElementById('patient-clinical-dashboard')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+  }, [navigate, portalTab]);
+
   return (
     <div
       className="min-h-screen flex flex-col max-w-lg mx-auto w-full relative bg-medical-bg font-sans"
@@ -707,7 +734,7 @@ export default function PatientDailyView() {
         dir="ltr"
         className="relative grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 sm:gap-x-4 overflow-visible bg-white px-3 sm:px-4 py-3 border-b border-slate-200/80 shadow-md shadow-slate-200/40"
       >
-        {/* טור 1 — שמאל: רוחב תוכן; לא גוזל את ה־1fr של המרכז */}
+        {/* טור 1 — שמאל: XP / מטבעות */}
         <div className="relative shrink-0 justify-self-start flex flex-col items-start justify-center gap-2">
           {rewardFeedback && (
             <div
@@ -764,7 +791,7 @@ export default function PatientDailyView() {
           </button>
         </div>
 
-        {/* טור 2 — מרכז: כל הרוחב בין XP לכפתורים (minmax 0 + 1fr); שם נשבר שורות — בלי חפיפה */}
+        {/* טור 2 — מרכז: רמה ושם בשורה; רצף מתחת לשם בלבד (ממורכז לעמודת השם) */}
         <div className="min-w-0 w-full max-w-full justify-self-stretch flex flex-col items-center justify-center gap-1 px-1 sm:px-2 text-center">
           {!patientMustChangePassword && (
             <>
@@ -775,33 +802,39 @@ export default function PatientDailyView() {
                 <span className="shrink-0 pt-0.5 text-xs sm:text-sm font-bold tabular-nums text-emerald-600">
                   רמה {selectedPatient.level}
                 </span>
-                <span
-                  className="min-w-0 flex-1 basis-0 text-lg sm:text-xl font-bold text-slate-900 leading-snug tracking-tight break-words text-center [overflow-wrap:anywhere]"
-                  dir="rtl"
-                >
-                  {selectedPatient.name}
-                </span>
-              </div>
-              {hasDailyLoginBonusPending(selectedPatient.id) && (
-                <div className="flex justify-center items-center gap-1.5 flex-wrap" dir="rtl">
-                  <RewardLabel
-                    xp={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.xp}
-                    coins={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.coins}
-                  />
-                  <span className="text-xs text-slate-500">כניסה יומית</span>
+                <div className="flex min-w-0 flex-1 basis-0 flex-col items-center gap-1 text-center">
+                  <span
+                    className="w-full min-w-0 text-lg sm:text-xl font-bold text-slate-900 leading-snug tracking-tight break-words text-center [overflow-wrap:anywhere]"
+                    dir="rtl"
+                  >
+                    {selectedPatient.name}
+                  </span>
+                  {hasDailyLoginBonusPending(selectedPatient.id) && (
+                    <div className="flex justify-center items-center gap-1.5 flex-wrap" dir="rtl">
+                      <RewardLabel
+                        xp={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.xp}
+                        coins={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.coins}
+                      />
+                      <span className="text-xs text-slate-500">כניסה יומית</span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={goToClinicalDashboardFromStreak}
+                    onKeyDown={(e) => activateOnEnterSpace(e, goToClinicalDashboardFromStreak)}
+                    className="mx-auto text-xs font-black tabular-nums px-2.5 py-1 rounded-xl border w-fit max-w-full shrink-0 cursor-pointer touch-manipulation motion-safe:transition-[transform,box-shadow] motion-safe:duration-150 hover:brightness-[1.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400"
+                    style={{
+                      borderColor: 'rgba(249, 115, 22, 0.45)',
+                      background: 'linear-gradient(135deg, rgba(255, 247, 237, 0.95), #fff7ed)',
+                      color: '#9a3412',
+                      boxShadow: '0 0 12px rgba(251, 146, 60, 0.2)',
+                    }}
+                    title="רצף ימים — לחצו ללוח קליני בתחתית הבית"
+                    aria-label="רצף ימים — מעבר ללוח קליני"
+                  >
+                    רצף {displayStreak} {displayStreak === 1 ? 'יום' : 'ימים'} 🔥
+                  </button>
                 </div>
-              )}
-              <div
-                className="text-xs font-black tabular-nums px-2.5 py-1 rounded-xl border w-fit max-w-full"
-                style={{
-                  borderColor: 'rgba(249, 115, 22, 0.45)',
-                  background: 'linear-gradient(135deg, rgba(255, 247, 237, 0.95), #fff7ed)',
-                  color: '#9a3412',
-                  boxShadow: '0 0 12px rgba(251, 146, 60, 0.2)',
-                }}
-                title="רצף ימים עם לפחות תרגיל אחד שהושלם (לפי לוח קליני)"
-              >
-                רצף {displayStreak} {displayStreak === 1 ? 'יום' : 'ימים'} 🔥
               </div>
             </>
           )}
@@ -824,7 +857,7 @@ export default function PatientDailyView() {
           )}
         </div>
 
-        {/* טור 3 — ימין: רוחב תוכן קבוע; לא חופף את ה־1fr של המרכז */}
+        {/* טור 3 — ימין: כפתורים */}
         <div className="shrink-0 justify-self-end flex flex-nowrap items-center justify-end gap-1.5">
           {sessionRole === 'patient' ? (
             <>
@@ -1008,6 +1041,15 @@ export default function PatientDailyView() {
                 <Sparkles className="w-5 h-5 text-violet-600 shrink-0" />
                 היכל גיבורים
               </button>
+            )}
+
+            {!patientMustChangePassword && (
+              <div
+                id="patient-clinical-dashboard"
+                className="scroll-mt-28 mt-8 mb-2 mx-auto w-full max-w-md"
+              >
+                <ClinicalMonthCalendar dayMap={patientDayMap} clinicalToday={clinicalToday} />
+              </div>
             )}
           </section>
         )}
@@ -1293,9 +1335,6 @@ export default function PatientDailyView() {
           </div>
         )}
 
-        <div id="training-calendar-anchor" className="scroll-mt-28 mt-8 mb-2">
-          <ClinicalMonthCalendar dayMap={patientDayMap} clinicalToday={clinicalToday} />
-        </div>
         </div>
         </>
         )}

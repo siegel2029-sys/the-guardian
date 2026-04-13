@@ -44,12 +44,20 @@ export default function GuardianAssistantFAB({
   const isPortal = variant === 'portal';
   const { screenAndHandleEmergencyText } = usePatient();
   const [open, setOpen] = useState(false);
+  /** פורטל: סרגל מורחב נשאר פתוח אחרי לחיצה (עד לחיצה מחוץ או X) */
+  const [portalBarSticky, setPortalBarSticky] = useState(false);
+  const [portalBarHover, setPortalBarHover] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
   const [pendingOffer, setPendingOffer] = useState<GuardianPendingOffer | null>(null);
   const [replyLoading, setReplyLoading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const modalInputRef = useRef<HTMLInputElement>(null);
+  const portalBarRef = useRef<HTMLDivElement>(null);
+  const portalPeekInputRef = useRef<HTMLInputElement>(null);
+
+  const portalBarExpanded = isPortal && (portalBarHover || portalBarSticky);
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, open]);
@@ -59,6 +67,37 @@ export default function GuardianAssistantFAB({
     const id = requestAnimationFrame(() => modalInputRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [open, isPortal]);
+
+  useLayoutEffect(() => {
+    if (!isPortal || !portalBarSticky || open) return;
+    const id = requestAnimationFrame(() => portalPeekInputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [isPortal, portalBarSticky, open]);
+
+  useEffect(() => {
+    if (open) {
+      setPortalBarSticky(false);
+      setPortalBarHover(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!isPortal || !portalBarSticky) return;
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      const el = portalBarRef.current;
+      const target = e.target as Node | null;
+      if (el && target && !el.contains(target)) {
+        setPortalBarSticky(false);
+        setPortalBarHover(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown, { passive: true });
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+    };
+  }, [isPortal, portalBarSticky]);
 
   if (hidden) return null;
 
@@ -86,6 +125,8 @@ export default function GuardianAssistantFAB({
       setPendingOffer(null);
       setInput('');
       setOpen(false);
+      setPortalBarSticky(false);
+      setPortalBarHover(false);
       return;
     }
 
@@ -179,26 +220,95 @@ export default function GuardianAssistantFAB({
   return (
     <>
       {isPortal && !open && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="fixed z-[65] flex w-[min(calc(100vw-1.5rem),22rem)] min-h-[3rem] items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/92 px-3.5 py-2.5 text-start shadow-sm backdrop-blur-md transition-all hover:border-slate-300/90 hover:bg-white active:scale-[0.99] motion-safe:duration-150"
+        <div
+          ref={portalBarRef}
+          className={`fixed z-[65] flex items-center overflow-hidden border border-slate-200/70 bg-white/92 shadow-sm backdrop-blur-md motion-safe:transition-[width,min-width,height,border-radius,box-shadow] motion-safe:duration-300 motion-safe:ease-out ${
+            portalBarExpanded
+              ? 'min-h-[3rem] w-[min(calc(100vw-1.5rem),22rem)] rounded-xl hover:border-slate-300/90 hover:bg-white hover:shadow-md'
+              : 'h-12 w-12 min-h-12 min-w-12 justify-center rounded-full hover:border-slate-300/90 hover:bg-white active:scale-[0.99]'
+          }`}
           style={{ bottom: portalBarBottom, left: portalBarLeft }}
           dir="ltr"
-          aria-label="פתיחת עוזר שיקום"
+          onMouseEnter={() => setPortalBarHover(true)}
+          onMouseLeave={() => {
+            if (!portalBarSticky) setPortalBarHover(false);
+          }}
+          onClick={() => setPortalBarSticky(true)}
+          onKeyDown={(e) => {
+            if (portalBarExpanded) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setPortalBarSticky(true);
+            }
+          }}
+          tabIndex={portalBarExpanded ? -1 : 0}
+          role={portalBarExpanded ? 'group' : 'button'}
+          aria-expanded={portalBarExpanded}
+          aria-label="עוזר שיקום"
         >
-          <Sparkles
-            className="h-5 w-5 shrink-0 text-medical-primary"
-            strokeWidth={2}
-            aria-hidden
-          />
-          <span
-            className="min-w-0 flex-1 truncate text-end text-[0.9375rem] font-medium text-slate-500"
+          <div
+            className={`flex shrink-0 items-center justify-center ${portalBarExpanded ? 'ms-3 me-2' : ''}`}
+          >
+            <Sparkles
+              className="h-5 w-5 shrink-0 text-medical-primary"
+              strokeWidth={2}
+              aria-hidden
+            />
+          </div>
+          <div
+            className={`flex min-w-0 flex-1 items-center gap-2 pe-2 motion-safe:transition-opacity motion-safe:duration-200 ${
+              portalBarExpanded ? 'opacity-100' : 'pointer-events-none w-0 flex-none overflow-hidden opacity-0'
+            }`}
             dir="rtl"
           >
-            {PORTAL_INPUT_PLACEHOLDER}
-          </span>
-        </button>
+            <input
+              ref={portalPeekInputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !replyLoading && portalBarSticky && input.trim()) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+              readOnly={!portalBarSticky}
+              tabIndex={portalBarSticky ? 0 : -1}
+              placeholder={PORTAL_INPUT_PLACEHOLDER}
+              className="min-w-0 flex-1 rounded-xl border border-transparent bg-transparent py-2 text-end text-[0.9375rem] font-medium text-slate-800 placeholder:text-slate-500 read-only:cursor-default read-only:placeholder:text-slate-500 focus:border-indigo-200/80 focus:outline-none focus:ring-2 focus:ring-indigo-400/25"
+              aria-label={PORTAL_INPUT_PLACEHOLDER}
+            />
+            {portalBarSticky && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPortalBarSticky(false);
+                    setPortalBarHover(false);
+                  }}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="סגור שורת הקלט"
+                >
+                  <X className="h-4 w-4" strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void send();
+                  }}
+                  disabled={!input.trim() || replyLoading}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white disabled:opacity-40"
+                  style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}
+                  aria-label="שלח"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {!isPortal && (
