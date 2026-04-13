@@ -2,6 +2,8 @@
  * יום קליני: מתחלף ב־04:00 (שעון מקומי של הדפדפן).
  */
 
+import { getAppDate } from './debugMockDate';
+
 function pad2(n: number): string {
   return n.toString().padStart(2, '0');
 }
@@ -15,8 +17,8 @@ export function toLocalYmd(d: Date): string {
  * תאריך היום הקליני הנוכחי.
  * לפני 04:00 נחשבים עדיין ליום הקלנדרי הקודם.
  */
-export function getClinicalDate(now: Date = new Date()): string {
-  const d = new Date(now);
+export function getClinicalDate(now?: Date): string {
+  const d = new Date(now ?? getAppDate());
   if (d.getHours() < 4) {
     d.setDate(d.getDate() - 1);
   }
@@ -42,6 +44,7 @@ export function getPreviousClinicalDate(ymd: string): string {
 }
 
 /** אתמול ביחס ליום קליני "היום" (ברירת מחדל: עכשיו) */
-export function getClinicalYesterday(now: Date = new Date()): string {
-  return getPreviousClinicalDate(getClinicalDate(now));
+export function getClinicalYesterday(now?: Date): string {
+  const base = now ?? getAppDate();
+  return getPreviousClinicalDate(getClinicalDate(base));
 }

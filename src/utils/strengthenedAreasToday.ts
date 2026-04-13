@@ -1,5 +1,6 @@
 import type { BodyArea, PatientExerciseFinishReport } from '../types';
 import { bodyAreaLabels } from '../types';
+import { getAppDate } from './debugMockDate';
 
 const labelToArea = new Map<string, BodyArea>(
   (Object.keys(bodyAreaLabels) as BodyArea[]).map((a) => [bodyAreaLabels[a], a])
@@ -26,7 +27,7 @@ function isSameLocalCalendarDay(isoTimestamp: string, now: Date): boolean {
  */
 export function getStrengthenedBodyAreasToday(
   reports: PatientExerciseFinishReport[],
-  now: Date = new Date()
+  now: Date = getAppDate()
 ): BodyArea[] {
   const set = new Set<BodyArea>();
   for (const r of reports) {

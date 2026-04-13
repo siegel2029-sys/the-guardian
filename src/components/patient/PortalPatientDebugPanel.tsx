@@ -16,6 +16,7 @@ export default function PortalPatientDebugPanel() {
     devBreakStreakRemoveYesterday,
     devAdjustPatientLifetimeXp,
     devSetPatientLifetimeXp,
+    devSkipToNextCalendarDay,
     supabaseConfigured,
     supabaseSyncStatus,
     supabaseSyncError,
@@ -80,6 +81,17 @@ export default function PortalPatientDebugPanel() {
           >
             Break Streak (מחק אתמול)
           </button>
+          <button
+            type="button"
+            className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-violet-950 text-violet-100 hover:bg-violet-900 border border-violet-700/50"
+            onClick={() => devSkipToNextCalendarDay(pid)}
+          >
+            עבור ליום הבא (דיבאג)
+          </button>
+          <p className="text-[9px] text-slate-500 leading-snug">
+            מזיז את «היום» ביום קלנדרי אחד (localStorage), מאפס הידעת/מאמרים/סשן ופרהאב ליום
+            הקליני החדש.
+          </p>
 
           <p className="text-[9px] font-bold text-slate-300 uppercase tracking-wide pt-0.5">XP</p>
           <div className="flex gap-1">

@@ -57,6 +57,7 @@ import PatientHeroesHallTab from './PatientHeroesHallTab';
 import PatientPortalSettingsModal from './PatientPortalSettingsModal';
 import { fetchAiPlanAdjustmentSuggestion } from '../../ai/geminiAiPlanAdjustment';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
+import { useLocalCalendarDayKey } from '../../utils/dailyKnowledgeFact';
 
 type PortalTab = 'home' | 'activity' | 'gear' | 'messages' | 'heroes';
 
@@ -116,6 +117,7 @@ export default function PatientDailyView() {
     submitPatientAiPlanAdjustmentRequest,
     markArticleAsRead,
     hasReadArticle,
+    getDidYouKnowRewardClaimedLocalYmd,
     hasDailyLoginBonusPending,
     getPatientGear,
     purchaseGearItem,
@@ -282,6 +284,12 @@ export default function PatientDailyView() {
   const approvedKnowledgeFacts = useMemo(
     () => knowledgeFacts.filter((f) => f.isApproved),
     [knowledgeFacts]
+  );
+
+  const dykLocalCalendarDayKey = useLocalCalendarDayKey();
+  const dykBubbleHiddenAfterRewardToday = Boolean(
+    selectedPatient &&
+      getDidYouKnowRewardClaimedLocalYmd(selectedPatient.id) === dykLocalCalendarDayKey
   );
 
   const exerciseSafetyLocked = selectedPatient
@@ -1424,12 +1432,16 @@ export default function PatientDailyView() {
       {(portalTab === 'home' || portalTab === 'activity') &&
         selectedPatient &&
         !patientMustChangePassword &&
-        approvedKnowledgeFacts.length > 0 && (
+        approvedKnowledgeFacts.length > 0 &&
+        !dykBubbleHiddenAfterRewardToday && (
           <DidYouKnowBubble
             patient={selectedPatient}
             approvedFacts={approvedKnowledgeFacts}
             onCollectReward={(articleId, opts) =>
-              markArticleAsRead(selectedPatient.id, articleId, opts)
+              markArticleAsRead(selectedPatient.id, articleId, {
+                ...opts,
+                didYouKnowLocalCalendarYmd: dykLocalCalendarDayKey,
+              })
             }
             hasReadArticle={hasReadArticle}
           />

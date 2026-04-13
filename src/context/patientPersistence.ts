@@ -47,6 +47,8 @@ export type PersistedPatientStateV1 = {
       readArticleIds: string[];
       lastLoginBonusClinicalDate: string | null;
       articleLinkOpenedIds?: string[];
+      /** YYYY-MM-DD מקומי — אחרי איסוף פרס «הידעת» להיום, הנורה מוסתרת עד למחר */
+      dykRewardClaimedLocalYmd?: string | null;
     }
   >;
   /** ציוד ויזואלי / מגן רצף — לפי מזהה מטופל */

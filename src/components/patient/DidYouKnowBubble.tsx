@@ -1,9 +1,32 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { Lightbulb, ExternalLink, Gift, Lock, X } from 'lucide-react';
+
+const MOBILE_MAX_WIDTH_PX = 767;
+
+function useIsMobileViewport(): boolean {
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH_PX}px)`).matches;
+  });
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH_PX}px)`);
+    const onChange = () => setIsMobile(mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  return isMobile;
+}
 import type { KnowledgeFact, Patient } from '../../types';
 import { KNOWLEDGE_ENRICHMENT_DISCLAIMER_HE } from '../../config/clinicalDisclaimers';
 import { PATIENT_REWARDS } from '../../config/patientRewards';
 import { getKnowledgeSourceBadgeText } from '../../utils/knowledgeSourceBadge';
+import {
+  selectDailyApprovedKnowledgeFact,
+  useLocalCalendarDayKey,
+} from '../../utils/dailyKnowledgeFact';
 import { RewardLabel } from '../ui/RewardLabel';
 interface DidYouKnowBubbleProps {
   patient: Patient;
@@ -21,37 +44,6 @@ const DYK_DEFAULT_TEASER = 'כואב זה לא תמיד "נזק". בוא נבי�
 function scrollReachedEnd(el: HTMLElement): boolean {
   const { scrollTop, scrollHeight, clientHeight } = el;
   return scrollHeight - scrollTop - clientHeight <= SCROLL_END_THRESHOLD_PX;
-}
-
-function pickFactForSession(patientId: string, approved: KnowledgeFact[]): KnowledgeFact | null {
-  if (approved.length === 0) return null;
-  const pickKey = `guardian-dyk-pick-v3-${patientId}`;
-  const sigKey = `guardian-dyk-sig-v3-${patientId}`;
-  const sigNow = approved
-    .map((f) => f.id)
-    .sort()
-    .join(',');
-  try {
-    const prevSig = sessionStorage.getItem(sigKey);
-    if (prevSig !== sigNow) {
-      sessionStorage.removeItem(pickKey);
-      sessionStorage.setItem(sigKey, sigNow);
-    }
-    const saved = sessionStorage.getItem(pickKey);
-    if (saved) {
-      const hit = approved.find((f) => f.id === saved);
-      if (hit) return hit;
-    }
-  } catch {
-    /* private mode */
-  }
-  const pick = approved[Math.floor(Math.random() * approved.length)];
-  try {
-    sessionStorage.setItem(pickKey, pick.id);
-  } catch {
-    /* ignore */
-  }
-  return pick;
 }
 
 /** כחול צי מעמיק — קו ענן 1px */
@@ -73,21 +65,55 @@ export default function DidYouKnowBubble({
   onCollectReward,
   hasReadArticle,
 }: DidYouKnowBubbleProps) {
+  const isMobile = useIsMobileViewport();
+  const calendarDayKey = useLocalCalendarDayKey();
+
   const fact = useMemo(
-    () => pickFactForSession(patient.id, approvedFacts),
-    [patient.id, approvedFacts]
+    () => selectDailyApprovedKnowledgeFact(approvedFacts, calendarDayKey),
+    [approvedFacts, calendarDayKey]
   );
 
   const [expanded, setExpanded] = useState(false);
   const [successBurst, setSuccessBurst] = useState(false);
   const [readThroughContent, setReadThroughContent] = useState(false);
   const scrollBodyRef = useRef<HTMLDivElement>(null);
+  const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expandedOpenedAtRef = useRef(0);
+
+  const clearAutoHideTimer = useCallback(() => {
+    if (autoHideTimerRef.current != null) {
+      window.clearTimeout(autoHideTimerRef.current);
+      autoHideTimerRef.current = null;
+    }
+  }, []);
+
+  const cancelMobileAutoHide = useCallback(() => {
+    if (isMobile) clearAutoHideTimer();
+  }, [isMobile, clearAutoHideTimer]);
 
   useEffect(() => {
     setSuccessBurst(false);
     setExpanded(false);
     setReadThroughContent(false);
-  }, [patient.id, fact?.id]);
+    clearAutoHideTimer();
+  }, [patient.id, fact?.id, clearAutoHideTimer]);
+
+  useEffect(() => {
+    if (expanded) expandedOpenedAtRef.current = Date.now();
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!expanded || !isMobile) {
+      clearAutoHideTimer();
+      return;
+    }
+    clearAutoHideTimer();
+    autoHideTimerRef.current = window.setTimeout(() => {
+      autoHideTimerRef.current = null;
+      setExpanded(false);
+    }, 7000);
+    return clearAutoHideTimer;
+  }, [expanded, isMobile, fact?.id, clearAutoHideTimer]);
 
   useEffect(() => {
     if (!expanded) {
@@ -120,18 +146,32 @@ export default function DidYouKnowBubble({
     };
   }, [expanded]);
 
-  const closeExpanded = useCallback(() => setExpanded(false), []);
+  const closeExpanded = useCallback(() => {
+    clearAutoHideTimer();
+    setExpanded(false);
+  }, [clearAutoHideTimer]);
 
   const onScrollBody = useCallback(() => {
+    cancelMobileAutoHide();
     const el = scrollBodyRef.current;
     if (!el) return;
     if (scrollReachedEnd(el)) setReadThroughContent(true);
-  }, []);
+  }, [cancelMobileAutoHide]);
+
+  const onExpandedFocusCapture = useCallback(() => {
+    if (!isMobile) return;
+    if (Date.now() - expandedOpenedAtRef.current < 450) return;
+    clearAutoHideTimer();
+  }, [isMobile, clearAutoHideTimer]);
 
   if (!fact) return null;
 
   const cloudTeaser = fact.teaser.trim() ? fact.teaser : DYK_DEFAULT_TEASER;
   const modalBodyText = (fact.explanation ?? '').trim();
+
+  const dykTriggerBulbClass = expanded
+    ? 'dyk-lightbulb-glow-host dyk-lightbulb-solid-glow'
+    : 'dyk-lightbulb-glow-host dyk-lightbulb-pulse-glow';
 
   const { xp: rxp, coins: rcoins } = PATIENT_REWARDS.ARTICLE_READ;
   const alreadyClaimed = hasReadArticle(patient.id, fact.id);
@@ -150,8 +190,18 @@ export default function DidYouKnowBubble({
     <>
       {expanded && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6"
-          style={{ background: 'rgba(15, 23, 42, 0.5)' }}
+          className="fixed left-0 right-0 flex items-center justify-center md:inset-0 z-[55] md:z-[60] max-md:px-3 p-4 sm:p-6"
+          style={
+            isMobile
+              ? {
+                  top: 'calc(4.35rem + env(safe-area-inset-top, 0px))',
+                  bottom: 'calc(5.35rem + env(safe-area-inset-bottom, 0px))',
+                  background: 'rgba(15, 23, 42, 0.28)',
+                  backdropFilter: 'blur(10px)',
+                  WebkitBackdropFilter: 'blur(10px)',
+                }
+              : { top: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.5)' }
+          }
           dir="rtl"
           role="dialog"
           aria-modal="true"
@@ -162,8 +212,12 @@ export default function DidYouKnowBubble({
         >
           <div
             key={fact.id}
-            className="w-full max-w-2xl max-h-[min(92vh,800px)] flex flex-col rounded-2xl border border-[#0f172a] bg-white overflow-hidden relative"
+            className={`w-full max-w-2xl max-h-[min(92vh,800px)] flex flex-col rounded-2xl border border-[#0f172a] overflow-hidden relative max-md:max-h-full ${
+              isMobile ? 'bg-white/93 shadow-xl shadow-slate-900/15 backdrop-blur-sm' : 'bg-white'
+            }`}
             onClick={(e) => e.stopPropagation()}
+            onPointerDownCapture={cancelMobileAutoHide}
+            onFocusCapture={onExpandedFocusCapture}
           >
             {successBurst && (
               <div
@@ -182,10 +236,10 @@ export default function DidYouKnowBubble({
               <button
                 type="button"
                 onClick={closeExpanded}
-                className="p-2 rounded-xl hover:bg-slate-100 text-slate-500"
+                className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 max-md:p-1.5 max-md:rounded-lg max-md:border max-md:border-slate-200/90 max-md:bg-white/95 max-md:shadow-sm"
                 aria-label="סגור"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5 max-md:w-4 max-md:h-4" strokeWidth={2.25} />
               </button>
             </div>
 
@@ -265,66 +319,83 @@ export default function DidYouKnowBubble({
         </div>
       )}
 
-      {/* פינה שמאלית-עליונה: ענן «הידעת?» */}
+      {/* פינה שמאלית-עליונה: מובייל = אייקון בלבד; מסכים רחבים = ענן «הידעת?» */}
       <div
         className="fixed z-[45] overflow-visible pointer-events-none"
         style={{
-          top: 'calc(24px + env(safe-area-inset-top, 0px))',
-          left: 'calc(24px + env(safe-area-inset-left, 0px))',
+          top: isMobile
+            ? 'calc(4.35rem + env(safe-area-inset-top, 0px))'
+            : 'calc(24px + env(safe-area-inset-top, 0px))',
+          left: 'calc(16px + env(safe-area-inset-left, 0px))',
         }}
       >
-        <div className="animate-dyk-cloud-float pointer-events-auto">
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            className="flex w-[min(92vw,17.75rem)] cursor-pointer flex-col items-center border-0 bg-transparent p-0 text-center outline-none focus-visible:ring-2 focus-visible:ring-[#0f172a]/25 focus-visible:ring-offset-2"
-            aria-label={`הידעת? ${cloudTeaser} — הקישו לפתיחה`}
-          >
-            <span className="sr-only">
-              הידעת? {cloudTeaser} — פתיחת עובדה
-            </span>
-
-            <div className="relative w-full" style={{ aspectRatio: '240 / 120' }}>
-              <svg
-                className="absolute inset-0 h-full w-full"
-                viewBox="0 0 240 120"
-                preserveAspectRatio="xMidYMid meet"
-                aria-hidden
-              >
-                <path
-                  d={CLOUD_PATH}
-                  fill="#ffffff"
-                  stroke={CLOUD_STROKE}
-                  strokeWidth={1}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                  vectorEffect="non-scaling-stroke"
-                />
-              </svg>
-              <span className="relative z-[3] flex h-full w-full flex-col items-center justify-center gap-1.5 px-[12%] pb-[16%] pt-[10%] pointer-events-none">
-                <Lightbulb
-                  className="h-[1.35rem] w-[1.35rem] shrink-0 text-[#0f172a] sm:h-6 sm:w-6"
-                  strokeWidth={1.35}
-                  aria-hidden
-                />
-                <span className="font-dyk-bubble line-clamp-5 max-h-[3.85rem] max-w-[11rem] break-words text-center text-[0.585rem] font-bold leading-[1.72] text-slate-800 sm:max-h-[4.35rem] sm:max-w-[11.5rem] sm:text-[0.6375rem] sm:leading-[1.74]">
-                  {cloudTeaser}
-                </span>
+        <div className={`pointer-events-auto ${isMobile ? '' : 'animate-dyk-cloud-float'}`}>
+          {isMobile ? (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-slate-200/85 bg-white/80 shadow-md shadow-slate-900/8 outline-none backdrop-blur-md transition-[transform,box-shadow] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#0f172a]/20 focus-visible:ring-offset-2"
+              aria-label={`הידעת? ${cloudTeaser} — הקישו לפתיחה`}
+            >
+              <span className="sr-only">הידעת? {cloudTeaser} — פתיחת עובדה</span>
+              <span className={dykTriggerBulbClass} aria-hidden>
+                <Lightbulb className="h-5 w-5 shrink-0 text-[#0f172a]" strokeWidth={1.45} aria-hidden />
               </span>
-            </div>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="flex w-[min(92vw,17.75rem)] cursor-pointer flex-col items-center border-0 bg-transparent p-0 text-center outline-none focus-visible:ring-2 focus-visible:ring-[#0f172a]/25 focus-visible:ring-offset-2"
+              aria-label={`הידעת? ${cloudTeaser} — הקישו לפתיחה`}
+            >
+              <span className="sr-only">
+                הידעת? {cloudTeaser} — פתיחת עובדה
+              </span>
 
-            {/* שתי נקודות מתחת לענן — כחול מלא, קטן יותר למטה (סגנון Image 4) */}
-            <div className="mt-1 flex flex-col items-center gap-2 pt-2" aria-hidden>
-              <span
-                className="shrink-0 rounded-full"
-                style={{ width: 8, height: 8, backgroundColor: TRAIL_DOT }}
-              />
-              <span
-                className="shrink-0 rounded-full"
-                style={{ width: 4, height: 4, backgroundColor: TRAIL_DOT }}
-              />
-            </div>
-          </button>
+              <div className="relative w-full" style={{ aspectRatio: '240 / 120' }}>
+                <svg
+                  className="absolute inset-0 h-full w-full"
+                  viewBox="0 0 240 120"
+                  preserveAspectRatio="xMidYMid meet"
+                  aria-hidden
+                >
+                  <path
+                    d={CLOUD_PATH}
+                    fill="#ffffff"
+                    stroke={CLOUD_STROKE}
+                    strokeWidth={1}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                </svg>
+                <span className="relative z-[3] flex h-full w-full flex-col items-center justify-center gap-1.5 px-[12%] pb-[16%] pt-[10%] pointer-events-none">
+                  <span className={dykTriggerBulbClass} aria-hidden>
+                    <Lightbulb
+                      className="h-[1.35rem] w-[1.35rem] shrink-0 text-[#0f172a] sm:h-6 sm:w-6"
+                      strokeWidth={1.35}
+                      aria-hidden
+                    />
+                  </span>
+                  <span className="font-dyk-bubble line-clamp-5 max-h-[3.85rem] max-w-[11rem] break-words text-center text-[0.585rem] font-bold leading-[1.72] text-slate-800 sm:max-h-[4.35rem] sm:max-w-[11.5rem] sm:text-[0.6375rem] sm:leading-[1.74]">
+                    {cloudTeaser}
+                  </span>
+                </span>
+              </div>
+
+              <div className="mt-1 flex flex-col items-center gap-2 pt-2" aria-hidden>
+                <span
+                  className="shrink-0 rounded-full"
+                  style={{ width: 8, height: 8, backgroundColor: TRAIL_DOT }}
+                />
+                <span
+                  className="shrink-0 rounded-full"
+                  style={{ width: 4, height: 4, backgroundColor: TRAIL_DOT }}
+                />
+              </div>
+            </button>
+          )}
         </div>
       </div>
     </>

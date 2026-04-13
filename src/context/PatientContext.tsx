@@ -30,6 +30,7 @@ import {
   type EmergencyScreenResult,
 } from '../safety/clinicalEmergencyScreening';
 import { getClinicalDate, getClinicalYesterday, addClinicalDays } from '../utils/clinicalCalendar';
+import { bumpDevCalendarOffsetDays } from '../utils/debugMockDate';
 import { computeClinicalProgressInsight } from '../ai/clinicalCommandInsight';
 import { mergeHistoryFromSessions } from '../utils/dailyHistory';
 import {
@@ -165,10 +166,17 @@ type PatientRewardMeta = {
   lastLoginBonusClinicalDate: string | null;
   /** מאמרים שפתחו את הקישור החיצוני (נדרש לפני איסוף פרס) */
   articleLinkOpenedIds: string[];
+  /** YYYY-MM-DD מקומי — פרס «הידעת» נאסף; הנורה מוסתרת עד יום קלנדרי חדש */
+  dykRewardClaimedLocalYmd: string | null;
 };
 
 function defaultPatientRewardMeta(): PatientRewardMeta {
-  return { readArticleIds: [], lastLoginBonusClinicalDate: null, articleLinkOpenedIds: [] };
+  return {
+    readArticleIds: [],
+    lastLoginBonusClinicalDate: null,
+    articleLinkOpenedIds: [],
+    dykRewardClaimedLocalYmd: null,
+  };
 }
 
 // ── Context shape ────────────────────────────────────────────────
@@ -293,9 +301,11 @@ interface PatientContextValue {
   markArticleAsRead: (
     patientId: string,
     articleId: string,
-    options?: { readerConfirmed?: boolean }
+    options?: { readerConfirmed?: boolean; didYouKnowLocalCalendarYmd?: string }
   ) => boolean;
   hasReadArticle: (patientId: string, articleId: string) => boolean;
+  /** YYYY-MM-DD מקומי שבו נאסף פרס הידעת (או null) — להסתרת הנורה עד מחר */
+  getDidYouKnowRewardClaimedLocalYmd: (patientId: string) => string | null;
   recordArticleLinkOpened: (patientId: string, articleId: string) => void;
   hasArticleLinkOpened: (patientId: string, articleId: string) => boolean;
   hasDailyLoginBonusPending: (patientId: string) => boolean;
@@ -352,6 +362,8 @@ interface PatientContextValue {
   /** דיבוג: ±XP מצטבר (כולל עליות/ירידות רמה) */
   devAdjustPatientLifetimeXp: (patientId: string, delta: number) => void;
   devSetPatientLifetimeXp: (patientId: string, lifetimeXp: number) => void;
+  /** דיבוג: יום קלנדרי +1, איפוס יומי (הידעת, סשן, פרהאב) — רענון מיידי */
+  devSkipToNextCalendarDay: (patientId: string) => void;
   resetPatientExercisePlan: (patientId: string) => void;
   resetPatientMessageHistory: (patientId: string) => void;
   resetPatientPainReports: (patientId: string) => void;
@@ -576,6 +588,7 @@ export function PatientProvider({
         readArticleIds: [...(v?.readArticleIds ?? [])],
         lastLoginBonusClinicalDate: v?.lastLoginBonusClinicalDate ?? null,
         articleLinkOpenedIds: [...(v?.articleLinkOpenedIds ?? [])],
+        dykRewardClaimedLocalYmd: v?.dykRewardClaimedLocalYmd ?? null,
       };
     }
     return out;
@@ -800,6 +813,7 @@ export function PatientProvider({
           readArticleIds: [...(v?.readArticleIds ?? [])],
           lastLoginBonusClinicalDate: v?.lastLoginBonusClinicalDate ?? null,
           articleLinkOpenedIds: [...(v?.articleLinkOpenedIds ?? [])],
+          dykRewardClaimedLocalYmd: v?.dykRewardClaimedLocalYmd ?? null,
         };
       }
       setPatientRewardMetaByPatientId(nextMeta);
@@ -1213,9 +1227,14 @@ export function PatientProvider({
   );
 
   const markArticleAsRead = useCallback(
-    (patientId: string, articleId: string, options?: { readerConfirmed?: boolean }) => {
+    (
+      patientId: string,
+      articleId: string,
+      options?: { readerConfirmed?: boolean; didYouKnowLocalCalendarYmd?: string }
+    ) => {
       if (!options?.readerConfirmed) return false;
       const { xp: rxp, coins: rcoins } = PATIENT_REWARDS.ARTICLE_READ;
+      const dykYmd = options.didYouKnowLocalCalendarYmd;
       let granted = false;
       setPatientRewardMetaByPatientId((prev) => {
         const cur = prev[patientId] ?? defaultPatientRewardMeta();
@@ -1226,6 +1245,8 @@ export function PatientProvider({
           [patientId]: {
             ...cur,
             readArticleIds: [...cur.readArticleIds, articleId],
+            dykRewardClaimedLocalYmd:
+              dykYmd !== undefined ? dykYmd : cur.dykRewardClaimedLocalYmd,
           },
         };
       });
@@ -1244,6 +1265,12 @@ export function PatientProvider({
   const hasReadArticle = useCallback(
     (patientId: string, articleId: string) =>
       (patientRewardMetaByPatientId[patientId]?.readArticleIds ?? []).includes(articleId),
+    [patientRewardMetaByPatientId]
+  );
+
+  const getDidYouKnowRewardClaimedLocalYmd = useCallback(
+    (patientId: string) =>
+      patientRewardMetaByPatientId[patientId]?.dykRewardClaimedLocalYmd ?? null,
     [patientRewardMetaByPatientId]
   );
 
@@ -2296,6 +2323,32 @@ export function PatientProvider({
     );
   }, []);
 
+  const devSkipToNextCalendarDay = useCallback((patientId: string) => {
+    if (import.meta.env.PROD) return;
+    bumpDevCalendarOffsetDays();
+    const nextClinical = getClinicalDate();
+    setPatientRewardMetaByPatientId((prev) => {
+      const cur = prev[patientId] ?? defaultPatientRewardMeta();
+      return {
+        ...prev,
+        [patientId]: {
+          ...cur,
+          dykRewardClaimedLocalYmd: null,
+          readArticleIds: [],
+          articleLinkOpenedIds: [],
+        },
+      };
+    });
+    setDailySessions((prev) =>
+      prev.filter((s) => !(s.patientId === patientId && s.date === nextClinical))
+    );
+    setSelfCareReportsByPatientId((prev) => ({
+      ...prev,
+      [patientId]: (prev[patientId] ?? []).filter((r) => r.clinicalDate !== nextClinical),
+    }));
+    setClinicalTick((t) => t + 1);
+  }, []);
+
   const deletePatient = useCallback((patientId: string) => {
     removePatientAccountsForPatient(patientId);
     setAllPatients((prev) => prev.filter((p) => p.id !== patientId));
@@ -2551,6 +2604,7 @@ export function PatientProvider({
         grantPatientCoins,
         markArticleAsRead,
         hasReadArticle,
+        getDidYouKnowRewardClaimedLocalYmd,
         recordArticleLinkOpened,
         hasArticleLinkOpened,
         hasDailyLoginBonusPending,
@@ -2573,6 +2627,7 @@ export function PatientProvider({
         devBreakStreakRemoveYesterday,
         devAdjustPatientLifetimeXp,
         devSetPatientLifetimeXp,
+        devSkipToNextCalendarDay,
         resetPatientExercisePlan,
         resetPatientMessageHistory,
         resetPatientPainReports,
