@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, type KeyboardEvent } from 'react';
 import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -77,6 +77,17 @@ function portalHrefForTab(tab: PortalTab): string {
   return `/patient-portal/${tab}`;
 }
 
+/** אזור לחיצה נוח לאגודל + משוב ויזואלי לכרטיסי ניווט */
+const PORTAL_PROGRESS_NAV_SURFACE =
+  'cursor-pointer touch-manipulation select-none motion-safe:transition-[transform,opacity] duration-200 ease-out motion-safe:hover:scale-[1.02] motion-safe:active:scale-[0.98] motion-safe:hover:opacity-[0.94] motion-safe:active:opacity-[0.88] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-medical-primary';
+
+function activateOnEnterSpace(e: KeyboardEvent, fn: () => void) {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    fn();
+  }
+}
+
 /** מניעת כפילות חגיגת סיום תחת React StrictMode (אותו מפתח ביום) */
 const gordySessionCompleteDedupe = new Set<string>();
 
@@ -153,6 +164,16 @@ export default function PatientDailyView() {
   useEffect(() => {
     setPortalTab(tabFromPortalPath(location.pathname));
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (portalTab !== 'activity') return;
+    const id = location.hash.replace(/^#/, '');
+    if (id !== 'today-missions' && id !== 'training-calendar-anchor') return;
+    const t = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [portalTab, location.pathname, location.hash]);
 
   useEffect(() => {
     setGordyTransient(null);
@@ -585,6 +606,28 @@ export default function PatientDailyView() {
   const pct = Math.min(100, Math.round((xp / next) * 100));
   const patientGearState = getPatientGear(selectedPatient.id);
 
+  const goToDailyProgressTasks = () => {
+    if (portalTab === 'activity') {
+      window.requestAnimationFrame(() => {
+        document.getElementById('today-missions')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      return;
+    }
+    navigate('/patient-portal/activity#today-missions');
+  };
+
+  const goToGeneralProgressOverview = () => {
+    if (portalTab === 'activity') {
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById('training-calendar-anchor')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      return;
+    }
+    navigate('/patient-portal/activity#training-calendar-anchor');
+  };
+
   return (
     <div
       className="min-h-screen flex flex-col max-w-lg mx-auto w-full relative bg-medical-bg font-sans"
@@ -753,6 +796,109 @@ export default function PatientDailyView() {
                 />
               </div>
             </div>
+
+            {!patientMustChangePassword && totalMissions > 0 && (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={goToDailyProgressTasks}
+                onKeyDown={(e) => activateOnEnterSpace(e, goToDailyProgressTasks)}
+                className={`mt-3 rounded-2xl p-4 min-h-[52px] border-2 border-emerald-200/80 bg-gradient-to-br from-emerald-50/95 via-white to-teal-50/40 shadow-md shadow-emerald-900/5 ${PORTAL_PROGRESS_NAV_SURFACE}`}
+                aria-label="התקדמות יומית — מעבר למשימות באימונים"
+              >
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-sm font-bold text-emerald-950">התקדמות היום</span>
+                  <span className="text-sm font-black tabular-nums text-emerald-800">
+                    {completedMissionCount}/{totalMissions} משימות
+                  </span>
+                </div>
+                <div
+                  className="h-3 rounded-full bg-emerald-100/90 overflow-hidden border border-emerald-200/60 pointer-events-none"
+                  aria-hidden
+                >
+                  <div
+                    className="h-full rounded-full motion-safe:transition-all motion-safe:duration-500 ease-out bg-gradient-to-l from-emerald-500 to-medical-success shadow-sm"
+                    style={{
+                      width: `${totalMissions > 0 ? Math.round((completedMissionCount / totalMissions) * 100) : 0}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-xs text-emerald-900/75 mt-2 leading-relaxed pointer-events-none">
+                  לחצו למעבר לאימונים ולהשלמת המשימות להיום.
+                </p>
+              </div>
+            )}
+
+            {!patientMustChangePassword && (
+              <div className="mt-3 rounded-2xl p-4 border border-slate-200/90 bg-white shadow-md shadow-slate-200/50">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={goToGeneralProgressOverview}
+                  onKeyDown={(e) => activateOnEnterSpace(e, goToGeneralProgressOverview)}
+                  className={`rounded-xl p-3 -m-1 min-h-[48px] ${PORTAL_PROGRESS_NAV_SURFACE}`}
+                  aria-label="התקדמות — מעבר למסך אימונים וללוח החודשי"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-medical-primary shrink-0" aria-hidden />
+                      <span className="text-base font-bold text-slate-900">התקדמות</span>
+                    </div>
+                    <div
+                      className="text-sm font-black tabular-nums px-3 py-1 rounded-xl border pointer-events-none"
+                      style={{
+                        borderColor: 'rgba(249, 115, 22, 0.45)',
+                        background: 'linear-gradient(135deg, rgba(255, 247, 237, 0.95), #fff7ed)',
+                        color: '#9a3412',
+                        boxShadow: '0 0 16px rgba(251, 146, 60, 0.25)',
+                      }}
+                      title="רצף ימים עם לפחות תרגיל אחד שהושלם (לפי לוח קליני)"
+                    >
+                      רצף {displayStreak} {displayStreak === 1 ? 'יום' : 'ימים'} 🔥
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-sm text-slate-600 mb-1 pointer-events-none">
+                    <span>רמה {selectedPatient.level}</span>
+                    <span className="tabular-nums">
+                      {xp} / {next} נק׳
+                    </span>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden pointer-events-none">
+                    <div
+                      className="h-full rounded-full transition-all duration-500 bg-medical-primary"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2 leading-relaxed pointer-events-none">
+                    לחצו לפתיחת האימונים וגלילה ללוח החודשי; מעקב כאב זמין כאן למטה.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPainSheetOpen(true)}
+                  className="mt-3 w-full min-h-[48px] rounded-xl border-2 border-slate-200 px-3 py-3 flex items-center justify-between gap-2 text-start transition-colors hover:bg-slate-50 active:bg-slate-100 bg-white touch-manipulation"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Activity className="w-5 h-5 text-medical-primary shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-900">מעקב כאב</p>
+                      <p className="text-sm text-slate-600 truncate">
+                        ממוצע {selectedPatient.analytics.averageOverallPain.toFixed(1)}/10
+                        {lastPainRecord != null && (
+                          <span className="text-slate-600">
+                            {' '}
+                            · אחרון {lastPainRecord.painLevel}/10
+                          </span>
+                        )}
+                        {lastPainRecord == null && ' · עדיין אין דיווחים — לחצו לפרטים'}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-sm font-bold text-medical-primary shrink-0">גרף</span>
+                </button>
+              </div>
+            )}
+
             {unreadForPatient > 0 && (
               <button
                 type="button"
@@ -903,100 +1049,12 @@ export default function PatientDailyView() {
 
         {portalTab === 'activity' && (
         <>
-        {totalMissions > 0 && (
-          <div
-            className="rounded-2xl p-4 mb-4 border-2 border-emerald-200/80 bg-gradient-to-br from-emerald-50/95 via-white to-teal-50/40 shadow-md shadow-emerald-900/5"
-            role="region"
-            aria-label="התקדמות יומית"
-          >
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <span className="text-sm font-bold text-emerald-950">התקדמות היום</span>
-              <span className="text-sm font-black tabular-nums text-emerald-800">
-                {completedMissionCount}/{totalMissions} משימות
-              </span>
-            </div>
-            <div
-              className="h-3 rounded-full bg-emerald-100/90 overflow-hidden border border-emerald-200/60"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={totalMissions}
-              aria-valuenow={completedMissionCount}
-              aria-label={`הושלמו ${completedMissionCount} מתוך ${totalMissions} משימות להיום`}
-            >
-              <div
-                className="h-full rounded-full motion-safe:transition-all motion-safe:duration-500 ease-out bg-gradient-to-l from-emerald-500 to-medical-success shadow-sm"
-                style={{
-                  width: `${totalMissions > 0 ? Math.round((completedMissionCount / totalMissions) * 100) : 0}%`,
-                }}
-              />
-            </div>
-            <p className="text-xs text-emerald-900/75 mt-2 leading-relaxed">
-              המדד כולל תרגילי שיקום ותרגילי כוח שנבחרו היום. צבע ירוק מנטה מסמן התקדמות חיובית.
-            </p>
-          </div>
-        )}
-        <div
-          className="rounded-2xl p-4 mb-5 border border-slate-200/90 bg-white shadow-md shadow-slate-200/50"
+        <h1
+          id="today-missions"
+          className="text-xl font-bold text-slate-900 mb-2 tracking-tight scroll-mt-28"
         >
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-medical-primary shrink-0" />
-              <span className="text-base font-bold text-slate-900">התקדמות</span>
-            </div>
-            <div
-              className="text-sm font-black tabular-nums px-3 py-1 rounded-xl border"
-              style={{
-                borderColor: 'rgba(249, 115, 22, 0.45)',
-                background: 'linear-gradient(135deg, rgba(255, 247, 237, 0.95), #fff7ed)',
-                color: '#9a3412',
-                boxShadow: '0 0 16px rgba(251, 146, 60, 0.25)',
-              }}
-              title="רצף ימים עם לפחות תרגיל אחד שהושלם (לפי לוח קליני)"
-            >
-              רצף {displayStreak} {displayStreak === 1 ? 'יום' : 'ימים'} 🔥
-            </div>
-          </div>
-          <div className="flex justify-between text-sm text-slate-600 mb-1">
-            <span>רמה {selectedPatient.level}</span>
-            <span className="tabular-nums">
-              {xp} / {next} נק׳
-            </span>
-          </div>
-          <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden mb-3">
-            <div
-              className="h-full rounded-full transition-all duration-500 bg-medical-primary"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setPainSheetOpen(true)}
-            className="w-full rounded-xl border-2 border-slate-200 px-3 py-3 flex items-center justify-between gap-2 text-start transition-colors hover:bg-slate-50 active:bg-slate-100 bg-white"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <Activity className="w-5 h-5 text-medical-primary shrink-0" />
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-slate-900">מעקב כאב</p>
-                <p className="text-sm text-slate-600 truncate">
-                  ממוצע {selectedPatient.analytics.averageOverallPain.toFixed(1)}/10
-                  {lastPainRecord != null && (
-                    <span className="text-slate-600">
-                      {' '}
-                      · אחרון {lastPainRecord.painLevel}/10
-                    </span>
-                  )}
-                  {lastPainRecord == null && ' · עדיין אין דיווחים — לחצו לפרטים'}
-                </p>
-              </div>
-            </div>
-            <span className="text-sm font-bold text-medical-primary shrink-0">גרף</span>
-          </button>
-        </div>
-
-        <ClinicalMonthCalendar dayMap={patientDayMap} clinicalToday={clinicalToday} />
-
-        <h1 className="text-xl font-bold text-slate-900 mb-2 tracking-tight">המשימות להיום</h1>
+          המשימות להיום
+        </h1>
         <p className="text-base text-slate-600 mb-4 leading-relaxed">
           קודם תרגילי השיקום מהמטפל, אחריהם תרגילי כוח לאזורים הירוקים במפה (בלשונית <strong>בית</strong>).
           בכל משימה: כפתור <strong>נגן</strong> פותח וידאו, טיימר 30 שניות ודיווח מאמץ. כוח/פרהאב מעניקים
@@ -1151,6 +1209,10 @@ export default function PatientDailyView() {
             </ul>
           </div>
         )}
+
+        <div id="training-calendar-anchor" className="scroll-mt-28 mt-8 mb-2">
+          <ClinicalMonthCalendar dayMap={patientDayMap} clinicalToday={clinicalToday} />
+        </div>
         </>
         )}
 
@@ -1177,12 +1239,15 @@ export default function PatientDailyView() {
         <div className="flex w-full max-w-lg px-1">
           <button
             type="button"
-            onClick={() => navigate(portalHrefForTab('home'))}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 ${
+            onClick={() => {
+              navigate('/patient-portal');
+            }}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-14 min-w-[3rem] py-2.5 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 touch-manipulation motion-safe:transition-transform motion-safe:active:scale-95 ${
               portalTab === 'home' || portalTab === 'heroes'
                 ? 'text-medical-primary'
                 : 'text-slate-500'
             }`}
+            aria-label="בית — מפת גוף"
           >
             <Home className="w-7 h-7 shrink-0" strokeWidth={portalTab === 'home' || portalTab === 'heroes' ? 2.5 : 2} />
             בית
@@ -1190,9 +1255,10 @@ export default function PatientDailyView() {
           <button
             type="button"
             onClick={() => navigate(portalHrefForTab('activity'))}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 ${
+            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-14 min-w-[3rem] py-2.5 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 touch-manipulation motion-safe:transition-transform motion-safe:active:scale-95 ${
               portalTab === 'activity' ? 'text-medical-primary' : 'text-slate-500'
             }`}
+            aria-label="אימונים ומשימות"
           >
             <Activity className="w-7 h-7 shrink-0" strokeWidth={portalTab === 'activity' ? 2.5 : 2} />
             אימונים
@@ -1200,9 +1266,10 @@ export default function PatientDailyView() {
           <button
             type="button"
             onClick={() => navigate(portalHrefForTab('gear'))}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 ${
+            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-14 min-w-[3rem] py-2.5 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 touch-manipulation motion-safe:transition-transform motion-safe:active:scale-95 ${
               portalTab === 'gear' ? 'text-medical-primary' : 'text-slate-500'
             }`}
+            aria-label="חנות ציוד"
           >
             <ShoppingBag className="w-7 h-7 shrink-0" strokeWidth={portalTab === 'gear' ? 2.5 : 2} />
             חנות
@@ -1210,9 +1277,10 @@ export default function PatientDailyView() {
           <button
             type="button"
             onClick={() => navigate(portalHrefForTab('messages'))}
-            className={`relative flex-1 flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 ${
+            className={`relative flex-1 flex flex-col items-center justify-center gap-1 min-h-14 min-w-[3rem] py-2.5 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 touch-manipulation motion-safe:transition-transform motion-safe:active:scale-95 ${
               portalTab === 'messages' ? 'text-medical-primary' : 'text-slate-500'
             }`}
+            aria-label="הודעות"
           >
             <span className="relative inline-flex">
               <MessageCircle className="w-7 h-7 shrink-0" strokeWidth={portalTab === 'messages' ? 2.5 : 2} />
