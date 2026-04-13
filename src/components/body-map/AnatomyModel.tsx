@@ -339,7 +339,7 @@ interface BaseProps {
   /** כפות יד — עור שקוף־מעט כמו אמה (לא כובע מפרק ירוק) */
   translucentWhenHealthy?: boolean;
   /**
-   * `glass` — transmission (ידיים). `frost` — לבן שקוף עם opacity (כפות רגל — לא "רוח").
+   * `glass` — transmission. `frost` — לבן שקוף, opacity 0.85, depthWrite (ידיים/רגליים).
    */
   translucentLimbStyle?: 'glass' | 'frost';
 }
@@ -512,7 +512,7 @@ function BaseSegment({
             iridescenceIOR={1}
             iridescenceThicknessRange={[0, 0]}
             transparent={transSkin}
-            opacity={useFrostTranslucent ? 0.8 : 1}
+            opacity={useFrostTranslucent ? 0.85 : 1}
             depthWrite={useFrostTranslucent || !transSkin}
           />
         </mesh>
@@ -585,7 +585,7 @@ function BaseSegment({
             iridescenceIOR={1}
             iridescenceThicknessRange={[0, 0]}
             transparent={!goldSkin && transSkin}
-            opacity={useFrostTranslucent ? 0.8 : 1}
+            opacity={useFrostTranslucent ? 0.85 : 1}
             depthWrite={goldSkin || useFrostTranslucent || !transSkin}
           />
         </mesh>
@@ -643,7 +643,7 @@ function BaseSegment({
             iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1}
             iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [0, 0]}
             transparent={Boolean(limbTint) ? false : transSkin}
-            opacity={useFrostTranslucent ? 0.8 : 1}
+            opacity={useFrostTranslucent ? 0.85 : 1}
             depthWrite={Boolean(limbTint) || useFrostTranslucent || !transSkin}
           />
         </mesh>
@@ -700,7 +700,7 @@ function BaseSegment({
           iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1}
           iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [0, 0]}
           transparent={Boolean(limbTint) ? false : transSkin}
-          opacity={useFrostTranslucent ? 0.8 : 1}
+          opacity={useFrostTranslucent ? 0.85 : 1}
           depthWrite={Boolean(limbTint) || useFrostTranslucent || !transSkin}
         />
       </mesh>
@@ -722,6 +722,12 @@ const WALK_KNEE_OFF: [number, number, number] = [0, -0.7, 0.01];
 const SHIN_DISTAL_Y = -0.36 - (0.32 / 2 + 0.068);
 /** קודם היה scale 1.06 על קבוצת הרגל — המכפלה משמרת את אותה נקודת חיבור לשוק */
 const FOOT_ATTACH_Y = (SHIN_DISTAL_Y + 0.02) * 1.06;
+
+/** אמה createForearm: גליל 0.36 — קצה דיסטלי ב־−Y; חפיפה קלה לפרק כף (בלי כדור מפרק ירוק) */
+const FOREARM_CYLINDER_LEN = 0.36;
+const FOREARM_DISTAL_LOCAL_Y = -FOREARM_CYLINDER_LEN / 2;
+const HAND_WRIST_OVERLAP = 0.016;
+const HAND_ATTACH_Y = FOREARM_DISTAL_LOCAL_Y + HAND_WRIST_OVERLAP;
 
 /**
  * קנה מידה לתווי פנים: בסיס mobile × +30% נוסף לקריאות מרחוק.
@@ -1295,8 +1301,8 @@ export default function AnatomyModel({
             />
             <BaseSegment
               geometry={geos.handL}
-              position={[-0.002, -0.218, 0.014]}
-              rotation={[1.52, -0.24, 0.09]}
+              position={[-0.012, HAND_ATTACH_Y, 0.005]}
+              rotation={[0.06, 0.04, -0.14]}
               level={level}
               goldSkin={gearGoldSkin}
               muscleStage={muscleStage}
@@ -1345,8 +1351,8 @@ export default function AnatomyModel({
             />
             <BaseSegment
               geometry={geos.handR}
-              position={[0.002, -0.218, 0.014]}
-              rotation={[-1.52, 0.24, -0.09]}
+              position={[0.012, HAND_ATTACH_Y, 0.005]}
+              rotation={[-0.06, -0.04, 0.14]}
               level={level}
               goldSkin={gearGoldSkin}
               muscleStage={muscleStage}
