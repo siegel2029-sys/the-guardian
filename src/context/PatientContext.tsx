@@ -17,6 +17,7 @@ import type {
   PatientExerciseFinishReport,
   InitialClinicalProfileExtras,
   KnowledgeFact,
+  PainRecord,
 } from '../types';
 import { bodyAreaLabels } from '../types';
 import {
@@ -24,13 +25,18 @@ import {
 } from '../data/mockData';
 import { getClinicalAlertStandardMessage } from '../ai/patientProgressReasoning';
 import {
+  rollingClinicalDayKeys,
+  AI_PROGRAM_LONGITUDINAL_WINDOW_DAYS,
+  type AiDevLongitudinalScenario,
+} from '../ai/aiProgramLongitudinalGate';
+import {
   screenPatientFreeTextForEmergency,
   PAIN_SURGE_PATIENT_COPY,
   DIFFICULTY_MAX_PATIENT_COPY,
   type EmergencyScreenResult,
 } from '../safety/clinicalEmergencyScreening';
 import { getClinicalDate, getClinicalYesterday, addClinicalDays } from '../utils/clinicalCalendar';
-import { bumpDevCalendarOffsetDays } from '../utils/debugMockDate';
+import { addDevCalendarOffsetDays, bumpDevCalendarOffsetDays } from '../utils/debugMockDate';
 import { computeClinicalProgressInsight } from '../ai/clinicalCommandInsight';
 import { mergeHistoryFromSessions } from '../utils/dailyHistory';
 import {
@@ -153,6 +159,50 @@ function clampEffort(n: number): 1 | 2 | 3 | 4 | 5 {
   return r as 1 | 2 | 3 | 4 | 5;
 }
 
+function recomputePatientAnalyticsAggregates(
+  painHistory: PainRecord[],
+  sessionHistory: ExerciseSession[]
+): Pick<Patient['analytics'], 'averageOverallPain' | 'averageDifficulty' | 'totalSessions' | 'painByArea'> {
+  const averageOverallPain =
+    painHistory.length === 0
+      ? 0
+      : Math.round((painHistory.reduce((s, r) => s + r.painLevel, 0) / painHistory.length) * 10) /
+        10;
+  const painByArea: Partial<Record<BodyArea, number>> = {};
+  const byArea = new Map<BodyArea, { sum: number; n: number }>();
+  for (const r of painHistory) {
+    const cur = byArea.get(r.bodyArea) ?? { sum: 0, n: 0 };
+    cur.sum += r.painLevel;
+    cur.n++;
+    byArea.set(r.bodyArea, cur);
+  }
+  for (const [a, v] of byArea) {
+    painByArea[a] = Math.round((v.sum / v.n) * 10) / 10;
+  }
+  const averageDifficulty =
+    sessionHistory.length === 0
+      ? 0
+      : Math.round(
+          (sessionHistory.reduce((s, x) => s + x.difficultyRating, 0) / sessionHistory.length) * 10
+        ) / 10;
+  return {
+    averageOverallPain,
+    painByArea,
+    averageDifficulty,
+    totalSessions: sessionHistory.length,
+  };
+}
+
+function devClinicalDayKey(dateIso: string): string {
+  return dateIso.slice(0, 10);
+}
+
+function devSliceExerciseIdsForCompleted(planIds: string[], completed: number): string[] {
+  if (completed <= 0 || planIds.length === 0) return [];
+  const n = Math.min(completed, planIds.length);
+  return planIds.slice(0, n);
+}
+
 export type PatientRewardFeedback = {
   id: number;
   xpAdded: number;
@@ -168,6 +218,8 @@ type PatientRewardMeta = {
   articleLinkOpenedIds: string[];
   /** YYYY-MM-DD מקומי — פרס «הידעת» נאסף; הנורה מוסתרת עד יום קלנדרי חדש */
   dykRewardClaimedLocalYmd: string | null;
+  /** YYYY-MM-DD מקומי — נלחץ סמל הידעת; המנורה לא מבהבת עד למחר */
+  dykTipOpenedLocalYmd: string | null;
 };
 
 function defaultPatientRewardMeta(): PatientRewardMeta {
@@ -176,6 +228,7 @@ function defaultPatientRewardMeta(): PatientRewardMeta {
     lastLoginBonusClinicalDate: null,
     articleLinkOpenedIds: [],
     dykRewardClaimedLocalYmd: null,
+    dykTipOpenedLocalYmd: null,
   };
 }
 
@@ -306,6 +359,9 @@ interface PatientContextValue {
   hasReadArticle: (patientId: string, articleId: string) => boolean;
   /** YYYY-MM-DD מקומי שבו נאסף פרס הידעת (או null) — להסתרת הנורה עד מחר */
   getDidYouKnowRewardClaimedLocalYmd: (patientId: string) => string | null;
+  /** סימון שלחצו על סמל הידעת ביום מקומי — מנורה סטטית עד מחר */
+  recordDidYouKnowTipOpened: (patientId: string, localCalendarYmd: string) => void;
+  getDidYouKnowTipOpenedLocalYmd: (patientId: string) => string | null;
   recordArticleLinkOpened: (patientId: string, articleId: string) => void;
   hasArticleLinkOpened: (patientId: string, articleId: string) => boolean;
   hasDailyLoginBonusPending: (patientId: string) => boolean;
@@ -364,6 +420,12 @@ interface PatientContextValue {
   devSetPatientLifetimeXp: (patientId: string, lifetimeXp: number) => void;
   /** דיבוג: יום קלנדרי +1, איפוס יומי (הידעת, סשן, פרהאב) — רענון מיידי */
   devSkipToNextCalendarDay: (patientId: string) => void;
+  /** דיבוג: דילוג מספר ימים קליניים קדימה (חוזר על לוגיקת «יום הבא») */
+  devSkipClinicalDaysAhead: (patientId: string, days: number) => void;
+  /** דיבוג: מילוי 4 הימים האחרונים בנתונים סינתטיים לבדיקת שער הצעות AI */
+  devSeedAiLongitudinalWindow: (patientId: string, scenario: AiDevLongitudinalScenario) => void;
+  /** דיבוג: יום קלנדרי −1 — נתונים לפי אותו תאריך בעבר (ללא מחיקת היסטוריה) */
+  devSkipToPreviousCalendarDay: (patientId: string) => void;
   resetPatientExercisePlan: (patientId: string) => void;
   resetPatientMessageHistory: (patientId: string) => void;
   resetPatientPainReports: (patientId: string) => void;
@@ -589,6 +651,7 @@ export function PatientProvider({
         lastLoginBonusClinicalDate: v?.lastLoginBonusClinicalDate ?? null,
         articleLinkOpenedIds: [...(v?.articleLinkOpenedIds ?? [])],
         dykRewardClaimedLocalYmd: v?.dykRewardClaimedLocalYmd ?? null,
+        dykTipOpenedLocalYmd: v?.dykTipOpenedLocalYmd ?? null,
       };
     }
     return out;
@@ -814,6 +877,7 @@ export function PatientProvider({
           lastLoginBonusClinicalDate: v?.lastLoginBonusClinicalDate ?? null,
           articleLinkOpenedIds: [...(v?.articleLinkOpenedIds ?? [])],
           dykRewardClaimedLocalYmd: v?.dykRewardClaimedLocalYmd ?? null,
+          dykTipOpenedLocalYmd: v?.dykTipOpenedLocalYmd ?? null,
         };
       }
       setPatientRewardMetaByPatientId(nextMeta);
@@ -1247,6 +1311,8 @@ export function PatientProvider({
             readArticleIds: [...cur.readArticleIds, articleId],
             dykRewardClaimedLocalYmd:
               dykYmd !== undefined ? dykYmd : cur.dykRewardClaimedLocalYmd,
+            dykTipOpenedLocalYmd:
+              dykYmd !== undefined ? dykYmd : cur.dykTipOpenedLocalYmd,
           },
         };
       });
@@ -1271,6 +1337,26 @@ export function PatientProvider({
   const getDidYouKnowRewardClaimedLocalYmd = useCallback(
     (patientId: string) =>
       patientRewardMetaByPatientId[patientId]?.dykRewardClaimedLocalYmd ?? null,
+    [patientRewardMetaByPatientId]
+  );
+
+  const recordDidYouKnowTipOpened = useCallback(
+    (patientId: string, localCalendarYmd: string) => {
+      setPatientRewardMetaByPatientId((prev) => {
+        const cur = prev[patientId] ?? defaultPatientRewardMeta();
+        if (cur.dykTipOpenedLocalYmd === localCalendarYmd) return prev;
+        return {
+          ...prev,
+          [patientId]: { ...cur, dykTipOpenedLocalYmd: localCalendarYmd },
+        };
+      });
+    },
+    []
+  );
+
+  const getDidYouKnowTipOpenedLocalYmd = useCallback(
+    (patientId: string) =>
+      patientRewardMetaByPatientId[patientId]?.dykTipOpenedLocalYmd ?? null,
     [patientRewardMetaByPatientId]
   );
 
@@ -2334,6 +2420,7 @@ export function PatientProvider({
         [patientId]: {
           ...cur,
           dykRewardClaimedLocalYmd: null,
+          dykTipOpenedLocalYmd: null,
           readArticleIds: [],
           articleLinkOpenedIds: [],
         },
@@ -2348,6 +2435,116 @@ export function PatientProvider({
     }));
     setClinicalTick((t) => t + 1);
   }, []);
+
+  const devSkipToPreviousCalendarDay = useCallback((_patientId: string) => {
+    if (import.meta.env.PROD) return;
+    addDevCalendarOffsetDays(-1);
+    setClinicalTick((t) => t + 1);
+  }, []);
+
+  const devSkipClinicalDaysAhead = useCallback(
+    (patientId: string, days: number) => {
+      if (import.meta.env.PROD || days <= 0) return;
+      const n = Math.min(31, Math.floor(days));
+      for (let i = 0; i < n; i++) {
+        devSkipToNextCalendarDay(patientId);
+      }
+    },
+    [devSkipToNextCalendarDay]
+  );
+
+  const devSeedAiLongitudinalWindow = useCallback(
+    (patientId: string, scenario: AiDevLongitudinalScenario) => {
+      if (import.meta.env.PROD) return;
+      const plan = exercisePlans.find((ep) => ep.patientId === patientId);
+      const planIds = plan?.exercises.map((e) => e.id) ?? [];
+      const totalExercises = Math.max(1, planIds.length);
+      const days = rollingClinicalDayKeys(clinicalToday, AI_PROGRAM_LONGITUDINAL_WINDOW_DAYS);
+
+      const completedForDay = (index: number): number => {
+        if (scenario === 'rising_pain' || scenario === 'steady_clear') {
+          if (scenario === 'steady_clear') return totalExercises;
+          return Math.max(1, Math.floor(totalExercises * 0.8));
+        }
+        if (scenario === 'low_compliance') {
+          const rates = [0.4, 0.35, 0.3, 0.95];
+          return Math.floor(totalExercises * rates[index]);
+        }
+        const declineSeq = [
+          totalExercises,
+          totalExercises - 1,
+          totalExercises - 2,
+          totalExercises - 3,
+        ].map((c) => Math.max(0, c));
+        return declineSeq[index] ?? 0;
+      };
+
+      setDailySessions((prev) => {
+        const without = prev.filter(
+          (s) => !(s.patientId === patientId && days.includes(s.date))
+        );
+        const additions: DailySession[] = days.map((date, i) => {
+          const nDone = completedForDay(i);
+          return {
+            patientId,
+            date,
+            completedIds: devSliceExerciseIdsForCompleted(planIds, nDone),
+            sessionXp: 40 + i * 5,
+          };
+        });
+        return [...without, ...additions];
+      });
+
+      setAllPatients((prev) =>
+        prev.map((p) => {
+          if (p.id !== patientId) return p;
+          const ph = p.analytics.painHistory.filter((r) => !days.includes(devClinicalDayKey(r.date)));
+          const sh = p.analytics.sessionHistory.filter((s) => !days.includes(devClinicalDayKey(s.date)));
+
+          const painLevels: PainLevel[] =
+            scenario === 'rising_pain'
+              ? [5, 6, 7, 8].map((x) => clampPain(x))
+              : scenario === 'low_compliance'
+                ? [3, 3, 3, 3].map((x) => clampPain(x))
+                : scenario === 'functional_decline'
+                  ? [4, 4, 4, 4].map((x) => clampPain(x))
+                  : [3, 3, 3, 3].map((x) => clampPain(x));
+
+          const newPain: PainRecord[] = days.map((d, i) => ({
+            date: d,
+            painLevel: painLevels[i] ?? clampPain(3),
+            bodyArea: p.primaryBodyArea,
+          }));
+
+          const newSessions: ExerciseSession[] = days.map((date, i) => {
+            const exercisesCompleted = completedForDay(i);
+            return {
+              date,
+              exercisesCompleted,
+              totalExercises,
+              difficultyRating: 3,
+              xpEarned: 50 + i * 3,
+            };
+          });
+
+          const mergedPain = [...ph, ...newPain].sort((a, b) => a.date.localeCompare(b.date));
+          const mergedSh = [...sh, ...newSessions].sort((a, b) => a.date.localeCompare(b.date));
+          const agg = recomputePatientAnalyticsAggregates(mergedPain, mergedSh);
+          return {
+            ...p,
+            lastSessionDate: clinicalToday,
+            analytics: {
+              ...p.analytics,
+              ...agg,
+              painHistory: mergedPain,
+              sessionHistory: mergedSh,
+            },
+          };
+        })
+      );
+    },
+    [clinicalToday, exercisePlans]
+  );
 
   const deletePatient = useCallback((patientId: string) => {
     removePatientAccountsForPatient(patientId);
@@ -2605,6 +2802,8 @@ export function PatientProvider({
         markArticleAsRead,
         hasReadArticle,
         getDidYouKnowRewardClaimedLocalYmd,
+        recordDidYouKnowTipOpened,
+        getDidYouKnowTipOpenedLocalYmd,
         recordArticleLinkOpened,
         hasArticleLinkOpened,
         hasDailyLoginBonusPending,
@@ -2628,6 +2827,9 @@ export function PatientProvider({
         devAdjustPatientLifetimeXp,
         devSetPatientLifetimeXp,
         devSkipToNextCalendarDay,
+        devSkipClinicalDaysAhead,
+        devSeedAiLongitudinalWindow,
+        devSkipToPreviousCalendarDay,
         resetPatientExercisePlan,
         resetPatientMessageHistory,
         resetPatientPainReports,

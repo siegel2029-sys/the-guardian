@@ -56,6 +56,7 @@ import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
 import PatientHeroesHallTab from './PatientHeroesHallTab';
 import PatientPortalSettingsModal from './PatientPortalSettingsModal';
 import { fetchAiPlanAdjustmentSuggestion } from '../../ai/geminiAiPlanAdjustment';
+import { evaluateAiProgramLongitudinalGate } from '../../ai/aiProgramLongitudinalGate';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
 import { useLocalCalendarDayKey } from '../../utils/dailyKnowledgeFact';
 
@@ -118,6 +119,8 @@ export default function PatientDailyView() {
     markArticleAsRead,
     hasReadArticle,
     getDidYouKnowRewardClaimedLocalYmd,
+    getDidYouKnowTipOpenedLocalYmd,
+    recordDidYouKnowTipOpened,
     hasDailyLoginBonusPending,
     getPatientGear,
     purchaseGearItem,
@@ -222,6 +225,7 @@ export default function PatientDailyView() {
     null
   );
   const [trainingAiPlanModalInfo, setTrainingAiPlanModalInfo] = useState<string | null>(null);
+  const [aiSteadyBannerDismissed, setAiSteadyBannerDismissed] = useState(false);
 
   const careGiverName = useMemo(
     () => (selectedPatient ? getTherapistDisplayName(selectedPatient.therapistId) : ''),
@@ -290,6 +294,11 @@ export default function PatientDailyView() {
   const dykBubbleHiddenAfterRewardToday = Boolean(
     selectedPatient &&
       getDidYouKnowRewardClaimedLocalYmd(selectedPatient.id) === dykLocalCalendarDayKey
+  );
+
+  const dykTipAlreadyOpenedToday = Boolean(
+    selectedPatient &&
+      getDidYouKnowTipOpenedLocalYmd(selectedPatient.id) === dykLocalCalendarDayKey
   );
 
   const exerciseSafetyLocked = selectedPatient
@@ -371,6 +380,23 @@ export default function PatientDailyView() {
     );
   }, [exercises, selectedPatient]);
 
+  const aiProgramLongitudinalGate = useMemo(
+    () =>
+      selectedPatient
+        ? evaluateAiProgramLongitudinalGate({
+            patient: selectedPatient,
+            clinicalToday,
+            dayMap: patientDayMap,
+            rehabExerciseCount: clinicalRehabExercises.length,
+          })
+        : null,
+    [selectedPatient, clinicalToday, patientDayMap, clinicalRehabExercises.length]
+  );
+
+  useEffect(() => {
+    setAiSteadyBannerDismissed(false);
+  }, [selectedPatient?.id, clinicalToday]);
+
   type MissionRow =
     | { kind: 'rehab'; exercise: PatientExercise }
     | {
@@ -447,6 +473,19 @@ export default function PatientDailyView() {
       return;
     }
 
+    const gate = aiProgramLongitudinalGate;
+    if (
+      !gate ||
+      clinicalRehabExercises.length === 0 ||
+      !gate.shouldSuggest
+    ) {
+      setTrainingAiPlanModalOpen(false);
+      setTrainingAiPlanModalLoading(false);
+      setTrainingAiPlanModalSuggestion(null);
+      setTrainingAiPlanModalInfo(null);
+      return;
+    }
+
     try {
       if (sessionStorage.getItem(portalTrainingAiPlanModalAckKey(selectedPatient.id, clinicalToday)) === '1') {
         setTrainingAiPlanModalOpen(false);
@@ -466,7 +505,11 @@ export default function PatientDailyView() {
     const clinical = clinicalRehabExercises;
 
     void (async () => {
-      const sug = await fetchAiPlanAdjustmentSuggestion({ patient, clinicalExercises: clinical });
+      const sug = await fetchAiPlanAdjustmentSuggestion({
+        patient,
+        clinicalExercises: clinical,
+        longitudinalGate: gate,
+      });
       if (cancelled) return;
       setTrainingAiPlanModalLoading(false);
       if (sug) {
@@ -483,15 +526,15 @@ export default function PatientDailyView() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- תרגילי שיקום נלכדים דרך מפתח ההקשר
   }, [
     portalTab,
-    selectedPatient?.id,
+    selectedPatient,
     patientMustChangePassword,
     clinicalToday,
     trainingTabContextKey,
     exercisesLocked,
     clinicalRehabExercises,
+    aiProgramLongitudinalGate,
   ]);
 
   const [sessionCelebrationBurst, setSessionCelebrationBurst] = useState(0);
@@ -943,6 +986,7 @@ export default function PatientDailyView() {
                   secondaryClinicalBodyAreas={selectedPatient.secondaryClinicalBodyAreas}
                   stableInteraction={false}
                   patientPortalInteractive
+                  dailyScenicBackgroundDayKey={clinicalToday}
                   painByArea={selectedPatient.analytics.painByArea}
                   level={selectedPatient.level}
                   xp={selectedPatient.xp}
@@ -1188,6 +1232,28 @@ export default function PatientDailyView() {
         >
           המשימות להיום
         </h1>
+        {aiProgramLongitudinalGate?.showSteadyProgress &&
+          !patientMustChangePassword &&
+          !exercisesLocked &&
+          !aiSteadyBannerDismissed && (
+            <div
+              className="mb-4 rounded-2xl border border-teal-200/90 bg-gradient-to-br from-teal-50/95 to-white px-4 py-3 shadow-sm"
+              role="status"
+            >
+              <p className="text-sm font-bold text-teal-900">התקדמות יציבה</p>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                לפי נתוני הכאב, ההשלמה והתפקוד בימים האחרונים אין מגמה עקבית שמצדיקה הצעת שינוי תוכנית.
+                המשיכו לפי הנחיות המטפל.
+              </p>
+              <button
+                type="button"
+                onClick={() => setAiSteadyBannerDismissed(true)}
+                className="mt-2 text-xs font-semibold text-teal-800 underline"
+              >
+                סגירה
+              </button>
+            </div>
+          )}
         <p className="text-base text-slate-600 mb-4 leading-relaxed">
           קודם תרגילי השיקום מהמטפל, אחריהם תרגילי כוח לאזורים הירוקים במפה (בלשונית <strong>בית</strong>).
           בכל משימה: כפתור <strong>נגן</strong> פותח וידאו, טיימר 30 שניות ודיווח מאמץ. כוח/פרהאב מעניקים
@@ -1437,6 +1503,10 @@ export default function PatientDailyView() {
           <DidYouKnowBubble
             patient={selectedPatient}
             approvedFacts={approvedKnowledgeFacts}
+            tipAlreadyOpenedToday={dykTipAlreadyOpenedToday}
+            onDidYouKnowTriggerOpen={() =>
+              recordDidYouKnowTipOpened(selectedPatient.id, dykLocalCalendarDayKey)
+            }
             onCollectReward={(articleId, opts) =>
               markArticleAsRead(selectedPatient.id, articleId, {
                 ...opts,

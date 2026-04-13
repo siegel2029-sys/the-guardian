@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Bug } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import type { AiDevLongitudinalScenario } from '../../ai/aiProgramLongitudinalGate';
 import { lifetimeXpFromPatient } from '../../body/patientLevelXp';
+import {
+  DEV_MOCK_DATE_CHANGED_EVENT,
+  getAppDate,
+  getDevCalendarOffsetDays,
+} from '../../utils/debugMockDate';
+import { formatLocalYmd } from '../../utils/dailyKnowledgeFact';
 
 /**
  * פאנל דיבוג — רק ב־development (מוצג מההורה).
@@ -16,7 +23,11 @@ export default function PortalPatientDebugPanel() {
     devBreakStreakRemoveYesterday,
     devAdjustPatientLifetimeXp,
     devSetPatientLifetimeXp,
+    clinicalToday,
     devSkipToNextCalendarDay,
+    devSkipClinicalDaysAhead,
+    devSeedAiLongitudinalWindow,
+    devSkipToPreviousCalendarDay,
     supabaseConfigured,
     supabaseSyncStatus,
     supabaseSyncError,
@@ -24,6 +35,13 @@ export default function PortalPatientDebugPanel() {
   } = usePatient();
   const [open, setOpen] = useState(false);
   const [lifetimeXpInput, setLifetimeXpInput] = useState('');
+  const [mockDateUiRev, setMockDateUiRev] = useState(0);
+
+  useEffect(() => {
+    const onMock = () => setMockDateUiRev((n) => n + 1);
+    window.addEventListener(DEV_MOCK_DATE_CHANGED_EVENT, onMock as EventListener);
+    return () => window.removeEventListener(DEV_MOCK_DATE_CHANGED_EVENT, onMock as EventListener);
+  }, []);
 
   if (!selectedPatient) return null;
 
@@ -34,6 +52,10 @@ export default function PortalPatientDebugPanel() {
     if (!open) return;
     setLifetimeXpInput(String(lifetimeTotal));
   }, [open, lifetimeTotal]);
+
+  void mockDateUiRev;
+  const offsetDays = getDevCalendarOffsetDays();
+  const appWallClockYmd = formatLocalYmd(getAppDate());
 
   return (
     <div
@@ -81,16 +103,81 @@ export default function PortalPatientDebugPanel() {
           >
             Break Streak (מחק אתמול)
           </button>
+          <div className="rounded-lg border border-slate-600/80 bg-slate-900/60 px-2 py-1.5 space-y-1">
+            <p className="text-[9px] font-bold text-slate-200 uppercase tracking-wide">מכונת זמן (דיבאג)</p>
+            <p className="text-[9px] text-slate-300 leading-snug tabular-nums" dir="ltr">
+              יום קליני: <span className="text-emerald-200/95">{clinicalToday}</span>
+            </p>
+            <p className="text-[9px] text-slate-400 leading-snug tabular-nums" dir="ltr">
+              לוח שנה (אפליקציה): {appWallClockYmd}
+              {offsetDays !== 0 && (
+                <span className="text-slate-500">
+                  {' '}
+                  · הזחה {offsetDays > 0 ? '+' : ''}
+                  {offsetDays}
+                </span>
+              )}
+            </p>
+          </div>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              className="flex-1 min-w-0 text-[10px] font-semibold py-1.5 rounded-lg bg-slate-800 text-slate-100 hover:bg-slate-700 border border-slate-600/70"
+              onClick={() => devSkipToPreviousCalendarDay(pid)}
+            >
+              חזור יום אחורה (דיבאג)
+            </button>
+            <button
+              type="button"
+              className="flex-1 min-w-0 text-[10px] font-semibold py-1.5 rounded-lg bg-violet-950 text-violet-100 hover:bg-violet-900 border border-violet-700/50"
+              onClick={() => devSkipToNextCalendarDay(pid)}
+            >
+              עבור ליום הבא (דיבאג)
+            </button>
+          </div>
           <button
             type="button"
-            className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-violet-950 text-violet-100 hover:bg-violet-900 border border-violet-700/50"
-            onClick={() => devSkipToNextCalendarDay(pid)}
+            className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-indigo-950 text-indigo-100 hover:bg-indigo-900 border border-indigo-700/50"
+            onClick={() => devSkipClinicalDaysAhead(pid, 4)}
           >
-            עבור ליום הבא (דיבאג)
+            דלג 4 ימים קדימה (מצטבר)
+          </button>
+          <p className="text-[9px] font-bold text-slate-300 uppercase tracking-wide">AI — חלון 4 ימים</p>
+          <p className="text-[9px] text-slate-500 leading-snug">
+            ממלא את 4 הימים האחרונים (כולל היום הקליני) ב־painHistory, sessionHistory וסשנים. אחרי «כאב עולה»
+            פתחו אימונים — אמורה להופיע הצעת AI. «ללא מגמה» = בדיקת שלילה.
+          </p>
+          {(
+            [
+              ['rising_pain', 'Seed: כאב עולה'],
+              ['low_compliance', 'Seed: השלמה נמוכה'],
+              ['functional_decline', 'Seed: ירידה בתרגילים'],
+              ['steady_clear', 'Seed: ללא מגמה'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-slate-800 text-slate-100 hover:bg-slate-700 border border-slate-600/50"
+              onClick={() => devSeedAiLongitudinalWindow(pid, key as AiDevLongitudinalScenario)}
+            >
+              {label}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-fuchsia-950 text-fuchsia-100 hover:bg-fuchsia-900 border border-fuchsia-700/50"
+            onClick={() => {
+              const lv = Math.max(1, selectedPatient.level + 1);
+              updatePatient(pid, { level: Math.min(100, lv) });
+            }}
+          >
+            Level Up (Debug) — +1 רמה
           </button>
           <p className="text-[9px] text-slate-500 leading-snug">
-            מזיז את «היום» ביום קלנדרי אחד (localStorage), מאפס הידעת/מאמרים/סשן ופרהאב ליום
-            הקליני החדש.
+            קדימה: מזיז את «היום» +1, מאפס הידעת/מאמרים/סשן ופרהאב ליום הקליני החדש. אחורה: מזיז −1
+            בלי למחוק היסטוריה — הידעת, רקע האווטאר והצעות AI נשענים על תאריך קליני + הנתונים השמורים
+            לאותו יום.
           </p>
 
           <p className="text-[9px] font-bold text-slate-300 uppercase tracking-wide pt-0.5">XP</p>

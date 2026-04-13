@@ -11,6 +11,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Environment, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import AnatomyModel from './AnatomyModel';
+import AvatarJourneyBackdrop from './AvatarJourneyBackdrop';
 import type { BodyArea } from '../../types';
 import { EMPTY_EQUIPPED_GEAR, type EquippedGearSnapshot } from '../../config/gearCatalog';
 
@@ -66,6 +67,12 @@ export interface BodyMap3DProps {
    * ברירת מחדל: מופעל. Bloom לסטריק נשאר כשהוא רלוונטי.
    */
   disablePremiumPostProcessing?: boolean;
+  /**
+   * Clinical day YYYY-MM-DD — when set with `patientPortalInteractive`, a full-bleed daily scenic
+   * backdrop sits behind the canvas (transparent WebGL). Updates when the clinical day changes
+   * (including dev «skip day»).
+   */
+  dailyScenicBackgroundDayKey?: string;
 }
 
 // ── View presets ──────────────────────────────────────────────────
@@ -290,7 +297,13 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     segmentGrowthMul,
     wrapperClassName,
     disablePremiumPostProcessing: _disablePremiumPostProcessing = false,
+    dailyScenicBackgroundDayKey,
   } = props;
+
+  const useScenicBackdrop =
+    patientPortalInteractive &&
+    typeof dailyScenicBackgroundDayKey === 'string' &&
+    dailyScenicBackgroundDayKey.length > 0;
 
   const equippedGear = equippedGearProp ?? EMPTY_EQUIPPED_GEAR;
   const coarsePointer = usePreferCoarsePointer();
@@ -329,7 +342,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         position: 'relative',
         margin: '0 auto',
         display: 'block',
-        background: '#f0f0f0',
+        background: useScenicBackdrop ? 'transparent' : '#f0f0f0',
         borderRadius: '16px',
         overflow: 'hidden',
         flexShrink: 0,
@@ -360,11 +373,19 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           overflow: 'hidden',
         }}
       >
+      {useScenicBackdrop && (
+        <AvatarJourneyBackdrop
+          clinicalYmd={dailyScenicBackgroundDayKey!}
+          level={level}
+        />
+      )}
       <Canvas
         style={{
           display: 'block',
           width: '100%',
           height: '100%',
+          position: 'relative',
+          zIndex: 1,
           touchAction: patientPortalInteractive
             ? 'none'
             : scrollFriendlyPortal
@@ -375,18 +396,22 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         shadows="soft"
         gl={{
           antialias: true,
-          alpha: false,
+          alpha: useScenicBackdrop,
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: 1.35,
           outputColorSpace: THREE.SRGBColorSpace,
         }}
-        onCreated={({ gl }) => {
+        onCreated={({ gl, scene }) => {
           gl.shadowMap.enabled = true;
           gl.shadowMap.type = THREE.PCFSoftShadowMap;
+          if (useScenicBackdrop) {
+            gl.setClearColor(0x000000, 0);
+            scene.background = null;
+          }
         }}
         dpr={[1, 2]}
       >
-        <StudioGradientBackground />
+        {!useScenicBackdrop && <StudioGradientBackground />}
 
         <ambientLight intensity={1.5} />
         <directionalLight
@@ -403,7 +428,10 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           shadow-camera-bottom={-5}
         />
 
-        <Environment preset="studio" environmentIntensity={0.65} />
+        <Environment
+          preset="studio"
+          environmentIntensity={useScenicBackdrop ? 0.48 : 0.65}
+        />
 
         <group position={[0, 0.1, 0]}>
           <StudioPedestal />

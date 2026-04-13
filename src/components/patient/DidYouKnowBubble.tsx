@@ -34,6 +34,10 @@ interface DidYouKnowBubbleProps {
   approvedFacts: KnowledgeFact[];
   onCollectReward: (articleId: string, options: { readerConfirmed: boolean }) => boolean;
   hasReadArticle: (patientId: string, articleId: string) => boolean;
+  /** כבר נלחץ הסמל היום (מקומי) — המנורה נשארת סטטית עד מחר */
+  tipAlreadyOpenedToday: boolean;
+  /** נקרא בלחיצה על סמל/ענן לפני פתיחת המודאל */
+  onDidYouKnowTriggerOpen: () => void;
 }
 
 const SCROLL_END_THRESHOLD_PX = 40;
@@ -64,6 +68,8 @@ export default function DidYouKnowBubble({
   approvedFacts,
   onCollectReward,
   hasReadArticle,
+  tipAlreadyOpenedToday,
+  onDidYouKnowTriggerOpen,
 }: DidYouKnowBubbleProps) {
   const isMobile = useIsMobileViewport();
   const calendarDayKey = useLocalCalendarDayKey();
@@ -164,14 +170,20 @@ export default function DidYouKnowBubble({
     clearAutoHideTimer();
   }, [isMobile, clearAutoHideTimer]);
 
+  const openFromTrigger = useCallback(() => {
+    onDidYouKnowTriggerOpen();
+    setExpanded(true);
+  }, [onDidYouKnowTriggerOpen]);
+
   if (!fact) return null;
 
   const cloudTeaser = fact.teaser.trim() ? fact.teaser : DYK_DEFAULT_TEASER;
   const modalBodyText = (fact.explanation ?? '').trim();
 
-  const dykTriggerBulbClass = expanded
-    ? 'dyk-lightbulb-glow-host dyk-lightbulb-solid-glow'
-    : 'dyk-lightbulb-glow-host dyk-lightbulb-pulse-glow';
+  const showBulbPulse = !tipAlreadyOpenedToday;
+  const dykTriggerBulbClass = showBulbPulse
+    ? 'dyk-lightbulb-glow-host dyk-lightbulb-pulse-glow'
+    : 'dyk-lightbulb-glow-host dyk-lightbulb-solid-glow';
 
   const { xp: rxp, coins: rcoins } = PATIENT_REWARDS.ARTICLE_READ;
   const alreadyClaimed = hasReadArticle(patient.id, fact.id);
@@ -333,7 +345,7 @@ export default function DidYouKnowBubble({
           {isMobile ? (
             <button
               type="button"
-              onClick={() => setExpanded(true)}
+              onClick={openFromTrigger}
               className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-slate-200/85 bg-white/80 shadow-md shadow-slate-900/8 outline-none backdrop-blur-md transition-[transform,box-shadow] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#0f172a]/20 focus-visible:ring-offset-2"
               aria-label={`הידעת? ${cloudTeaser} — הקישו לפתיחה`}
             >
@@ -345,7 +357,7 @@ export default function DidYouKnowBubble({
           ) : (
             <button
               type="button"
-              onClick={() => setExpanded(true)}
+              onClick={openFromTrigger}
               className="flex w-[min(92vw,17.75rem)] cursor-pointer flex-col items-center border-0 bg-transparent p-0 text-center outline-none focus-visible:ring-2 focus-visible:ring-[#0f172a]/25 focus-visible:ring-offset-2"
               aria-label={`הידעת? ${cloudTeaser} — הקישו לפתיחה`}
             >

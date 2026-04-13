@@ -49,6 +49,8 @@ export type PersistedPatientStateV1 = {
       articleLinkOpenedIds?: string[];
       /** YYYY-MM-DD מקומי — אחרי איסוף פרס «הידעת» להיום, הנורה מוסתרת עד למחר */
       dykRewardClaimedLocalYmd?: string | null;
+      /** YYYY-MM-DD מקומי — נפתח חלון הידעת; המנורה סטטית עד למחר */
+      dykTipOpenedLocalYmd?: string | null;
     }
   >;
   /** ציוד ויזואלי / מגן רצף — לפי מזהה מטופל */

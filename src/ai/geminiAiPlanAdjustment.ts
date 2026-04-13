@@ -1,6 +1,7 @@
 import type { AiSuggestion, AiSuggestionType, Patient, PatientExercise } from '../types';
 import { geminiGenerateText, getGeminiApiKey } from './geminiClient';
 import { parseJsonObject } from './geminiClinicalIntake';
+import type { AiLongitudinalGateResult } from './aiProgramLongitudinalGate';
 import {
   analyzePatientProgress,
   buildPatientProgressPayload,
@@ -141,6 +142,8 @@ function normalizeGeminiRaw(
 export type AiPlanAdjustmentGeminiParams = {
   patient: Patient;
   clinicalExercises: PatientExercise[];
+  /** מגמות שזוהו בחלון 4 הימים — רק אחרי שער לונגיטודינלי */
+  longitudinalGate: AiLongitudinalGateResult;
 };
 
 /**
@@ -149,7 +152,7 @@ export type AiPlanAdjustmentGeminiParams = {
 export async function fetchAiPlanAdjustmentSuggestion(
   params: AiPlanAdjustmentGeminiParams
 ): Promise<AiSuggestion | null> {
-  const { patient, clinicalExercises } = params;
+  const { patient, clinicalExercises, longitudinalGate } = params;
   const payload = buildPatientProgressPayload(patient, clinicalExercises);
   const analysis = analyzePatientProgress(payload);
 
@@ -181,6 +184,7 @@ export async function fetchAiPlanAdjustmentSuggestion(
 - reasonHebrew: string קצר בעברית (2–4 משפטים) — למה ההמלצה, בשפה פשוטה
 
 כללים:
+- כבר זוהו מגמות לונגיטודינליות (שדה longitudinalTrendGate) — התאם את הניסוח וההמלצה רק להן; אל תניח מגמה שלא הופיעה שם.
 - התאם את ההמלצה לניתוח guardianAnalysis (כאב, קושי, האם מותר להגביר עומס).
 - אם אסור להגביר עומס — העדף reduce_reps או הפחתת סטים; אל תציע increase כשהכאב עולה או גבוה.
 - אל תאבחן מחלות. אל תחרוג מתרגילים מהרשימה.
@@ -189,6 +193,10 @@ export async function fetchAiPlanAdjustmentSuggestion(
   const userText = `נתונים:
 ${JSON.stringify(
   {
+    longitudinalTrendGate: {
+      triggersFired: longitudinalGate.triggers,
+      summaryHebrew: longitudinalGate.summaryHebrew,
+    },
     guardianAnalysis: {
       painTrend: analysis.painTrend,
       relationshipSummaryHebrew: analysis.relationshipSummaryHebrew,
