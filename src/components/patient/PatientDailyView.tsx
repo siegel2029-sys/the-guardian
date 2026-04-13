@@ -14,7 +14,6 @@ import {
   Settings,
   Home,
   ShoppingBag,
-  Zap,
   Siren,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
@@ -38,15 +37,10 @@ import { bodyAreaBlocksSelfCare } from '../../body/bodyPickMapping';
 import EmergencyStopModal from './EmergencyStopModal';
 import DidYouKnowBubble from './DidYouKnowBubble';
 import PatientAiPlanSuggestionModal from './PatientAiPlanSuggestionModal';
-import PatientPainProgressSheet from './PatientPainProgressSheet';
+import PainAnalyticsModal from './PainAnalyticsModal';
 import ClinicalMonthCalendar from './ClinicalMonthCalendar';
 import type { AiSuggestion, PatientExercise, BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
-import {
-  analyzePatientProgress,
-  buildPatientProgressPayload,
-  buildPainReportNarrative,
-} from '../../ai/patientProgressReasoning';
 import {
   PAIN_SURGE_PATIENT_COPY,
   DIFFICULTY_MAX_PATIENT_COPY,
@@ -152,7 +146,7 @@ export default function PatientDailyView() {
   >(undefined);
   const [detailFor, setDetailFor] = useState<PatientExercise | null>(null);
   const [messageText, setMessageText] = useState('');
-  const [painSheetOpen, setPainSheetOpen] = useState(false);
+  const [painAnalyticsOpen, setPainAnalyticsOpen] = useState(false);
   const [loadSafetyNudge, setLoadSafetyNudge] = useState<string | null>(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [pwCurrent, setPwCurrent] = useState('');
@@ -611,13 +605,6 @@ export default function PatientDailyView() {
 
   const lastPainRecord = selectedPatient?.analytics.painHistory.slice(-1)[0];
 
-  const painReportNarrative = useMemo(() => {
-    if (!selectedPatient) return '';
-    const payload = buildPatientProgressPayload(selectedPatient, exercises);
-    const analysis = analyzePatientProgress(payload);
-    return buildPainReportNarrative(selectedPatient, exercises, analysis);
-  }, [selectedPatient, exercises]);
-
   const openExerciseDetail = (ex: PatientExercise) => {
     setDetailFor(ex);
   };
@@ -704,18 +691,6 @@ export default function PatientDailyView() {
     navigate('/patient-portal/activity#today-missions');
   };
 
-  const goToGeneralProgressOverview = () => {
-    if (portalTab === 'activity') {
-      window.requestAnimationFrame(() => {
-        document
-          .getElementById('training-calendar-anchor')
-          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-      return;
-    }
-    navigate('/patient-portal/activity#training-calendar-anchor');
-  };
-
   return (
     <div
       className="min-h-screen flex flex-col max-w-lg mx-auto w-full relative bg-medical-bg font-sans"
@@ -728,10 +703,10 @@ export default function PatientDailyView() {
         streakBonusXp={gordyVictoryRewards.streak}
       />
       <header
-        className="sticky top-0 z-20 px-3 sm:px-4 pt-3 pb-3 border-b border-slate-200/80 flex items-center gap-3 sm:gap-4 relative overflow-visible bg-white shadow-md shadow-slate-200/40"
+        className="sticky top-0 z-20 px-3 sm:px-4 pt-3 pb-3 border-b border-slate-200/80 flex items-start gap-3 sm:gap-4 relative overflow-visible bg-white shadow-md shadow-slate-200/40"
       >
         {sessionRole === 'patient' ? (
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
             <button
               type="button"
               onClick={() => setRedFlagOpen(true)}
@@ -789,7 +764,7 @@ export default function PatientDailyView() {
             </button>
           </div>
         ) : null}
-        <div className="flex-1 min-w-0 flex flex-col items-end justify-center gap-1 py-0.5">
+        <div className="flex-1 min-w-0 flex flex-col items-end gap-1.5 py-0.5">
           <p className="text-lg sm:text-xl font-bold text-slate-900 truncate w-full text-end leading-snug tracking-tight">
             {selectedPatient.name}
           </p>
@@ -802,16 +777,43 @@ export default function PatientDailyView() {
               <span className="text-xs text-slate-500">כניסה יומית</span>
             </div>
           )}
+          {!patientMustChangePassword && (
+            <div className="w-full flex flex-col items-stretch gap-1.5 mt-0.5">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="text-[11px] font-semibold text-slate-600 tabular-nums">
+                  רמה {selectedPatient.level}
+                </span>
+                <div
+                  className="text-xs font-black tabular-nums px-2.5 py-1 rounded-xl border"
+                  style={{
+                    borderColor: 'rgba(249, 115, 22, 0.45)',
+                    background: 'linear-gradient(135deg, rgba(255, 247, 237, 0.95), #fff7ed)',
+                    color: '#9a3412',
+                    boxShadow: '0 0 12px rgba(251, 146, 60, 0.2)',
+                  }}
+                  title="רצף ימים עם לפחות תרגיל אחד שהושלם (לפי לוח קליני)"
+                >
+                  רצף {displayStreak} {displayStreak === 1 ? 'יום' : 'ימים'} 🔥
+                </div>
+              </div>
+              <div className="w-full max-w-full sm:max-w-[14rem] ms-auto">
+                <div className="flex justify-between items-baseline gap-2 text-[11px] text-slate-500 mb-0.5">
+                  <span className="font-medium text-slate-600">התקדמות לרמה הבאה</span>
+                  <span className="tabular-nums shrink-0">
+                    {xp} / {next}
+                  </span>
+                </div>
+                <div className="h-2 sm:h-2.5 rounded-full bg-slate-100 overflow-hidden border border-slate-100/80">
+                  <div
+                    className="h-full rounded-full motion-safe:transition-all motion-safe:duration-500 bg-medical-primary"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-        <div className="relative shrink-0 flex flex-col items-end gap-2">
-          <div
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-teal-900 border border-emerald-200/90 bg-gradient-to-l from-emerald-50 to-teal-50/80"
-            title="נקודות ניסיון (XP)"
-          >
-            <Zap className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden />
-            <span className="tabular-nums">{xp}</span>
-            <span className="text-[10px] font-semibold text-teal-700/90">נק׳ ניסיון</span>
-          </div>
+        <div className="relative shrink-0 flex flex-col items-end gap-2 pt-0.5">
           {rewardFeedback && (
             <div
               key={rewardFeedback.id}
@@ -918,73 +920,37 @@ export default function PatientDailyView() {
             )}
 
             {!patientMustChangePassword && (
-              <div className="mt-3 rounded-2xl p-4 border border-slate-200/90 bg-white shadow-md shadow-slate-200/50">
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={goToGeneralProgressOverview}
-                  onKeyDown={(e) => activateOnEnterSpace(e, goToGeneralProgressOverview)}
-                  className={`rounded-xl p-3 -m-1 min-h-[48px] ${PORTAL_PROGRESS_NAV_SURFACE}`}
-                  aria-label="התקדמות — מעבר למסך אימונים וללוח החודשי"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="w-5 h-5 text-medical-primary shrink-0" aria-hidden />
-                      <span className="text-base font-bold text-slate-900">התקדמות</span>
-                    </div>
-                    <div
-                      className="text-sm font-black tabular-nums px-3 py-1 rounded-xl border pointer-events-none"
-                      style={{
-                        borderColor: 'rgba(249, 115, 22, 0.45)',
-                        background: 'linear-gradient(135deg, rgba(255, 247, 237, 0.95), #fff7ed)',
-                        color: '#9a3412',
-                        boxShadow: '0 0 16px rgba(251, 146, 60, 0.25)',
-                      }}
-                      title="רצף ימים עם לפחות תרגיל אחד שהושלם (לפי לוח קליני)"
-                    >
-                      רצף {displayStreak} {displayStreak === 1 ? 'יום' : 'ימים'} 🔥
-                    </div>
+              <button
+                type="button"
+                onClick={() => setPainAnalyticsOpen(true)}
+                className="mt-3 w-full text-start rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden cursor-pointer touch-manipulation motion-safe:transition-[box-shadow,transform,border-color] motion-safe:duration-200 hover:shadow-lg hover:border-teal-200/90 hover:-translate-y-0.5 active:translate-y-0 active:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
+                aria-label="מעקב כאב — פתיחת גרף וניתוח מגמה"
+              >
+                <div className="px-4 pt-3 pb-2 border-b border-slate-100/90 bg-slate-50/60 pointer-events-none">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-medical-primary shrink-0" aria-hidden />
+                    <p className="text-sm font-bold text-slate-900">מעקב כאב</p>
                   </div>
-                  <div className="flex justify-between text-sm text-slate-600 mb-1 pointer-events-none">
-                    <span>רמה {selectedPatient.level}</span>
-                    <span className="tabular-nums">
-                      {xp} / {next} נק׳
-                    </span>
-                  </div>
-                  <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden pointer-events-none">
-                    <div
-                      className="h-full rounded-full transition-all duration-500 bg-medical-primary"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-slate-500 mt-2 leading-relaxed pointer-events-none">
-                    לחצו לפתיחת האימונים וגלילה ללוח החודשי; מעקב כאב זמין כאן למטה.
+                  <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                    דיווחים ומגמות — לחיצה לגרף וניתוח מגמה
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setPainSheetOpen(true)}
-                  className="mt-3 w-full min-h-[48px] rounded-xl border-2 border-slate-200 px-3 py-3 flex items-center justify-between gap-2 text-start transition-colors hover:bg-slate-50 active:bg-slate-100 bg-white touch-manipulation"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Activity className="w-5 h-5 text-medical-primary shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-900">מעקב כאב</p>
-                      <p className="text-sm text-slate-600 truncate">
-                        ממוצע {selectedPatient.analytics.averageOverallPain.toFixed(1)}/10
-                        {lastPainRecord != null && (
-                          <span className="text-slate-600">
-                            {' '}
-                            · אחרון {lastPainRecord.painLevel}/10
-                          </span>
-                        )}
-                        {lastPainRecord == null && ' · עדיין אין דיווחים — לחצו לפרטים'}
-                      </p>
-                    </div>
+                <div className="min-h-[52px] px-4 py-3 flex items-center justify-between gap-3 pointer-events-none">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-slate-700 leading-snug">
+                      ממוצע {selectedPatient.analytics.averageOverallPain.toFixed(1)}/10
+                      {lastPainRecord != null && (
+                        <span className="text-slate-600">
+                          {' '}
+                          · אחרון {lastPainRecord.painLevel}/10
+                        </span>
+                      )}
+                      {lastPainRecord == null && ' · עדיין אין דיווחים — לחצו לפרטים'}
+                    </p>
                   </div>
                   <span className="text-sm font-bold text-medical-primary shrink-0">גרף</span>
-                </button>
-              </div>
+                </div>
+              </button>
             )}
 
             {unreadForPatient > 0 && (
@@ -1468,12 +1434,11 @@ export default function PatientDailyView() {
         defaultBodyArea={selectedPatient.primaryBodyArea}
       />
 
-      <PatientPainProgressSheet
-        open={painSheetOpen}
-        onClose={() => setPainSheetOpen(false)}
+      <PainAnalyticsModal
+        open={painAnalyticsOpen}
+        onClose={() => setPainAnalyticsOpen(false)}
         painHistory={selectedPatient.analytics.painHistory}
-        sessionHistory={selectedPatient.analytics.sessionHistory}
-        aiNarrative={painReportNarrative}
+        clinicalToday={clinicalToday}
       />
 
       <ExerciseDetailModal
