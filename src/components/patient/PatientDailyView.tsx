@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, type KeyboardEvent } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback, type KeyboardEvent } from 'react';
 import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -37,10 +37,10 @@ import { getStrengthChainForArea } from '../../data/strengthExerciseDatabase';
 import { bodyAreaBlocksSelfCare } from '../../body/bodyPickMapping';
 import EmergencyStopModal from './EmergencyStopModal';
 import DidYouKnowBubble from './DidYouKnowBubble';
-import PatientAiSuggestionCards from './PatientAiSuggestionCards';
+import PatientAiPlanSuggestionModal from './PatientAiPlanSuggestionModal';
 import PatientPainProgressSheet from './PatientPainProgressSheet';
 import ClinicalMonthCalendar from './ClinicalMonthCalendar';
-import type { PatientExercise, BodyArea } from '../../types';
+import type { AiSuggestion, PatientExercise, BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import {
   analyzePatientProgress,
@@ -59,6 +59,7 @@ import PortalPatientDebugPanel from './PortalPatientDebugPanel';
 import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
 import PatientHeroesHallTab from './PatientHeroesHallTab';
 import PatientPortalSettingsModal from './PatientPortalSettingsModal';
+import { fetchAiPlanAdjustmentSuggestion } from '../../ai/geminiAiPlanAdjustment';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
 
 type PortalTab = 'home' | 'activity' | 'gear' | 'messages' | 'heroes';
@@ -91,6 +92,10 @@ function activateOnEnterSpace(e: KeyboardEvent, fn: () => void) {
 /** מניעת כפילות חגיגת סיום תחת React StrictMode (אותו מפתח ביום) */
 const gordySessionCompleteDedupe = new Set<string>();
 
+function portalTrainingAiPlanModalAckKey(patientId: string, clinicalDay: string): string {
+  return `portal_training_ai_adjustment_ack_${patientId}_${clinicalDay}`;
+}
+
 /** תצוגת יום למטופל — מוצגת רק ב־/patient-portal (מפת גוף, תרגילים, לוח שנה). */
 export default function PatientDailyView() {
   const navigate = useNavigate();
@@ -112,9 +117,7 @@ export default function PatientDailyView() {
     sendPatientMessage,
     getPatientMessages,
     markMessageRead,
-    getPendingAiSuggestions,
-    patientAgreeToAiSuggestion,
-    patientDeclineAiSuggestion,
+    submitPatientAiPlanAdjustmentRequest,
     markArticleAsRead,
     hasReadArticle,
     hasDailyLoginBonusPending,
@@ -202,6 +205,12 @@ export default function PatientDailyView() {
   >(null);
   const [redFlagOpen, setRedFlagOpen] = useState(false);
   const [redFlagSirenAssetFailed, setRedFlagSirenAssetFailed] = useState(false);
+  const [trainingAiPlanModalOpen, setTrainingAiPlanModalOpen] = useState(false);
+  const [trainingAiPlanModalLoading, setTrainingAiPlanModalLoading] = useState(false);
+  const [trainingAiPlanModalSuggestion, setTrainingAiPlanModalSuggestion] = useState<AiSuggestion | null>(
+    null
+  );
+  const [trainingAiPlanModalInfo, setTrainingAiPlanModalInfo] = useState<string | null>(null);
 
   const careGiverName = useMemo(
     () => (selectedPatient ? getTherapistDisplayName(selectedPatient.therapistId) : ''),
@@ -245,11 +254,6 @@ export default function PatientDailyView() {
   const completedSet = useMemo(
     () => new Set(session?.completedIds ?? []),
     [session?.completedIds]
-  );
-
-  const pendingAiSuggestions = useMemo(
-    () => (selectedPatient ? getPendingAiSuggestions(selectedPatient.id) : []),
-    [selectedPatient, getPendingAiSuggestions]
   );
 
   const patientDayMap = useMemo(
@@ -390,6 +394,89 @@ export default function PatientDailyView() {
     [combinedMissionItems, completedSet]
   );
 
+  const trainingTabContextKey = useMemo(() => {
+    const zoneKey = [...selectedZones].sort().join(',');
+    const exKey = [...exercises.map((e) => e.id)].sort().join(',');
+    return `${zoneKey}|${exKey}`;
+  }, [selectedZones, exercises]);
+
+  const acknowledgeTrainingAiPlanModal = useCallback(() => {
+    if (selectedPatient) {
+      try {
+        sessionStorage.setItem(portalTrainingAiPlanModalAckKey(selectedPatient.id, clinicalToday), '1');
+      } catch {
+        /* ייתכן מצב פרטי / חסימת אחסון */
+      }
+    }
+    setTrainingAiPlanModalOpen(false);
+    setTrainingAiPlanModalSuggestion(null);
+    setTrainingAiPlanModalInfo(null);
+  }, [selectedPatient, clinicalToday]);
+
+  const handleTrainingAiPlanApprove = useCallback(() => {
+    if (trainingAiPlanModalSuggestion) {
+      submitPatientAiPlanAdjustmentRequest(trainingAiPlanModalSuggestion);
+    }
+    acknowledgeTrainingAiPlanModal();
+  }, [
+    trainingAiPlanModalSuggestion,
+    submitPatientAiPlanAdjustmentRequest,
+    acknowledgeTrainingAiPlanModal,
+  ]);
+
+  useEffect(() => {
+    if (!selectedPatient || portalTab !== 'activity' || patientMustChangePassword || exercisesLocked) {
+      setTrainingAiPlanModalOpen(false);
+      return;
+    }
+
+    try {
+      if (sessionStorage.getItem(portalTrainingAiPlanModalAckKey(selectedPatient.id, clinicalToday)) === '1') {
+        setTrainingAiPlanModalOpen(false);
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+
+    let cancelled = false;
+    setTrainingAiPlanModalOpen(true);
+    setTrainingAiPlanModalLoading(true);
+    setTrainingAiPlanModalSuggestion(null);
+    setTrainingAiPlanModalInfo(null);
+
+    const patient = selectedPatient;
+    const clinical = clinicalRehabExercises;
+
+    void (async () => {
+      const sug = await fetchAiPlanAdjustmentSuggestion({ patient, clinicalExercises: clinical });
+      if (cancelled) return;
+      setTrainingAiPlanModalLoading(false);
+      if (sug) {
+        setTrainingAiPlanModalSuggestion(sug);
+        setTrainingAiPlanModalInfo(null);
+      } else {
+        setTrainingAiPlanModalSuggestion(null);
+        setTrainingAiPlanModalInfo(
+          'אין כרגע תרגילי שיקום בתוכנית שאפשר להציע עבורם שינוי אוטומטי. המשיכו לפי הנחיות המטפל או בחרו אזורי כוח בלשונית בית.'
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- תרגילי שיקום נלכדים דרך מפתח ההקשר
+  }, [
+    portalTab,
+    selectedPatient?.id,
+    patientMustChangePassword,
+    clinicalToday,
+    trainingTabContextKey,
+    exercisesLocked,
+    clinicalRehabExercises,
+  ]);
+
   const [sessionCelebrationBurst, setSessionCelebrationBurst] = useState(0);
   useEffect(() => {
     if (!selectedPatient || exercisesLocked || totalMissions === 0) return;
@@ -425,7 +512,8 @@ export default function PatientDailyView() {
     combinedMissionItems.length > 0 &&
     !detailFor &&
     !reportFor &&
-    !exerciseVideoModal;
+    !exerciseVideoModal &&
+    !trainingAiPlanModalOpen;
 
   const gordyCompanionContextAnimation: string | undefined =
     portalTab === 'activity'
@@ -1037,18 +1125,16 @@ export default function PatientDailyView() {
           </section>
         )}
 
-        {portalTab === 'home' && (
-        <div className="mb-5 space-y-3">
-          <PatientAiSuggestionCards
-            suggestions={pendingAiSuggestions}
-            onApprove={patientAgreeToAiSuggestion}
-            onDecline={patientDeclineAiSuggestion}
-          />
-        </div>
-        )}
-
         {portalTab === 'activity' && (
         <>
+        <div
+          className={
+            trainingAiPlanModalOpen
+              ? 'pointer-events-none select-none opacity-[0.35] motion-safe:transition-opacity motion-safe:duration-200'
+              : undefined
+          }
+          aria-hidden={trainingAiPlanModalOpen || undefined}
+        >
         <h1
           id="today-missions"
           className="text-xl font-bold text-slate-900 mb-2 tracking-tight scroll-mt-28"
@@ -1213,6 +1299,7 @@ export default function PatientDailyView() {
         <div id="training-calendar-anchor" className="scroll-mt-28 mt-8 mb-2">
           <ClinicalMonthCalendar dayMap={patientDayMap} clinicalToday={clinicalToday} />
         </div>
+        </div>
         </>
         )}
 
@@ -1355,9 +1442,22 @@ export default function PatientDailyView() {
           !!exerciseVideoModal ||
           exercisesLocked ||
           patientMustChangePassword ||
-          sessionCelebrationBurst > 0
+          sessionCelebrationBurst > 0 ||
+          trainingAiPlanModalOpen
         }
       />
+
+      {selectedPatient && (
+        <PatientAiPlanSuggestionModal
+          open={trainingAiPlanModalOpen}
+          loading={trainingAiPlanModalLoading}
+          infoMessage={trainingAiPlanModalInfo}
+          suggestion={trainingAiPlanModalSuggestion}
+          onApprove={handleTrainingAiPlanApprove}
+          onDecline={acknowledgeTrainingAiPlanModal}
+          onClose={acknowledgeTrainingAiPlanModal}
+        />
+      )}
 
       <PatientRedFlagEmergencyModal
         open={redFlagOpen}

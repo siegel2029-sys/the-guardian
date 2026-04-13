@@ -281,6 +281,8 @@ interface PatientContextValue {
     currentReps: number,
     suggestedReps: number
   ) => void;
+  /** מטופל: שליחת הצעת שינוי תוכנית (מסך אימונים + Gemini) ישירות למטפל */
+  submitPatientAiPlanAdjustmentRequest: (suggestion: AiSuggestion) => void;
 
   /** בונוס למידה (מטבעות) בתצוגת מטופל */
   grantPatientCoins: (patientId: string, amount: number) => void;
@@ -1928,6 +1930,18 @@ export function PatientProvider({
     []
   );
 
+  const submitPatientAiPlanAdjustmentRequest = useCallback((suggestion: AiSuggestion) => {
+    const entry: AiSuggestion = {
+      ...suggestion,
+      status: 'awaiting_therapist',
+      source: (suggestion.source ?? 'gemini_portal') as AiSuggestionSource,
+    };
+    setAiSuggestions((prev) => {
+      const filtered = prev.filter((x) => x.id !== entry.id);
+      return [...filtered, entry];
+    });
+  }, []);
+
   const applyInitialClinicalProfile = useCallback(
     (
       patientId: string,
@@ -2533,6 +2547,7 @@ export function PatientProvider({
         therapistApproveAiSuggestion,
         therapistDeclineAiSuggestion,
         submitGuardianRepsIncreaseRequest,
+        submitPatientAiPlanAdjustmentRequest,
         grantPatientCoins,
         markArticleAsRead,
         hasReadArticle,
