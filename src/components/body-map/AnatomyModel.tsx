@@ -737,7 +737,7 @@ const HEAD_FACE_FEATURE_SCALE = 1.175 * 1.3;
 
 /**
  * פנים נייטרליות וידידותיות (סטייליזציה פרוצדורלית — לא פוטו־ריאל מלא ללא טקסטורות).
- * גבות נייטרליות־מעוגלות (לא מוטות פנימה), פה קשת קוודרטית דקה — חיוך עדין ברמת Mona Lisa; raycast כבוי.
+ * גבות נייטרליות־מעוגלות (לא מוטות פנימה), פה קשת קוודרטית דקה — פינות מורמות מעט מעל קו המרכז (אמפתיה, לא חיוך מלא); raycast כבוי.
  */
 function HeadFaceFeatures({ level: _level }: { level: number }) {
   void _level;
@@ -785,14 +785,14 @@ function HeadFaceFeatures({ level: _level }: { level: number }) {
   const noseGeo = useMemo(() => new THREE.CylinderGeometry(0.012, 0.017, 0.044, 10, 1, false), []);
   const mouthTubeGeo = useMemo(() => {
     const halfW = 0.032 * F;
-    const yEnds = -0.0504 * F;
-    const smileLift = 0.0032 * F;
+    const yCenter = -0.0504 * F;
+    const cornerLift = 0.001 * F;
     const zEnds = zSurf - 0.0028;
-    const zPeak = zSurf - 0.0019;
+    const zCtrl = zSurf - 0.0025;
     const curve = new THREE.QuadraticBezierCurve3(
-      new THREE.Vector3(-halfW, yEnds, zEnds),
-      new THREE.Vector3(0, yEnds + smileLift, zPeak),
-      new THREE.Vector3(halfW, yEnds, zEnds),
+      new THREE.Vector3(-halfW, yCenter + cornerLift, zEnds),
+      new THREE.Vector3(0, yCenter, zCtrl),
+      new THREE.Vector3(halfW, yCenter + cornerLift, zEnds),
     );
     return new THREE.TubeGeometry(curve, 32, 0.0029 * F, 6, false);
   }, [zSurf, F]);
