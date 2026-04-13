@@ -61,6 +61,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
+      <Route path="/shop" element={<Navigate to="/patient-portal/gear" replace />} />
       <Route path="/patient-portal/*" element={<PatientPortalRoute />} />
       <Route path="/therapist" element={<TherapistRoute />} />
       <Route path="/" element={<RootRedirect />} />
