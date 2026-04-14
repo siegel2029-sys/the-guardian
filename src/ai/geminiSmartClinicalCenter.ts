@@ -77,7 +77,7 @@ export async function analyzeSmartClinicalCenterWithGemini(params: {
   progressInsight: ClinicalProgressInsight;
 }): Promise<UnifiedClinicalNarrative> {
   if (!getGeminiApiKey()) {
-    throw new Error('Missing VITE_GEMINI_API_KEY');
+    throw new Error('Missing Supabase / gemini-proxy AI setup');
   }
 
   const systemInstruction = `אתה עוזר קליני לפיזיותרפיסט במערכת ניהול תרגולי בית.

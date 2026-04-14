@@ -86,7 +86,7 @@ export async function gordyPatientChatWithGemini(params: {
   userMessage: string;
 }): Promise<string> {
   if (!getGeminiApiKey()) {
-    throw new Error('Missing VITE_GEMINI_API_KEY');
+    throw new Error('Missing Supabase / gemini-proxy AI setup');
   }
 
   const systemInstruction = patientRehabAssistantSystemInstruction(

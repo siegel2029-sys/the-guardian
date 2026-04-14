@@ -45,7 +45,7 @@ export async function summarizeTherapistAssessmentDraft(
   patient: Patient,
   draftNotes: string
 ): Promise<string> {
-  if (!getGeminiApiKey()) throw new Error('Missing VITE_GEMINI_API_KEY');
+  if (!getGeminiApiKey()) throw new Error('Missing Supabase / gemini-proxy AI setup');
 
   const systemInstruction = `${THERAPIST_BASE}
 
@@ -74,7 +74,7 @@ export async function summarizeTherapistIntakeNote(
   freeText: string,
   mode: 'initial' | 'follow_up'
 ): Promise<string> {
-  if (!getGeminiApiKey()) throw new Error('Missing VITE_GEMINI_API_KEY');
+  if (!getGeminiApiKey()) throw new Error('Missing Supabase / gemini-proxy AI setup');
 
   const followBlock =
     mode === 'follow_up'

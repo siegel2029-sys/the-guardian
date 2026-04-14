@@ -151,7 +151,9 @@ function ClinicalAssessmentPanel({ patient }: { patient: Patient }) {
   const runGeminiAssessment = async () => {
     const t = draft.trim();
     if (!t || !getGeminiApiKey()) {
-      setGeminiError('הגדירו VITE_GEMINI_API_KEY ב־.env והפעילו מחדש את השרת.');
+      setGeminiError(
+        'הגדירו Supabase ב־.env, פרסמו את פונקציית gemini-proxy והגדירו את סוד GEMINI_API_KEY בפרויקט.'
+      );
       return;
     }
     setGeminiBusy(true);

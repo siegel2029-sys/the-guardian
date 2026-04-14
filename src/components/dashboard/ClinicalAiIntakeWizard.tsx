@@ -343,9 +343,12 @@ export default function ClinicalAiIntakeWizard({
               )}
               {!getGeminiApiKey() && (
                 <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
-                  מפתח Gemini לא הוגדר — הניתוח יבוצע במצב מקומי. הוסיפו VITE_GEMINI_API_KEY בקובץ{' '}
-                  <code className="font-mono text-[10px]">.env</code> בשורש הפרויקט והפעילו מחדש את
-                  השרת.
+                  Gemini דרך השרת לא זמין — הניתוח יבוצע במצב מקומי. הגדירו{' '}
+                  <code className="font-mono text-[10px]">VITE_SUPABASE_URL</code> ו־
+                  <code className="font-mono text-[10px]">VITE_SUPABASE_ANON_KEY</code> ב־
+                  <code className="font-mono text-[10px]">.env</code>, פרסמו{' '}
+                  <code className="font-mono text-[10px]">gemini-proxy</code> והגדירו סוד{' '}
+                  <code className="font-mono text-[10px]">GEMINI_API_KEY</code> ב־Supabase.
                 </p>
               )}
             </>

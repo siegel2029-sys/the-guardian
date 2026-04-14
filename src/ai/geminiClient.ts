@@ -1,4 +1,8 @@
-/** שכבת גישה משותפת ל-Gemini Generative Language API (מפתח מ־VITE_GEMINI_API_KEY). */
+/**
+ * Gemini access via Supabase Edge Function `gemini-proxy` (server holds GEMINI_API_KEY).
+ */
+
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
 export const GEMINI_API_HOST = 'https://generativelanguage.googleapis.com';
 export const GEMINI_API_VERSION = 'v1beta' as const;
@@ -17,65 +21,27 @@ export class GeminiRateLimitedError extends Error {
   }
 }
 
+/** True when the browser client can call `gemini-proxy` (Supabase URL + anon key). */
+export function isGeminiAiAvailable(): boolean {
+  return Boolean(supabase);
+}
+
+/**
+ * Legacy helper: callers treat non-empty as “AI configured”.
+ * There is no browser API key; configuration is Supabase + deployed `gemini-proxy` + `GEMINI_API_KEY` secret.
+ */
 export function getGeminiApiKey(): string {
-  const k = import.meta.env.VITE_GEMINI_API_KEY?.trim() ?? '';
-  if (!k || k === 'YOUR_KEY_HERE') return '';
-  return k;
+  return isGeminiAiAvailable() ? 'proxy' : '';
 }
 
 export function getGeminiModelId(): string {
-  const fromEnv = import.meta.env.VITE_GEMINI_MODEL?.trim();
-  return fromEnv && fromEnv.length > 0 ? fromEnv : GEMINI_MODEL_DEFAULT;
-}
-
-function buildGeminiGenerateContentUrl(apiKey: string): string {
-  const modelId = getGeminiModelId();
-  const path = `${GEMINI_API_VERSION}/models/${modelId}:generateContent`;
-  return `${GEMINI_API_HOST}/${path}?key=${encodeURIComponent(apiKey)}`;
+  return GEMINI_MODEL_DEFAULT;
 }
 
 export function getGeminiGenerateContentUrlForLogging(): string {
   const modelId = getGeminiModelId();
   const path = `${GEMINI_API_VERSION}/models/${modelId}:generateContent`;
-  return `${GEMINI_API_HOST}/${path}?key=<REDACTED>`;
-}
-
-function parseRetryAfterMs(response: Response): number | null {
-  const ra = response.headers.get('Retry-After');
-  if (!ra) return null;
-  const sec = parseInt(ra, 10);
-  if (!Number.isNaN(sec) && sec >= 0) return Math.min(sec * 1000, MAX_429_WAIT_MS);
-  const until = Date.parse(ra);
-  if (!Number.isNaN(until)) return Math.min(Math.max(0, until - Date.now()), MAX_429_WAIT_MS);
-  return null;
-}
-
-function parseRetryDelayFromGoogleErrorBody(rawBody: string): number | null {
-  const quoted = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/i.exec(rawBody);
-  if (quoted) {
-    return Math.min(parseFloat(quoted[1]) * 1000, MAX_429_WAIT_MS);
-  }
-  try {
-    const j = JSON.parse(rawBody) as {
-      error?: { details?: Array<Record<string, unknown>> };
-    };
-    for (const d of j.error?.details ?? []) {
-      const t = typeof d['@type'] === 'string' ? (d['@type'] as string) : '';
-      if (!t.includes('RetryInfo')) continue;
-      const rd = d.retryDelay;
-      if (typeof rd === 'string') {
-        const m = /^(\d+(?:\.\d+)?)s$/i.exec(rd.trim());
-        if (m) return Math.min(parseFloat(m[1]) * 1000, MAX_429_WAIT_MS);
-      }
-      if (rd && typeof rd === 'object' && rd !== null && 'seconds' in rd) {
-        const sec = Number((rd as { seconds?: unknown }).seconds);
-        if (!Number.isNaN(sec)) return Math.min(sec * 1000, MAX_429_WAIT_MS);
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
+  return `${GEMINI_API_HOST}/${path}?via=gemini-proxy`;
 }
 
 function clampMs(n: number, min: number, max: number): number {
@@ -86,21 +52,56 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-type GenerateContentResponse = {
-  candidates?: Array<{
-    content?: { parts?: Array<{ text?: string }> };
-    finishReason?: string;
-  }>;
-  error?: { code?: number; message?: string; status?: string };
-};
+async function invokeHttpStatus(error: unknown): Promise<number | null> {
+  if (!error || typeof error !== 'object') return null;
+  const ctx = (error as { context?: unknown }).context;
+  if (ctx instanceof Response && typeof ctx.status === 'number') {
+    return ctx.status;
+  }
+  return null;
+}
 
-function getResponseText(data: GenerateContentResponse): string {
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (typeof text === 'string' && text.trim()) return text;
-  const reason = data.candidates?.[0]?.finishReason;
-  throw new Error(
-    reason ? `Empty model text (finishReason: ${reason})` : 'Empty model response text'
+function isLikelyRateLimit(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /\b429\b/.test(msg) || /rate limit/i.test(msg);
+}
+
+type ProxySuccess = { text: string; model?: string };
+
+async function invokeGeminiProxy(
+  generation: GeminiGenerationBody,
+  patientInitials?: string
+): Promise<ProxySuccess> {
+  if (!supabase) {
+    throw new Error(
+      'Missing Supabase configuration (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY). AI uses Edge Function gemini-proxy.'
+    );
+  }
+
+  const { data, error } = await supabase.functions.invoke<ProxySuccess | { error?: string }>(
+    'gemini-proxy',
+    { body: { generation, patientInitials } }
   );
+
+  if (error) {
+    const status = await invokeHttpStatus(error);
+    if (status === 429 || isLikelyRateLimit(error)) {
+      throw new GeminiRateLimitedError(
+        'מכסת הבקשות ל-Gemini מלאה (429). המתינו דקות ספורות או בדקו מכסה ב-Google AI Studio.'
+      );
+    }
+    throw new Error(error.message || 'gemini-proxy invoke failed');
+  }
+
+  if (data && typeof data === 'object' && 'error' in data && typeof (data as { error?: string }).error === 'string') {
+    throw new Error((data as { error: string }).error);
+  }
+
+  if (!data || typeof (data as ProxySuccess).text !== 'string') {
+    throw new Error('Invalid response from gemini-proxy');
+  }
+
+  return data as ProxySuccess;
 }
 
 export type GeminiGenerationBody = {
@@ -112,24 +113,26 @@ export type GeminiGenerationBody = {
 export type GeminiRequestOptions = {
   logPrefix: string;
   logDetail?: Record<string, unknown>;
+  /** Passed to the proxy for de-identification (Latin "First Last" → this label). */
+  patientInitials?: string;
 };
 
 /**
- * POST generateContent עם גוף מלא (תור שיחה או הודעה בודדת).
+ * generateContent דרך Edge Function `gemini-proxy`.
  */
 export async function geminiGenerateFromBody(
   body: GeminiGenerationBody,
   options: GeminiRequestOptions
 ): Promise<string> {
-  const apiKey = getGeminiApiKey();
-  if (!apiKey) {
-    throw new Error('Missing VITE_GEMINI_API_KEY');
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error(
+      'Missing Supabase configuration. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY; deploy gemini-proxy and GEMINI_API_KEY secret.'
+    );
   }
 
   const modelId = getGeminiModelId();
-  const url = buildGeminiGenerateContentUrl(apiKey);
   const urlForLog = getGeminiGenerateContentUrlForLogging();
-  const { logPrefix, logDetail } = options;
+  const { logPrefix, logDetail, patientInitials } = options;
 
   let lastError: Error | null = null;
   let count429 = 0;
@@ -137,96 +140,43 @@ export async function geminiGenerateFromBody(
   for (let attempt = 0; attempt < MAX_NON_OK_RETRIES; attempt++) {
     try {
       if (attempt === 0) {
-        console.info(`[${logPrefix}] generateContent`, {
+        console.info(`[${logPrefix}] gemini-proxy`, {
           modelId,
           requestUrlKeyRedacted: urlForLog,
           ...logDetail,
         });
       }
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      const rawBody = await response.text();
-
-      if (response.status === 429) {
+      const { text } = await invokeGeminiProxy(body, patientInitials);
+      return text;
+    } catch (err) {
+      if (err instanceof GeminiRateLimitedError) {
         count429++;
         console.warn(`[${logPrefix}] 429`, { modelId, count429 });
         if (count429 >= 2) {
-          throw new GeminiRateLimitedError(
-            'מכסת הבקשות ל-Gemini מלאה (429). המתינו דקות ספורות או בדקו מכסה ב-Google AI Studio.'
-          );
+          throw err;
         }
-        const waitMs = clampMs(
-          parseRetryAfterMs(response) ??
-            parseRetryDelayFromGoogleErrorBody(rawBody) ??
-            DEFAULT_429_WAIT_MS,
-          3_000,
-          MAX_429_WAIT_MS
-        );
-        await sleep(waitMs);
+        await sleep(clampMs(DEFAULT_429_WAIT_MS, 3_000, MAX_429_WAIT_MS));
         continue;
       }
 
-      if (response.status === 404) {
-        console.error(`[${logPrefix}] 404`, { requestUrlKeyRedacted: urlForLog, preview: rawBody.slice(0, 280) });
-        throw new Error(`Gemini API HTTP 404: ${rawBody.slice(0, 200)}`);
-      }
-
-      if (response.status === 400) {
-        console.error(`[${logPrefix}] 400`, { preview: rawBody.slice(0, 280) });
-        throw new Error(`Gemini API HTTP 400: ${rawBody.slice(0, 200)}`);
-      }
-
-      if (!response.ok) {
-        console.error(`[${logPrefix}] HTTP ${response.status}`, { preview: rawBody.slice(0, 400) });
-        lastError = new Error(`Gemini API HTTP ${response.status}: ${rawBody.slice(0, 200)}`);
-        if (response.status >= 500 && attempt < MAX_NON_OK_RETRIES - 1) {
-          const delay =
-            SERVER_ERROR_BACKOFF_MS[Math.min(attempt, SERVER_ERROR_BACKOFF_MS.length - 1)] ?? 2000;
-          await sleep(delay);
-          continue;
-        }
-        throw lastError;
-      }
-
-      let data: GenerateContentResponse;
-      try {
-        data = JSON.parse(rawBody) as GenerateContentResponse;
-      } catch {
-        lastError = new Error('Invalid JSON from Gemini API');
-        if (attempt < MAX_NON_OK_RETRIES - 1) {
-          const delay =
-            SERVER_ERROR_BACKOFF_MS[Math.min(attempt, SERVER_ERROR_BACKOFF_MS.length - 1)] ?? 2000;
-          await sleep(delay);
-          continue;
-        }
-        throw lastError;
-      }
-
-      if (data.error?.message) {
-        throw new Error(`Gemini API error: ${data.error.message}`);
-      }
-
-      return getResponseText(data);
-    } catch (err) {
-      if (err instanceof GeminiRateLimitedError) throw err;
       lastError = err instanceof Error ? err : new Error(String(err));
-      if (
-        lastError.message.startsWith('Gemini API HTTP') ||
-        lastError.message.startsWith('Gemini API error')
-      ) {
-        throw lastError;
-      }
-      console.warn(`[${logPrefix}] fetch/parse retry`, { message: lastError.message });
-      if (attempt < MAX_NON_OK_RETRIES - 1) {
+
+      const retriable =
+        lastError.message.includes('502') ||
+        lastError.message.includes('503') ||
+        lastError.message.includes('504') ||
+        /fetch/i.test(lastError.message);
+
+      if (retriable && attempt < MAX_NON_OK_RETRIES - 1) {
         const delay =
           SERVER_ERROR_BACKOFF_MS[Math.min(attempt, SERVER_ERROR_BACKOFF_MS.length - 1)] ?? 2000;
+        console.warn(`[${logPrefix}] retry`, { message: lastError.message });
         await sleep(delay);
+        continue;
       }
+
+      throw lastError;
     }
   }
 
@@ -241,6 +191,7 @@ export type GeminiTextParams = {
   responseMimeType?: string | null;
   logPrefix: string;
   logDetail?: Record<string, unknown>;
+  patientInitials?: string;
 };
 
 export async function geminiGenerateText(params: GeminiTextParams): Promise<string> {
@@ -262,6 +213,7 @@ export async function geminiGenerateText(params: GeminiTextParams): Promise<stri
   return geminiGenerateFromBody(body, {
     logPrefix: params.logPrefix,
     logDetail: params.logDetail,
+    patientInitials: params.patientInitials,
   });
 }
 
@@ -274,6 +226,7 @@ export type GeminiChatParams = {
   temperature?: number;
   logPrefix: string;
   logDetail?: Record<string, unknown>;
+  patientInitials?: string;
 };
 
 /** תור שיחה — role assistant ממופה ל-model ב-API. */
@@ -295,5 +248,6 @@ export async function geminiGenerateChat(params: GeminiChatParams): Promise<stri
   return geminiGenerateFromBody(body, {
     logPrefix: params.logPrefix,
     logDetail: params.logDetail,
+    patientInitials: params.patientInitials,
   });
 }

@@ -203,8 +203,10 @@ export async function analyzeIntakeStoryWithGemini(
   opts?: { followUp?: boolean }
 ): Promise<GeminiClinicalIntakeResult> {
   if (!getGeminiApiKey()) {
-    logError('Missing VITE_GEMINI_API_KEY (or placeholder YOUR_KEY_HERE)');
-    throw new Error('Missing VITE_GEMINI_API_KEY');
+    logError('Supabase not configured or session missing — AI uses Edge Function gemini-proxy');
+    throw new Error(
+      'Missing Supabase AI setup: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY, deployed gemini-proxy, and GEMINI_API_KEY secret'
+    );
   }
 
   const trimmedStory = patientStory.trim();
