@@ -148,6 +148,11 @@ export interface Patient {
   id: string;
   /** מטפל אחראי — סינון דשבורד ורישום מטופלים חדשים */
   therapistId: string;
+  /**
+   * מזהה כניסה לפורטל (רמזים לפרטיות, לדוגמה JD) — קבוע אחרי יצירה; ייחודי במערכת (Supabase Auth).
+   * מטופלים ישנים ללא שדה: נגזר ממפתח הדמו PT-… ב־auth מקומי.
+   */
+  portalUsername?: string;
   name: string;
   age: number;
   diagnosis: string;

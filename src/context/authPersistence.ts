@@ -15,7 +15,7 @@ export const SEED_PATIENT_PORTAL_PASSWORD = 'GuardianPatient';
  * נשמר ב-localStorage; אידמפוטנטי.
  */
 export function ensurePatientAccountsForPatients(
-  patients: Array<{ id: string; therapistId: string }>
+  patients: Array<{ id: string; therapistId: string; portalUsername?: string }>
 ): { added: number } {
   const snap = loadAuthSnapshot();
   let added = 0;
@@ -37,9 +37,12 @@ export function ensurePatientAccountsForPatients(
     return key;
   };
 
-  for (const { id, therapistId } of patients) {
+  for (const { id, therapistId, portalUsername } of patients) {
     if (existingLoginForPatient(id)) continue;
-    const key = allocateLoginKey(id);
+    const pu = typeof portalUsername === 'string' ? portalUsername.trim().toUpperCase() : '';
+    const key =
+      pu.length >= 2 ? pu.replace(/[^A-Z0-9]/g, '') : allocateLoginKey(id);
+    if (!key) continue;
     if (patientAccounts[key]?.patientId === id) continue;
     patientAccounts[key] = {
       patientId: id,
@@ -414,26 +417,13 @@ export function verifyAndUpdatePatientPassword(
   return 'ok';
 }
 
-export type PatientLoginChangeResult = 'ok' | 'bad_password' | 'invalid_id' | 'taken';
+export type PatientLoginChangeResult = 'ok' | 'bad_password' | 'invalid_id' | 'taken' | 'locked';
 
+/** מזהה פורטל נשמר קבוע (מדיניות פרטיות) — שינוי עצמי של המטופל אינו מותר. */
 export function verifyAndUpdatePatientLoginId(
-  patientId: string,
-  currentPassword: string,
-  newLoginIdRaw: string
+  _patientId: string,
+  _currentPassword: string,
+  _newLoginIdRaw: string
 ): PatientLoginChangeResult {
-  const snap = loadAuthSnapshot();
-  const newKey = newLoginIdRaw.trim().toUpperCase();
-  if (!/^PT-[A-Z0-9-]{4,}$/.test(newKey)) {
-    return 'invalid_id';
-  }
-  const entry = Object.entries(snap.patientAccounts).find(([, a]) => a.patientId === patientId);
-  if (!entry) return 'bad_password';
-  const [oldKey, acc] = entry;
-  if (acc.password !== currentPassword.trim()) return 'bad_password';
-  if (snap.patientAccounts[newKey] && newKey !== oldKey) return 'taken';
-  const patientAccounts = { ...snap.patientAccounts };
-  delete patientAccounts[oldKey];
-  patientAccounts[newKey] = { ...acc };
-  saveAuthSnapshot({ ...snap, patientAccounts });
-  return 'ok';
+  return 'locked';
 }

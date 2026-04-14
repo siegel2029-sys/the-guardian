@@ -2,24 +2,20 @@ import { useState, useEffect } from 'react';
 import { X, Settings } from 'lucide-react';
 import type { Patient } from '../../types';
 import { bodyAreaLabels } from '../../types';
-import type {
-  PatientLoginChangeResult,
-  PatientPasswordChangeResult,
-} from '../../context/authPersistence';
+import type { PatientPasswordChangeResult } from '../../context/authPersistence';
 
 type Props = {
   open: boolean;
   onClose: () => void;
   patient: Patient;
+  /** מזהה פורטל (רמזים) — תצוגה בלבד */
   patientLoginId: string | null;
-  changePatientLoginId: (
-    currentPassword: string,
-    newLoginId: string
-  ) => PatientLoginChangeResult;
   completePatientPasswordChange: (
     currentPassword: string,
     newPassword: string
-  ) => PatientPasswordChangeResult;
+  ) => Promise<PatientPasswordChangeResult>;
+  /** כאשר true — אין אימות סיסמה נוכחית בשרת (מעדכן סיסמה ישירות) */
+  supabasePasswordMode?: boolean;
 };
 
 function formatJoinDate(iso: string): string {
@@ -37,10 +33,9 @@ export default function PatientPortalSettingsModal({
   onClose,
   patient,
   patientLoginId,
-  changePatientLoginId,
   completePatientPasswordChange,
+  supabasePasswordMode = false,
 }: Props) {
-  const [newLoginIdInput, setNewLoginIdInput] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -49,7 +44,6 @@ export default function PatientPortalSettingsModal({
 
   useEffect(() => {
     if (!open) return;
-    setNewLoginIdInput('');
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
@@ -59,68 +53,45 @@ export default function PatientPortalSettingsModal({
 
   if (!open) return null;
 
-  const wantLoginChange =
-    newLoginIdInput.trim() !== '' &&
-    newLoginIdInput.trim().toUpperCase() !== (patientLoginId ?? '').toUpperCase();
   const wantPasswordChange = newPassword.trim() !== '';
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setFormError(null);
     setSavedOk(false);
 
-    if (!wantLoginChange && !wantPasswordChange) {
-      setFormError('אין שינויים לשמירה.');
+    if (!wantPasswordChange) {
+      setFormError('הזינו סיסמה חדשה לשמירה.');
       return;
     }
 
-    if (!currentPassword.trim()) {
+    if (!supabasePasswordMode && !currentPassword.trim()) {
       setFormError('יש להזין את הסיסמה הנוכחית לאימות.');
       return;
     }
 
-    if (wantPasswordChange) {
-      if (newPassword !== confirmPassword) {
-        setFormError('הסיסמאות החדשות אינן תואמות.');
-        return;
-      }
+    if (newPassword !== confirmPassword) {
+      setFormError('הסיסמאות החדשות אינן תואמות.');
+      return;
     }
 
-    const pw = currentPassword;
-
-    if (wantLoginChange) {
-      const r = changePatientLoginId(pw, newLoginIdInput.trim());
-      if (r !== 'ok') {
-        if (r === 'invalid_id') {
-          setFormError('מזהה לא תקין. נדרש פורמט PT- עם לפחות 4 תווים אחרי המקף.');
-        } else if (r === 'bad_password') {
-          setFormError('סיסמה נוכחית שגויה.');
-        } else if (r === 'taken') {
-          setFormError('מזהה זה כבר בשימוש.');
-        } else {
-          setFormError('לא ניתן לעדכן את מזהה הכניסה.');
-        }
+    const r = await completePatientPasswordChange(
+      supabasePasswordMode ? '' : currentPassword,
+      newPassword
+    );
+    if (r !== 'ok') {
+      if (r === 'bad_current') {
+        setFormError('סיסמה נוכחית שגויה.');
         return;
       }
-    }
-
-    if (wantPasswordChange) {
-      const r = completePatientPasswordChange(pw, newPassword);
-      if (r !== 'ok') {
-        if (r === 'bad_current') {
-          setFormError('סיסמה נוכחית שגויה.');
-          return;
-        }
-        if (r === 'invalid_new') {
-          setFormError('סיסמה חדשה קצרה מדי (לפחות 6 תווים).');
-          return;
-        }
-        setFormError('לא ניתן לעדכן את הסיסמה.');
+      if (r === 'invalid_new') {
+        setFormError('סיסמה חדשה קצרה מדי (לפחות 6 תווים) או לא תקינה.');
         return;
       }
+      setFormError('לא ניתן לעדכן את הסיסמה.');
+      return;
     }
 
     setSavedOk(true);
-    setNewLoginIdInput('');
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
@@ -163,7 +134,7 @@ export default function PatientPortalSettingsModal({
             <h3 className="text-xs font-bold text-slate-600">פרטי מטופל</h3>
             <dl className="space-y-2 text-sm">
               <div>
-                <dt className="text-xs text-slate-500">שם מלא</dt>
+                <dt className="text-xs text-slate-500">שם תצוגה</dt>
                 <dd className="font-semibold text-slate-900">{patient.name}</dd>
               </div>
               <div>
@@ -180,45 +151,39 @@ export default function PatientPortalSettingsModal({
           </section>
 
           <section className="space-y-3">
-            <h3 className="text-xs font-bold text-slate-600">ניהול התחברות</h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              מזהה נוכחי:{' '}
-              <span className="font-mono font-semibold text-slate-700">{patientLoginId ?? '—'}</span>
-            </p>
+            <h3 className="text-xs font-bold text-slate-600">מזהה כניסה לפורטל</h3>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              לשינוי מזהה: פורמט PT- ואז אותיות ומספרים באנגלית (למשל PT-MYID01). השאר ריק אם אין
-              שינוי.
+              מזהה הפורטל (רמזים לפרטיות) נקבע על ידי המטפל בעת היצירה ואינו ניתן לשינוי.
             </p>
-            <div>
-              <label htmlFor="settings-new-login" className="block text-xs font-medium text-slate-600 mb-1">
-                שם משתמש / מזהה כניסה חדש
-              </label>
-              <input
-                id="settings-new-login"
-                type="text"
-                value={newLoginIdInput}
-                onChange={(e) => setNewLoginIdInput(e.target.value.toUpperCase())}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-mono"
-                placeholder="השאר ריק או PT-..."
-                autoComplete="username"
-              />
-            </div>
-            <div>
-              <label htmlFor="settings-current-pw" className="block text-xs font-medium text-slate-600 mb-1">
-                סיסמה נוכחית (לאימות)
-              </label>
-              <input
-                id="settings-current-pw"
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                autoComplete="current-password"
-              />
-            </div>
+            <input
+              type="text"
+              readOnly
+              value={patientLoginId ?? patient.portalUsername ?? '—'}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-mono text-slate-700 cursor-default"
+              aria-label="מזהה פורטל (קריאה בלבד)"
+            />
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="text-xs font-bold text-slate-600">שינוי סיסמה</h3>
+            {!supabasePasswordMode && (
+              <div>
+                <label htmlFor="settings-current-pw" className="block text-xs font-medium text-slate-600 mb-1">
+                  סיסמה נוכחית (לאימות)
+                </label>
+                <input
+                  id="settings-current-pw"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                  autoComplete="current-password"
+                />
+              </div>
+            )}
             <div>
               <label htmlFor="settings-new-pw" className="block text-xs font-medium text-slate-600 mb-1">
-                סיסמה חדשה (אופציונלי)
+                סיסמה חדשה
               </label>
               <input
                 id="settings-new-pw"
@@ -259,10 +224,10 @@ export default function PatientPortalSettingsModal({
             </button>
             <button
               type="button"
-              onClick={handleSave}
+              onClick={() => void handleSave()}
               className="flex-1 py-3 rounded-2xl font-semibold text-white bg-medical-primary hover:bg-medical-primary/90 shadow-sm"
             >
-              שמור שינויים
+              שמור סיסמה
             </button>
           </div>
         </div>

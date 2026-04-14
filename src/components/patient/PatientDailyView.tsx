@@ -104,7 +104,7 @@ export default function PatientDailyView() {
     patientMustChangePassword,
     completePatientPasswordChange,
     patientLoginId,
-    changePatientLoginId,
+    usesSupabaseSession,
   } = useAuth();
   const {
     selectedPatient,
@@ -701,13 +701,13 @@ export default function PatientDailyView() {
     setReportInitialEffort(undefined);
   };
 
-  const submitPasswordChange = () => {
+  const submitPasswordChange = async () => {
     setPwFormError(null);
     if (pwNew !== pwConfirm) {
       setPwFormError('הסיסמאות החדשות אינן תואמות.');
       return;
     }
-    const r = completePatientPasswordChange(pwCurrent, pwNew);
+    const r = await completePatientPasswordChange(pwCurrent, pwNew);
     if (r === 'bad_current') setPwFormError('סיסמה נוכחית שגויה.');
     else if (r === 'invalid_new') setPwFormError('סיסמה חדשה קצרה מדי (לפחות 6 תווים).');
     else {
@@ -729,8 +729,7 @@ export default function PatientDailyView() {
             <button
               type="button"
               onClick={() => {
-                logout();
-                navigate('/login', { replace: true });
+                void logout().then(() => navigate('/login', { replace: true }));
               }}
               className="px-5 py-3 rounded-2xl border-2 border-slate-300 text-slate-800 font-semibold text-base"
             >
@@ -956,8 +955,7 @@ export default function PatientDailyView() {
               <button
                 type="button"
                 onClick={() => {
-                  logout();
-                  navigate('/login', { replace: true });
+                  void logout().then(() => navigate('/login', { replace: true }));
                 }}
                 title="התנתקות"
                 className="flex shrink-0 items-center justify-center gap-1 min-h-11 ps-2 pe-2.5 rounded-xl hover:bg-slate-50 border border-slate-200 text-slate-700"
@@ -1718,7 +1716,7 @@ export default function PatientDailyView() {
             )}
             <button
               type="button"
-              onClick={submitPasswordChange}
+              onClick={() => void submitPasswordChange()}
               className="mt-5 w-full py-3 rounded-2xl font-semibold text-white"
               style={{ background: 'linear-gradient(135deg, #0d9488, #059669)' }}
             >
@@ -1734,8 +1732,8 @@ export default function PatientDailyView() {
           onClose={() => setSettingsModalOpen(false)}
           patient={selectedPatient}
           patientLoginId={patientLoginId}
-          changePatientLoginId={changePatientLoginId}
           completePatientPasswordChange={completePatientPasswordChange}
+          supabasePasswordMode={usesSupabaseSession}
         />
       )}
     </div>

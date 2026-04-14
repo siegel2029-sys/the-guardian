@@ -5,7 +5,7 @@ import { getTherapistRecord } from '../../context/authPersistence';
 import { usePatient } from '../../context/PatientContext';
 
 export default function TherapistSettingsPanel() {
-  const { therapist, updateTherapistProfile } = useAuth();
+  const { therapist, updateTherapistProfile, usesSupabaseSession } = useAuth();
   const {
     supabaseConfigured,
     supabaseSyncStatus,
@@ -29,7 +29,7 @@ export default function TherapistSettingsPanel() {
 
   if (!therapist) return null;
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     setSaved(false);
@@ -51,10 +51,14 @@ export default function TherapistSettingsPanel() {
       setError('אימות הסיסמה אינו תואם.');
       return;
     }
-    updateTherapistProfile(name, em, password);
-    setPassword('');
-    setConfirm('');
-    setSaved(true);
+    try {
+      await updateTherapistProfile(name, em, password);
+      setPassword('');
+      setConfirm('');
+      setSaved(true);
+    } catch {
+      setError('לא ניתן לעדכן את הפרופיל. נסו שוב.');
+    }
   };
 
   return (
@@ -65,9 +69,18 @@ export default function TherapistSettingsPanel() {
           <h2 className="text-lg font-bold text-slate-800">הגדרות מטפל</h2>
         </div>
         <p className="text-sm text-slate-500 mb-6">
-          שם תצוגה, דוא״ל וסיסמה נשמרים במכשיר זה (localStorage). מזהה מטפל:{' '}
-          <span className="font-mono text-xs text-slate-600">{therapist.id}</span> — לסינון מטופלים בין
-          מטפלים.
+          {usesSupabaseSession ? (
+            <>
+              חשבון מקושר ל־Supabase Auth. דוא״ל וסיסמה מעודכנים בשרת. מזהה פנימי (לא ניתן לשינוי):{' '}
+              <span className="font-mono text-xs text-slate-600 break-all">{therapist.id}</span>
+            </>
+          ) : (
+            <>
+              שם תצוגה, דוא״ל וסיסמה נשמרים במכשיר זה (localStorage). מזהה מטפל:{' '}
+              <span className="font-mono text-xs text-slate-600">{therapist.id}</span> — לסינון מטופלים בין
+              מטפלים.
+            </>
+          )}
         </p>
 
         <form

@@ -6,8 +6,11 @@ function trimEnv(v: string | undefined): string {
   return v.trim();
 }
 
-const url = trimEnv(import.meta.env.VITE_SUPABASE_URL);
-const anonKey = trimEnv(import.meta.env.VITE_SUPABASE_ANON_KEY);
+export const supabaseUrl = trimEnv(import.meta.env.VITE_SUPABASE_URL);
+export const supabaseAnonKey = trimEnv(import.meta.env.VITE_SUPABASE_ANON_KEY);
+
+const url = supabaseUrl;
+const anonKey = supabaseAnonKey;
 
 /**
  * True when both Vite env vars are non-empty — safe to call the client for requests.

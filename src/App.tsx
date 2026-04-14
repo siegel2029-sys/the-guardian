@@ -25,14 +25,14 @@ function PatientPortalRoute() {
     return <Navigate to="/therapist" replace />;
   }
   return (
-    <PatientProvider therapistScopeId={null} restrictPatientSessionId={patientSessionId}>
+    <PatientProvider therapistScopeIds={null} restrictPatientSessionId={patientSessionId}>
       <PatientDailyView />
     </PatientProvider>
   );
 }
 
 function TherapistRoute() {
-  const { isAuthenticated, sessionRole, therapist } = useAuth();
+  const { isAuthenticated, sessionRole, therapistPatientScopeIds } = useAuth();
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
@@ -40,7 +40,10 @@ function TherapistRoute() {
     return <Navigate to="/patient-portal" replace />;
   }
   return (
-    <PatientProvider therapistScopeId={therapist?.id ?? null} restrictPatientSessionId={null}>
+    <PatientProvider
+      therapistScopeIds={therapistPatientScopeIds.length > 0 ? therapistPatientScopeIds : null}
+      restrictPatientSessionId={null}
+    >
       <DashboardLayout />
     </PatientProvider>
   );

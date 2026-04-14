@@ -34,6 +34,10 @@ const ALL_AREAS = Object.keys(bodyAreaLabels) as BodyArea[];
 
 type Props = {
   initialPatientName: string;
+  /** מזהה פורטל קבוע (רמזים) — לא ניתן לעריכה; נכלל בניתוח AI כמזהה פנימי */
+  lockedPortalUsername?: string | null;
+  /** יצירה מסרגל צד vs עריכה מסקירת מטפל */
+  clinicalIntakeMode?: 'create' | 'edit';
   onClose: () => void;
   onSave: (
     primaryBodyArea: BodyArea,
@@ -83,8 +87,17 @@ function buildLocalBundle(story: string, local: ClinicalIntakeAnalysis): Analysi
   };
 }
 
-async function runIntakeAnalysis(story: string, followUp: boolean): Promise<AnalysisBundle> {
+async function runIntakeAnalysis(
+  story: string,
+  followUp: boolean,
+  portalIdentity?: string | null
+): Promise<AnalysisBundle> {
   const trimmed = story.trim();
+  const identitySuffix =
+    portalIdentity && portalIdentity.trim()
+      ? `\n\n[מזהה פורטל קבוע (מעקב פנימי בלבד, לא שם מלא): ${portalIdentity.trim()}]`
+      : '';
+  const forModel = trimmed + identitySuffix;
   const local = analyzeClinicalNote(trimmed);
 
   if (!getGeminiApiKey()) {
@@ -92,7 +105,7 @@ async function runIntakeAnalysis(story: string, followUp: boolean): Promise<Anal
   }
 
   try {
-    const g = await analyzeIntakeStoryWithGemini(trimmed, { followUp });
+    const g = await analyzeIntakeStoryWithGemini(forModel, { followUp });
     const primaryBodyArea =
       g.primaryInjuryZoneJoint ?? local.primaryBodyArea ?? 'back_lower';
 
@@ -149,9 +162,12 @@ async function runIntakeAnalysis(story: string, followUp: boolean): Promise<Anal
 
 export default function ClinicalAiIntakeWizard({
   initialPatientName,
+  lockedPortalUsername = null,
+  clinicalIntakeMode: _clinicalIntakeMode = 'edit',
   onClose,
   onSave,
 }: Props) {
+  void _clinicalIntakeMode;
   const [step, setStep] = useState<Step>('intake');
   const [intakeName, setIntakeName] = useState(initialPatientName);
   const [intakeStory, setIntakeStory] = useState('');
@@ -177,7 +193,7 @@ export default function ClinicalAiIntakeWizard({
     setAnalysisError(null);
     setIsAnalyzing(true);
     try {
-      const bundle = await runIntakeAnalysis(story, followUpIntake);
+      const bundle = await runIntakeAnalysis(story, followUpIntake, lockedPortalUsername);
       setAnalysisBundle(bundle);
       setPrimary(bundle.primaryBodyArea);
       setSelectedIds(new Set(bundle.proposedExercises.map((e) => e.id)));
@@ -280,6 +296,16 @@ export default function ClinicalAiIntakeWizard({
         <div className="p-5 overflow-y-auto flex-1 space-y-4">
           {step === 'intake' && (
             <>
+              {lockedPortalUsername && (
+                <div
+                  className="rounded-xl border border-teal-200 bg-teal-50/90 px-3 py-2 text-[11px] text-teal-950 leading-relaxed"
+                  role="status"
+                >
+                  <span className="font-bold">מזהה פורטל (קבוע): </span>
+                  <span className="font-mono font-semibold">{lockedPortalUsername}</span>
+                  <span className="text-teal-800"> — לא ניתן לשינוי לאחר שמירת המטופל.</span>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">שם תצוגה</label>
                 <input

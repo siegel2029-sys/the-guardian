@@ -89,6 +89,7 @@ export default function PatientOverview() {
   const plan = getExercisePlan(p.id);
   const exerciseCount = plan?.exercises.length ?? 0;
   const portalAccess = getPatientCredentialsByPatientId(p.id);
+  const portalUsernameDisplay = p.portalUsername ?? portalAccess?.loginId ?? null;
   const needsClinicalSetup = p.status === 'pending' || exerciseCount === 0;
 
   const copyField = async (text: string) => {
@@ -253,7 +254,7 @@ export default function PatientOverview() {
 
         <PatientDataManagement patient={p} />
 
-        {portalAccess ? (
+        {portalUsernameDisplay || portalAccess ? (
           <div
             className="rounded-2xl p-5 border shadow-sm mb-5 text-white"
             style={{
@@ -266,54 +267,66 @@ export default function PatientOverview() {
               <h3 className="text-sm font-bold">גישה לפורטל מטופל</h3>
             </div>
             <p className="text-xs text-slate-400 mb-4 leading-relaxed">
-              העבירו למטופל את המזהה והסיסמה להתחברות ב־/login. השמירו במקום מאובטח — הדמו שומר בדפדפן בלבד.
+              מזהה הפורטל (רמזים) <strong>קבוע</strong> — אי אפשר לשנותו אחרי היצירה. בכניסה ל־/login יש להזין את
+              המזהה ואת הסיסמה (לא דוא״ל).
             </p>
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2 flex-wrap bg-slate-800/80 rounded-xl px-3 py-2.5">
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">מזהה ייחודי</p>
-                  <code className="text-sm font-mono font-bold text-blue-300">{portalAccess.loginId}</code>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                    מזהה פורטל (קבוע)
+                  </p>
+                  <code className="text-sm font-mono font-bold text-blue-300">{portalUsernameDisplay ?? '—'}</code>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => copyField(portalAccess.loginId)}
-                  className="p-2 rounded-lg text-slate-300 hover:bg-slate-700"
-                  title="העתקה"
-                >
-                  <Copy className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="flex items-center justify-between gap-2 flex-wrap bg-slate-800/80 rounded-xl px-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">סיסמה</p>
-                  <code className="text-sm font-mono font-bold text-amber-200 break-all">
-                    {revealPortalPassword ? portalAccess.password : '••••••••'}
-                  </code>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
+                {portalUsernameDisplay && (
                   <button
                     type="button"
-                    onClick={() => setRevealPortalPassword((v) => !v)}
-                    className="p-2 rounded-lg text-slate-300 hover:bg-slate-700"
-                    title={revealPortalPassword ? 'הסתר' : 'הצג'}
-                  >
-                    {revealPortalPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => copyField(portalAccess.password)}
+                    onClick={() => copyField(portalUsernameDisplay)}
                     className="p-2 rounded-lg text-slate-300 hover:bg-slate-700"
                     title="העתקה"
                   >
                     <Copy className="w-4 h-4" />
                   </button>
-                </div>
+                )}
               </div>
+              {portalAccess ? (
+                <div className="flex items-center justify-between gap-2 flex-wrap bg-slate-800/80 rounded-xl px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">סיסמה (דמו)</p>
+                    <code className="text-sm font-mono font-bold text-amber-200 break-all">
+                      {revealPortalPassword ? portalAccess.password : '••••••••'}
+                    </code>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setRevealPortalPassword((v) => !v)}
+                      className="p-2 rounded-lg text-slate-300 hover:bg-slate-700"
+                      title={revealPortalPassword ? 'הסתר' : 'הצג'}
+                    >
+                      {revealPortalPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => copyField(portalAccess.password)}
+                      className="p-2 rounded-lg text-slate-300 hover:bg-slate-700"
+                      title="העתקה"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  סיסמה הוצגה פעם אחת בעת היצירה (Supabase Auth). איפוס סיסמה: דרך הגדרות המטופל בפורטל או ממשק
+                  Supabase.
+                </p>
+              )}
             </div>
           </div>
         ) : (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600 mb-5">
-            אין חשבון פורטל למטופל זה. מטופלים שנוצרו מ־«מטופל חדש + גישה» מקבלים מזהה וסיסמה אוטומטית.
+            אין חשבון פורטל למטופל זה. השתמשו ב־«מטופל חדש + גישה» כדי ליצור מזהה פורטל וסיסמה.
           </div>
         )}
 
@@ -324,6 +337,8 @@ export default function PatientOverview() {
 
         {showClinicalModal && (
           <ClinicalAiIntakeWizard
+            clinicalIntakeMode="edit"
+            lockedPortalUsername={portalUsernameDisplay}
             initialPatientName={p.name}
             onClose={() => setShowClinicalModal(false)}
             onSave={(primaryBodyArea, libraryExerciseIds, extras) =>

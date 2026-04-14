@@ -19,6 +19,15 @@ interface ImportMetaEnv {
    * אותו קובץ `.env` בשורש.
    */
   readonly VITE_SUPABASE_ANON_KEY?: string;
+  /**
+   * דומיין סינתטי לדוא״ל Auth של מטופלים (למשל patient.clinic.internal).
+   * ברירת מחדל: patient.guardian.internal
+   */
+  readonly VITE_PATIENT_AUTH_EMAIL_DOMAIN?: string;
+  /**
+   * כש־true — התחברות דמו מקומית (localStorage) גם כש־Supabase מוגדר.
+   */
+  readonly VITE_USE_LEGACY_AUTH?: string;
 }
 
 interface ImportMeta {

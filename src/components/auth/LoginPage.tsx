@@ -59,7 +59,7 @@ export default function LoginPage() {
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-teal-100">
           <h2 className="text-xl font-semibold text-slate-800 mb-1 text-right">ברוכים הבאים</h2>
           <p className="text-slate-500 text-sm mb-3 text-right">
-            מטפלים: דוא״ל מקצועי. מטופלים: מזהה גישה (למשל PT-…) שקיבלתם מהמטפל.
+            מטפלים: דוא״ל מקצועי. מטופלים: מזהה הפורטל (רמזים, לדוגמה JD) שקיבלתם מהמטפל — לא דוא״ל.
           </p>
           <div className="flex flex-wrap items-center justify-end gap-2 mb-6" dir="rtl">
             <span className="text-[11px] text-slate-500">מטופלים — בונוס כניסה יומית בפורטל:</span>
@@ -73,7 +73,7 @@ export default function LoginPage() {
             {/* Email / Patient ID Field */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                דוא״ל (מטפל) או מזהה גישה (מטופל)
+                דוא״ל (מטפל) או מזהה פורטל (מטופל)
               </label>
               <div className="relative">
                 <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -81,7 +81,7 @@ export default function LoginPage() {
                   type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="michal.levi@… או PT-ABC123"
+                  placeholder="michal.levi@… או JD"
                   required
                   autoComplete="username"
                   className="w-full pr-10 pl-4 py-3 rounded-xl border border-slate-200 text-slate-800 text-sm
@@ -204,14 +204,15 @@ export default function LoginPage() {
                 <p className="font-medium pt-2 border-t border-teal-200/80">דמו מטפל ב׳ (מטופל: שירה בלבד):</p>
                 <p className="font-mono text-xs break-all">{mockTherapistB.email}</p>
                 <p className="font-mono text-xs">{MOCK_THERAPIST_B_PASSWORD}</p>
-                <p className="font-medium pt-2 border-t border-teal-200/80">מטופל (דמו — נוצר אוטומטית):</p>
+                <p className="font-medium pt-2 border-t border-teal-200/80">מטופל (דמו מקומי — ללא Supabase):</p>
                 <p className="text-xs">
                   מזההי גישה: <span className="font-mono">PT-001</span>, <span className="font-mono">PT-002</span>,{' '}
                   <span className="font-mono">PT-003</span> · סיסמה:{' '}
                   <span className="font-mono">{SEED_PATIENT_PORTAL_PASSWORD}</span>
                 </p>
                 <p className="text-xs text-teal-700/90">
-                  מטופל חדש מהמטפל: אחרי «יצירת גישה» יוצגו מזהה וסיסמה — הזינו כאן (לא דוא״ל).
+                  עם Supabase Auth: מזהה הפורטל הוא הרמזים שהוגדרו ביצירה (למשל JD). הגדירו{' '}
+                  <span className="font-mono">VITE_USE_LEGACY_AUTH=true</span> ב־.env לדמו מקומי בלבד.
                 </p>
               </div>
             )}

@@ -48,8 +48,15 @@ import {
 import {
   addPatientAccount,
   ensurePatientAccountsForPatients,
+  loadAuthSnapshot,
   removePatientAccountsForPatient,
 } from './authPersistence';
+import {
+  useSupabaseAuthBridge,
+  signUpPortalPatientOnCreate,
+  normalizePortalUsername,
+  isValidPortalUsername,
+} from '../lib/patientPortalAuth';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 import { bodyAreaBlocksSelfCare, bodyAreaIsClinicalFocus } from '../body/bodyPickMapping';
 import { isChainReactionZoneForPrimary } from '../body/chainReactionZones';
@@ -272,12 +279,17 @@ interface PatientContextValue {
 
   /** כניסה כמטופל בפורטל — נפרד מדשבורד המטפל */
   isPatientSessionLocked: boolean;
-  /** יצירת מטופל + מזהה גישה וסיסמה (נשמר ב-localStorage) */
-  createPatientWithAccess: (displayName: string) => {
-    loginId: string;
-    password: string;
-    patientId: string;
-  };
+  /**
+   * יצירת מטופל + מזהה פורטל קבוע (רמזים) וסיסמה.
+   * עם Supabase Auth — נרשם משתמש Auth; בדמו מקומי — גם localStorage.
+   */
+  createPatientWithAccess: (
+    displayName: string,
+    access: { portalUsername: string; password?: string }
+  ) => Promise<
+    | { ok: true; loginId: string; password: string; patientId: string }
+    | { ok: false; message: string }
+  >;
 
   // Red flags
   resolveRedFlag: (patientId: string) => void;
@@ -490,7 +502,7 @@ const PatientContext = createContext<PatientContextValue | null>(null);
 
 // ── Provider ─────────────────────────────────────────────────────
 
-function randomPatientPassword(): string {
+export function randomPatientPassword(): string {
   const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
   let s = '';
   for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
@@ -542,16 +554,21 @@ function normalizePatientsTherapistIds(list: Patient[]): Patient[] {
   });
 }
 
+function patientMatchesTherapistScope(p: Patient, scopeIds: string[] | null | undefined): boolean {
+  if (!scopeIds || scopeIds.length === 0) return true;
+  return scopeIds.includes(p.therapistId);
+}
+
 export function PatientProvider({
   children,
   restrictPatientSessionId = null,
-  therapistScopeId = null,
+  therapistScopeIds = null,
 }: {
   children: ReactNode;
   /** כשמוגדר — רק מטופל זה, ללא דשבורד מטפל */
   restrictPatientSessionId?: string | null;
-  /** מטפל מחובר — סינון רשימת מטופלים בדשבורד */
-  therapistScopeId?: string | null;
+  /** מטפל מחובר — סינון רשימת מטופלים (תומך בכינוי דמו + UUID מ-Supabase) */
+  therapistScopeIds?: string[] | null;
 }) {
   const [clinicalTick, setClinicalTick] = useState(0);
   useEffect(() => {
@@ -569,11 +586,11 @@ export function PatientProvider({
     if (restrictPatientSessionId) {
       return allPatients.filter((p) => p.id === restrictPatientSessionId);
     }
-    if (therapistScopeId) {
-      return allPatients.filter((p) => p.therapistId === therapistScopeId);
+    if (therapistScopeIds && therapistScopeIds.length > 0) {
+      return allPatients.filter((p) => patientMatchesTherapistScope(p, therapistScopeIds));
     }
     return allPatients;
-  }, [allPatients, therapistScopeId, restrictPatientSessionId]);
+  }, [allPatients, therapistScopeIds, restrictPatientSessionId]);
 
   const [selectedPatientId, setSelectedPatientId] = useState<string>(() => {
     const persisted = readPersistedOnce().patient;
@@ -581,9 +598,10 @@ export function PatientProvider({
     if (restrictPatientSessionId && listAll.some((p) => p.id === restrictPatientSessionId)) {
       return restrictPatientSessionId;
     }
-    const scoped = therapistScopeId
-      ? listAll.filter((p) => p.therapistId === therapistScopeId)
-      : listAll;
+    const scoped =
+      therapistScopeIds && therapistScopeIds.length > 0
+        ? listAll.filter((p) => patientMatchesTherapistScope(p, therapistScopeIds))
+        : listAll;
     const id = persisted?.selectedPatientId;
     if (id && scoped.some((p) => p.id === id)) return id;
     return scoped[0]?.id ?? listAll[0]?.id ?? '';
@@ -695,17 +713,21 @@ export function PatientProvider({
 
   useEffect(() => {
     ensurePatientAccountsForPatients(
-      allPatients.map((p) => ({ id: p.id, therapistId: p.therapistId }))
+      allPatients.map((p) => ({
+        id: p.id,
+        therapistId: p.therapistId,
+        portalUsername: p.portalUsername,
+      }))
     );
   }, [allPatients]);
 
   useEffect(() => {
-    if (!therapistScopeId || restrictPatientSessionId) return;
-    const mine = allPatients.filter((p) => p.therapistId === therapistScopeId);
+    if (!therapistScopeIds?.length || restrictPatientSessionId) return;
+    const mine = allPatients.filter((p) => patientMatchesTherapistScope(p, therapistScopeIds));
     if (!mine.some((p) => p.id === selectedPatientId)) {
       setSelectedPatientId(mine[0]?.id ?? '');
     }
-  }, [therapistScopeId, allPatients, selectedPatientId, restrictPatientSessionId]);
+  }, [therapistScopeIds, allPatients, selectedPatientId, restrictPatientSessionId]);
 
   const clinicalToday = useMemo(() => {
     void clinicalTick;
@@ -919,15 +941,16 @@ export function PatientProvider({
     (id: string, options?: { openSection?: NavSection }) => {
       if (restrictPatientSessionId && id !== restrictPatientSessionId) return;
       if (
-        therapistScopeId &&
-        !allPatients.some((p) => p.id === id && p.therapistId === therapistScopeId)
+        therapistScopeIds &&
+        therapistScopeIds.length > 0 &&
+        !allPatients.some((p) => p.id === id && patientMatchesTherapistScope(p, therapistScopeIds))
       ) {
         return;
       }
       setSelectedPatientId(id);
       setActiveSection(options?.openSection ?? 'overview');
     },
-    [restrictPatientSessionId, therapistScopeId, allPatients]
+    [restrictPatientSessionId, therapistScopeIds, allPatients]
   );
 
   // ── Messages ───────────────────────────────────────────────────
@@ -2113,51 +2136,96 @@ export function PatientProvider({
     []
   );
 
-  const createPatientWithAccess = useCallback((displayName: string) => {
-    const ownerTid = therapistScopeId ?? mockTherapist.id;
-    const name = displayName.trim() || 'מטופל חדש';
-    const patientId = `patient-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const loginId = `PT-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`.toUpperCase();
-    const password = randomPatientPassword();
-    const joinDate = new Date().toISOString().slice(0, 10);
-    const newPatient: Patient = {
-      id: patientId,
-      therapistId: ownerTid,
-      name,
-      age: 30,
-      diagnosis: 'חדש — עדכנו אבחון ואזור גוף',
-      primaryBodyArea: 'back_lower',
-      status: 'pending',
-      level: 1,
-      xp: 0,
-      xpForNextLevel: xpRequiredToReachNextLevel(1),
-      currentStreak: 0,
-      longestStreak: 0,
-      joinDate,
-      lastSessionDate: joinDate,
-      pendingMessages: 0,
-      hasRedFlag: false,
-      redFlagActive: false,
-      therapistNotes: '',
-      coins: 0,
-      injuryHighlightSegments: [],
-      secondaryClinicalBodyAreas: [],
-      analytics: {
-        averageOverallPain: 0,
-        painByArea: {},
-        averageDifficulty: 0,
-        totalSessions: 0,
-        painHistory: [],
-        sessionHistory: [],
-      },
-    };
-    setAllPatients((prev) => [...prev, newPatient]);
-    setExercisePlans((prev) => [...prev, { patientId, exercises: [] }]);
-    addPatientAccount(loginId, patientId, password, ownerTid, { mustChangePassword: true });
-    setSelectedPatientId(patientId);
-    setActiveSection('overview');
-    return { loginId, password, patientId };
-  }, [therapistScopeId]);
+  const createPatientWithAccess = useCallback(
+    async (
+      displayName: string,
+      access: { portalUsername: string; password?: string }
+    ): Promise<
+      | { ok: true; loginId: string; password: string; patientId: string }
+      | { ok: false; message: string }
+    > => {
+      const normalized = normalizePortalUsername(access.portalUsername);
+      if (!isValidPortalUsername(normalized)) {
+        return {
+          ok: false,
+          message: 'נא מזהה פורטל: 2–32 תווים (אנגלית ומספרים), לדוגמה JD.',
+        };
+      }
+      if (allPatients.some((p) => normalizePortalUsername(p.portalUsername ?? '') === normalized)) {
+        return { ok: false, message: 'מזהה הפורטל כבר בשימוש. בחרו רמז אחר (למשל JD2).' };
+      }
+      const snap = loadAuthSnapshot();
+      if (snap.patientAccounts[normalized]) {
+        return { ok: false, message: 'מזהה הפורטל תפוס בחשבון קיים.' };
+      }
+
+      const ownerTid = therapistScopeIds?.[0] ?? mockTherapist.id;
+      const name = displayName.trim() || 'מטופל חדש';
+      const patientId = `patient-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const password =
+        access.password?.trim() && access.password.trim().length >= 6
+          ? access.password.trim()
+          : randomPatientPassword();
+
+      const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? '';
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
+      if (useSupabaseAuthBridge() && url && anonKey) {
+        const su = await signUpPortalPatientOnCreate({
+          url,
+          anonKey,
+          portalUsername: normalized,
+          password,
+          patientId,
+        });
+        if (!su.ok) {
+          return { ok: false, message: su.message };
+        }
+      }
+
+      const joinDate = new Date().toISOString().slice(0, 10);
+      const newPatient: Patient = {
+        id: patientId,
+        therapistId: ownerTid,
+        portalUsername: normalized,
+        name,
+        age: 30,
+        diagnosis: 'חדש — עדכנו אבחון ואזור גוף',
+        primaryBodyArea: 'back_lower',
+        status: 'pending',
+        level: 1,
+        xp: 0,
+        xpForNextLevel: xpRequiredToReachNextLevel(1),
+        currentStreak: 0,
+        longestStreak: 0,
+        joinDate,
+        lastSessionDate: joinDate,
+        pendingMessages: 0,
+        hasRedFlag: false,
+        redFlagActive: false,
+        therapistNotes: '',
+        coins: 0,
+        injuryHighlightSegments: [],
+        secondaryClinicalBodyAreas: [],
+        analytics: {
+          averageOverallPain: 0,
+          painByArea: {},
+          averageDifficulty: 0,
+          totalSessions: 0,
+          painHistory: [],
+          sessionHistory: [],
+        },
+      };
+      setAllPatients((prev) => [...prev, newPatient]);
+      setExercisePlans((prev) => [...prev, { patientId, exercises: [] }]);
+      if (!useSupabaseAuthBridge()) {
+        addPatientAccount(normalized, patientId, password, ownerTid, { mustChangePassword: true });
+      }
+      setSelectedPatientId(patientId);
+      setActiveSection('overview');
+      return { ok: true, loginId: normalized, password, patientId };
+    },
+    [allPatients, therapistScopeIds]
+  );
 
   const updateTherapistNotes = useCallback((patientId: string, notes: string) => {
     setAllPatients((prev) =>
