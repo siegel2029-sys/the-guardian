@@ -1,0 +1,40 @@
+/**
+ * Layered mountain climb backdrop (CSS architecture).
+ * Layer 0 = sky, 1 = peak, 2 = terrain; overlays (clouds, rain, wildlife) sit above.
+ */
+
+.ajb-layer0-sky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  transition: all 0.7s ease-in-out;
+}
+
+.ajb-layer1-peak {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: none;
+  transition: all 0.7s ease-in-out;
+}
+
+.ajb-layer1-peak-inner {
+  width: 135%;
+  max-width: min(520px, 104vw);
+  height: 92%;
+  transform-origin: 50% 100%;
+  transition: all 0.7s ease-in-out;
+}
+
+.ajb-layer2-terrain {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: 38%;
+  z-index: 3;
+  transition: all 0.7s ease-in-out;
+}

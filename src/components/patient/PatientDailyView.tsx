@@ -57,6 +57,11 @@ import { fetchAiPlanAdjustmentSuggestion } from '../../ai/geminiAiPlanAdjustment
 import { evaluateAiProgramLongitudinalGate } from '../../ai/aiProgramLongitudinalGate';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
 import { useLocalCalendarDayKey } from '../../utils/dailyKnowledgeFact';
+import {
+  getTotalActiveDaysForScenery,
+  getGuardiFlowerBloomAnnouncement,
+  guardiBloomTierStorageKey,
+} from '../../hooks/useGamification';
 
 type PortalTab = 'home' | 'activity' | 'gear' | 'messages';
 
@@ -146,10 +151,33 @@ export default function PatientDailyView() {
     getGuardiMountainAmbientLine,
   } = usePatient();
 
+  const totalActiveDaysForScenery = useMemo(() => {
+    if (!selectedPatient) return 1;
+    const map = dailyHistoryByPatient[selectedPatient.id];
+    return getTotalActiveDaysForScenery(selectedPatient.joinDate, clinicalToday, map);
+  }, [selectedPatient, dailyHistoryByPatient, clinicalToday]);
+
+  const [guardiFlowerBloomLine, setGuardiFlowerBloomLine] = useState<string | null>(null);
+
+  useEffect(() => {
+    setGuardiFlowerBloomLine(null);
+  }, [selectedPatient?.id]);
+
+  useEffect(() => {
+    if (!selectedPatient) return;
+    const k = guardiBloomTierStorageKey(selectedPatient.id);
+    const last = parseInt(localStorage.getItem(k) || '0', 10);
+    const ann = getGuardiFlowerBloomAnnouncement(totalActiveDaysForScenery, last);
+    if (!ann) return;
+    localStorage.setItem(k, String(ann.nextTier));
+    setGuardiFlowerBloomLine(ann.message);
+  }, [selectedPatient, totalActiveDaysForScenery]);
+
   const guardiMountainAmbientLine = useMemo(() => {
+    if (guardiFlowerBloomLine) return guardiFlowerBloomLine;
     if (!selectedPatient) return null;
     return getGuardiMountainAmbientLine(clinicalToday, selectedPatient.level);
-  }, [clinicalToday, selectedPatient, getGuardiMountainAmbientLine]);
+  }, [guardiFlowerBloomLine, clinicalToday, selectedPatient, getGuardiMountainAmbientLine]);
 
   const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
   const [reportInitialEffort, setReportInitialEffort] = useState<
@@ -987,6 +1015,7 @@ export default function PatientDailyView() {
                   stableInteraction={false}
                   patientPortalInteractive
                   dailyScenicBackgroundDayKey={clinicalToday}
+                  totalActiveDaysForScenery={totalActiveDaysForScenery}
                   painByArea={selectedPatient.analytics.painByArea}
                   level={selectedPatient.level}
                   xp={selectedPatient.xp}

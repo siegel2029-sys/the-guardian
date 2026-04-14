@@ -13,7 +13,10 @@ import { OrbitControls, Environment, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import AnatomyModel from './AnatomyModel';
 import AvatarJourneyBackdrop from './AvatarJourneyBackdrop';
-import { getPatientAvatarMountainElevationY } from '../../hooks/useGamification';
+import {
+  getPatientAvatarCssStyle,
+  getPatientAvatarMountainElevationY,
+} from '../../hooks/useGamification';
 import type { BodyArea } from '../../types';
 import { EMPTY_EQUIPPED_GEAR, type EquippedGearSnapshot } from '../../config/gearCatalog';
 
@@ -75,6 +78,11 @@ export interface BodyMap3DProps {
    * (including dev «skip day»).
    */
   dailyScenicBackgroundDayKey?: string;
+  /**
+   * Cumulative active days for mountain «Daily Bloom» (flowers / forest / animals) — independent of level.
+   * Defaults to 1 when omitted (baseline scenery).
+   */
+  totalActiveDaysForScenery?: number;
 }
 
 // ── View presets ──────────────────────────────────────────────────
@@ -285,6 +293,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     wrapperClassName,
     disablePremiumPostProcessing: _disablePremiumPostProcessing = false,
     dailyScenicBackgroundDayKey,
+    totalActiveDaysForScenery = 1,
   } = props;
 
   const useScenicBackdrop =
@@ -317,6 +326,14 @@ export default function BodyMap3D(props: BodyMap3DProps) {
   const patientMountainElevation = useMemo(
     () => (useScenicBackdrop ? getPatientAvatarMountainElevationY(level) : 0),
     [level, useScenicBackdrop]
+  );
+
+  const portalAvatarCssStyle = useMemo(
+    () =>
+      useScenicBackdrop && patientPortalInteractive
+        ? getPatientAvatarCssStyle(level)
+        : undefined,
+    [level, useScenicBackdrop, patientPortalInteractive]
   );
 
   const handleView = useCallback((v: ViewPreset) => {
@@ -370,15 +387,25 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         <AvatarJourneyBackdrop
           clinicalYmd={dailyScenicBackgroundDayKey!}
           level={level}
+          totalActiveDays={totalActiveDaysForScenery}
         />
       )}
-      <Canvas
+      <div
         style={{
           display: 'block',
           width: '100%',
           height: '100%',
           position: 'relative',
           zIndex: 1,
+          ...(portalAvatarCssStyle ?? {}),
+        }}
+      >
+      <Canvas
+        style={{
+          display: 'block',
+          width: '100%',
+          height: '100%',
+          position: 'relative',
           touchAction: patientPortalInteractive
             ? 'none'
             : scrollFriendlyPortal
@@ -453,6 +480,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                   }
                   segmentGrowthMul={segmentGrowthMul}
                   hideContactGroundShadow={useScenicBackdrop}
+                  cssLayerVisualsForPortal={useScenicBackdrop && patientPortalInteractive}
                 />
 
                 {floatingLevelBadge && showLevelChrome && !patientPortalInteractive && (

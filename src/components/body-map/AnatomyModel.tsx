@@ -985,6 +985,10 @@ interface AnatomyModelProps {
   segmentGrowthMul?: Partial<Record<BodyArea, number>>;
   /** רקע הרפתקאות — ללא ContactShadows (אליפסה לבנה מתחת לאווטאר) */
   hideContactGroundShadow?: boolean;
+  /**
+   * פורטל + רקע הר: פוזה/הילה/קנה־מידה ממומשים ב־CSS על עטיפת הקנבס — מבטלים כפילות בתלת־ממד.
+   */
+  cssLayerVisualsForPortal?: boolean;
 }
 
 export default function AnatomyModel({
@@ -1008,6 +1012,7 @@ export default function AnatomyModel({
   pauseWalkAnimation = false,
   segmentGrowthMul,
   hideContactGroundShadow = false,
+  cssLayerVisualsForPortal = false,
 }: AnatomyModelProps) {
   const gearGoldSkin = equippedGear.skin === 'gold_skin';
   const geos = useGeometries();
@@ -1041,9 +1046,20 @@ export default function AnatomyModel({
   );
 
   const muscleStage = useMemo(() => getPatientAvatarMuscleVisualStage(level), [level]);
-  const physiqueScale = useMemo(() => getPatientAvatarPhysiqueScale(level), [level]);
-  const postureTorsoPitch = useMemo(() => getPatientAvatarPostureTorsoPitchOffset(level), [level]);
-  const strengthAura = useMemo(() => getPatientAvatarStrengthAura(level), [level]);
+  const physiqueScale = useMemo(() => {
+    if (cssLayerVisualsForPortal) return [1, 1, 1] as [number, number, number];
+    return getPatientAvatarPhysiqueScale(level);
+  }, [level, cssLayerVisualsForPortal]);
+  const postureTorsoPitch = useMemo(() => {
+    if (cssLayerVisualsForPortal) return 0;
+    return getPatientAvatarPostureTorsoPitchOffset(level);
+  }, [level, cssLayerVisualsForPortal]);
+  const strengthAura = useMemo(() => {
+    if (cssLayerVisualsForPortal) {
+      return { enabled: false, intensity: 0, thickness: 0 };
+    }
+    return getPatientAvatarStrengthAura(level);
+  }, [level, cssLayerVisualsForPortal]);
   const muscleMaps = useMemo(
     () => createMuscleFiberTextures(256, muscleStage === 'power' ? 'strong' : 'strengthening'),
     [muscleStage]

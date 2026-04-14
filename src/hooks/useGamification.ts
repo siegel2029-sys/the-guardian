@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type CSSProperties } from 'react';
 import type { KnowledgeFact } from '../types';
 import { PATIENT_REWARDS } from '../config/patientRewards';
 import {
@@ -18,7 +18,8 @@ import {
   KNOWLEDGE_TEASER_MAX_CHARS,
   normalizeKnowledgeFactsList,
 } from '../utils/knowledgeFactNormalize';
-import type { Patient } from '../types';
+import type { DailyHistoryEntry, Patient } from '../types';
+import { clinicalDateToLocalMidnight } from '../utils/clinicalCalendar';
 import {
   defaultPatientGear,
   gearSlotToStateKey,
@@ -138,6 +139,16 @@ const SKY_GRADIENTS_CSS: readonly string[] = [
   'linear-gradient(180deg, #0f172a 0%, #334155 18%, #f43f5e 42%, #fda4af 60%, #fde68a 82%, #fffbeb 100%)',
 ];
 
+/** Solid sky tint for CSS Layer 0 — same palette index as `skyGradientCss` / daily seed. */
+const SKY_BASE_COLORS_CSS: readonly string[] = [
+  '#38bdf8',
+  '#2563eb',
+  '#7c3aed',
+  '#0ea5e9',
+  '#5eead4',
+  '#f43f5e',
+];
+
 const SKY_PALETTE_LABELS_HE: readonly string[] = [
   'זריחה בהירה',
   'כחול עמוק',
@@ -175,6 +186,183 @@ export function getMountainDailyEnvironmentState(clinicalYmd: string): MountainD
     skyPaletteLabelHe,
     weather,
     visitors,
+  };
+}
+
+/**
+ * Layer 0 backdrop color — derived from the same daily seed as `getMountainDailyEnvironmentState`
+ * (`paletteIdx = seed % palettes`), for a flat `background-color` on the sky div.
+ */
+export function getMountainDailySkyBackgroundColor(clinicalYmd: string): string {
+  const { seed } = daySeedFromClinicalYmd(clinicalYmd);
+  const paletteIdx = seed % SKY_BASE_COLORS_CSS.length;
+  return SKY_BASE_COLORS_CSS[paletteIdx] ?? SKY_BASE_COLORS_CSS[0];
+}
+
+/**
+ * Layer 1 peak scale — `0.5 + level * 0.05` (Level 2 → 0.6 … Level 30 → 2.0).
+ * Level is clamped to 1–30 for the mountain journey.
+ */
+export function getMountainPeakTransformScale(level: number): number {
+  const L = Math.min(30, Math.max(1, Math.floor(Number(level)) || 1));
+  return 0.5 + L * 0.05;
+}
+
+/** מעבר ויזואלי אחיד — אווטאר, נוף, שכבות Daily Bloom */
+export const PATIENT_PORTAL_VISUAL_TRANSITION = 'all 0.7s ease-in-out';
+
+/**
+ * ימים עם לפחות תרגיל אחד שהושלם — לפי מפת היסטוריה יומית.
+ */
+export function countPatientActiveDaysFromHistory(
+  dayMap: Record<string, DailyHistoryEntry> | undefined
+): number {
+  if (!dayMap) return 0;
+  let n = 0;
+  for (const e of Object.values(dayMap)) {
+    if (e.exercisesCompleted > 0) n++;
+  }
+  return n;
+}
+
+/**
+ * «ימי פעילות» לנוף: עדיפות למספר ימים עם פעילות בפועל; אחרת ימי לוח מ־joinDate עד היום (מינימום 1).
+ */
+export function getTotalActiveDaysForScenery(
+  joinDateYmd: string,
+  clinicalTodayYmd: string,
+  dayMap: Record<string, DailyHistoryEntry> | undefined
+): number {
+  const fromHistory = countPatientActiveDaysFromHistory(dayMap);
+  if (fromHistory > 0) return fromHistory;
+  const j = joinDateYmd.trim().slice(0, 10);
+  const t = clinicalTodayYmd.trim().slice(0, 10);
+  const a = clinicalDateToLocalMidnight(j).getTime();
+  const b = clinicalDateToLocalMidnight(t).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 1;
+  const days = Math.floor((b - a) / 86400000) + 1;
+  return Math.max(1, Math.min(days, 3650));
+}
+
+/** שלבי «פריחה יומית» בנוף — בלתי תלויים ברמת XP (רק ימי פעילות). */
+export type MountainDailyBloomPhase = 'baseline' | 'flowers' | 'forest' | 'life';
+
+export interface MountainEnvironmentAssets {
+  bloomPhase: MountainDailyBloomPhase;
+  totalActiveDays: number;
+  /** 0–1 — צפיפות פרחים בשכבת הדשא (ימים 4–10). */
+  flowerDensity: number;
+  /** 0–1 — צפיפות עצים במדרונות (ימים 11–20+). */
+  treeDensity: number;
+  /** יום 21+: חיה אחת לפי זרע תאריך. */
+  animalOfTheDay: 'deer' | 'rabbit' | 'bird' | null;
+  daySeed: number;
+  transitionCss: string;
+}
+
+/**
+ * SceneryManager — נכסי סביבה לפי ימי פעילות מצטברים (לא לפי רמה).
+ * שומר על לוגיקת הפסגה המושלגת בנפרד (רמה).
+ */
+export function getMountainEnvironmentAssets(
+  totalActiveDays: number,
+  clinicalYmd: string
+): MountainEnvironmentAssets {
+  const { seed } = daySeedFromClinicalYmd(clinicalYmd);
+  const d = Math.max(1, Math.floor(totalActiveDays));
+  let bloomPhase: MountainDailyBloomPhase;
+  let flowerDensity = 0;
+  let treeDensity = 0;
+
+  if (d <= 3) {
+    bloomPhase = 'baseline';
+  } else if (d <= 10) {
+    bloomPhase = 'flowers';
+    flowerDensity = (d - 3) / 7;
+  } else if (d <= 20) {
+    bloomPhase = 'forest';
+    flowerDensity = 1;
+    treeDensity = (d - 10) / 10;
+  } else {
+    bloomPhase = 'life';
+    flowerDensity = 1;
+    treeDensity = 1;
+  }
+
+  let animalOfTheDay: 'deer' | 'rabbit' | 'bird' | null = null;
+  if (d >= 21) {
+    const r = seed % 3;
+    animalOfTheDay = r === 0 ? 'deer' : r === 1 ? 'rabbit' : 'bird';
+  }
+
+  return {
+    bloomPhase,
+    totalActiveDays: d,
+    flowerDensity,
+    treeDensity,
+    animalOfTheDay,
+    daySeed: seed,
+    transitionCss: PATIENT_PORTAL_VISUAL_TRANSITION,
+  };
+}
+
+/** מפתח localStorage — סף פרחים שכבר הוכרז לגארדי (ערך = מספר סף אחרון). */
+export function guardiBloomTierStorageKey(patientId: string): string {
+  return `guardiBloomTier:${patientId}`;
+}
+
+/**
+ * הודעת גארדי כשחוצים לראשונה את סף הפרחים (יום פעילות 4+).
+ * `lastAnnouncedTier` נקרא מ-localStorage (0 אם מעולם לא הוכרז).
+ */
+export function getGuardiFlowerBloomAnnouncement(
+  totalActiveDays: number,
+  lastAnnouncedTier: number
+): { message: string; nextTier: number } | null {
+  if (totalActiveDays >= 4 && lastAnnouncedTier < 4) {
+    return {
+      message: 'תראה כמה פרחים צמחו כאן מאז שהתחלת!',
+      nextTier: 4,
+    };
+  }
+  return null;
+}
+
+/**
+ * CSS לאווטאר בפורטל (שכבה מעל רקע ההר) — פוזה לפי רמה, זוהר מ־15, ניגודיות לשרירים.
+ * כאשר פעיל, יש לכבות ב-AnatomyModel את פוזת המותן/הילת האורות התלת־ממדיים כדי למנוע כפילות.
+ */
+export function getPatientAvatarCssStyle(level: number): CSSProperties {
+  const L = Math.min(30, Math.max(1, Math.floor(Number(level)) || 1));
+  const transition = PATIENT_PORTAL_VISUAL_TRANSITION;
+  let transform: string;
+  if (L <= 10) {
+    transform = 'rotate(4deg) scaleY(0.96)';
+  } else if (L <= 20) {
+    transform = 'rotate(0deg) scaleY(1) scaleX(1)';
+  } else {
+    transform = 'rotate(0deg) scaleY(1) scaleX(1.08)';
+  }
+
+  const filterParts: string[] = [];
+  if (L >= 15) {
+    const u = (L - 15) / 15;
+    const blur = 8 + u * 28;
+    const a = 0.32 + u * 0.48;
+    filterParts.push(`drop-shadow(0 0 ${blur}px rgba(56, 189, 248, ${a}))`);
+    filterParts.push(`drop-shadow(0 0 ${2 + u * 8}px rgba(250, 204, 21, ${a * 0.55}))`);
+  }
+  const contrast = 1 + Math.min(1, (L - 1) / 29) * 0.14;
+  const brightness = 1.02 + Math.min(1, (L - 1) / 29) * 0.06;
+  filterParts.push(`contrast(${contrast})`);
+  filterParts.push(`brightness(${brightness})`);
+
+  return {
+    transform,
+    filter: filterParts.join(' '),
+    transition,
+    transformOrigin: '50% 88%',
+    willChange: 'transform, filter',
   };
 }
 
@@ -331,11 +519,11 @@ export function getPatientAvatarMountainElevationY(level: number): number {
 /** פוזה קלינית: מנוחה (כופף קל) · פעיל · כוח (חזה החוצה) */
 export type PatientAvatarPostureTier = 'rest' | 'active' | 'power';
 
-/** רמות 1–10 מנוחה, 11–25 פעיל, 26–30 כוח — קשור לרמת המטופל במסע */
+/** רמות 1–10 מנוחה, 11–20 פעיל, 21–30 כוח — קשור לרמת המטופל במסע */
 export function getPatientAvatarPostureTier(level: number): PatientAvatarPostureTier {
   const L = Math.min(30, Math.max(1, Math.floor(Number(level)) || 1));
   if (L <= 10) return 'rest';
-  if (L <= 25) return 'active';
+  if (L <= 20) return 'active';
   return 'power';
 }
 
@@ -346,7 +534,7 @@ export function getPatientAvatarPostureTier(level: number): PatientAvatarPosture
 export function getPatientAvatarPostureTorsoPitchOffset(level: number): number {
   const L = Math.min(30, Math.max(1, Math.floor(Number(level)) || 1));
   if (L <= 10) return 0.065;
-  if (L <= 25) return 0.018;
+  if (L <= 20) return 0.018;
   return -0.055;
 }
 
@@ -383,8 +571,8 @@ export function getPatientAvatarStrengthAura(level: number): {
 export function getPatientAvatarMuscleVisualStage(level: number): MuscleEvolutionStage {
   const L = Math.max(1, Math.floor(Number(level)) || 1);
   if (L <= 30) {
-    if (L < 10) return 'post_injury';
-    if (L < 20) return 'active_rehab';
+    if (L < 11) return 'post_injury';
+    if (L < 21) return 'active_rehab';
     if (L < 30) return 'strengthening';
     return 'power';
   }
@@ -782,6 +970,14 @@ export function useGamification({
     removeKnowledgeFact,
     refreshKnowledgeBaseFromCloud,
     getMountainDailyEnvironmentState,
+    getMountainDailySkyBackgroundColor,
+    getMountainPeakTransformScale,
+    getMountainEnvironmentAssets,
+    getTotalActiveDaysForScenery,
+    countPatientActiveDaysFromHistory,
+    getPatientAvatarCssStyle,
+    getGuardiFlowerBloomAnnouncement,
+    guardiBloomTierStorageKey,
     getMountainBackdropContext,
     getGuardiMountainAmbientLine,
     getPatientAvatarMountainElevationY,
