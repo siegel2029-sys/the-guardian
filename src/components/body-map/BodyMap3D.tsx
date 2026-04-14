@@ -174,21 +174,6 @@ function StudioGradientBackground() {
   return null;
 }
 
-/** Thin disc under the avatar — contact shadow receiver (see AnatomyModel ContactShadows). */
-function StudioPedestal() {
-  return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.712, 0]} receiveShadow>
-      <circleGeometry args={[0.95, 72]} />
-      <meshStandardMaterial
-        color="#d1d5dc"
-        roughness={0.88}
-        metalness={0.04}
-        envMapIntensity={0.35}
-      />
-    </mesh>
-  );
-}
-
 // ── ViewToggle buttons (HTML overlay) ────────────────────────────
 interface ViewToggleProps {
   activeView: ViewPreset | null;
@@ -434,7 +419,6 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         />
 
         <group position={[0, 0.1, 0]}>
-          <StudioPedestal />
           <Suspense fallback={null}>
             <group scale={avatarScale}>
               <StreakEnergyFloat enabled={streakEnergy && !stableInteraction}>
