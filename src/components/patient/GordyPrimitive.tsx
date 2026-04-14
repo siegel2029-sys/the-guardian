@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
 
-export type GordyPrimitiveHandle = {
+export type GuardiPrimitiveHandle = {
   celebrate: () => void;
 };
 
@@ -27,7 +27,7 @@ const CELEBRATE_DUR = 1.05;
 const ANT_END = 0.12;
 const AIR_END = 0.72;
 
-const GordyPrimitive = forwardRef<GordyPrimitiveHandle, Props>(function GordyPrimitive(
+const GuardiPrimitive = forwardRef<GuardiPrimitiveHandle, Props>(function GuardiPrimitive(
   { floatHeight = 0, bobAmplitude = 0.06, bobSpeed = 1.15, therapistAlert = false },
   ref,
 ) {
@@ -341,4 +341,4 @@ const GordyPrimitive = forwardRef<GordyPrimitiveHandle, Props>(function GordyPri
   );
 });
 
-export default GordyPrimitive;
+export default GuardiPrimitive;

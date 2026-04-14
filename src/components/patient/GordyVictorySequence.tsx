@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import GordyMascotIcon from './GordyMascotIcon';
+import GuardiMascotIcon from './GordyMascotIcon';
 
 const CONFETTI_COLORS = ['#fbbf24', '#facc15', '#34d399', '#60a5fa', '#f472b6', '#fb923c'];
 
@@ -22,9 +22,9 @@ type Props = {
 };
 
 /**
- * רצף ניצחון — סיבוב 360°, קפיצה + אגרוף, הילה זהובה, קונפטי/מטבעות ממוקד ממורד גורדי.
+ * רצף ניצחון — סיבוב 360°, קפיצה + אגרוף, הילה זהובה, קונפטי/מטבעות ממוקד ממורד גארדי.
  */
-export default function GordyVictorySequence({
+export default function GuardiVictorySequence({
   burstKey,
   xpAdded,
   coinsAdded,
@@ -82,9 +82,9 @@ export default function GordyVictorySequence({
         className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center"
         style={{ top: 'min(34vh, 280px)' }}
       >
-        <div className="relative gordy-victory-hop gordy-victory-aura">
+        <div className="relative guardi-victory-hop guardi-victory-aura">
           <div className="mx-auto flex items-center justify-center w-[5.5rem] h-[5.5rem] sm:w-28 sm:h-28">
-            <GordyMascotIcon
+            <GuardiMascotIcon
               mood="joy"
               animationName="Celebrate"
               className="w-full h-full"
@@ -92,7 +92,7 @@ export default function GordyVictorySequence({
             />
           </div>
           <span
-            className="absolute -end-1 top-0 text-2xl sm:text-3xl gordy-victory-fist select-none"
+            className="absolute -end-1 top-0 text-2xl sm:text-3xl guardi-victory-fist select-none"
             aria-hidden
           >
             👊
@@ -107,7 +107,7 @@ export default function GordyVictorySequence({
         {pieces.map((p) => (
           <span
             key={p.id}
-            className="absolute text-lg sm:text-xl font-black animate-gordy-victory-loot-fall"
+            className="absolute text-lg sm:text-xl font-black animate-guardi-victory-loot-fall"
             style={
               {
                 left: `${p.x}%`,

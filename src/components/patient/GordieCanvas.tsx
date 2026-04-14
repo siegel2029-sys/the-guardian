@@ -1,12 +1,12 @@
 import { OrbitControls } from '@react-three/drei';
 import { Suspense, forwardRef, type ComponentProps } from 'react';
 import { Canvas } from '@react-three/fiber';
-import GordieModel, {
-  GORDIE_MODEL_DEFAULT_URL,
-  type GordieModelHandle,
+import GuardieModel, {
+  GUARDIE_MODEL_DEFAULT_URL,
+  type GuardieModelHandle,
 } from './GordieModel';
 
-export type GordieCanvasProps = {
+export type GuardieCanvasProps = {
   className?: string;
   animationName?: string;
   url?: string;
@@ -40,13 +40,13 @@ const cameraPresets = {
 } as const;
 
 /**
- * Small responsive WebGL viewport with shared lighting — use anywhere you need Gordie in 2D UI.
+ * Small responsive WebGL viewport with shared lighting — Guardi 3D rig in 2D UI shells.
  */
-const GordieCanvas = forwardRef<GordieModelHandle, GordieCanvasProps>(function GordieCanvas(
+const GuardieCanvas = forwardRef<GuardieModelHandle, GuardieCanvasProps>(function GuardieCanvas(
   {
     className = 'w-8 h-8',
     animationName,
-    url = GORDIE_MODEL_DEFAULT_URL,
+    url = GUARDIE_MODEL_DEFAULT_URL,
     crossfade,
     variant = 'icon',
     orbitControls = true,
@@ -111,7 +111,7 @@ const GordieCanvas = forwardRef<GordieModelHandle, GordieCanvasProps>(function G
           />
         )}
         <Suspense fallback={null}>
-          <GordieModel
+          <GuardieModel
             ref={ref}
             url={url}
             animationName={animationName}
@@ -128,4 +128,4 @@ const GordieCanvas = forwardRef<GordieModelHandle, GordieCanvasProps>(function G
   );
 });
 
-export default GordieCanvas;
+export default GuardieCanvas;

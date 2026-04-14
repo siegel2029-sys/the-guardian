@@ -81,12 +81,12 @@ The subsections below record **agreed clinical and product logic** for ongoing i
 
 ---
 
-### 2.3 Gordy’s Evolution — Hype Man & 360° Intro
+### 2.3 Guardi’s Evolution — Hype Man & 360° Intro
 
 **Roles beyond safety and rewards.**
 
-- **Hype Man / progression messaging:** Gordy surfaces **anticipation copy** tied to the RPG calendar—e.g. *“2 days until Pelvic Dance unlocks”*—driven by server or local **unlock ETA** (clinical day at 04:00, streak gates, level thresholds). Messages must be **non-clinical in tone** but **clinically safe** (no promise of cure; reinforce adherence and upcoming milestones only).
-- **360° intro sequence:** On first session of a clinical day or after major progression events, play Gordy’s **hero intro**: full **Y-axis spin** (documented in `GordyFullScreenCelebration` / `index.css` patterns) plus branded flourish, before returning to the standard companion loop. This is distinct from the **mission-complete** confetti sequence but may reuse the same rotation choreography.
+- **Hype Man / progression messaging:** Guardi surfaces **anticipation copy** tied to the RPG calendar—e.g. *“2 days until Pelvic Dance unlocks”*—driven by server or local **unlock ETA** (clinical day at 04:00, streak gates, level thresholds). Messages must be **non-clinical in tone** but **clinically safe** (no promise of cure; reinforce adherence and upcoming milestones only).
+- **360° intro sequence:** On first session of a clinical day or after major progression events, play Guardi’s **hero intro**: full **Y-axis spin** (documented in `GuardiFullScreenCelebration` / `index.css` patterns) plus branded flourish, before returning to the standard companion loop. This is distinct from the **mission-complete** confetti sequence but may reuse the same rotation choreography.
 
 **Implementation note.** Victory confetti + 360° celebration **[V]**; **Hype Man countdown strings** and **dedicated daily intro gate** align with skill-unlock roadmap **[WIP]**.
 
@@ -128,7 +128,7 @@ Legend: **[V]** Implemented · **[WIP]** Partially implemented or demo-grade · 
 |-------------|--------|----------------|
 | **Intake-based constraints** (ROM/strength → skeletal / bone mapping) | **[WIP]** | **Target:** §2.2 — ROM (e.g. 90° knee) → **Three.js** joint limits (`maxRotation` / clamp). **Current:** intake maps to **`BodyArea`** and highlights; `clinicalBoneIndices` / picking tie picks to anatomy; **no** per-DOF limits from intake degrees yet. |
 | **Dynamic limp / pain scale** (animation **blending** from VAS) | **[WIP]** | **Target:** §2.1 — **Pain–Limp Scale:** blend **Normal** vs **Limp** with \( w=\text{VAS}/10 \) (e.g. 8/10 → 80% limp), ROM/strength **modulate antalgic weight-bearing**. **Current:** procedural **walk-in-place** + `painByArea` visuals only (`AnatomyModel`). |
-| **Real-time pain reflection** (facial expression, hand-to-area at thresholds) | **[WIP]** | **Target:** §2.2 — thresholds → facial / IK **hand-to-area**. **Current:** Gordy moods + area tint; **no** 3D facial rig or IK contact on avatar. |
+| **Real-time pain reflection** (facial expression, hand-to-area at thresholds) | **[WIP]** | **Target:** §2.2 — thresholds → facial / IK **hand-to-area**. **Current:** Guardi moods + area tint; **no** 3D facial rig or IK contact on avatar. |
 
 ### AI and safety
 
@@ -144,7 +144,7 @@ Legend: **[V]** Implemented · **[WIP]** Partially implemented or demo-grade · 
 |-------------|--------|----------------|
 | **XP / coins** sync (authoritative, multi-device) | **[WIP]** | **Single source of truth:** local state + `localStorage`. `submitExerciseReport` applies XP/coins/streak rules (`PatientContext`, `gamification-utils`, `patientRewards`). Supabase **does not** continuously sync economy fields in the audited paths. |
 | **Item shop** (gear + **pets**) | **[WIP]** | **`GearStoreArmory`**, `gearCatalog.ts` (skins, auras, functional `xp_booster`, consumable `streak_shield`). **No pet companion SKU** or pet progression in catalog. |
-| **Gordy** (**360° intro**, **confetti**, **Hype Man**) | **[WIP]** | **[V]** Mission-complete **confetti + 360° spin** (`GordyFullScreenCelebration`, `index.css`). **Target (§2.3):** **Hype Man** countdown copy (e.g. days until **Pelvic Dance** unlock) + **dedicated daily intro** using same rotation idiom. Companion bubble, victory sequences, safety mood already **[V]**. |
+| **Guardi** (**360° intro**, **confetti**, **Hype Man**) | **[WIP]** | **[V]** Mission-complete **confetti + 360° spin** (`GuardiFullScreenCelebration`, `index.css`). **Target (§2.3):** **Hype Man** countdown copy (e.g. days until **Pelvic Dance** unlock) + **dedicated daily intro** using same rotation idiom. Companion bubble, victory sequences, safety mood already **[V]**. |
 | **Skill unlocking** (e.g. Pelvic Dance) | **[ ]** | Exercises such as pelvic tilt exist in **`EXERCISE_LIBRARY`** (`mockData.ts`); **no** gated “skill unlock” progression tied to level/quests (feeds §2.3 messaging once built). |
 
 ### UI / UX audit
@@ -170,7 +170,7 @@ Legend: **[V]** Implemented · **[WIP]** Partially implemented or demo-grade · 
 - End-to-end **therapist dashboard** and **patient portal** with RTL Hebrew UX, routing, and role separation.
 - **3D anatomy** experience (GLTF, picking, clinical/secondary highlights, self-care zones, gear attachments, injury highlights).
 - **Clinical day boundary** at **04:00** local time, streak and calendar semantics aligned to that definition.
-- **Gamification loop** in the patient portal: XP, levels, coins, streak multipliers, streak shield consumable, gear store, Gordy feedback and celebrations.
+- **Gamification loop** in the patient portal: XP, levels, coins, streak multipliers, streak shield consumable, gear store, Guardi feedback and celebrations.
 - **Safety layer:** keyword/heuristic emergency screening, red-flag flows, exercise safety lock, chain-reaction high-pain handling, clinical `mailto` alerts.
 - **AI-assisted clinical intake** (Gemini) with structured output including **differential diagnosis** and **chain-reaction joints** when API key is configured.
 - **Supabase groundwork:** migrations, push helper (`supabaseSync.ts`), optional analytics/knowledge reads.
@@ -195,7 +195,7 @@ Legend: **[V]** Implemented · **[WIP]** Partially implemented or demo-grade · 
 
 8. **Economy and persistence contract** — Define whether XP/coins are server-authoritative; if yes, migrate grants to API + idempotent events; extend Supabase schema and sync beyond manual push.
 
-9. **Product gaps** — Pet shop / companions, skill-gated content (e.g. Pelvic Dance) + **Gordy Hype Man** countdowns (§2.3), and a dedicated **patient** “end of session” control if workflow requires it; align with clinical protocol.
+9. **Product gaps** — Pet shop / companions, skill-gated content (e.g. Pelvic Dance) + **Guardi Hype Man** countdowns (§2.3), and a dedicated **patient** “end of session” control if workflow requires it; align with clinical protocol.
 
 10. **Testing and decomposition** — Extract pure functions from `PatientContext` for streak, suggestions, influencing-zone baselines, and clinical date rules; add automated tests before further feature growth.
 
@@ -216,4 +216,4 @@ Legend: **[V]** Implemented · **[WIP]** Partially implemented or demo-grade · 
 
 ## Document Control
 
-**Maintenance:** Regenerate or amend after major changes (production auth, full Supabase sync, **§2.0–2.4** clinical/security spec changes, avatar animation implementation, Gordy progression messaging, or new alerting integrations).
+**Maintenance:** Regenerate or amend after major changes (production auth, full Supabase sync, **§2.0–2.4** clinical/security spec changes, avatar animation implementation, Guardi progression messaging, or new alerting integrations).

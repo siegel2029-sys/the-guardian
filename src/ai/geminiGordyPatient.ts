@@ -78,7 +78,7 @@ ${snapshot}
 /**
  * תשובת צ'אט עוזר שיקום למטופל (מול Gemini). history ללא ההודעה הנוכחית.
  */
-export async function gordyPatientChatWithGemini(params: {
+export async function guardiPatientChatWithGemini(params: {
   patient: Patient;
   exerciseCount: number;
   exercises: PatientExercise[];

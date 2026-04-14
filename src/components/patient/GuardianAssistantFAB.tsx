@@ -10,7 +10,7 @@ import { analyzePatientProgress, buildPatientProgressPayload } from '../../ai/pa
 import { screenPatientFreeTextForEmergency } from '../../safety/clinicalEmergencyScreening';
 import { usePatient } from '../../context/PatientContext';
 import { getGeminiApiKey } from '../../ai/geminiClient';
-import { gordyPatientChatWithGemini } from '../../ai/geminiGordyPatient';
+import { guardiPatientChatWithGemini } from '../../ai/geminiGordyPatient';
 
 interface GuardianAssistantFABProps {
   patient: Patient;
@@ -195,7 +195,7 @@ export default function GuardianAssistantFAB({
     if (getGeminiApiKey()) {
       setReplyLoading(true);
       try {
-        assistantText = await gordyPatientChatWithGemini({
+        assistantText = await guardiPatientChatWithGemini({
           patient,
           exerciseCount,
           exercises,

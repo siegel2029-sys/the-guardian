@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import GordyCelebration from './GordyCelebration';
+import GuardiCelebration from './GordyCelebration';
 import GordieCanvas from './GordieCanvas';
-import type { GordieModelHandle } from './GordieModel';
+import type { GuardieModelHandle } from './GordieModel';
 
 type Props = {
   patientId: string;
@@ -11,20 +11,20 @@ type Props = {
 };
 
 /**
- * גורדי — תצוגת פתיחה עם מודל GLB מריגוד, ברכה לסשן וקונפטי לפי מפתח חגיגה.
+ * גארדי — תצוגת פתיחה עם מודל GLB מריגוד, ברכה לסשן וקונפטי לפי מפתח חגיגה.
  */
-export default function GordyHero({
+export default function GuardiHero({
   patientId,
   celebrationBurstKey = 0,
   animationName = 'Wave',
 }: Props) {
-  const gordyRef = useRef<GordieModelHandle>(null);
+  const guardiRef = useRef<GuardieModelHandle>(null);
   const prevBurstRef = useRef(0);
   const [spinDone, setSpinDone] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
 
   useEffect(() => {
-    const key = `gordy_welcome_${patientId}`;
+    const key = `guardi_welcome_${patientId}`;
     setShowWelcome(sessionStorage.getItem(key) !== '1');
     const t = window.setTimeout(() => setSpinDone(true), 2100);
     return () => window.clearTimeout(t);
@@ -33,12 +33,12 @@ export default function GordyHero({
   useEffect(() => {
     if (celebrationBurstKey > 0 && celebrationBurstKey !== prevBurstRef.current) {
       prevBurstRef.current = celebrationBurstKey;
-      gordyRef.current?.celebrate();
+      guardiRef.current?.celebrate();
     }
   }, [celebrationBurstKey]);
 
   const dismissWelcome = () => {
-    sessionStorage.setItem(`gordy_welcome_${patientId}`, '1');
+    sessionStorage.setItem(`guardi_welcome_${patientId}`, '1');
     setShowWelcome(false);
   };
 
@@ -46,11 +46,11 @@ export default function GordyHero({
     <div className="relative w-full h-full min-h-[inherit]">
       {showWelcome && (
         <div
-          className="absolute top-2 left-2 right-2 z-20 rounded-2xl border-2 border-amber-400/80 bg-gradient-to-br from-amber-50 to-white px-3 py-2 shadow-lg animate-gordy-welcome-in"
+          className="absolute top-2 left-2 right-2 z-20 rounded-2xl border-2 border-amber-400/80 bg-gradient-to-br from-amber-50 to-white px-3 py-2 shadow-lg animate-guardi-welcome-in"
           role="status"
         >
           <p className="text-xs font-bold text-amber-950 text-center leading-snug">
-            ברוך הבא! אני גורדי, המלווה שלך.
+            ברוך הבא! אני גארדי, המלווה שלך.
           </p>
           <button
             type="button"
@@ -63,18 +63,18 @@ export default function GordyHero({
       )}
 
       <div
-        className={`relative w-full h-full min-h-[280px] ${spinDone ? '' : 'gordy-hero-spin-stage'}`}
+        className={`relative w-full h-full min-h-[280px] ${spinDone ? '' : 'guardi-hero-spin-stage'}`}
         style={{ perspective: '920px' }}
       >
-        <div className={`w-full h-full min-h-[inherit] ${spinDone ? '' : 'gordy-hero-spin-inner'}`}>
+        <div className={`w-full h-full min-h-[inherit] ${spinDone ? '' : 'guardi-hero-spin-inner'}`}>
           <GordieCanvas
-            ref={gordyRef}
+            ref={guardiRef}
             className="h-full w-full"
             variant="hero"
             animationName={animationName}
           />
         </div>
-        <GordyCelebration burstKey={celebrationBurstKey} />
+        <GuardiCelebration burstKey={celebrationBurstKey} />
       </div>
     </div>
   );

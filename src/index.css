@@ -321,7 +321,7 @@
     animation: article-reward-success 1.35s ease-out forwards;
   }
 
-  @keyframes gordy-spin-y {
+  @keyframes guardi-spin-y {
     from {
       transform: rotateY(0deg);
     }
@@ -330,16 +330,16 @@
     }
   }
 
-  .gordy-hero-spin-stage {
+  .guardi-hero-spin-stage {
     transform-style: preserve-3d;
   }
 
-  .gordy-hero-spin-inner {
+  .guardi-hero-spin-inner {
     transform-origin: center center;
-    animation: gordy-spin-y 2.1s cubic-bezier(0.22, 0.82, 0.28, 1) forwards;
+    animation: guardi-spin-y 2.1s cubic-bezier(0.22, 0.82, 0.28, 1) forwards;
   }
 
-  @keyframes gordy-welcome-in {
+  @keyframes guardi-welcome-in {
     from {
       opacity: 0;
       transform: translateY(-6px) scale(0.96);
@@ -350,11 +350,11 @@
     }
   }
 
-  .animate-gordy-welcome-in {
-    animation: gordy-welcome-in 0.55s ease-out forwards;
+  .animate-guardi-welcome-in {
+    animation: guardi-welcome-in 0.55s ease-out forwards;
   }
 
-  @keyframes gordy-burst {
+  @keyframes guardi-burst {
     0% {
       opacity: 1;
       transform: translate(0, 0) rotate(0deg) scale(1);
@@ -365,11 +365,11 @@
     }
   }
 
-  .animate-gordy-burst {
-    animation: gordy-burst 2s ease-out forwards;
+  .animate-guardi-burst {
+    animation: guardi-burst 2s ease-out forwards;
   }
 
-  @keyframes gordy-companion-float {
+  @keyframes guardi-companion-float {
     0%,
     100% {
       transform: translateY(0);
@@ -379,11 +379,11 @@
     }
   }
 
-  .animate-gordy-companion-float {
-    animation: gordy-companion-float 2.8s ease-in-out infinite;
+  .animate-guardi-companion-float {
+    animation: guardi-companion-float 2.8s ease-in-out infinite;
   }
 
-  @keyframes gordy-companion-enter {
+  @keyframes guardi-companion-enter {
     from {
       opacity: 0;
       transform: translateY(10px);
@@ -394,8 +394,8 @@
     }
   }
 
-  .animate-gordy-companion-enter {
-    animation: gordy-companion-enter 0.45s ease-out forwards;
+  .animate-guardi-companion-enter {
+    animation: guardi-companion-enter 0.45s ease-out forwards;
   }
 
   @keyframes guardian-input-focus-pulse {
@@ -474,7 +474,7 @@
     }
   }
 
-  @keyframes gordy-victory-hop {
+  @keyframes guardi-victory-hop {
     0% {
       transform: translateY(0) scale(1);
     }
@@ -489,11 +489,11 @@
     }
   }
 
-  .gordy-victory-hop {
-    animation: gordy-victory-hop 1.35s cubic-bezier(0.34, 1.3, 0.52, 1) forwards;
+  .guardi-victory-hop {
+    animation: guardi-victory-hop 1.35s cubic-bezier(0.34, 1.3, 0.52, 1) forwards;
   }
 
-  @keyframes gordy-victory-fist {
+  @keyframes guardi-victory-fist {
     0%,
     100% {
       transform: translateY(0) rotate(-8deg);
@@ -503,11 +503,11 @@
     }
   }
 
-  .gordy-victory-fist {
-    animation: gordy-victory-fist 1.2s ease-out forwards;
+  .guardi-victory-fist {
+    animation: guardi-victory-fist 1.2s ease-out forwards;
   }
 
-  @keyframes gordy-victory-aura {
+  @keyframes guardi-victory-aura {
     0%,
     100% {
       filter: drop-shadow(0 0 12px rgba(251, 191, 36, 0.75))
@@ -519,11 +519,11 @@
     }
   }
 
-  .gordy-victory-aura {
-    animation: gordy-victory-aura 0.85s ease-in-out infinite;
+  .guardi-victory-aura {
+    animation: guardi-victory-aura 0.85s ease-in-out infinite;
   }
 
-  @keyframes gordy-victory-loot-fall {
+  @keyframes guardi-victory-loot-fall {
     0% {
       opacity: 1;
       transform: translate(-50%, 0) translateX(0) rotate(0deg);
@@ -535,8 +535,8 @@
     }
   }
 
-  .animate-gordy-victory-loot-fall {
-    animation: gordy-victory-loot-fall 2.4s ease-in forwards;
+  .animate-guardi-victory-loot-fall {
+    animation: guardi-victory-loot-fall 2.4s ease-in forwards;
   }
 
   @keyframes exercise-complete-pop {

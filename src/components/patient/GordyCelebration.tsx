@@ -3,7 +3,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 const CONFETTI_COLORS = ['#fbbf24', '#f472b6', '#34d399', '#60a5fa', '#a78bfa', '#fb923c'];
 
 /** קונפטי + מטבעות — פרץ קצר כשמקבלים XP */
-export default function GordyCelebration({ burstKey }: { burstKey: number }) {
+export default function GuardiCelebration({ burstKey }: { burstKey: number }) {
   const [pieces, setPieces] = useState<
     { id: number; x: number; y: number; rot: number; color: string; kind: 'confetti' | 'coin' }[]
   >([]);
@@ -34,7 +34,7 @@ export default function GordyCelebration({ burstKey }: { burstKey: number }) {
       {pieces.map((p) => (
         <span
           key={p.id}
-          className="absolute text-lg font-black animate-gordy-burst"
+          className="absolute text-lg font-black animate-guardi-burst"
           style={
             {
               left: `${p.x}%`,

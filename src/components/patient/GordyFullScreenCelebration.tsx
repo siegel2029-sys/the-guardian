@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import GordyMascotIcon from './GordyMascotIcon';
+import GuardiMascotIcon from './GordyMascotIcon';
 
 const CONFETTI_COLORS = ['#fbbf24', '#f472b6', '#34d399', '#60a5fa', '#a78bfa', '#fb923c', '#facc15'];
 
@@ -19,8 +19,8 @@ type Props = {
   onClose?: () => void;
 };
 
-/** חגיגת סיום סשן — קונפטי ומטבעות במסך מלא + סיבוב 360° לגורדי */
-export default function GordyFullScreenCelebration({ burstKey, onClose }: Props) {
+/** חגיגת סיום סשן — קונפטי ומטבעות במסך מלא + סיבוב 360° לגארדי */
+export default function GuardiFullScreenCelebration({ burstKey, onClose }: Props) {
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [visible, setVisible] = useState(false);
   const onCloseRef = useRef(onClose);
@@ -59,14 +59,14 @@ export default function GordyFullScreenCelebration({ burstKey, onClose }: Props)
       style={{ background: 'rgba(15, 23, 42, 0.42)' }}
       role="dialog"
       aria-modal="true"
-      aria-labelledby="gordy-celebrate-title"
+      aria-labelledby="guardi-celebrate-title"
       dir="rtl"
     >
       <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden>
         {pieces.map((p) => (
           <span
             key={p.id}
-            className="absolute text-xl sm:text-2xl font-black animate-gordy-burst"
+            className="absolute text-xl sm:text-2xl font-black animate-guardi-burst"
             style={
               {
                 left: `${p.x}%`,
@@ -85,7 +85,7 @@ export default function GordyFullScreenCelebration({ burstKey, onClose }: Props)
 
       <div className="relative z-[1] flex flex-col items-center pointer-events-none">
         <div className="flex items-center justify-center w-28 h-28 sm:w-36 sm:h-36 drop-shadow-2xl">
-          <GordyMascotIcon
+          <GuardiMascotIcon
             mood="joy"
             animationName="Celebrate"
             className="w-28 h-28 sm:w-36 sm:h-36"
@@ -93,7 +93,7 @@ export default function GordyFullScreenCelebration({ burstKey, onClose }: Props)
           />
         </div>
         <p
-          id="gordy-celebrate-title"
+          id="guardi-celebrate-title"
           className="mt-5 text-center text-xl sm:text-2xl font-black text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]"
         >
           סיימת את כל המשימות להיום!

@@ -21,9 +21,9 @@ import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
 import { getTherapistDisplayName } from '../../context/authPersistence';
 import BodyMap3D from '../body-map/BodyMap3D';
-import GordyVictorySequence from './GordyVictorySequence';
-import GordyCompanion, { type GordyTransientAppearance } from './GordyCompanion';
-import GordyFullScreenCelebration from './GordyFullScreenCelebration';
+import GuardiVictorySequence from './GordyVictorySequence';
+import GuardiCompanion, { type GuardiTransientAppearance } from './GordyCompanion';
+import GuardiFullScreenCelebration from './GordyFullScreenCelebration';
 import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseDetailModal from './ExerciseDetailModal';
 import PortalExerciseCard from './PortalExerciseCard';
@@ -88,7 +88,7 @@ function activateOnEnterSpace(e: KeyboardEvent, fn: () => void) {
 }
 
 /** מניעת כפילות חגיגת סיום תחת React StrictMode (אותו מפתח ביום) */
-const gordySessionCompleteDedupe = new Set<string>();
+const guardiSessionCompleteDedupe = new Set<string>();
 
 function portalTrainingAiPlanModalAckKey(patientId: string, clinicalDay: string): string {
   return `portal_training_ai_adjustment_ack_${patientId}_${clinicalDay}`;
@@ -163,7 +163,7 @@ export default function PatientDailyView() {
   const [portalTab, setPortalTab] = useState<PortalTab>(() =>
     tabFromPortalPath(typeof window !== 'undefined' ? window.location.pathname : '/patient-portal')
   );
-  const [gordyTransient, setGordyTransient] = useState<GordyTransientAppearance | null>(null);
+  const [guardiTransient, setGuardiTransient] = useState<GuardiTransientAppearance | null>(null);
 
   useEffect(() => {
     setPortalTab(tabFromPortalPath(location.pathname));
@@ -193,19 +193,19 @@ export default function PatientDailyView() {
   }, [portalTab, location.pathname, location.hash]);
 
   useEffect(() => {
-    setGordyTransient(null);
+    setGuardiTransient(null);
   }, [portalTab]);
 
   useEffect(() => {
-    if (!gordyTransient) return;
-    const left = gordyTransient.until - Date.now();
+    if (!guardiTransient) return;
+    const left = guardiTransient.until - Date.now();
     if (left <= 0) {
-      setGordyTransient(null);
+      setGuardiTransient(null);
       return;
     }
-    const t = window.setTimeout(() => setGordyTransient(null), left);
+    const t = window.setTimeout(() => setGuardiTransient(null), left);
     return () => clearTimeout(t);
-  }, [gordyTransient]);
+  }, [guardiTransient]);
   const [exerciseVideoModal, setExerciseVideoModal] = useState<
     | null
     | { kind: 'rehab'; exercise: PatientExercise; xpAward: number; coinsAward: number }
@@ -321,8 +321,8 @@ export default function PatientDailyView() {
 
   const prevPatientIdRef = useRef<string | undefined>(undefined);
   const [coinKick, setCoinKick] = useState(false);
-  const [gordyVictoryBurst, setGordyVictoryBurst] = useState(0);
-  const [gordyVictoryRewards, setGordyVictoryRewards] = useState<{
+  const [guardiVictoryBurst, setGuardiVictoryBurst] = useState(0);
+  const [guardiVictoryRewards, setGuardiVictoryRewards] = useState<{
     xp: number;
     coins: number;
     streak?: number;
@@ -340,7 +340,7 @@ export default function PatientDailyView() {
     if (!selectedPatient) return;
     const granted = claimDailyLoginBonusIfNeeded(selectedPatient.id);
     if (granted) {
-      setGordyTransient({
+      setGuardiTransient({
         key: `daily_${clinicalToday}_${Date.now()}`,
         mood: 'joy',
         bubble: 'בוקר טוב! ההתמדה שלכם נספרת — יום חזק 💚',
@@ -357,8 +357,8 @@ export default function PatientDailyView() {
       rewardFeedback.coinsAdded > 0 ||
       (rewardFeedback.streakBonusXp != null && rewardFeedback.streakBonusXp > 0);
     if (hasVictoryLoot) {
-      setGordyVictoryBurst((k) => k + 1);
-      setGordyVictoryRewards({
+      setGuardiVictoryBurst((k) => k + 1);
+      setGuardiVictoryRewards({
         xp: rewardFeedback.xpAdded,
         coins: rewardFeedback.coinsAdded,
         streak: rewardFeedback.streakBonusXp,
@@ -540,12 +540,12 @@ export default function PatientDailyView() {
   const [sessionCelebrationBurst, setSessionCelebrationBurst] = useState(0);
   useEffect(() => {
     if (!selectedPatient || exercisesLocked || totalMissions === 0) return;
-    const sk = `gordy_full_celebrate_${selectedPatient.id}_${clinicalToday}`;
+    const sk = `guardi_full_celebrate_${selectedPatient.id}_${clinicalToday}`;
     if (sessionStorage.getItem(sk) === '1') return;
     if (completedMissionCount !== totalMissions) return;
     const dedupeKey = `${selectedPatient.id}|${clinicalToday}|${totalMissions}`;
-    if (gordySessionCompleteDedupe.has(dedupeKey)) return;
-    gordySessionCompleteDedupe.add(dedupeKey);
+    if (guardiSessionCompleteDedupe.has(dedupeKey)) return;
+    guardiSessionCompleteDedupe.add(dedupeKey);
     setSessionCelebrationBurst((n) => n + 1);
   }, [
     selectedPatient?.id,
@@ -558,14 +558,14 @@ export default function PatientDailyView() {
   const endSessionCelebration = () => {
     if (selectedPatient) {
       sessionStorage.setItem(
-        `gordy_full_celebrate_${selectedPatient.id}_${clinicalToday}`,
+        `guardi_full_celebrate_${selectedPatient.id}_${clinicalToday}`,
         '1'
       );
     }
     setSessionCelebrationBurst(0);
   };
 
-  const gordyCompanionEligible =
+  const guardiCompanionEligible =
     (portalTab === 'home' || portalTab === 'activity') &&
     !patientMustChangePassword &&
     !!selectedPatient &&
@@ -575,7 +575,7 @@ export default function PatientDailyView() {
     !exerciseVideoModal &&
     !trainingAiPlanModalOpen;
 
-  const gordyCompanionContextAnimation: string | undefined =
+  const guardiCompanionContextAnimation: string | undefined =
     portalTab === 'activity'
       ? 'Exercise1'
       : portalTab === 'home' || portalTab === 'heroes'
@@ -583,7 +583,7 @@ export default function PatientDailyView() {
         : undefined;
 
   const pushExerciseCompleteMilestone = () => {
-    setGordyTransient({
+    setGuardiTransient({
       key: `like_${Date.now()}`,
       mood: 'like',
       bubble: 'כל הכבוד! עוד צעד קטן בדרך לשיקום 👍',
@@ -774,11 +774,11 @@ export default function PatientDailyView() {
       className="min-h-screen flex flex-col max-w-lg mx-auto w-full relative bg-medical-bg font-sans"
       dir="rtl"
     >
-      <GordyVictorySequence
-        burstKey={gordyVictoryBurst}
-        xpAdded={gordyVictoryRewards.xp}
-        coinsAdded={gordyVictoryRewards.coins}
-        streakBonusXp={gordyVictoryRewards.streak}
+      <GuardiVictorySequence
+        burstKey={guardiVictoryBurst}
+        xpAdded={guardiVictoryRewards.xp}
+        coinsAdded={guardiVictoryRewards.coins}
+        streakBonusXp={guardiVictoryRewards.streak}
       />
       <header
         dir="ltr"
@@ -1515,17 +1515,17 @@ export default function PatientDailyView() {
           />
         )}
 
-      <GordyCompanion
-        eligible={gordyCompanionEligible}
+      <GuardiCompanion
+        eligible={guardiCompanionEligible}
         exerciseSafetyLocked={exerciseSafetyLocked}
         redFlagPortalLock={redFlagPortalLock}
-        transient={gordyTransient}
-        celebrateBurstKey={gordyVictoryBurst}
-        contextAnimationName={gordyCompanionContextAnimation}
+        transient={guardiTransient}
+        celebrateBurstKey={guardiVictoryBurst}
+        contextAnimationName={guardiCompanionContextAnimation}
       />
 
       {sessionCelebrationBurst > 0 && (
-        <GordyFullScreenCelebration
+        <GuardiFullScreenCelebration
           burstKey={sessionCelebrationBurst}
           onClose={endSessionCelebration}
         />
@@ -1547,7 +1547,7 @@ export default function PatientDailyView() {
         }
         onTherapistClinicalAlert={(detail) => sendAiClinicalAlert(selectedPatient.id, detail)}
         onPatientEmergencyText={() =>
-          setGordyTransient({
+          setGuardiTransient({
             key: `redflag_text_${Date.now()}`,
             mood: 'concerned',
             bubble:

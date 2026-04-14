@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react';
 import GordieCanvas from './GordieCanvas';
-import type { GordieModelHandle } from './GordieModel';
+import type { GuardieModelHandle } from './GordieModel';
 
-export type GordyMood = 'default' | 'concerned' | 'joy' | 'thinking' | 'like' | 'sad';
+export type GuardiMood = 'default' | 'concerned' | 'joy' | 'thinking' | 'like' | 'sad';
 
 type Props = {
   className?: string;
-  mood?: GordyMood;
+  mood?: GuardiMood;
   /** Overrides mood-based clip selection when set. */
   animationName?: string;
   /** Increment (e.g. XP burst) to run in-scene scale celebration on the GLB. */
@@ -21,7 +21,7 @@ type Props = {
   stylizedEyes?: boolean;
 };
 
-const MOOD_ANIMATION: Record<GordyMood, string | undefined> = {
+const MOOD_ANIMATION: Record<GuardiMood, string | undefined> = {
   default: undefined,
   concerned: 'Idle',
   joy: 'Wave',
@@ -34,7 +34,7 @@ const MOOD_ANIMATION: Record<GordyMood, string | undefined> = {
  * Gordie mascot in a compact responsive Canvas (rigged GLB). Prefer `animationName` for explicit clips
  * (`Wave`, `Exercise1`, …); `mood` supplies defaults when omitted.
  */
-export default function GordyMascotIcon({
+export default function GuardiMascotIcon({
   className = 'w-8 h-8',
   mood = 'default',
   animationName: animationNameProp,
@@ -44,13 +44,13 @@ export default function GordyMascotIcon({
   poseVariant,
   stylizedEyes,
 }: Props) {
-  const gordyRef = useRef<GordieModelHandle>(null);
+  const guardiRef = useRef<GuardieModelHandle>(null);
   const prevBurstRef = useRef(0);
 
   useEffect(() => {
     if (celebrateBurstKey > 0 && celebrateBurstKey !== prevBurstRef.current) {
       prevBurstRef.current = celebrateBurstKey;
-      gordyRef.current?.celebrate();
+      guardiRef.current?.celebrate();
     }
   }, [celebrateBurstKey]);
 
@@ -67,7 +67,7 @@ export default function GordyMascotIcon({
 
   return (
     <GordieCanvas
-      ref={gordyRef}
+      ref={guardiRef}
       className={className}
       variant="icon"
       animationName={animationName}

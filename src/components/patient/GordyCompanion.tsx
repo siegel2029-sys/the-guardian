@@ -1,6 +1,6 @@
-import GordyMascotIcon, { type GordyMood } from './GordyMascotIcon';
+import GuardiMascotIcon, { type GuardiMood } from './GordyMascotIcon';
 
-export type GordyTransientAppearance = {
+export type GuardiTransientAppearance = {
   key: string;
   mood: 'like' | 'joy' | 'concerned';
   bubble: string;
@@ -11,7 +11,7 @@ type Props = {
   eligible: boolean;
   exerciseSafetyLocked: boolean;
   redFlagPortalLock: boolean;
-  transient: GordyTransientAppearance | null;
+  transient: GuardiTransientAppearance | null;
   /** Increment when XP / rewards fire so the 3D mascot can celebrate in-frame. */
   celebrateBurstKey?: number;
   /**
@@ -22,9 +22,9 @@ type Props = {
 };
 
 /**
- * גורדי למטה-ימין — מוסתר כברירת מחדל; מופיע בפייד עדין לאבני דרך או במצב שומר קליני.
+ * גארדי למטה-ימין — מוסתר כברירת מחדל; מופיע בפייד עדין לאבני דרך או במצב שומר קליני.
  */
-export default function GordyCompanion({
+export default function GuardiCompanion({
   eligible,
   exerciseSafetyLocked,
   redFlagPortalLock,
@@ -42,9 +42,9 @@ export default function GordyCompanion({
 
   if (!show) return null;
 
-  let mascotMood: GordyMood = 'default';
+  let mascotMood: GuardiMood = 'default';
   let bubble: string | null = null;
-  let bubbleTitle = 'גורדי';
+  let bubbleTitle = 'גארדי';
   let bubbleProtective = false;
 
   if (protectiveSafety) {
@@ -66,7 +66,7 @@ export default function GordyCompanion({
         : transient.mood === 'joy'
           ? 'joy'
           : 'like';
-    bubbleTitle = 'גורדי';
+    bubbleTitle = 'גארדי';
     bubble = transient.bubble;
   }
 
@@ -94,7 +94,7 @@ export default function GordyCompanion({
 
   return (
     <div
-      className="fixed z-[62] flex flex-col items-end gap-2 pointer-events-none max-w-[min(300px,calc(100vw-2rem))] animate-gordy-companion-enter"
+      className="fixed z-[62] flex flex-col items-end gap-2 pointer-events-none max-w-[min(300px,calc(100vw-2rem))] animate-guardi-companion-enter"
       style={{
         bottom: 'calc(5.75rem + env(safe-area-inset-bottom, 0px))',
         right: 'max(12px, env(safe-area-inset-right, 0px))',
@@ -105,7 +105,7 @@ export default function GordyCompanion({
     >
       {showBubble && (
         <div
-          className="pointer-events-none relative rounded-2xl border-2 px-3.5 py-2.5 animate-gordy-welcome-in"
+          className="pointer-events-none relative rounded-2xl border-2 px-3.5 py-2.5 animate-guardi-welcome-in"
           style={{
             borderColor: bubbleProtective ? '#fecaca' : '#a7f3d0',
             background: bubbleProtective
@@ -143,7 +143,7 @@ export default function GordyCompanion({
         }}
       >
         <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-50 to-white w-[min(280px,calc(100vw-3rem))] h-[min(280px,calc(100vw-3rem))] shrink-0">
-          <GordyMascotIcon
+          <GuardiMascotIcon
             mood={mascotMood}
             animationName={resolvedAnimation}
             className="h-full w-full"

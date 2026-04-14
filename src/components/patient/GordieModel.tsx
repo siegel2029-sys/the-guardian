@@ -13,16 +13,16 @@ import { SkeletonUtils } from 'three-stdlib';
 import type { ComponentProps } from 'react';
 
 /** Served from `public/models/`; respects Vite `base` for subpath deploys. */
-export const GORDIE_MODEL_DEFAULT_URL = `${import.meta.env.BASE_URL}models/gordy_rigged.glb.glb`;
+export const GUARDIE_MODEL_DEFAULT_URL = `${import.meta.env.BASE_URL}models/guardi_rigged.glb.glb`;
 
 /**
  * GLB armature uses scale 0.01 (Mixamo/Blender units → meters). Without this, the mesh is
  * ~2% of a unit tall while the camera sits several units away — effectively invisible.
- * Higher values fill the viewport for portrait-style hero framing (see GordieCanvas camera).
+ * Higher values fill the viewport for portrait-style hero framing (see GuardieCanvas camera).
  */
 const MODEL_DISPLAY_SCALE = 82;
 
-export type GordieModelHandle = {
+export type GuardieModelHandle = {
   celebrate: () => void;
 };
 
@@ -198,13 +198,13 @@ function CapeRedMaterial() {
 }
 
 /**
- * Rigged Gordie from GLB: `mixamorigHips` drives the skeleton; body / cape / shield are separate
- * skinned meshes when the asset provides them. Current `gordy_rigged.glb.glb` ships a single merged
+ * Rigged Guardie (3D mentor rig) from GLB: `mixamorigHips` drives the skeleton; body / cape / shield are separate
+ * skinned meshes when the asset provides them. Current `guardi_rigged.glb.glb` ships a single merged
  * `model` mesh — re-export from Blender with meshes named Body, Cape, and Shield to get split materials.
  */
-const GordieModel = forwardRef<GordieModelHandle, Props>(function GordieModel(
+const GuardieModel = forwardRef<GuardieModelHandle, Props>(function GuardieModel(
   {
-    url = GORDIE_MODEL_DEFAULT_URL,
+    url = GUARDIE_MODEL_DEFAULT_URL,
     animationName,
     crossfade = 0.4,
     displayScaleFactor = 1,
@@ -332,6 +332,6 @@ const GordieModel = forwardRef<GordieModelHandle, Props>(function GordieModel(
   );
 });
 
-export default GordieModel;
+export default GuardieModel;
 
-useGLTF.preload(GORDIE_MODEL_DEFAULT_URL);
+useGLTF.preload(GUARDIE_MODEL_DEFAULT_URL);

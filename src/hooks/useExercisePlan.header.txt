@@ -1,0 +1,105 @@
+import { useCallback, useMemo } from 'react';
+import type {
+  AiSuggestion,
+  AiSuggestionSource,
+  BodyArea,
+  ClinicalSafetyTier,
+  DailySession,
+  Exercise,
+  ExercisePlan,
+  ExerciseSession,
+  InitialClinicalProfileExtras,
+  NavSection,
+  Patient,
+  PatientExercise,
+  PatientExerciseFinishReport,
+  SafetyAlert,
+  SelfCareSessionReport,
+} from '../types';
+import { bodyAreaLabels } from '../types';
+import { EXERCISE_LIBRARY, mockTherapist } from '../data/mockData';
+import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../data/exerciseVideoDefaults';
+import { addClinicalDays, getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
+import { sendDataToTherapist } from '../utils/therapistAnalytics';
+import { getTherapistAlertEmail, openClinicalMailto } from '../utils/clinicalAlertEmail';
+import {
+  PAIN_SURGE_PATIENT_COPY,
+  DIFFICULTY_MAX_PATIENT_COPY,
+} from '../safety/clinicalEmergencyScreening';
+import { isChainReactionZoneForPrimary } from '../body/chainReactionZones';
+import { bodyAreaBlocksSelfCare } from '../body/bodyPickMapping';
+import { applyXpCoinsLevelUp, computeExerciseCompletionRewards, computeStreakAfterFirstDailyCompletion } from '../utils/gamification-utils';
+import { xpRequiredToReachNextLevel } from '../body/patientLevelXp';
+import { loadAuthSnapshot, addPatientAccount } from '../context/authPersistence';
+import {
+  useSupabaseAuthBridge,
+  signUpPortalPatientOnCreate,
+  normalizePortalUsername,
+  isValidPortalUsername,
+} from '../lib/patientPortalAuth';
+import { defaultPatientGear, type PatientGearState } from '../context/patientGearUtils';
+import { buildEmptySession, clampPain, clampEffort } from '../context/patientDomainHelpers';
+
+export type UseExercisePlanParams = {
+  patients: Patient[];
+  allPatients: Patient[];
+  setAllPatients: React.Dispatch<React.SetStateAction<Patient[]>>;
+  exercisePlans: ExercisePlan[];
+  setExercisePlans: React.Dispatch<React.SetStateAction<ExercisePlan[]>>;
+  dailySessions: DailySession[];
+  setDailySessions: React.Dispatch<React.SetStateAction<DailySession[]>>;
+  clinicalTick: number;
+  clinicalToday: string;
+  aiSuggestions: AiSuggestion[];
+  setAiSuggestions: React.Dispatch<React.SetStateAction<AiSuggestion[]>>;
+  selfCareZonesByPatientId: Record<string, BodyArea[]>;
+  setSelfCareZonesByPatientId: React.Dispatch<
+    React.SetStateAction<Record<string, BodyArea[]>>
+  >;
+  selfCareReportsByPatientId: Record<string, SelfCareSessionReport[]>;
+  setSelfCareReportsByPatientId: React.Dispatch<
+    React.SetStateAction<Record<string, SelfCareSessionReport[]>>
+  >;
+  patientExerciseFinishReportsByPatientId: Record<string, PatientExerciseFinishReport[]>;
+  setPatientExerciseFinishReportsByPatientId: React.Dispatch<
+    React.SetStateAction<Record<string, PatientExerciseFinishReport[]>>
+  >;
+  selfCareStrengthTierByPatientId: Record<string, Partial<Record<BodyArea, 0 | 1 | 2>>>;
+  setSelfCareStrengthTierByPatientId: React.Dispatch<
+    React.SetStateAction<Record<string, Partial<Record<BodyArea, 0 | 1 | 2>>>>
+  >;
+  patientGearByPatientId: Record<string, PatientGearState>;
+  setPatientGearByPatientId: React.Dispatch<
+    React.SetStateAction<Record<string, PatientGearState>>
+  >;
+  setExerciseSafetyLockedPatientIds: React.Dispatch<
+    React.SetStateAction<Record<string, boolean>>
+  >;
+  setSafetyAlerts: React.Dispatch<React.SetStateAction<SafetyAlert[]>>;
+  sendAiClinicalAlert: (
+    patientId: string,
+    detailHebrew?: string,
+    tier?: ClinicalSafetyTier
+  ) => void;
+  pushRewardFeedback: (
+    xpAdded: number,
+    coinsAdded: number,
+    streakBonusXp?: number,
+    message?: string
+  ) => void;
+  therapistScopeIds: string[] | null | undefined;
+  setSelectedPatientId: React.Dispatch<React.SetStateAction<string>>;
+  setActiveSection: React.Dispatch<React.SetStateAction<NavSection>>;
+};
+
+function randomPatientPassword(): string {
+  const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
+  let s = '';
+  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
+/**
+ * תוכניות אימון, סשנים יומיים, השלמת תרגילים (כולל פידבק Guardi דרך pushRewardFeedback), פרהאב והצעות AI לתרגול.
+ */
+export function useExercisePlan(params: UseExercisePlanParams) {
