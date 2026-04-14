@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   type ReactNode,
 } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
@@ -12,6 +13,7 @@ import { OrbitControls, Environment, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import AnatomyModel from './AnatomyModel';
 import AvatarJourneyBackdrop from './AvatarJourneyBackdrop';
+import { getPatientAvatarMountainElevationY } from '../../hooks/useGamification';
 import type { BodyArea } from '../../types';
 import { EMPTY_EQUIPPED_GEAR, type EquippedGearSnapshot } from '../../config/gearCatalog';
 
@@ -311,6 +313,12 @@ export default function BodyMap3D(props: BodyMap3DProps) {
 
   const showLevelChrome = !levelBadgeRevealOnHover || avatarHovered;
 
+  /** מסע ההר: המטופל עולה בפריים; רקע סינמטי בפורטל — גארדי נשאר מחוץ לקנבס */
+  const patientMountainElevation = useMemo(
+    () => (useScenicBackdrop ? getPatientAvatarMountainElevationY(level) : 0),
+    [level, useScenicBackdrop]
+  );
+
   const handleView = useCallback((v: ViewPreset) => {
     cameraTargetRef.current = VIEW_POSITIONS[v].clone();
     orbitActiveRef.current = false;
@@ -418,7 +426,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           environmentIntensity={useScenicBackdrop ? 0.48 : 0.65}
         />
 
-        <group position={[0, 0.1, 0]}>
+        <group position={[0, 0.1 + patientMountainElevation, 0]}>
           <Suspense fallback={null}>
             <group scale={avatarScale}>
               <StreakEnergyFloat enabled={streakEnergy && !stableInteraction}>

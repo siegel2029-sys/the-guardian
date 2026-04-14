@@ -71,7 +71,14 @@ import { type GearEquipSlot } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { pushPersistedStateToSupabase } from '../lib/supabaseSync';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
-import type { GearPurchaseResult, PatientRewardFeedback } from '../hooks/useGamification';
+import type {
+  GearPurchaseResult,
+  PatientRewardFeedback,
+  MountainDailyEnvironmentState,
+  MountainBackdropContext,
+  PatientAvatarPostureTier,
+} from '../hooks/useGamification';
+import type { MuscleEvolutionStage } from '../body/anatomicalEvolution';
 import { useGamification } from '../hooks/useGamification';
 import { useExercisePlan } from '../hooks/useExercisePlan';
 import { useClinicalData } from '../hooks/useClinicalData';
@@ -84,7 +91,13 @@ import {
   type PatientRewardMeta,
 } from './patientDomainHelpers';
 
-export type { GearPurchaseResult, PatientRewardFeedback } from '../hooks/useGamification';
+export type {
+  GearPurchaseResult,
+  PatientRewardFeedback,
+  MountainDailyEnvironmentState,
+  MountainBackdropContext,
+  PatientAvatarPostureTier,
+} from '../hooks/useGamification';
 export type { GearEquipSlot } from '../config/gearCatalog';
 
 export type PatientGearState = PatientGearPersistedV1;
@@ -269,6 +282,23 @@ interface PatientContextValue {
   /** אות להצגת אנימציית פרס בכותרת הפורטל */
   rewardFeedback: PatientRewardFeedback | null;
   clearRewardFeedback: () => void;
+
+  /** נוף יומי למסע ההר — שמיים/מזג/מבקרים; יציב לפי תאריך קליני (toDateString) */
+  getMountainDailyEnvironmentState: (clinicalYmd: string) => MountainDailyEnvironmentState;
+  getMountainBackdropContext: (level: number, clinicalYmd: string) => MountainBackdropContext;
+  /** שורת מזג/טבע לגארדי — לעיתים null */
+  getGuardiMountainAmbientLine: (clinicalYmd: string, level?: number) => string | null;
+  /** גובה אנכי לאווטאר המטופל במסע ההר (לא לגארדי) */
+  getPatientAvatarMountainElevationY: (level: number) => number;
+  getPatientAvatarPostureTier: (level: number) => PatientAvatarPostureTier;
+  getPatientAvatarPostureTorsoPitchOffset: (level: number) => number;
+  getPatientAvatarPhysiqueScale: (level: number) => [number, number, number];
+  getPatientAvatarStrengthAura: (level: number) => {
+    enabled: boolean;
+    intensity: number;
+    thickness: number;
+  };
+  getPatientAvatarMuscleVisualStage: (level: number) => MuscleEvolutionStage;
 
   /** אזור גוף + תוכנית התחלתית מספרייה (אונבורדינג מטופל חדש/ממתין) */
   applyInitialClinicalProfile: (
@@ -1379,6 +1409,15 @@ export function PatientProvider({
         claimDailyLoginBonusIfNeeded: gamification.claimDailyLoginBonusIfNeeded,
         rewardFeedback: gamification.rewardFeedback,
         clearRewardFeedback: gamification.clearRewardFeedback,
+        getMountainDailyEnvironmentState: gamification.getMountainDailyEnvironmentState,
+        getMountainBackdropContext: gamification.getMountainBackdropContext,
+        getGuardiMountainAmbientLine: gamification.getGuardiMountainAmbientLine,
+        getPatientAvatarMountainElevationY: gamification.getPatientAvatarMountainElevationY,
+        getPatientAvatarPostureTier: gamification.getPatientAvatarPostureTier,
+        getPatientAvatarPostureTorsoPitchOffset: gamification.getPatientAvatarPostureTorsoPitchOffset,
+        getPatientAvatarPhysiqueScale: gamification.getPatientAvatarPhysiqueScale,
+        getPatientAvatarStrengthAura: gamification.getPatientAvatarStrengthAura,
+        getPatientAvatarMuscleVisualStage: gamification.getPatientAvatarMuscleVisualStage,
         applyInitialClinicalProfile: exercise.applyInitialClinicalProfile,
         updateTherapistNotes: clinical.updateTherapistNotes,
         runClinicalAssessmentEngine: clinical.runClinicalAssessmentEngine,

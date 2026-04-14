@@ -19,6 +19,8 @@ type Props = {
    * bubble moods when those are active.
    */
   contextAnimationName?: string;
+  /** הערת מזג/טבע יומית (מסע ההר) — יציבה ליום הקליני */
+  ambientEnvironmentBubble?: string | null;
 };
 
 /**
@@ -31,14 +33,24 @@ export default function GuardiCompanion({
   transient,
   celebrateBurstKey = 0,
   contextAnimationName,
+  ambientEnvironmentBubble,
 }: Props) {
   const protectiveSafety = exerciseSafetyLocked;
   const protectiveRed = redFlagPortalLock && !exerciseSafetyLocked;
 
   const transientLive =
-    transient != null && typeof transient.until === 'number' && Date.now() < transient.until;
+    transient != null &&
+    typeof transient.until === 'number' &&
+    // eslint-disable-next-line react-hooks/purity -- TTL check for transient bubble (wall clock)
+    Date.now() < transient.until;
 
-  const show = eligible && (protectiveSafety || protectiveRed || transientLive);
+  const ambientTrimmed =
+    typeof ambientEnvironmentBubble === 'string' ? ambientEnvironmentBubble.trim() : '';
+  const hasAmbient = ambientTrimmed.length > 0;
+
+  const show =
+    eligible &&
+    (protectiveSafety || protectiveRed || transientLive || hasAmbient);
 
   if (!show) return null;
 
@@ -68,6 +80,10 @@ export default function GuardiCompanion({
           : 'like';
     bubbleTitle = 'גארדי';
     bubble = transient.bubble;
+  } else if (hasAmbient) {
+    mascotMood = 'joy';
+    bubbleTitle = 'גארדי';
+    bubble = ambientTrimmed;
   }
 
   const showBubble = bubble != null;
@@ -79,6 +95,8 @@ export default function GuardiCompanion({
     if (transient.mood === 'joy') resolvedAnimation = 'Wave';
     else if (transient.mood === 'like') resolvedAnimation = 'Like';
     else resolvedAnimation = 'Sad';
+  } else if (hasAmbient) {
+    resolvedAnimation = 'Wave';
   } else {
     resolvedAnimation = contextAnimationName;
   }

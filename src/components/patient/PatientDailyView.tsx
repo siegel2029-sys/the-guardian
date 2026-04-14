@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect, useRef, useCallback, type KeyboardEvent }
 import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Sparkles,
   Zap,
   MessageCircle,
   Coins,
@@ -53,21 +52,20 @@ import GearStoreArmory from './GearStoreArmory';
 import { buildEquippedGearSnapshot } from '../../utils/gearSnapshot';
 import PortalPatientDebugPanel from './PortalPatientDebugPanel';
 import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
-import PatientHeroesHallTab from './PatientHeroesHallTab';
 import PatientPortalSettingsModal from './PatientPortalSettingsModal';
 import { fetchAiPlanAdjustmentSuggestion } from '../../ai/geminiAiPlanAdjustment';
 import { evaluateAiProgramLongitudinalGate } from '../../ai/aiProgramLongitudinalGate';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
 import { useLocalCalendarDayKey } from '../../utils/dailyKnowledgeFact';
 
-type PortalTab = 'home' | 'activity' | 'gear' | 'messages' | 'heroes';
+type PortalTab = 'home' | 'activity' | 'gear' | 'messages';
 
 function tabFromPortalPath(pathname: string): PortalTab {
   const idx = pathname.indexOf('/patient-portal');
   if (idx === -1) return 'home';
   const rest = pathname.slice(idx + '/patient-portal'.length).replace(/^\/+|\/+$/g, '');
   if (!rest) return 'home';
-  if (rest === 'activity' || rest === 'gear' || rest === 'messages' || rest === 'heroes') return rest;
+  if (rest === 'activity' || rest === 'gear' || rest === 'messages') return rest;
   return 'home';
 }
 
@@ -145,7 +143,13 @@ export default function PatientDailyView() {
     getSelfCareStrengthTier,
     setSelfCareStrengthTier,
     knowledgeFacts,
+    getGuardiMountainAmbientLine,
   } = usePatient();
+
+  const guardiMountainAmbientLine = useMemo(() => {
+    if (!selectedPatient) return null;
+    return getGuardiMountainAmbientLine(clinicalToday, selectedPatient.level);
+  }, [clinicalToday, selectedPatient, getGuardiMountainAmbientLine]);
 
   const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
   const [reportInitialEffort, setReportInitialEffort] = useState<
@@ -578,7 +582,7 @@ export default function PatientDailyView() {
   const guardiCompanionContextAnimation: string | undefined =
     portalTab === 'activity'
       ? 'Exercise1'
-      : portalTab === 'home' || portalTab === 'heroes'
+      : portalTab === 'home'
         ? 'Wave'
         : undefined;
 
@@ -970,8 +974,6 @@ export default function PatientDailyView() {
       </header>
 
       <div className="flex-1 px-4 py-4 pb-36">
-        {portalTab === 'heroes' && selectedPatient && !patientMustChangePassword && <PatientHeroesHallTab />}
-
         {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
             <div className="rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden mx-auto w-full max-w-md touch-pan-y">
@@ -1027,9 +1029,6 @@ export default function PatientDailyView() {
                     }}
                   />
                 </div>
-                <p className="text-xs text-emerald-900/75 mt-2 leading-relaxed pointer-events-none">
-                  לחצו למעבר לאימונים ולהשלמת המשימות להיום.
-                </p>
               </div>
             )}
 
@@ -1037,17 +1036,14 @@ export default function PatientDailyView() {
               <button
                 type="button"
                 onClick={() => setPainAnalyticsOpen(true)}
-                className="mt-3 w-full text-start rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden cursor-pointer touch-manipulation motion-safe:transition-[box-shadow,transform,border-color] motion-safe:duration-200 hover:shadow-lg hover:border-teal-200/90 hover:-translate-y-0.5 active:translate-y-0 active:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
+                className="mt-4 w-full text-start rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden cursor-pointer touch-manipulation motion-safe:transition-[box-shadow,transform,border-color] motion-safe:duration-200 hover:shadow-lg hover:border-teal-200/90 hover:-translate-y-0.5 active:translate-y-0 active:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
                 aria-label="מעקב כאב — פתיחת גרף וניתוח מגמה"
               >
-                <div className="px-4 pt-3 pb-2 border-b border-slate-100/90 bg-slate-50/60 pointer-events-none">
+                <div className="px-4 py-3 border-b border-slate-100/90 bg-slate-50/60 pointer-events-none">
                   <div className="flex items-center gap-2">
                     <Activity className="w-5 h-5 text-medical-primary shrink-0" aria-hidden />
                     <p className="text-sm font-bold text-slate-900">מעקב כאב</p>
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                    דיווחים ומגמות — לחיצה לגרף וניתוח מגמה
-                  </p>
                 </div>
                 <div className="min-h-[52px] px-4 py-3 flex items-center justify-between gap-3 pointer-events-none">
                   <div className="min-w-0 flex-1">
@@ -1082,21 +1078,10 @@ export default function PatientDailyView() {
                 </span>
               </button>
             )}
-            {selectedPatient && !patientMustChangePassword && (
-              <button
-                type="button"
-                onClick={() => navigate(portalHrefForTab('heroes'))}
-                className="mt-3 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3.5 flex items-center justify-center gap-2 text-base font-bold text-slate-800 shadow-sm"
-              >
-                <Sparkles className="w-5 h-5 text-violet-600 shrink-0" />
-                היכל גיבורים
-              </button>
-            )}
-
             {!patientMustChangePassword && (
               <div
                 id="patient-clinical-dashboard"
-                className="scroll-mt-28 mt-8 mb-2 mx-auto w-full max-w-md"
+                className="scroll-mt-28 mt-10 mb-2 mx-auto w-full max-w-md"
               >
                 <ClinicalMonthCalendar dayMap={patientDayMap} clinicalToday={clinicalToday} />
               </div>
@@ -1438,13 +1423,13 @@ export default function PatientDailyView() {
               navigate('/patient-portal');
             }}
             className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-14 min-w-[3rem] py-2.5 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 touch-manipulation motion-safe:transition-transform motion-safe:active:scale-95 ${
-              portalTab === 'home' || portalTab === 'heroes'
+              portalTab === 'home'
                 ? 'text-medical-primary'
                 : 'text-slate-500'
             }`}
             aria-label="בית — מפת גוף"
           >
-            <Home className="w-7 h-7 shrink-0" strokeWidth={portalTab === 'home' || portalTab === 'heroes' ? 2.5 : 2} />
+            <Home className="w-7 h-7 shrink-0" strokeWidth={portalTab === 'home' ? 2.5 : 2} />
             בית
           </button>
           <button
@@ -1522,6 +1507,7 @@ export default function PatientDailyView() {
         transient={guardiTransient}
         celebrateBurstKey={guardiVictoryBurst}
         contextAnimationName={guardiCompanionContextAnimation}
+        ambientEnvironmentBubble={guardiMountainAmbientLine}
       />
 
       {sessionCelebrationBurst > 0 && (

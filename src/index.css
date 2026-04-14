@@ -296,6 +296,66 @@
     }
   }
 
+  @keyframes avatar-journey-rain-fall {
+    0% {
+      transform: translate3d(0, -36px, 0);
+    }
+    100% {
+      transform: translate3d(0, 36px, 0);
+    }
+  }
+
+  .avatar-journey-rain {
+    animation: avatar-journey-rain-fall 0.55s linear infinite;
+    will-change: transform;
+  }
+
+  @keyframes avatar-journey-birds-float {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0);
+    }
+    50% {
+      transform: translate3d(6px, -3px, 0);
+    }
+  }
+
+  .avatar-journey-birds {
+    animation: avatar-journey-birds-float 5s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .avatar-journey-rain {
+      animation: none;
+      will-change: auto;
+    }
+    .avatar-journey-birds {
+      animation: none;
+    }
+  }
+
+  /** רמה 30 — פסגה: חגיגה עדינה (מסע המטופל; גארדי מחוץ לשכבה) */
+  @keyframes avatar-journey-summit-glow {
+    0%,
+    100% {
+      box-shadow: inset 0 0 100px rgba(253, 224, 71, 0.14);
+    }
+    50% {
+      box-shadow: inset 0 0 140px rgba(251, 191, 36, 0.22);
+    }
+  }
+
+  .avatar-journey-summit-celebration {
+    animation: avatar-journey-summit-glow 5.5s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .avatar-journey-summit-celebration {
+      animation: none;
+      box-shadow: inset 0 0 100px rgba(253, 224, 71, 0.14);
+    }
+  }
+
   @keyframes bodymap-spin {
     to {
       transform: rotate(360deg);

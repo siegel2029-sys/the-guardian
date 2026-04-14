@@ -29,7 +29,13 @@ import {
   createDetailedFootGeometry,
 } from './geometry/muscleGeometry';
 import { getLevelTier, type LevelTier } from '../../body/levelTier';
-import { getMuscleEvolutionStage, getMuscleVertexInflation } from '../../body/anatomicalEvolution';
+import { getMuscleVertexInflation } from '../../body/anatomicalEvolution';
+import {
+  getPatientAvatarMuscleVisualStage,
+  getPatientAvatarPhysiqueScale,
+  getPatientAvatarPostureTorsoPitchOffset,
+  getPatientAvatarStrengthAura,
+} from '../../hooks/useGamification';
 import type { MuscleEvolutionStage } from '../../body/anatomicalEvolution';
 import { createMuscleFiberTextures } from './proceduralMuscleTextures';
 import {
@@ -1034,7 +1040,10 @@ export default function AnatomyModel({
     [strengthenedAreasToday]
   );
 
-  const muscleStage = useMemo(() => getMuscleEvolutionStage(level), [level]);
+  const muscleStage = useMemo(() => getPatientAvatarMuscleVisualStage(level), [level]);
+  const physiqueScale = useMemo(() => getPatientAvatarPhysiqueScale(level), [level]);
+  const postureTorsoPitch = useMemo(() => getPatientAvatarPostureTorsoPitchOffset(level), [level]);
+  const strengthAura = useMemo(() => getPatientAvatarStrengthAura(level), [level]);
   const muscleMaps = useMemo(
     () => createMuscleFiberTextures(256, muscleStage === 'power' ? 'strong' : 'strengthening'),
     [muscleStage]
@@ -1115,7 +1124,7 @@ export default function AnatomyModel({
     if (!walkInPlace) {
       if (walkRootRef.current) walkRootRef.current.position.y = 0;
       if (torsoSwayRef.current) {
-        torsoSwayRef.current.rotation.x = 0;
+        torsoSwayRef.current.rotation.x = postureTorsoPitch;
         torsoSwayRef.current.rotation.y = 0;
         torsoSwayRef.current.rotation.z = 0;
       }
@@ -1130,6 +1139,11 @@ export default function AnatomyModel({
     if (pauseWalkAnimation) {
       resetArmPivots();
       resetFeet();
+      if (torsoSwayRef.current) {
+        torsoSwayRef.current.rotation.x = postureTorsoPitch;
+        torsoSwayRef.current.rotation.y = 0;
+        torsoSwayRef.current.rotation.z = 0;
+      }
       return;
     }
 
@@ -1140,7 +1154,8 @@ export default function AnatomyModel({
     const bob = bobAmp * lerpAngle(t, GAIT_BOB_KEYFRAMES);
     if (walkRootRef.current) walkRootRef.current.position.y = bob;
     if (torsoSwayRef.current) {
-      torsoSwayRef.current.rotation.x = lerpAngle(t, GAIT_TORSO_PITCH_KEYFRAMES);
+      torsoSwayRef.current.rotation.x =
+        lerpAngle(t, GAIT_TORSO_PITCH_KEYFRAMES) + postureTorsoPitch;
       torsoSwayRef.current.rotation.z = lerpAngle(t, GAIT_TORSO_ROLL_KEYFRAMES);
       /** סביבת Y: אל הרגל הקדמית/ב־swing (מקס׳ ~0.08) */
       torsoSwayRef.current.rotation.y =
@@ -1238,9 +1253,12 @@ export default function AnatomyModel({
     };
   };
 
+  const auraDist = 2.35 - strengthAura.thickness * 0.45;
+
   return (
     <group>
       <IdleSwayRoot>
+        <group scale={physiqueScale}>
         <group ref={walkRootRef}>
       {/* Pulsing injury spotlight */}
       {primaryArea && (
@@ -1252,6 +1270,32 @@ export default function AnatomyModel({
           distance={1.15}
           decay={2}
         />
+      )}
+
+      {strengthAura.enabled && (
+        <>
+          <pointLight
+            position={[0.4, 1.18, 0.44]}
+            color="#7dd3fc"
+            intensity={0.32 + strengthAura.intensity * 1.45}
+            distance={auraDist}
+            decay={2}
+          />
+          <pointLight
+            position={[-0.4, 1.18, 0.44]}
+            color="#a5f3fc"
+            intensity={0.26 + strengthAura.intensity * 1.15}
+            distance={auraDist + 0.15}
+            decay={2}
+          />
+          <pointLight
+            position={[0, 0.52, -0.45]}
+            color="#38bdf8"
+            intensity={0.16 + strengthAura.intensity * 0.85}
+            distance={2.55}
+            decay={2}
+          />
+        </>
       )}
 
       <group ref={torsoSwayRef}>
@@ -1534,13 +1578,14 @@ export default function AnatomyModel({
         <ContactShadows
           position={[0, -1.712, 0]}
           opacity={0.42}
-          scale={2.75}
+          scale={2.75 * physiqueScale[0]}
           blur={2.85}
           far={1.05}
           color="#1e293b"
           resolution={768}
         />
       ) : null}
+        </group>
         </group>
       </IdleSwayRoot>
     </group>
