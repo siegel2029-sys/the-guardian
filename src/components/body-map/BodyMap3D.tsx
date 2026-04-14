@@ -39,6 +39,8 @@ export interface BodyMap3DProps {
   streak?: number;
   /** @deprecated Use `streak` */
   streakForGlow?: number;
+  /** בונוס יומי מתרגילי «לבחירה» — מגביר זוהר/אנרגיה בפורטל בלי לשנות את מספר הרצף המוצג */
+  strengthGlowBonus?: number;
   /** Muscle areas with a finish report today — gold / blue highlight */
   strengthenedAreasToday?: BodyArea[];
   /** When true, show level badge in 3D next to the head (e.g. patient portal) */
@@ -277,6 +279,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     xpForNextLevel,
     streak,
     streakForGlow,
+    strengthGlowBonus = 0,
     strengthenedAreasToday = [],
     floatingLevelBadge = false,
     levelBadgeRevealOnHover = false,
@@ -305,9 +308,10 @@ export default function BodyMap3D(props: BodyMap3DProps) {
   const coarsePointer = usePreferCoarsePointer();
   const scrollFriendlyPortal = patientPortalInteractive && coarsePointer;
 
-  const streakVal = streak ?? streakForGlow ?? 0;
+  const streakVal = (streak ?? streakForGlow ?? 0) + strengthGlowBonus;
   const streakEnergy =
-    streakVal >= 3 && !patientPortalInteractive;
+    (streakVal >= 3 && !patientPortalInteractive) ||
+    (patientPortalInteractive && strengthGlowBonus > 0);
 
   const xpPct =
     xp != null && xpForNextLevel != null && xpForNextLevel > 0
@@ -662,6 +666,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }

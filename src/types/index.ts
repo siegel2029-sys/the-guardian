@@ -283,6 +283,8 @@ export interface Exercise {
   /** הנחיות התקדמות — מוצג במודאל האימון */
   clinicalProgressionHint?: string;
   isCustom?: boolean;     // true = manually added by therapist (not from library)
+  /** true = תרגיל נוסף (לבחירה) — לא חובה לסשן; בונוס מטבעות/אנרגיה בלי XP לרמה */
+  isOptional?: boolean;
 }
 
 /** An exercise as it exists in a patient's personal plan (therapist-adjusted values). */

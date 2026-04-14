@@ -14,6 +14,11 @@ export type PushPersistedStateOptions = {
   sessionRole?: 'therapist' | 'patient';
   /** Required when {@link PushPersistedStateOptions.sessionRole} is `'patient'`. */
   patientSessionId?: string | null;
+  /**
+   * Optional note stored on the new exercise_plans version row when content differs (therapist save).
+   * Keys are patient IDs; omitted or empty string → null in DB for that patient.
+   */
+  exercisePlanChangeSummaryByPatientId?: Record<string, string>;
 };
 
 /**
@@ -54,7 +59,20 @@ export async function pushPersistedStateToSupabase(
     result = await upsertPatientRecords(client, state.patients, now);
     if (!result.ok) return result;
 
-    result = await upsertExercisePlans(client, state.exercisePlans, now);
+    const changeMap = options?.exercisePlanChangeSummaryByPatientId;
+    const changeSummaryByPatientId: Record<string, string> | undefined =
+      changeMap && Object.keys(changeMap).length > 0
+        ? Object.fromEntries(
+            Object.entries(changeMap).filter(([, v]) => typeof v === 'string' && v.trim() !== '')
+          )
+        : undefined;
+
+    result = await upsertExercisePlans(client, state.exercisePlans, now, {
+      changeSummaryByPatientId:
+        changeSummaryByPatientId && Object.keys(changeSummaryByPatientId).length > 0
+          ? changeSummaryByPatientId
+          : undefined,
+    });
     if (!result.ok) return result;
 
     result = await upsertSessionHistory(client, state.dailySessions, now);

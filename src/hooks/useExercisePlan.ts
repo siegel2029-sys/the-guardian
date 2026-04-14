@@ -28,7 +28,12 @@ import {
 } from '../safety/clinicalEmergencyScreening';
 import { isChainReactionZoneForPrimary } from '../body/chainReactionZones';
 import { bodyAreaBlocksSelfCare } from '../body/bodyPickMapping';
-import { applyXpCoinsLevelUp, computeExerciseCompletionRewards, computeStreakAfterFirstDailyCompletion } from '../utils/gamification-utils';
+import {
+  applyXpCoinsLevelUp,
+  computeExerciseCompletionRewards,
+  computeOptionalExerciseBonusRewards,
+  computeStreakAfterFirstDailyCompletion,
+} from '../utils/gamification-utils';
 import { xpRequiredToReachNextLevel } from '../body/patientLevelXp';
 import { loadAuthSnapshot, addPatientAccount } from '../context/authPersistence';
 import {
@@ -148,6 +153,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       patientSets: exercise.sets,
       patientReps: exercise.reps ?? 0,
       addedAt: new Date().toISOString(),
+      isOptional: exercise.isOptional === true,
     };
     setExercisePlans((prev) => {
       const existing = prev.find((ep) => ep.patientId === patientId);
@@ -189,7 +195,9 @@ export function useExercisePlan(params: UseExercisePlanParams) {
     (
       patientId: string,
       exerciseId: string,
-      updates: Partial<Pick<PatientExercise, 'patientReps' | 'patientSets' | 'patientWeightKg'>>
+      updates: Partial<
+        Pick<PatientExercise, 'patientReps' | 'patientSets' | 'patientWeightKg' | 'isOptional'>
+      >
     ) => {
       setExercisePlans((prev) =>
         prev.map((ep) =>
@@ -270,6 +278,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       const totalInPlan = plan?.exercises.length ?? 0;
       const rehabEx = plan?.exercises.find((e) => e.id === exerciseId);
       const sessionZone = options?.sessionBodyArea ?? rehabEx?.targetArea ?? undefined;
+      const isOptionalRehab =
+        options?.completionSource === 'rehab' && rehabEx?.isOptional === true;
       const firstOfDay = !prior || prior.completedIds.length === 0;
       const clinicalYesterday = getClinicalYesterday();
       const clinicalTwoDaysAgo = addClinicalDays(clinicalDay, -2);
@@ -291,13 +301,15 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         streakBonusXp,
         coinsGain,
         rewardMessage,
-      } = computeExerciseCompletionRewards({
-        planXpReward: xpReward,
-        streakForXpMultiplier,
-        xpBoosterEquippedAndOwned:
-          gearSnap.equippedPassiveId === 'xp_booster' &&
-          gearSnap.ownedGearIds.includes('xp_booster'),
-      });
+      } = isOptionalRehab
+        ? computeOptionalExerciseBonusRewards()
+        : computeExerciseCompletionRewards({
+            planXpReward: xpReward,
+            streakForXpMultiplier,
+            xpBoosterEquippedAndOwned:
+              gearSnap.equippedPassiveId === 'xp_booster' &&
+              gearSnap.ownedGearIds.includes('xp_booster'),
+          });
 
       pushRewardFeedback(
         xpGain,
@@ -739,6 +751,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         patientSets: exercise.sets,
         patientReps: exercise.reps ?? 0,
         addedAt,
+        isOptional: false,
       }));
 
       setAllPatients((prev) =>
@@ -882,6 +895,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         patientSets: exercise.sets,
         patientReps: exercise.reps ?? 0,
         addedAt,
+        isOptional: exercise.isOptional === true,
       }));
       setExercisePlans((prev) => {
         const rest = prev.filter((ep) => ep.patientId !== patientId);

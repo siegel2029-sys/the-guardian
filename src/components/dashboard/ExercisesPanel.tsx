@@ -436,7 +436,11 @@ export default function ExercisesPanel() {
                 index={i + 1}
                 isCompleted={session.completedIds.includes(exercise.id)}
                 onToggle={() =>
-                  toggleExercise(selectedPatient.id, exercise.id, exercise.xpReward)
+                  toggleExercise(
+                    selectedPatient.id,
+                    exercise.id,
+                    exercise.isOptional ? 0 : exercise.xpReward
+                  )
                 }
                 onVideoClick={() => setVideoModal(exercise.videoPlaceholder ?? exercise.name)}
               />
@@ -449,7 +453,7 @@ export default function ExercisesPanel() {
               onClick={() => {
                 plan.exercises.forEach((e) => {
                   if (!session.completedIds.includes(e.id)) {
-                    toggleExercise(selectedPatient.id, e.id, e.xpReward);
+                    toggleExercise(selectedPatient.id, e.id, e.isOptional ? 0 : e.xpReward);
                   }
                 });
               }}

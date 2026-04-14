@@ -1,5 +1,5 @@
 /**
- * תווית פרס שקופה — זהוב / כחול עדין
+ * תווית פרס — XP ומטבעות בלבד (ללא «נק׳»)
  */
 export function RewardLabel({
   xp,
@@ -10,10 +10,14 @@ export function RewardLabel({
   coins?: number;
   className?: string;
 }) {
+  const showXp = xp != null && xp >= 0;
+  const showCoins = coins != null && coins > 0;
+  if (!showXp && !showCoins) return null;
+
   const parts: string[] = [];
-  if (xp != null && xp > 0) parts.push(`+${xp} נק׳`);
-  if (coins != null && coins > 0) parts.push(`+${coins} מטבעות`);
-  if (parts.length === 0) return null;
+  if (showXp) parts.push(`XP ${xp}`);
+  if (showCoins) parts.push(`${coins} מטבעות`);
+
   return (
     <span
       className={`inline-flex items-center gap-1 text-[10px] font-bold tabular-nums leading-tight ${className}`}
@@ -26,7 +30,7 @@ export function RewardLabel({
         boxShadow: '0 1px 3px rgba(59,130,246,0.08)',
       }}
     >
-      {parts.join(' · ')}
+      {parts.join(' | ')}
     </span>
   );
 }

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   X, Plus, Trash2, Pencil, Check, Search, BookOpen,
   ClipboardList, Filter, Clock, RotateCcw, ChevronDown, ChevronUp,
-  Wand2, Sparkles, AlertCircle,
+  Wand2, Sparkles, AlertCircle, Loader2,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { EXERCISE_LIBRARY } from '../../data/mockData';
@@ -47,6 +47,8 @@ interface CustomFormData {
   seconds: number;   // for time-based: remaining seconds (0–59)
   difficulty: ExerciseDifficulty;
   instructions: string;
+  /** תרגיל נוסף (לבחירה) — לא חובה לסשן */
+  isOptional: boolean;
 }
 
 const DEFAULT_FORM: CustomFormData = {
@@ -60,6 +62,7 @@ const DEFAULT_FORM: CustomFormData = {
   seconds: 30,
   difficulty: 2,
   instructions: '',
+  isOptional: false,
 };
 
 // ── Custom Exercise Form ──────────────────────────────────────────
@@ -308,6 +311,21 @@ function CustomExerciseForm({
           </p>
         </div>
 
+        <label className="flex items-start gap-2.5 cursor-pointer rounded-xl border border-slate-200 bg-white/80 px-3 py-2.5">
+          <input
+            type="checkbox"
+            checked={form.isOptional}
+            onChange={(e) => set('isOptional', e.target.checked)}
+            className="mt-0.5 rounded border-slate-300 text-teal-600"
+          />
+          <span className="text-xs text-slate-700 leading-snug">
+            <span className="font-bold text-slate-800">תרגיל נוסף (לבחירה)</span>
+            <span className="block text-slate-500 mt-0.5">
+              לא חובה לסיום הסשן — מעניק מטבעות בונוס ואנרגיה לזוהר, בלי XP לרמה
+            </span>
+          </span>
+        </label>
+
       </div>{/* end space-y-3 */}
       </div>{/* end scrollable fields */}
 
@@ -351,7 +369,9 @@ function PlanExerciseRow({
 }: {
   exercise: PatientExercise;
   onRemove: () => void;
-  onUpdate: (updates: Partial<Pick<PatientExercise, 'patientReps' | 'patientSets'>>) => void;
+  onUpdate: (
+    updates: Partial<Pick<PatientExercise, 'patientReps' | 'patientSets' | 'isOptional'>>
+  ) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editSets, setEditSets] = useState(exercise.patientSets);
@@ -391,6 +411,11 @@ function PlanExerciseRow({
                 </span>
               ) : typeLabel[exercise.type]}
             </span>
+            {exercise.isOptional && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                לבחירה
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-xs text-teal-600 font-medium truncate">{exercise.muscleGroup}</span>
@@ -439,7 +464,17 @@ function PlanExerciseRow({
         )}
 
         {/* Action buttons */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          <label className="flex items-center gap-1.5 text-[10px] text-slate-600 cursor-pointer whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={exercise.isOptional === true}
+              onChange={(e) => onUpdate({ isOptional: e.target.checked })}
+              className="rounded border-slate-300 text-teal-600"
+            />
+            לבחירה
+          </label>
+          <div className="flex items-center gap-1">
           {editing ? (
             <>
               <button onClick={saveEdit}
@@ -463,6 +498,7 @@ function PlanExerciseRow({
               </button>
             </>
           )}
+          </div>
         </div>
       </div>
     </div>
@@ -478,10 +514,11 @@ function LibraryToggleRow({
 }: {
   exercise: (typeof EXERCISE_LIBRARY)[0];
   isAdded: boolean;
-  onAdd: () => void;
+  onAdd: (isOptional: boolean) => void;
   onRemove: () => void;
 }) {
   const [showDetail, setShowDetail] = useState(false);
+  const [addAsOptional, setAddAsOptional] = useState(false);
   return (
     <div
       className={`rounded-xl border transition-colors ${isAdded ? 'border-emerald-300 bg-emerald-50/50' : 'border-slate-200 bg-white'}`}
@@ -492,7 +529,7 @@ function LibraryToggleRow({
           type="button"
           role="switch"
           aria-checked={isAdded}
-          onClick={() => (isAdded ? onRemove() : onAdd())}
+          onClick={() => (isAdded ? onRemove() : onAdd(addAsOptional))}
           className={`relative h-7 w-12 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 ${
             isAdded ? 'bg-emerald-500' : 'bg-slate-300'
           }`}
@@ -545,6 +582,17 @@ function LibraryToggleRow({
           {showDetail ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
       </div>
+      {!isAdded && (
+        <label className="flex items-center gap-2 px-3 pb-2 text-[10px] text-slate-600 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={addAsOptional}
+            onChange={(e) => setAddAsOptional(e.target.checked)}
+            className="rounded border-slate-300 text-teal-600"
+          />
+          <span>הוספה כתרגיל נוסף (לבחירה)</span>
+        </label>
+      )}
       {showDetail && (
         <div
           className="px-3 pb-3 pt-1 border-t text-xs text-slate-600 leading-relaxed"
@@ -565,12 +613,17 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     addExerciseToPlan,
     removeExerciseFromPlan,
     updateExerciseInPlan,
+    savePersistedStateToCloud,
+    supabaseConfigured,
+    supabaseSyncStatus,
+    supabaseSyncError,
   } = usePatient();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeGroup, setActiveGroup] = useState('הכל');
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [changeSummary, setChangeSummary] = useState('');
 
   const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
   const currentExercises = useMemo(() => plan?.exercises ?? [], [plan]);
@@ -627,6 +680,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
       instructions: data.instructions.trim(),
       xpReward,
       isCustom: true,
+      isOptional: data.isOptional,
       videoPlaceholder: `${data.name} – הדגמה`,
       videoUrl: DEFAULT_EXERCISE_DEMO_VIDEO_URL,
     });
@@ -661,7 +715,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
             <h2 className="text-lg font-bold text-slate-800">ניהול תוכנית תרגול</h2>
             <p className="text-sm text-teal-600 mt-0.5">{selectedPatient.name} — {selectedPatient.diagnosis}</p>
             <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-              ספרייה: חיפוש מהיר והחלפת תרגילים במתג. שינויים נשמרים מיד במערכת.
+              עריכה נשמרת מקומית; לסנכרון לענן — «שמירה» בתחתית.
             </p>
           </div>
           <button onClick={onClose}
@@ -815,7 +869,9 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                         key={ex.id}
                         exercise={ex}
                         isAdded={added}
-                        onAdd={() => addExerciseToPlan(selectedPatient.id, ex)}
+                        onAdd={(isOptional) =>
+                          addExerciseToPlan(selectedPatient.id, { ...ex, isOptional })
+                        }
                         onRemove={() => {
                           if (planExId) removeExerciseFromPlan(selectedPatient.id, planExId);
                         }}
@@ -828,20 +884,80 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t shrink-0 flex items-center justify-between"
-          style={{ background: '#f8fffe', borderColor: '#e0f2f1' }}>
-          <div className="flex items-center gap-3 text-xs text-slate-400">
-            <span>שינויים נשמרים אוטומטית</span>
-            <span className="flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-orange-400" />
+        <div
+          className="px-6 py-3 border-t shrink-0 flex flex-col gap-3"
+          style={{ background: '#f8fafc', borderColor: '#e2e8f0' }}
+        >
+          <div className="w-full">
+            <label
+              htmlFor="plan-change-summary"
+              className="block text-xs font-semibold text-slate-600 mb-1"
+            >
+              סיכום השינויים
+            </label>
+            <textarea
+              id="plan-change-summary"
+              value={changeSummary}
+              onChange={(e) => setChangeSummary(e.target.value)}
+              rows={2}
+              placeholder="קצר — יישמר בגרסת התוכנית בענן (אופציונלי)"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-400/40 bg-white resize-none"
+            />
+          </div>
+          {!supabaseConfigured && (
+            <p className="text-xs text-amber-700 flex items-start gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              Supabase לא מוגדר — השמירה תעדכן רק את הנתונים המקומיים.
+            </p>
+          )}
+          {supabaseSyncError && supabaseSyncStatus === 'error' && (
+            <p className="text-xs text-red-600">{supabaseSyncError}</p>
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-slate-400 flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-orange-400 shrink-0" />
               תרגילים מותאמים מסומנים בכתום
             </span>
+            <div className="flex items-center gap-2 ms-auto">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+              >
+                סגור
+              </button>
+              <button
+                type="button"
+                disabled={supabaseSyncStatus === 'saving'}
+                onClick={async () => {
+                  setSuccessMsg(null);
+                  const ok = await savePersistedStateToCloud({
+                    exercisePlanChangeSummaryByPatientId: {
+                      [selectedPatient.id]: changeSummary.trim(),
+                    },
+                  });
+                  if (ok) {
+                    setSuccessMsg('נשמר לענן בהצלחה.');
+                    window.setTimeout(() => setSuccessMsg(null), 2800);
+                  } else if (!supabaseConfigured) {
+                    setSuccessMsg('התוכנית נשמרת מקומית; לענן נדרש Supabase.');
+                    window.setTimeout(() => setSuccessMsg(null), 4000);
+                  }
+                }}
+                className="inline-flex items-center justify-center gap-2 min-h-11 px-5 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-55 disabled:cursor-not-allowed transition-all hover:brightness-105"
+                style={{ background: 'linear-gradient(135deg,#0d9488,#10b981)' }}
+              >
+                {supabaseSyncStatus === 'saving' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    שומר…
+                  </>
+                ) : (
+                  'שמירה'
+                )}
+              </button>
+            </div>
           </div>
-          <button onClick={onClose}
-            className="px-5 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:-translate-y-0.5"
-            style={{ background: 'linear-gradient(135deg,#0d9488,#10b981)' }}>
-            סגור
-          </button>
         </div>
       </div>
     </div>

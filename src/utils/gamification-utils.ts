@@ -113,6 +113,22 @@ export function computeExerciseCompletionRewards(
 }
 
 /**
+ * תרגילי שיקום מסומנים כ־optional — ללא XP לרמה/הר; מטבעות בונוס + הודעת אנרגיה לזוהר.
+ */
+export function computeOptionalExerciseBonusRewards(): ExerciseCompletionXpResult {
+  const coinsGain = PATIENT_REWARDS.EXERCISE_COMPLETE.coins + 10;
+  return {
+    baseXp: 0,
+    streakMult: 1,
+    xpBeforeBoost: 0,
+    xpGain: 0,
+    streakBonusXp: 0,
+    coinsGain,
+    rewardMessage: 'נקודות בונוס — אנרגיה לזוהר',
+  };
+}
+
+/**
  * Apply XP and coin deltas, then resolve level-ups until below next threshold or max level.
  */
 export function applyXpCoinsLevelUp(

@@ -109,6 +109,11 @@ export default function ExerciseCard({
                 {type.label}
               </span>
             )}
+            {exercise.isOptional && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                לבחירה
+              </span>
+            )}
           </div>
 
           {/* Sets × Reps */}

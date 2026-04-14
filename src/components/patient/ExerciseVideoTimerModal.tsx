@@ -85,6 +85,10 @@ export interface ExerciseVideoTimerModalProps {
   onClose: () => void;
   /** לחיצה על «סיים תרגול» אחרי טיימר 0 — מעדכן PatientContext */
   onComplete: (payload: ExerciseTrainingCompletePayload) => void;
+  /** מזהה תרגיל שיקום — נשלח ל־onTimerStarted כשמפעילים טיימר */
+  timerArmExerciseId?: string;
+  /** נקרא כשהמשתמש מפעיל את הטיימר («התחל תרגול») */
+  onTimerStarted?: (exerciseId: string) => void;
 }
 
 export default function ExerciseVideoTimerModal({
@@ -100,6 +104,8 @@ export default function ExerciseVideoTimerModal({
   primeSeconds = 30,
   onClose,
   onComplete,
+  timerArmExerciseId,
+  onTimerStarted,
 }: ExerciseVideoTimerModalProps) {
   const [phase, setPhase] = useState<'train' | 'success'>('train');
   const [remaining, setRemaining] = useState(primeSeconds);
@@ -214,10 +220,13 @@ export default function ExerciseVideoTimerModal({
   const handleStartExercise = useCallback(() => {
     setTimerStarted(true);
     startTimer();
+    if (timerArmExerciseId && onTimerStarted) {
+      onTimerStarted(timerArmExerciseId);
+    }
     if (presentation.kind === 'mp4') {
       window.setTimeout(() => tryPlayVideo(), 80);
     }
-  }, [startTimer, tryPlayVideo, presentation.kind]);
+  }, [startTimer, tryPlayVideo, presentation.kind, timerArmExerciseId, onTimerStarted]);
 
   const handleRestartTimer = useCallback(() => {
     setTimerStarted(true);

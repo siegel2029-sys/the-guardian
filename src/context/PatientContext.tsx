@@ -200,7 +200,9 @@ interface PatientContextValue {
   updateExerciseInPlan: (
     patientId: string,
     exerciseId: string,
-    updates: Partial<Pick<PatientExercise, 'patientReps' | 'patientSets' | 'patientWeightKg'>>
+    updates: Partial<
+      Pick<PatientExercise, 'patientReps' | 'patientSets' | 'patientWeightKg' | 'isOptional'>
+    >
   ) => void;
 
   // Daily sessions & לוח קליני (04:00)
@@ -393,7 +395,9 @@ interface PatientContextValue {
   supabaseSyncStatus: 'idle' | 'saving' | 'saved' | 'error';
   supabaseSyncError: string | null;
   supabaseLastSavedAt: string | null;
-  savePersistedStateToCloud: () => Promise<void>;
+  savePersistedStateToCloud: (options?: {
+    exercisePlanChangeSummaryByPatientId?: Record<string, string>;
+  }) => Promise<boolean>;
 
   /** בסיס ידע "הידעת?" — אישור מטפל וסנכרון */
   knowledgeFacts: KnowledgeFact[];
@@ -718,29 +722,34 @@ export function PatientProvider({
     knowledgeFacts,
   ]);
 
-  const savePersistedStateToCloud = useCallback(async () => {
-    if (!supabase) {
-      setSupabaseSyncError(
-        'Supabase לא מוגדר: הוסיפו VITE_SUPABASE_URL ו־VITE_SUPABASE_ANON_KEY לקובץ .env והפעילו מחדש את השרת.'
-      );
-      setSupabaseSyncStatus('idle');
-      return;
-    }
-    setSupabaseSyncStatus('saving');
-    setSupabaseSyncError(null);
-    const result = await pushPersistedStateToSupabase(
-      supabase,
-      buildPersistSnapshot(),
-      supabasePushOptions
-    );
-    if (result.ok) {
-      setSupabaseSyncStatus('saved');
-      setSupabaseLastSavedAt(new Date().toISOString());
-    } else {
+  const savePersistedStateToCloud = useCallback(
+    async (options?: {
+      exercisePlanChangeSummaryByPatientId?: Record<string, string>;
+    }) => {
+      if (!supabase) {
+        setSupabaseSyncError(
+          'Supabase לא מוגדר: הוסיפו VITE_SUPABASE_URL ו־VITE_SUPABASE_ANON_KEY לקובץ .env והפעילו מחדש את השרת.'
+        );
+        setSupabaseSyncStatus('idle');
+        return false;
+      }
+      setSupabaseSyncStatus('saving');
+      setSupabaseSyncError(null);
+      const result = await pushPersistedStateToSupabase(supabase, buildPersistSnapshot(), {
+        ...supabasePushOptions,
+        ...options,
+      });
+      if (result.ok) {
+        setSupabaseSyncStatus('saved');
+        setSupabaseLastSavedAt(new Date().toISOString());
+        return true;
+      }
       setSupabaseSyncStatus('error');
       setSupabaseSyncError(result.message);
-    }
-  }, [buildPersistSnapshot, supabasePushOptions]);
+      return false;
+    },
+    [buildPersistSnapshot, supabasePushOptions]
+  );
 
   /** אחרי עדכון סשנים יומיים — דחיפה ל־Supabase (מטפל: מלא; מטופל בפורטל: רק שורת patients) */
   useEffect(() => {
