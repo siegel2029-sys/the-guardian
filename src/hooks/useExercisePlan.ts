@@ -39,6 +39,7 @@ import {
 } from '../lib/patientPortalAuth';
 import { defaultPatientGear, type PatientGearState } from '../context/patientGearUtils';
 import { buildEmptySession, clampPain, clampEffort } from '../context/patientDomainHelpers';
+import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
 
 export type UseExercisePlanParams = {
   patients: Patient[];
@@ -135,7 +136,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
   } = params;
   // ── Exercise plan CRUD ─────────────────────────────────────────
   const getExercisePlan = useCallback(
-    (patientId: string) => exercisePlans.find((ep) => ep.patientId === patientId),
+    (patientId: string) => pickCanonicalExercisePlan(exercisePlans, patientId),
     [exercisePlans]
   );
 
@@ -265,7 +266,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
 
       const pain = clampPain(painLevel);
       const effort = clampEffort(effortRating);
-      const plan = exercisePlans.find((ep) => ep.patientId === patientId);
+      const plan = pickCanonicalExercisePlan(exercisePlans, patientId);
       const totalInPlan = plan?.exercises.length ?? 0;
       const rehabEx = plan?.exercises.find((e) => e.id === exerciseId);
       const sessionZone = options?.sessionBodyArea ?? rehabEx?.targetArea ?? undefined;
@@ -1029,7 +1030,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
   const devMockSevenDayExerciseHistory = useCallback(
     (patientId: string) => {
       if (import.meta.env.PROD) return;
-      const plan = exercisePlans.find((ep) => ep.patientId === patientId);
+      const plan = pickCanonicalExercisePlan(exercisePlans, patientId);
       const exId =
         plan?.exercises[0]?.id ??
         `${patientId}-dev-mock-${Math.random().toString(36).slice(2, 8)}`;

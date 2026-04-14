@@ -297,6 +297,22 @@ export interface PatientExercise extends Exercise {
 export interface ExercisePlan {
   patientId: string;
   exercises: PatientExercise[];
+  /** Supabase exercise_plans.id when synced from versioned storage */
+  planRowId?: string;
+  versionNumber?: number;
+  /** When false, this in-memory slice is not the active plan (e.g. history overlay). */
+  isActive?: boolean;
+}
+
+/** Inactive exercise_plans rows for a patient (treatment evolution). */
+export interface ExercisePlanHistoryEntry {
+  id: string;
+  patientId: string;
+  exercises: PatientExercise[];
+  versionNumber: number;
+  parentPlanId: string | null;
+  changeSummary: string | null;
+  updatedAt: string;
 }
 
 export interface DailySession {

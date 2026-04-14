@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import {
   applyTherapistClinicalCycle,
 } from '../context/patientDomainHelpers';
+import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
 
 /**
  * אווטאר/מפת גוף, VAS/אנליטיקת כאב, רשומות רפואיות/הערות מטפל, וסנכרון שורות patients/profiles ל-Supabase.
@@ -98,7 +99,7 @@ export function useClinicalData({
     (patientId: string, notes: string) => {
       const patient = allPatients.find((p) => p.id === patientId);
       if (!patient) return;
-      const plan = exercisePlans.find((ep) => ep.patientId === patientId);
+      const plan = pickCanonicalExercisePlan(exercisePlans, patientId);
       const insight = computeClinicalProgressInsight(patient, clinicalToday);
 
       setAllPatients((prev) =>

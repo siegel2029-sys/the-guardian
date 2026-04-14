@@ -50,6 +50,7 @@ import {
 import { getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
 import { addDevCalendarOffsetDays, bumpDevCalendarOffsetDays } from '../utils/debugMockDate';
 import { mergeHistoryFromSessions } from '../utils/dailyHistory';
+import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
 import {
   savePersistedPatientState,
   PATIENT_STATE_STORAGE_KEY,
@@ -1184,7 +1185,7 @@ export function PatientProvider({
   const devSeedAiLongitudinalWindow = useCallback(
     (patientId: string, scenario: AiDevLongitudinalScenario) => {
       if (import.meta.env.PROD) return;
-      const plan = exercisePlans.find((ep) => ep.patientId === patientId);
+      const plan = pickCanonicalExercisePlan(exercisePlans, patientId);
       const planIds = plan?.exercises.map((e) => e.id) ?? [];
       const totalExercises = Math.max(1, planIds.length);
       const days = rollingClinicalDayKeys(clinicalToday, AI_PROGRAM_LONGITUDINAL_WINDOW_DAYS);
