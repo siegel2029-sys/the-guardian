@@ -37,7 +37,28 @@ function segmentT(level: number, phase: JourneyPhase): number {
   }
 }
 
-const TRANSFORM_EASE = 'transform 0.8s cubic-bezier(0.22, 0.82, 0.32, 1), opacity 0.65s ease-out';
+const TRANSFORM_EASE =
+  'transform 0.8s cubic-bezier(0.22, 0.82, 0.32, 1), opacity 0.65s ease-out, filter 0.85s cubic-bezier(0.22, 0.82, 0.32, 1)';
+
+/** 0 at level 1 → 1 at level 15+ (whole journey — drives scale, blur, silhouette crispness). */
+function journeyProgress(level: number): number {
+  return Math.min(1, Math.max(0, (Math.min(level, 22) - 1) / 14));
+}
+
+/** Extra scale added on top of phase band so the mass keeps growing every level, not only at band edges. */
+function levelGrowthBoost(level: number): number {
+  return Math.min(0.26, (Math.max(1, level) - 1) * 0.0175);
+}
+
+function mountainFilters(journeyT: number): string {
+  const blurPx = Math.max(0, 2.85 - journeyT * 3.05);
+  const contrast = 1 + journeyT * 0.14;
+  const saturate = 1 + journeyT * 0.1;
+  if (blurPx < 0.04) {
+    return `contrast(${contrast}) saturate(${saturate})`;
+  }
+  return `blur(${blurPx.toFixed(2)}px) contrast(${contrast}) saturate(${saturate})`;
+}
 
 interface NarrativeLayers {
   sky: CSSProperties;
@@ -45,11 +66,16 @@ interface NarrativeLayers {
   ground: CSSProperties;
   mist: CSSProperties & { background?: string };
   clouds: { show: boolean; opacity: number };
+  mountainEdgeStrength: number;
 }
 
 function buildNarrativeLayers(level: number, phase: JourneyPhase, t: number): NarrativeLayers {
   const tClamped = Math.min(1, Math.max(0, t));
   const altitude = Math.min(1, (Math.min(level, 15) - 1) / 14);
+  const j = journeyProgress(level);
+  const growth = levelGrowthBoost(level);
+  const mFilter = mountainFilters(j);
+  const edgeStrength = j;
 
   let sky: CSSProperties;
   let mountain: CSSProperties;
@@ -62,23 +88,28 @@ function buildNarrativeLayers(level: number, phase: JourneyPhase, t: number): Na
 
   switch (phase) {
     case 'approach': {
-      const scale = 0.34 + tClamped * 0.36;
+      const scale = (0.36 + tClamped * 0.38 + growth) * (0.92 + j * 0.14);
       const ty = 14 - tClamped * 5;
       sky = {
         background: [
           'linear-gradient(180deg, #0ea5e9 0%, #38bdf8 18%, #7dd3fc 32%, #fef08a 48%, #fde047 58%, #bbf7d0 78%, #4ade80 100%)',
           `linear-gradient(180deg, rgba(15,23,42,${0.05 + altitude * 0.12}) 0%, transparent 42%)`,
+          'radial-gradient(ellipse 120% 55% at 50% 88%, rgba(74, 222, 128, 0.35) 0%, transparent 55%)',
         ].join(', '),
       };
       mountain = {
         transform: `translate3d(0, ${ty}%, 0) scale(${scale})`,
         transformOrigin: '50% 100%',
         transition: TRANSFORM_EASE,
+        filter: mFilter,
+        willChange: 'transform, filter',
       };
       ground = {
         background: [
-          'linear-gradient(180deg, transparent 0%, #bbf7d0 38%, #4ade80 62%, #15803d 100%)',
-          'repeating-linear-gradient(90deg, transparent 0 5px, rgba(21, 128, 61, 0.2) 5px 6px)',
+          'linear-gradient(180deg, transparent 0%, rgba(254, 249, 195, 0.55) 28%, #d9f99d 36%, #bbf7d0 44%, #4ade80 62%, #16a34a 82%, #14532d 100%)',
+          'repeating-linear-gradient(90deg, transparent 0 7px, rgba(21, 128, 61, 0.14) 7px 8px)',
+          'repeating-linear-gradient(95deg, rgba(253, 224, 71, 0.12) 0 18px, transparent 18px 36px)',
+          'linear-gradient(180deg, transparent 0%, rgba(34, 197, 94, 0.2) 100%)',
         ].join(', '),
         transform: 'translate3d(0, 0, 0) scale(1)',
         transformOrigin: '50% 100%',
@@ -89,7 +120,7 @@ function buildNarrativeLayers(level: number, phase: JourneyPhase, t: number): Na
       break;
     }
     case 'base': {
-      const scale = 0.58 + tClamped * 0.52;
+      const scale = (0.62 + tClamped * 0.56 + growth) * (0.94 + j * 0.1);
       const ty = 24 - tClamped * 15;
       sky = {
         background: [
@@ -101,12 +132,18 @@ function buildNarrativeLayers(level: number, phase: JourneyPhase, t: number): Na
         transform: `translate3d(0, ${ty}%, 0) scale(${scale})`,
         transformOrigin: '50% 100%',
         transition: TRANSFORM_EASE,
+        filter: mFilter,
+        willChange: 'transform, filter',
       };
       ground = {
         background: [
-          'linear-gradient(180deg, #57534e 0%, #44403c 35%, #292524 72%, #1c1917 100%)',
-          'linear-gradient(95deg, transparent 35%, rgba(15, 23, 42, 0.45) 36%, transparent 37%)',
-          'linear-gradient(88deg, transparent 62%, rgba(120, 113, 108, 0.5) 63%, transparent 64%)',
+          'linear-gradient(180deg, #78716c 0%, #57534e 22%, #44403c 48%, #292524 78%, #0c0a09 100%)',
+          'repeating-linear-gradient(82deg, transparent 0 3px, rgba(28, 25, 23, 0.45) 3px 4px, transparent 4px 7px)',
+          'repeating-linear-gradient(95deg, rgba(87, 83, 78, 0.5) 0 2px, transparent 2px 9px)',
+          'radial-gradient(ellipse 45% 35% at 22% 72%, rgba(41, 37, 36, 0.65) 0%, transparent 55%)',
+          'radial-gradient(ellipse 38% 30% at 78% 68%, rgba(28, 25, 23, 0.7) 0%, transparent 50%)',
+          'linear-gradient(95deg, transparent 35%, rgba(15, 23, 42, 0.5) 36%, transparent 37%)',
+          'linear-gradient(88deg, transparent 62%, rgba(120, 113, 108, 0.55) 63%, transparent 64%)',
         ].join(', '),
         transform: `translate3d(0, ${-2 - tClamped * 5}%, 0) scale(1)`,
         transformOrigin: '50% 100%',
@@ -118,7 +155,7 @@ function buildNarrativeLayers(level: number, phase: JourneyPhase, t: number): Na
       break;
     }
     case 'climb': {
-      const scale = 1.08 + tClamped * 0.2;
+      const scale = (1.12 + tClamped * 0.28 + growth) * (0.96 + j * 0.06);
       const mty = -6 - tClamped * 30;
       const gty = 8 + tClamped * 28;
       const gsc = 1 - tClamped * 0.14;
@@ -132,10 +169,14 @@ function buildNarrativeLayers(level: number, phase: JourneyPhase, t: number): Na
         transform: `translate3d(0, ${mty}%, 0) scale(${scale})`,
         transformOrigin: '50% 100%',
         transition: TRANSFORM_EASE,
+        filter: mFilter,
+        willChange: 'transform, filter',
       };
       ground = {
         background: [
-          'linear-gradient(180deg, #44403c 0%, #292524 45%, #1c1917 100%)',
+          'linear-gradient(180deg, #57534e 0%, #44403c 28%, #292524 52%, #1c1917 100%)',
+          'linear-gradient(180deg, rgba(248, 250, 252, 0.14) 0%, transparent 22%, transparent 55%, rgba(226, 232, 240, 0.12) 100%)',
+          'repeating-linear-gradient(88deg, rgba(68, 64, 60, 0.4) 0 2px, transparent 2px 11px)',
           'linear-gradient(180deg, transparent 0%, rgba(15, 23, 42, 0.55) 100%)',
         ].join(', '),
         transform: `translate3d(0, ${gty}%, 0) scale(${gsc})`,
@@ -153,6 +194,7 @@ function buildNarrativeLayers(level: number, phase: JourneyPhase, t: number): Na
     }
     case 'summit':
     default: {
+      const summitExtra = Math.min(0.22, Math.max(0, level - 15) * 0.018);
       sky = {
         background: [
           'linear-gradient(180deg, #020617 0%, #1e1b4b 18%, #4338ca 32%, #7dd3fc 55%, #e0f2fe 78%, #f8fafc 100%)',
@@ -160,17 +202,21 @@ function buildNarrativeLayers(level: number, phase: JourneyPhase, t: number): Na
         ].join(', '),
       };
       mountain = {
-        transform: 'translate3d(0, 0, 0) scale(1)',
+        transform: `translate3d(0, 0, 0) scale(${1 + summitExtra})`,
         transformOrigin: '50% 100%',
         transition: TRANSFORM_EASE,
+        filter: mountainFilters(1),
+        willChange: 'transform, filter',
       };
       ground = {
         background: [
-          'linear-gradient(180deg, #f8fafc 0%, #e2e8f0 40%, #cbd5e1 100%)',
-          'repeating-linear-gradient(90deg, #f1f5f9 0 4px, #e2e8f0 4px 5px)',
-          'linear-gradient(180deg, transparent 0%, rgba(148, 163, 184, 0.25) 100%)',
+          'linear-gradient(180deg, #ffffff 0%, #f8fafc 18%, #e2e8f0 42%, #cbd5e1 72%, #94a3b8 100%)',
+          'repeating-linear-gradient(92deg, #f1f5f9 0 5px, #e2e8f0 5px 6px)',
+          'linear-gradient(165deg, transparent 0%, rgba(59, 130, 246, 0.08) 38%, transparent 52%)',
+          'repeating-linear-gradient(180deg, transparent 0 14px, rgba(148, 163, 184, 0.22) 14px 15px)',
+          'linear-gradient(180deg, transparent 0%, rgba(71, 85, 105, 0.2) 100%)',
         ].join(', '),
-        transform: 'translate3d(0, 0, 0) scale(1.04)',
+        transform: `translate3d(0, 0, 0) scale(${1.04 + summitExtra * 0.35})`,
         transformOrigin: '50% 100%',
         transition: TRANSFORM_EASE,
         clipPath: 'polygon(0% 100%, 0% 62%, 100% 60%, 100% 100%)',
@@ -184,24 +230,30 @@ function buildNarrativeLayers(level: number, phase: JourneyPhase, t: number): Na
     }
   }
 
-  return { sky, mountain, ground, mist, clouds };
+  return { sky, mountain, ground, mist, clouds, mountainEdgeStrength: edgeStrength };
 }
 
-/** Sharp primary mass: single jagged polygon in viewBox coordinates */
+/** Sharp primary mass: jagged silhouette — stroke + ridgelines strengthen with level. */
 function PrimaryMountainSvg({
   rockGradId,
   snowCap,
+  edgeStrength,
 }: {
   rockGradId: string;
   snowCap: boolean;
+  edgeStrength: number;
 }) {
   const d =
     'M 100 8 L 124 52 L 148 38 L 168 58 L 182 48 L 196 78 L 200 210 L 0 210 L 0 88 L 24 58 L 48 72 L 76 42 L 100 8 Z';
+  const strokeW = 0.35 + edgeStrength * 2.1;
+  const strokeOp = 0.1 + edgeStrength * 0.52;
+  const ridgeOp = 0.06 + edgeStrength * 0.34;
   return (
     <svg
-      className="absolute bottom-0 left-1/2 h-[92%] w-[135%] -translate-x-1/2"
+      className="absolute bottom-0 left-1/2 h-[92%] w-[135%] max-w-[min(520px,104vw)] -translate-x-1/2"
       viewBox="0 0 200 210"
       preserveAspectRatio="xMidYMax meet"
+      shapeRendering="geometricPrecision"
       aria-hidden
     >
       <defs>
@@ -213,20 +265,66 @@ function PrimaryMountainSvg({
         </linearGradient>
       </defs>
       <path fill={`url(#${rockGradId})`} d={d} />
-      {snowCap ? (
-        <path fill="#f8fafc" d="M 100 8 L 124 48 L 100 32 L 76 48 Z" opacity={0.98} />
+      {edgeStrength > 0.08 ? (
+        <path
+          fill="none"
+          d="M 76 42 L 100 8 L 124 52 M 48 72 L 24 58 M 168 58 L 182 48 L 196 78"
+          stroke={`rgba(15,23,42,${ridgeOp})`}
+          strokeWidth={0.55 + edgeStrength * 1.1}
+          strokeLinecap="round"
+          strokeLinejoin="miter"
+          vectorEffect="nonScalingStroke"
+        />
       ) : null}
+      {snowCap ? (
+        <>
+          <path fill="#f8fafc" d="M 100 8 L 124 48 L 100 32 L 76 48 Z" opacity={0.98} />
+          {edgeStrength > 0.35 ? (
+            <path
+              fill="none"
+              d="M 100 8 L 124 48 M 100 8 L 76 48"
+              stroke="rgba(148,163,184,0.55)"
+              strokeWidth={0.4 + edgeStrength * 0.5}
+              vectorEffect="nonScalingStroke"
+            />
+          ) : null}
+        </>
+      ) : null}
+      <path
+        fill="none"
+        stroke={`rgba(15,23,42,${strokeOp})`}
+        strokeWidth={strokeW}
+        strokeLinejoin="miter"
+        vectorEffect="nonScalingStroke"
+        d={d}
+      />
     </svg>
   );
 }
 
-/** Summit: distant jagged range sitting below the avatar */
-function SummitDistantPeaksSvg({ rockGradId }: { rockGradId: string }) {
+/** Summit: distant jagged range — grows slightly as level rises past 15. */
+function SummitDistantPeaksSvg({
+  rockGradId,
+  level,
+}: {
+  rockGradId: string;
+  level: number;
+}) {
+  const past = Math.max(0, level - 15);
+  const bump = Math.min(0.2, past * 0.016);
+  const h = 28 + bump * 100;
+  const w = 120 + bump * 55;
   return (
     <svg
-      className="absolute bottom-[2%] left-1/2 h-[28%] w-[120%] -translate-x-1/2"
+      className="absolute bottom-[2%] left-1/2 -translate-x-1/2"
+      style={{
+        height: `${h}%`,
+        width: `${w}%`,
+        maxWidth: `${420 + past * 14}px`,
+      }}
       viewBox="0 0 200 80"
       preserveAspectRatio="xMidYMax meet"
+      shapeRendering="geometricPrecision"
       aria-hidden
     >
       <defs>
@@ -238,6 +336,11 @@ function SummitDistantPeaksSvg({ rockGradId }: { rockGradId: string }) {
       </defs>
       <polygon
         fill={`url(#${rockGradId})`}
+        stroke="rgba(15,23,42,0.2)"
+        strokeWidth={0.9}
+        strokeLinejoin="miter"
+        vectorEffect="nonScalingStroke"
+        paintOrder="stroke fill"
         points="0,80 0,52 18,38 32,48 48,28 64,42 82,22 100,40 118,24 136,44 154,30 172,46 188,36 200,48 200,80"
       />
     </svg>
@@ -294,9 +397,13 @@ function NarrativeMountScene({
         style={layers.mountain}
       >
         {showPrimaryMountain ? (
-          <PrimaryMountainSvg rockGradId={rockGradId} snowCap={snowCap} />
+          <PrimaryMountainSvg
+            rockGradId={rockGradId}
+            snowCap={snowCap}
+            edgeStrength={layers.mountainEdgeStrength}
+          />
         ) : (
-          <SummitDistantPeaksSvg rockGradId={distantGradId} />
+          <SummitDistantPeaksSvg rockGradId={distantGradId} level={level} />
         )}
       </div>
 
@@ -307,7 +414,7 @@ function NarrativeMountScene({
       />
 
       {/* Mist / high-altitude haze (climb + summit) */}
-      {(layers.mist.opacity ?? 0) > 0.02 && layers.mist.background ? (
+      {typeof layers.mist.opacity === 'number' && layers.mist.opacity > 0.02 && layers.mist.background ? (
         <div
           className="pointer-events-none absolute inset-0 z-[3]"
           style={layers.mist}

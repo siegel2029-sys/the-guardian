@@ -88,24 +88,6 @@ export const AVATAR_SCENIC_MID_ASSET_PATH: Partial<Record<AvatarScenicBackground
   // valley: '/assets/bg/valley-mid.webp',
 };
 
-function backdropDef(
-  id: AvatarScenicBackgroundId,
-  cssBack: string,
-  cssMid?: string,
-  options?: { midClassName?: string }
-): AvatarJourneyBackgroundDef {
-  const imageSrc = AVATAR_SCENIC_BACKGROUND_ASSET_PATH[id];
-  const midImageSrc = AVATAR_SCENIC_MID_ASSET_PATH[id];
-  return {
-    id,
-    cssBack,
-    ...(cssMid !== undefined ? { cssMid } : {}),
-    ...(options?.midClassName ? { midClassName: options.midClassName } : {}),
-    ...(imageSrc ? { imageSrc } : {}),
-    ...(midImageSrc ? { midImageSrc } : {}),
-  };
-}
-
 function backdropDefLayered(
   id: AvatarScenicBackgroundId,
   cssBack: string,
