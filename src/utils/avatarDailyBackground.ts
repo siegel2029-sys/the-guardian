@@ -423,3 +423,33 @@ export function resolveAvatarScenicBackdrop(
   const def = CATALOG[id];
   return { level: normalizedLevel, stage, def, dayOfYear };
 }
+
+/** FNV-1a 32-bit — stable daily seed from clinical date string (YYYY-MM-DD). */
+export function hashClinicalYmd(ymd: string): number {
+  const s = typeof ymd === 'string' ? ymd.trim() : '';
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** Sky mood + offsets for clouds / ground stripe phase — changes every calendar day. */
+export interface AvatarJourneyDayVariant {
+  /** 0 sunrise, 1 midday, 2 sunset, 3 overcast */
+  skyPreset: 0 | 1 | 2 | 3;
+  cloudDriftX: number;
+  cloudDriftY: number;
+  groundStripePeriod: number;
+}
+
+export function getAvatarJourneyDayVariant(ymd: string): AvatarJourneyDayVariant {
+  const h = hashClinicalYmd(ymd.length > 0 ? ymd : '1970-01-01');
+  return {
+    skyPreset: (h % 4) as 0 | 1 | 2 | 3,
+    cloudDriftX: ((h >> 8) % 51) - 25,
+    cloudDriftY: ((h >> 16) % 41) - 20,
+    groundStripePeriod: 5 + ((h >> 4) % 9),
+  };
+}

@@ -444,6 +444,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                     patientPortalInteractive && walkPausedByPointerOver
                   }
                   segmentGrowthMul={segmentGrowthMul}
+                  hideContactGroundShadow={useScenicBackdrop}
                 />
 
                 {floatingLevelBadge && showLevelChrome && !patientPortalInteractive && (

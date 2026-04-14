@@ -977,6 +977,8 @@ interface AnatomyModelProps {
   pauseWalkAnimation?: boolean;
   /** מכפילי נפח צמיחה לפי מקטע (שכבת «פתרון»), ברירת מחדל 1 */
   segmentGrowthMul?: Partial<Record<BodyArea, number>>;
+  /** רקע הרפתקאות — ללא ContactShadows (אליפסה לבנה מתחת לאווטאר) */
+  hideContactGroundShadow?: boolean;
 }
 
 export default function AnatomyModel({
@@ -999,6 +1001,7 @@ export default function AnatomyModel({
   patientPortalInteractive = false,
   pauseWalkAnimation = false,
   segmentGrowthMul,
+  hideContactGroundShadow = false,
 }: AnatomyModelProps) {
   const gearGoldSkin = equippedGear.skin === 'gold_skin';
   const geos = useGeometries();
@@ -1526,16 +1529,18 @@ export default function AnatomyModel({
 
       <EquippedGearAttachments equipped={equippedGear} />
 
-      {/* ══ GROUND SHADOW (עם שורש ההליכה — צל עוקב אחרי נשיאת הגוף) ═══ */}
-      <ContactShadows
-        position={[0, -1.712, 0]}
-        opacity={0.42}
-        scale={2.75}
-        blur={2.85}
-        far={1.05}
-        color="#1e293b"
-        resolution={768}
-      />
+      {/* ══ GROUND SHADOW — מושבת ברקע «מסע ההר» (מונע אליפסה לבנה על הקרקע) ═══ */}
+      {!hideContactGroundShadow ? (
+        <ContactShadows
+          position={[0, -1.712, 0]}
+          opacity={0.42}
+          scale={2.75}
+          blur={2.85}
+          far={1.05}
+          color="#1e293b"
+          resolution={768}
+        />
+      ) : null}
         </group>
       </IdleSwayRoot>
     </group>
