@@ -2,6 +2,7 @@ import {
   useMemo,
   useState,
   useEffect,
+  useLayoutEffect,
   useRef,
   useCallback,
   type CSSProperties,
@@ -9,7 +10,11 @@ import {
 } from 'react';
 import {
   resolveAvatarScenicBackdrop,
+  normalizePatientLevelForBackdrop,
+  getAvatarStageAtmosphereStyle,
+  AVATAR_SCENIC_MID_CLIP,
   type AvatarJourneyBackgroundDef,
+  type AvatarJourneyStageId,
   type AvatarScenicBackdropSnapshot,
 } from '../../utils/avatarDailyBackground';
 
@@ -18,52 +23,116 @@ export interface AvatarJourneyBackdropProps {
   level: number;
 }
 
-function layerStyle(def: AvatarJourneyBackgroundDef): CSSProperties {
+function backPlaneStyle(def: AvatarJourneyBackgroundDef): CSSProperties {
   return {
-    background: def.cssBackground,
+    background: def.cssBack,
     backgroundSize: 'cover',
-    backgroundPosition: 'center',
+    backgroundPosition: 'center center',
     backgroundRepeat: 'no-repeat',
-    mixBlendMode: def.imageSrc ? ('soft-light' as const) : undefined,
   };
 }
 
-function ScenicGradientLayer({
+function midPlaneStyle(def: AvatarJourneyBackgroundDef): CSSProperties {
+  return {
+    background: def.cssMid,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center bottom',
+    backgroundRepeat: 'no-repeat',
+  };
+}
+
+function ScenicSceneStack({
   def,
+  stage,
   className,
   style,
   onAnimationEnd,
 }: {
   def: AvatarJourneyBackgroundDef;
+  stage: AvatarJourneyStageId;
   className?: string;
   style?: CSSProperties;
   onAnimationEnd?: (e: ReactAnimationEvent<HTMLDivElement>) => void;
 }) {
-  const [imgLoaded, setImgLoaded] = useState(!def.imageSrc);
+  const [backImgLoaded, setBackImgLoaded] = useState(!def.imageSrc);
+  const [midImgLoaded, setMidImgLoaded] = useState(!def.midImageSrc);
 
   useEffect(() => {
-    setImgLoaded(!def.imageSrc);
-  }, [def.imageSrc]);
+    setBackImgLoaded(!def.imageSrc);
+  }, [def.id, def.imageSrc]);
+
+  useEffect(() => {
+    setMidImgLoaded(!def.midImageSrc);
+  }, [def.id, def.midImageSrc]);
+
+  const midClip = AVATAR_SCENIC_MID_CLIP[def.id];
+  const midWrapperStyle: CSSProperties | undefined = midClip
+    ? { clipPath: midClip, WebkitClipPath: midClip }
+    : undefined;
 
   return (
     <div
-      className={`absolute inset-0 h-full w-full ${className ?? ''}`}
+      className={`absolute inset-0 h-full w-full overflow-hidden ${className ?? ''}`}
       style={style}
       onAnimationEnd={onAnimationEnd}
     >
-      {def.imageSrc ? (
-        <img
-          src={def.imageSrc}
-          alt=""
-          decoding="async"
-          draggable={false}
-          className="absolute inset-0 h-full w-full object-cover object-center"
-          style={{ opacity: imgLoaded ? 1 : 0, transition: 'opacity 0.45s ease-out' }}
-          onLoad={() => setImgLoaded(true)}
-          onError={() => setImgLoaded(true)}
+      <div className="absolute inset-0">
+        {/* Back plane — sky / distance */}
+        <div
+          className="absolute inset-0 animate-avatar-scenic-parallax-back"
+          style={backPlaneStyle(def)}
+        >
+          {def.imageSrc ? (
+            <img
+              src={def.imageSrc}
+              alt=""
+              decoding="async"
+              draggable={false}
+              className="absolute inset-0 h-full w-full object-cover object-center"
+              style={{
+                opacity: backImgLoaded ? 1 : 0,
+                transition: 'opacity 0.45s ease-out',
+                mixBlendMode: 'soft-light',
+              }}
+              onLoad={() => setBackImgLoaded(true)}
+              onError={() => setBackImgLoaded(true)}
+            />
+          ) : null}
+        </div>
+
+        {/* Mid plane — terrain / water / silhouettes */}
+        {def.cssMid ? (
+          <div
+            className={`absolute inset-x-0 bottom-0 top-[22%] animate-avatar-scenic-parallax-mid ${def.midClassName ?? ''}`}
+            style={midWrapperStyle}
+          >
+            <div className="absolute inset-0" style={midPlaneStyle(def)}>
+              {def.midImageSrc ? (
+                <img
+                  src={def.midImageSrc}
+                  alt=""
+                  decoding="async"
+                  draggable={false}
+                  className="absolute inset-0 h-full w-full object-cover object-bottom"
+                  style={{
+                    opacity: midImgLoaded ? 1 : 0,
+                    transition: 'opacity 0.45s ease-out',
+                    mixBlendMode: 'soft-light',
+                  }}
+                  onLoad={() => setMidImgLoaded(true)}
+                  onError={() => setMidImgLoaded(true)}
+                />
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {/* Stage atmosphere (warm / coastal / mist) */}
+        <div
+          className="pointer-events-none absolute inset-0 z-[1]"
+          style={getAvatarStageAtmosphereStyle(stage)}
         />
-      ) : null}
-      <div className="absolute inset-0 h-full w-full" style={layerStyle(def)} />
+      </div>
     </div>
   );
 }
@@ -73,15 +142,16 @@ function ScenicGradientLayer({
  * when the clinical day or level/stage changes.
  */
 export default function AvatarJourneyBackdrop({ clinicalYmd, level }: AvatarJourneyBackdropProps) {
+  const backdropLevel = normalizePatientLevelForBackdrop(level);
   const target = useMemo(
-    () => resolveAvatarScenicBackdrop(level, clinicalYmd),
-    [level, clinicalYmd]
+    () => resolveAvatarScenicBackdrop(backdropLevel, clinicalYmd),
+    [backdropLevel, clinicalYmd]
   );
   const targetRef = useRef(target);
   targetRef.current = target;
 
   const [displayed, setDisplayed] = useState<AvatarScenicBackdropSnapshot>(() =>
-    resolveAvatarScenicBackdrop(level, clinicalYmd)
+    resolveAvatarScenicBackdrop(normalizePatientLevelForBackdrop(level), clinicalYmd)
   );
   const [animatingTo, setAnimatingTo] = useState<{
     snapshot: AvatarScenicBackdropSnapshot;
@@ -95,8 +165,15 @@ export default function AvatarJourneyBackdrop({ clinicalYmd, level }: AvatarJour
 
   useEffect(() => {
     const id = window.setTimeout(() => setIntroDone(true), 720);
-    return () => clearTimeout(id);
+    return () => window.clearTimeout(id);
   }, []);
+
+  /** Lowlands ↔ Ascending ↔ Highlands: apply the new pool immediately (debug level-up, real progression). */
+  useLayoutEffect(() => {
+    if (displayed.stage === target.stage) return;
+    setDisplayed(target);
+    setAnimatingTo(null);
+  }, [target, displayed.stage]);
 
   useEffect(() => {
     const matches =
@@ -140,7 +217,7 @@ export default function AvatarJourneyBackdrop({ clinicalYmd, level }: AvatarJour
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     if (!mq.matches) return;
     const id = window.setTimeout(() => commitTransition(), 80);
-    return () => clearTimeout(id);
+    return () => window.clearTimeout(id);
   }, [animatingTo, commitTransition]);
 
   const incomingKind = animatingTo?.kind;
@@ -163,13 +240,17 @@ export default function AvatarJourneyBackdrop({ clinicalYmd, level }: AvatarJour
 
   return (
     <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden>
-      <ScenicGradientLayer
+      <ScenicSceneStack
+        key={`bg-${displayed.level}-${displayed.stage}-${displayed.def.id}-${displayed.dayOfYear}`}
         def={displayed.def}
+        stage={displayed.stage}
         className={`${baseFadeClass} ${baseIntroClass}`.trim()}
       />
       {animatingTo ? (
-        <ScenicGradientLayer
+        <ScenicSceneStack
+          key={`bg-in-${animatingTo.snapshot.level}-${animatingTo.snapshot.stage}-${animatingTo.snapshot.def.id}-${animatingTo.snapshot.dayOfYear}`}
           def={animatingTo.snapshot.def}
+          stage={animatingTo.snapshot.stage}
           className={incomingClass}
           onAnimationEnd={onIncomingAnimationEnd}
         />

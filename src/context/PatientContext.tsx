@@ -2479,12 +2479,15 @@ export function PatientProvider({
         return declineSeq[index] ?? 0;
       };
 
+      const capCompleted = (raw: number) =>
+        planIds.length === 0 ? 0 : Math.min(Math.max(0, raw), planIds.length);
+
       setDailySessions((prev) => {
         const without = prev.filter(
           (s) => !(s.patientId === patientId && days.includes(s.date))
         );
         const additions: DailySession[] = days.map((date, i) => {
-          const nDone = completedForDay(i);
+          const nDone = capCompleted(completedForDay(i));
           return {
             patientId,
             date,
@@ -2508,7 +2511,7 @@ export function PatientProvider({
                 ? [3, 3, 3, 3].map((x) => clampPain(x))
                 : scenario === 'functional_decline'
                   ? [4, 4, 4, 4].map((x) => clampPain(x))
-                  : [3, 3, 3, 3].map((x) => clampPain(x));
+                  : [4, 4, 4, 4].map((x) => clampPain(x));
 
           const newPain: PainRecord[] = days.map((d, i) => ({
             date: d,
@@ -2517,7 +2520,7 @@ export function PatientProvider({
           }));
 
           const newSessions: ExerciseSession[] = days.map((date, i) => {
-            const exercisesCompleted = completedForDay(i);
+            const exercisesCompleted = capCompleted(completedForDay(i));
             return {
               date,
               exercisesCompleted,

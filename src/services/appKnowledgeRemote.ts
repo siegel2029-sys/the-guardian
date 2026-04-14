@@ -28,7 +28,7 @@ export async function fetchAppKnowledgeBaseFromSupabase(
       (code === 'PGRST205' || /404|not find the table/i.test(error.message ?? ''))
     ) {
       console.warn(
-        '[app_knowledge_base] טבלה חסרה או לא בשכבת ה־schema. החילו מיגרציות: supabase/migrations/20260410200000_app_knowledge_base.sql ו־20260411120000_app_knowledge_deleted_seed_ids.sql'
+        '[app_knowledge_base] טבלה חסרה או לא בשכבת ה־schema. הריצו מיגרציות (למשל 20260410200000 + 20260411120000) או תיקון idempotent: 20260414120000_repair_app_knowledge_base.sql — ב-SQL Editor או npm run supabase:link && npm run supabase:push'
       );
     }
     return null;

@@ -167,6 +167,88 @@
     }
   }
 
+  /* Avatar journey: parallax drift on back vs mid CSS layers */
+  @keyframes avatar-scenic-parallax-drift-back {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) scale(1.04);
+    }
+    50% {
+      transform: translate3d(1.2%, -0.9%, 0) scale(1.06);
+    }
+  }
+
+  @keyframes avatar-scenic-parallax-drift-mid {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) scale(1.07);
+    }
+    50% {
+      transform: translate3d(-1.4%, 0.7%, 0) scale(1.09);
+    }
+  }
+
+  .animate-avatar-scenic-parallax-back {
+    animation: avatar-scenic-parallax-drift-back 22s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  .animate-avatar-scenic-parallax-mid {
+    animation: avatar-scenic-parallax-drift-mid 16s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-avatar-scenic-parallax-back,
+    .animate-avatar-scenic-parallax-mid {
+      animation: none;
+      transform: none;
+      will-change: auto;
+    }
+  }
+
+  /* River mid-ground: animated water band */
+  .avatar-scenic-river-wave {
+    position: relative;
+  }
+
+  .avatar-scenic-river-wave::after {
+    content: "";
+    position: absolute;
+    left: -18%;
+    right: -18%;
+    bottom: 0;
+    height: 32%;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      100deg,
+      rgba(56, 189, 248, 0.22) 0 20px,
+      rgba(14, 165, 233, 0.42) 20px 40px,
+      rgba(125, 211, 252, 0.28) 40px 56px
+    );
+    opacity: 0.9;
+    -webkit-mask-image: linear-gradient(to top, #000 50%, transparent 100%);
+    mask-image: linear-gradient(to top, #000 50%, transparent 100%);
+    animation: avatar-scenic-river-flow 5.5s ease-in-out infinite;
+  }
+
+  @keyframes avatar-scenic-river-flow {
+    0%,
+    100% {
+      transform: translateX(0) skewX(-3deg);
+    }
+    50% {
+      transform: translateX(-6%) skewX(2deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .avatar-scenic-river-wave::after {
+      animation: none;
+      transform: none;
+    }
+  }
+
   @keyframes bodymap-spin {
     to {
       transform: rotate(360deg);

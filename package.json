@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "seed:knowledge": "tsx scripts/seed-knowledge-base.ts"
+    "seed:knowledge": "tsx scripts/seed-knowledge-base.ts",
+    "supabase:push": "supabase db push",
+    "supabase:link": "supabase link"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

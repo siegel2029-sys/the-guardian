@@ -32,12 +32,34 @@ function clampInt(n: number, min: number, max: number): number {
 export function buildHeuristicPlanAdjustment(
   patientId: string,
   clinicalExercises: PatientExercise[],
-  analysis: PatientProgressAnalysis
+  analysis: PatientProgressAnalysis,
+  options?: { preferEasierReentry?: boolean }
 ): AiSuggestion | null {
   if (clinicalExercises.length === 0) return null;
   const ex =
     clinicalExercises.find((e) => (e.patientReps ?? e.reps ?? 0) > 0) ?? clinicalExercises[0];
   const currentReps = ex.patientReps ?? ex.reps ?? 10;
+
+  if (options?.preferEasierReentry) {
+    const suggested = clampInt(Math.max(1, Math.floor(currentReps * 0.65)), 1, currentReps);
+    if (suggested < currentReps) {
+      return {
+        id: `ai-heuristic-${patientId}-${Date.now()}`,
+        patientId,
+        exerciseId: ex.id,
+        exerciseName: ex.name,
+        type: 'reduce_reps',
+        field: 'reps',
+        currentValue: currentReps,
+        suggestedValue: suggested,
+        reason:
+          'אחרי הפסקה ארוכה המערכת מציעה כניסה חוזרת עדינה יותר (פחות חזרות) כדי לשחזר רצף ולמנוע ניתוק נוסף — יש לאשר עם המטפל.',
+        createdAt: new Date().toISOString(),
+        status: 'pending',
+        source: 'gemini_portal',
+      };
+    }
+  }
 
   if (analysis.allowExerciseLoadIncrease) {
     const suggested = clampInt(currentReps + 2, 1, 80);
@@ -161,7 +183,10 @@ export async function fetchAiPlanAdjustmentSuggestion(
   }
 
   const byId = new Map(clinicalExercises.map((e) => [e.id, e]));
-  const heuristic = buildHeuristicPlanAdjustment(patient.id, clinicalExercises, analysis);
+  const preferEasierReentry = longitudinalGate.triggers.includes('return_from_absence_reengagement');
+  const heuristic = buildHeuristicPlanAdjustment(patient.id, clinicalExercises, analysis, {
+    preferEasierReentry,
+  });
 
   if (!getGeminiApiKey()) {
     return heuristic;
@@ -174,6 +199,8 @@ export async function fetchAiPlanAdjustmentSuggestion(
     patientSets: e.patientSets ?? e.sets ?? 0,
     holdSeconds: e.holdSeconds ?? null,
   }));
+
+  const reengagementExtra = longitudinalGate.geminiExtraInstructionEnglish;
 
   const systemInstruction = `אתה יועץ שיקום באפליקציה. קהל: מטופל (לא רופא).
 החזר אך ורק אובייקט JSON תקין (בלי טקסט מסביב) עם השדות:
@@ -188,7 +215,13 @@ export async function fetchAiPlanAdjustmentSuggestion(
 - התאם את ההמלצה לניתוח guardianAnalysis (כאב, קושי, האם מותר להגביר עומס).
 - אם אסור להגביר עומס — העדף reduce_reps או הפחתת סטים; אל תציע increase כשהכאב עולה או גבוה.
 - אל תאבחן מחלות. אל תחרוג מתרגילים מהרשימה.
-- עבור תרגילי החזקה (reps=0 עם holdSeconds), אפשר לשנות sets או להציע שינוי בזמן החזקה דרך שדה reps כמספר שניות רק אם מתאים — אם לא בטוח, בחר תרגיל עם חזרות מספריות.`;
+- עבור תרגילי החזקה (reps=0 עם holdSeconds), אפשר לשנות sets או להציע שינוי בזמן החזקה דרך שדה reps כמספר שניות רק אם מתאים — אם לא בטוח, בחר תרגיל עם חזרות מספריות.${
+    reengagementExtra
+      ? `
+
+Additional instruction (must follow for this patient): ${reengagementExtra}`
+      : ''
+  }`;
 
   const userText = `נתונים:
 ${JSON.stringify(
@@ -196,6 +229,7 @@ ${JSON.stringify(
     longitudinalTrendGate: {
       triggersFired: longitudinalGate.triggers,
       summaryHebrew: longitudinalGate.summaryHebrew,
+      reengagementInstructionEnglish: reengagementExtra ?? null,
     },
     guardianAnalysis: {
       painTrend: analysis.painTrend,
