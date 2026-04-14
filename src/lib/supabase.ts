@@ -39,9 +39,13 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
       auth: {
         persistSession: true,
         autoRefreshToken: true,
+        detectSessionInUrl: true,
       },
     })
   : null;
+
+/** Alias for the browser client — same instance as {@link supabase}. */
+export const supabaseClient = supabase;
 
 if (import.meta.env.DEV) {
   if (isSupabaseConfigured) {

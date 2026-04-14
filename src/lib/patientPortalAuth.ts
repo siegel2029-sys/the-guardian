@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { supabaseAuthErrorMessageHe } from './supabaseAuthErrors';
 
 /** Synthetic email domain for Supabase password auth (must be unique per portal username). */
 export function getPatientAuthEmailDomain(): string {
@@ -6,12 +7,17 @@ export function getPatientAuthEmailDomain(): string {
   return d && d.length > 0 ? d : 'patient.guardian.internal';
 }
 
-/** True when using Supabase session for login (not localStorage demo auth). */
-export function useSupabaseAuthBridge(): boolean {
+/** True when Supabase Auth should own the session (not localStorage demo auth). */
+export function isSupabaseAuthEnabled(): boolean {
   if (import.meta.env.VITE_USE_LEGACY_AUTH === 'true') return false;
   const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? '';
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
   return url.length > 0 && key.length > 0;
+}
+
+/** @deprecated Use {@link isSupabaseAuthEnabled} — name kept for call sites that expect "bridge". */
+export function useSupabaseAuthBridge(): boolean {
+  return isSupabaseAuthEnabled();
 }
 
 /** Normalize portal username / initials: uppercase A–Z and digits, 2–32 chars. */
@@ -85,7 +91,10 @@ export async function signUpPortalPatientOnCreate(params: {
         message: 'מזהה הפורטל כבר קיים במערכת. בחרו רמז אחר (למשל JD2).',
       };
     }
-    return { ok: false, message: error.message };
+    return {
+      ok: false,
+      message: supabaseAuthErrorMessageHe(error, 'לא ניתן ליצור חשבון פורטל. נסו שוב או בחרו מזהה אחר.'),
+    };
   }
   return { ok: true };
 }

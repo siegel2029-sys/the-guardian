@@ -205,6 +205,8 @@ export type InitialClinicalProfileExtras = {
 export interface AuthUser {
   therapist: Therapist;
   isAuthenticated: boolean;
+  /** When using Supabase Auth: optional role from JWT metadata (e.g. for RLS-aligned UI). */
+  role?: string | null;
 }
 
 export type ClinicalSafetyTier = 'emergency' | 'high_priority' | 'standard';

@@ -1,7 +1,9 @@
 /**
  * אחסון אימות מקומי (דמו). גרסה 2: מספר מטפלים, מטופלים משויכים ל־therapistId.
+ * כש־Supabase Auth פעיל, שדה session אינו נשמר/נקרא מ־localStorage — הסשן מנוהל ע״י Supabase בלבד.
  */
 import { invalidatePersistedBootstrapCache } from '../bootstrap/invalidateBootstrap';
+import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
 import { mockTherapist, mockTherapistB, MOCK_PASSWORD, MOCK_THERAPIST_B_PASSWORD } from '../data/mockData';
 import type { Therapist } from '../types';
 
@@ -239,7 +241,7 @@ export function loadAuthSnapshot(): AuthSnapshotV2 {
 
     const therapists = normalizeTherapists(data.therapists as Record<string, TherapistAuthRecord>);
     const fallbackTid = mockTherapist.id;
-    return {
+    const snapshot: AuthSnapshotV2 = {
       version: 2,
       therapists,
       patientAccounts: normalizeAccounts(
@@ -248,6 +250,10 @@ export function loadAuthSnapshot(): AuthSnapshotV2 {
       ),
       session: normalizeAuthSession(data.session),
     };
+    if (isSupabaseAuthEnabled()) {
+      return { ...snapshot, session: null };
+    }
+    return snapshot;
   } catch {
     return defaultAuthSnapshot();
   }
@@ -256,7 +262,10 @@ export function loadAuthSnapshot(): AuthSnapshotV2 {
 export function saveAuthSnapshot(snapshot: AuthSnapshotV2): void {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
-    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(snapshot));
+    const persisted: AuthSnapshotV2 = isSupabaseAuthEnabled()
+      ? { ...snapshot, session: null }
+      : snapshot;
+    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(persisted));
     invalidatePersistedBootstrapCache();
   } catch {
     /* ignore */
