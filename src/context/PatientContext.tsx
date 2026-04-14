@@ -69,7 +69,7 @@ import {
 import { computeStreakForPatient } from '../utils/exerciseStreak';
 import { type GearEquipSlot } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { pushPersistedStateToSupabase } from '../lib/supabaseSync';
+import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
 import type {
   GearPurchaseResult,
@@ -674,6 +674,13 @@ export function PatientProvider({
     knowledgeFacts,
   ]);
 
+  const supabasePushOptions = useMemo((): PushPersistedStateOptions => {
+    if (restrictPatientSessionId) {
+      return { sessionRole: 'patient', patientSessionId: restrictPatientSessionId };
+    }
+    return { sessionRole: 'therapist' };
+  }, [restrictPatientSessionId]);
+
   const buildPersistSnapshot = useCallback((): PersistedPatientStateV1 => {
     return {
       version: 1,
@@ -721,7 +728,11 @@ export function PatientProvider({
     }
     setSupabaseSyncStatus('saving');
     setSupabaseSyncError(null);
-    const result = await pushPersistedStateToSupabase(supabase, buildPersistSnapshot());
+    const result = await pushPersistedStateToSupabase(
+      supabase,
+      buildPersistSnapshot(),
+      supabasePushOptions
+    );
     if (result.ok) {
       setSupabaseSyncStatus('saved');
       setSupabaseLastSavedAt(new Date().toISOString());
@@ -729,9 +740,9 @@ export function PatientProvider({
       setSupabaseSyncStatus('error');
       setSupabaseSyncError(result.message);
     }
-  }, [buildPersistSnapshot]);
+  }, [buildPersistSnapshot, supabasePushOptions]);
 
-  /** אחרי עדכון סשנים יומיים — דחיפה מהירה ל־Supabase (כולל session_history) */
+  /** אחרי עדכון סשנים יומיים — דחיפה ל־Supabase (מטפל: מלא; מטופל בפורטל: רק שורת patients) */
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     if (!dailySessionsHydratedRef.current) {
@@ -744,6 +755,7 @@ export function PatientProvider({
     return () => window.clearTimeout(t);
   }, [dailySessions, savePersistedStateToCloud]);
 
+  /** ידע כללי — דחיפה מלאה רק למטפל; למטופל רק שורת ה־payload ב־patients */
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     if (!knowledgeFactsHydratedRef.current) {
@@ -1061,6 +1073,7 @@ export function PatientProvider({
     exercisePlans,
     setAiSuggestions,
     clinicalToday,
+    restrictPatientSessionId,
   });
 
 

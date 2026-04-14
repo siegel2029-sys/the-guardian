@@ -25,6 +25,8 @@ export type UseClinicalDataParams = {
   exercisePlans: ExercisePlan[];
   setAiSuggestions: React.Dispatch<React.SetStateAction<AiSuggestion[]>>;
   clinicalToday: string;
+  /** Patient portal — skip `profiles` upsert; only own `patients` row. */
+  restrictPatientSessionId?: string | null;
 };
 
 export function useClinicalData({
@@ -35,6 +37,7 @@ export function useClinicalData({
   exercisePlans,
   setAiSuggestions,
   clinicalToday,
+  restrictPatientSessionId = null,
 }: UseClinicalDataParams) {
   const resolveRedFlag = useCallback((patientId: string) => {
     setAllPatients((prev) =>
@@ -231,10 +234,14 @@ export function useClinicalData({
   const syncClinicalPatientsToSupabase = useCallback(async () => {
     if (!supabase) return { ok: false as const, message: 'Supabase לא מוגדר' };
     const now = new Date().toISOString();
+    const ownId = restrictPatientSessionId?.trim() ?? '';
+    if (ownId) {
+      return upsertPatientRecords(supabase, allPatients, now, { onlyPatientId: ownId });
+    }
     const r1 = await upsertTherapistProfilesForPatients(supabase, allPatients, now);
     if (!r1.ok) return r1;
     return upsertPatientRecords(supabase, allPatients, now);
-  }, [allPatients]);
+  }, [allPatients, restrictPatientSessionId]);
 
   return {
     resolveRedFlag,

@@ -9,19 +9,40 @@ import { upsertGlobalAppKnowledgeBase } from '../services/gamificationService';
 
 export type SupabasePushResult = { ok: true } | { ok: false; message: string };
 
+/** Who is performing the push — patients must not write `profiles` or other therapist-scoped tables. */
+export type PushPersistedStateOptions = {
+  sessionRole?: 'therapist' | 'patient';
+  /** Required when {@link PushPersistedStateOptions.sessionRole} is `'patient'`. */
+  patientSessionId?: string | null;
+};
+
 /**
  * Pushes core clinical entities to Supabase (upsert).
  * Mirrors {@link PersistedPatientStateV1} slices: patients, exercise plans, daily sessions,
  * plus therapist {@link profiles} rows derived from patient.therapistId.
  *
+ * **Patient sessions** (`sessionRole === 'patient'`): only the `patients` row for
+ * {@link PushPersistedStateOptions.patientSessionId} is upserted — no `profiles`, exercise plans,
+ * session_history, or app_knowledge_base (RLS).
+ *
  * Reads remain localStorage-first in the app; this is the first step toward full sync.
  */
 export async function pushPersistedStateToSupabase(
   client: SupabaseClient,
-  state: PersistedPatientStateV1
+  state: PersistedPatientStateV1,
+  options?: PushPersistedStateOptions
 ): Promise<SupabasePushResult> {
   try {
     const now = new Date().toISOString();
+    const isPatient = options?.sessionRole === 'patient';
+    const ownPatientId = options?.patientSessionId?.trim() ?? '';
+
+    if (isPatient) {
+      if (!ownPatientId) {
+        return { ok: false, message: 'patient sync: missing patientSessionId' };
+      }
+      return upsertPatientRecords(client, state.patients, now, { onlyPatientId: ownPatientId });
+    }
 
     let result: SupabasePushResult = await upsertTherapistProfilesForPatients(
       client,

@@ -54,12 +54,22 @@ export async function upsertTherapistProfilesForPatients(
  * Full patient JSON payloads — includes avatar/body map highlights, pain (VAS) history in analytics,
  * medical/diagnosis fields, and persisted gamification fields stored on {@link Patient} (XP, gear, etc.).
  */
+export type UpsertPatientRecordsOptions = {
+  /** When set (portal patient / RLS patient role), only this row is written to `patients`. */
+  onlyPatientId?: string;
+};
+
 export async function upsertPatientRecords(
   client: SupabaseClient,
   patients: Patient[],
-  now: string
+  now: string,
+  options?: UpsertPatientRecordsOptions
 ): Promise<ClinicalPushResult> {
-  const patientRows = patients.map((p) => ({
+  const onlyId = options?.onlyPatientId?.trim();
+  const source =
+    onlyId && onlyId.length > 0 ? patients.filter((p) => p.id === onlyId) : patients;
+
+  const patientRows = source.map((p) => ({
     id: p.id,
     therapist_id: p.therapistId,
     payload: p,
