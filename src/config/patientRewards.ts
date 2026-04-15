@@ -23,3 +23,34 @@ export function getStreakXpMultiplier(currentStreak: number): number {
 export function exerciseBaseXp(planXpReward: number): number {
   return Math.max(planXpReward, PATIENT_REWARDS.EXERCISE_COMPLETE.xp);
 }
+
+/** תרגילי שיקום לבחירה: מחצית XP בסיס ומחצית מטבעות (לפני מכפיל רצף / XP booster). */
+export function optionalRehabHalfBaseXp(planXpReward: number): number {
+  return Math.max(1, Math.floor(exerciseBaseXp(planXpReward) / 2));
+}
+
+export function optionalRehabHalfCoins(): number {
+  return Math.max(0, Math.floor(PATIENT_REWARDS.EXERCISE_COMPLETE.coins / 2));
+}
+
+/** תצוגת כרטיס: מחצית מערך XP שמוצג (למשל אחרי exerciseBaseXp). */
+export function halfDisplayXp(baseXp: number): number {
+  return Math.max(1, Math.floor(baseXp / 2));
+}
+
+export function halfDisplayCoins(coins: number): number {
+  return Math.max(0, Math.floor(coins / 2));
+}
+
+/** קל → קשה: מוסיף מעט ל־XP/מטבעות על בסיס חצי (תרגילי בחירה) */
+export const OPTIONAL_DIFFICULTY_TIER_MULT = [1, 1.08, 1.15] as const;
+
+export function applyOptionalTierToHalfXp(baseHalfXp: number, tier: 0 | 1 | 2): number {
+  const m = OPTIONAL_DIFFICULTY_TIER_MULT[tier];
+  return Math.max(1, Math.floor(baseHalfXp * m));
+}
+
+export function applyOptionalTierToHalfCoins(baseHalfCoins: number, tier: 0 | 1 | 2): number {
+  const m = OPTIONAL_DIFFICULTY_TIER_MULT[tier];
+  return Math.max(0, Math.floor(baseHalfCoins * m));
+}

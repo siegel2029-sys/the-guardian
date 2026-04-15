@@ -113,18 +113,32 @@ export function computeExerciseCompletionRewards(
 }
 
 /**
- * תרגילי שיקום מסומנים כ־optional — ללא XP לרמה/הר; מטבעות בונוס + הודעת אנרגיה לזוהר.
+ * תרגילי שיקום לבחירה: מחצית מתגמול בסיס (XP + מטבעות), ואז אותם כללי רצף / XP booster כמו חובה.
  */
-export function computeOptionalExerciseBonusRewards(): ExerciseCompletionXpResult {
-  const coinsGain = PATIENT_REWARDS.EXERCISE_COMPLETE.coins + 10;
+export function computeOptionalRehabExerciseRewards(
+  input: ExerciseCompletionXpInput
+): ExerciseCompletionXpResult {
+  const { planXpReward, streakForXpMultiplier, xpBoosterEquippedAndOwned } = input;
+
+  const fullBase = exerciseBaseXp(planXpReward);
+  const baseXp = Math.max(1, Math.floor(fullBase / 2));
+  const streakMult = getStreakXpMultiplier(streakForXpMultiplier);
+  const xpBeforeBoost = Math.round(baseXp * streakMult);
+  const xpGain = xpBoosterEquippedAndOwned
+    ? Math.round(xpBeforeBoost * XP_BOOSTER_MULT)
+    : xpBeforeBoost;
+  const streakBonusXp = Math.max(0, xpBeforeBoost - baseXp);
+  const coinsGain = Math.max(0, Math.floor(PATIENT_REWARDS.EXERCISE_COMPLETE.coins / 2));
+
   return {
-    baseXp: 0,
-    streakMult: 1,
-    xpBeforeBoost: 0,
-    xpGain: 0,
-    streakBonusXp: 0,
+    baseXp,
+    streakMult,
+    xpBeforeBoost,
+    xpGain,
+    streakBonusXp,
     coinsGain,
-    rewardMessage: 'נקודות בונוס — אנרגיה לזוהר',
+    rewardMessage:
+      streakBonusXp > 0 ? `בונוס רצף ×${streakMult}` : undefined,
   };
 }
 

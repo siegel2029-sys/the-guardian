@@ -31,7 +31,7 @@ import { bodyAreaBlocksSelfCare } from '../body/bodyPickMapping';
 import {
   applyXpCoinsLevelUp,
   computeExerciseCompletionRewards,
-  computeOptionalExerciseBonusRewards,
+  computeOptionalRehabExerciseRewards,
   computeStreakAfterFirstDailyCompletion,
 } from '../utils/gamification-utils';
 import { xpRequiredToReachNextLevel } from '../body/patientLevelXp';
@@ -302,7 +302,13 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         coinsGain,
         rewardMessage,
       } = isOptionalRehab
-        ? computeOptionalExerciseBonusRewards()
+        ? computeOptionalRehabExerciseRewards({
+            planXpReward: xpReward,
+            streakForXpMultiplier,
+            xpBoosterEquippedAndOwned:
+              gearSnap.equippedPassiveId === 'xp_booster' &&
+              gearSnap.ownedGearIds.includes('xp_booster'),
+          })
         : computeExerciseCompletionRewards({
             planXpReward: xpReward,
             streakForXpMultiplier,

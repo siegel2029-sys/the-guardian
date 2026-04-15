@@ -44,7 +44,16 @@ import {
   PAIN_SURGE_PATIENT_COPY,
   DIFFICULTY_MAX_PATIENT_COPY,
 } from '../../safety/clinicalEmergencyScreening';
-import { PATIENT_REWARDS, exerciseBaseXp } from '../../config/patientRewards';
+import {
+  PATIENT_REWARDS,
+  exerciseBaseXp,
+  optionalRehabHalfBaseXp,
+  optionalRehabHalfCoins,
+  halfDisplayXp,
+  halfDisplayCoins,
+  applyOptionalTierToHalfXp,
+  applyOptionalTierToHalfCoins,
+} from '../../config/patientRewards';
 import { RewardLabel } from '../ui/RewardLabel';
 import StackedDumbbellsIcon from '../icons/StackedDumbbellsIcon';
 import GearStoreArmory from './GearStoreArmory';
@@ -87,6 +96,15 @@ function activateOnEnterSpace(e: KeyboardEvent, fn: () => void) {
     e.preventDefault();
     fn();
   }
+}
+
+/** מסיר כותרת מיותרת מול כותרת העמוד (תכנית השיקום / תכנית השיקום (חובה)) */
+function displayPortalRehabExerciseTitle(name: string): string {
+  const t = name.trim();
+  const stripped = t
+    .replace(/^תכנית\s*השיקום\s*(?:\(\s*חובה\s*\))?\s*[:\-–—]?\s*/u, '')
+    .trim();
+  return stripped.length > 0 ? stripped : t;
 }
 
 /** מניעת כפילות חגיגת סיום תחת React StrictMode (אותו מפתח ביום) */
@@ -157,6 +175,15 @@ export default function PatientDailyView() {
   }, [selectedPatient, dailyHistoryByPatient, clinicalToday]);
 
   const [guardiFlowerBloomLine, setGuardiFlowerBloomLine] = useState<string | null>(null);
+
+  /** רמת קושי לתרגילי שיקום לבחירה (מקומי לכרטיס — לא חובה) */
+  const [optionalRehabDifficultyTiers, setOptionalRehabDifficultyTiers] = useState<
+    Record<string, 0 | 1 | 2>
+  >({});
+
+  useEffect(() => {
+    setOptionalRehabDifficultyTiers({});
+  }, [selectedPatient?.id]);
 
   useEffect(() => {
     setGuardiFlowerBloomLine(null);
@@ -592,7 +619,7 @@ export default function PatientDailyView() {
       } else {
         setTrainingAiPlanModalSuggestion(null);
         setTrainingAiPlanModalInfo(
-          'אין כרגע תרגילי שיקום בתוכנית שאפשר להציע עבורם שינוי אוטומטי. המשיכו לפי הנחיות המטפל או בחרו אזורי כוח בלשונית בית.'
+          'אין כרגע תרגילי שיקום בתוכנית שאפשר להציע עבורם שינוי אוטומטי.'
         );
       }
     })();
@@ -687,13 +714,11 @@ export default function PatientDailyView() {
         ? 'Wave'
         : undefined;
 
-  const pushExerciseCompleteMilestone = (opts?: { optionalBonus?: boolean }) => {
+  const pushExerciseCompleteMilestone = () => {
     setGuardiTransient({
       key: `like_${Date.now()}`,
       mood: 'like',
-      bubble: opts?.optionalBonus
-        ? 'בונוס! נקודות ואנרגיה נוספת לזוהר — בלי לחץ על הרמה 💫'
-        : 'כל הכבוד! עוד צעד קטן בדרך לשיקום 👍',
+      bubble: 'כל הכבוד! עוד צעד קטן בדרך לשיקום 👍',
       until: Date.now() + 5500,
     });
   };
@@ -705,7 +730,8 @@ export default function PatientDailyView() {
       const strengthTier = getSelfCareStrengthTier(selectedPatient.id, m.bodyArea);
       const strengthTierLabel =
         strengthTier === 0 ? 'קל' : strengthTier === 1 ? 'בינוני' : 'קשה';
-      submitExerciseReport(selectedPatient.id, m.exercise.id, payload.painLevel, payload.effort, m.xpAward, {
+      const planXpForSelfCare = Math.max(1, Math.floor(m.exercise.xpReward * 0.5));
+      submitExerciseReport(selectedPatient.id, m.exercise.id, payload.painLevel, payload.effort, planXpForSelfCare, {
         skipPainHistory: true,
         completionSource: 'self-care',
         sessionBodyArea: m.bodyArea,
@@ -736,7 +762,7 @@ export default function PatientDailyView() {
         m.exercise.id,
         pain,
         payload.effort,
-        m.exercise.isOptional ? 0 : m.xpAward,
+        m.exercise.xpReward,
         {
           completionSource: 'rehab',
           sessionBodyArea: m.exercise.targetArea,
@@ -744,10 +770,8 @@ export default function PatientDailyView() {
       );
       if (m.exercise.isOptional) {
         setOptionalGlowBoost((n) => Math.min(5, n + 1));
-        pushExerciseCompleteMilestone({ optionalBonus: true });
-      } else {
-        pushExerciseCompleteMilestone();
       }
+      pushExerciseCompleteMilestone();
       appendPatientExerciseFinishReport(selectedPatient.id, {
         exerciseId: m.exercise.id,
         exerciseName: m.exercise.name,
@@ -792,13 +816,12 @@ export default function PatientDailyView() {
 
   const handleReportSubmit = (painLevel: number, effortRating: number) => {
     if (!reportFor || !selectedPatient) return;
-    const xp = reportFor.xpReward;
     submitExerciseReport(
       selectedPatient.id,
       reportFor.id,
       painLevel,
       effortRating,
-      reportFor.isOptional ? 0 : xp,
+      reportFor.xpReward,
       {
         completionSource: 'rehab',
         sessionBodyArea: reportFor.targetArea,
@@ -809,10 +832,8 @@ export default function PatientDailyView() {
     else setLoadSafetyNudge(null);
     if (reportFor.isOptional) {
       setOptionalGlowBoost((n) => Math.min(5, n + 1));
-      pushExerciseCompleteMilestone({ optionalBonus: true });
-    } else {
-      pushExerciseCompleteMilestone();
     }
+    pushExerciseCompleteMilestone();
     setReportFor(null);
     setReportInitialEffort(undefined);
   };
@@ -1325,9 +1346,9 @@ export default function PatientDailyView() {
         >
         <h1
           id="today-missions"
-          className="text-lg font-bold text-slate-900 mb-4 tracking-tight scroll-mt-28 text-center"
+          className="text-lg font-bold text-slate-900 mb-2 tracking-tight scroll-mt-28 text-center"
         >
-          תכנית השיקום
+          תכנית השיקום (חובה)
         </h1>
         {aiProgramLongitudinalGate?.showSteadyProgress &&
           !patientMustChangePassword &&
@@ -1340,7 +1361,6 @@ export default function PatientDailyView() {
               <p className="text-sm font-bold text-teal-900">התקדמות יציבה</p>
               <p className="text-xs text-slate-600 mt-1 leading-relaxed">
                 לפי נתוני הכאב, ההשלמה והתפקוד בימים האחרונים אין מגמה עקבית שמצדיקה הצעת שינוי תוכנית.
-                המשיכו לפי הנחיות המטפל.
               </p>
               <button
                 type="button"
@@ -1406,7 +1426,7 @@ export default function PatientDailyView() {
           </p>
         ) : (
           <div
-            className={`relative flex flex-col gap-5 ${exercisesLocked ? 'pointer-events-none select-none opacity-[0.38]' : ''}`}
+            className={`relative flex flex-col gap-4 ${exercisesLocked ? 'pointer-events-none select-none opacity-[0.38]' : ''}`}
           >
             {exercisesLocked && (
               <div
@@ -1416,18 +1436,10 @@ export default function PatientDailyView() {
             )}
             {mandatoryRehabExercises.length > 0 && (
               <section
-                className="rounded-2xl border border-sky-200/85 bg-gradient-to-br from-sky-50/70 to-white p-3 shadow-sm"
-                aria-labelledby="section-mandatory-rehab"
+                className="rounded-2xl border border-sky-200/85 bg-gradient-to-br from-sky-50/70 to-white px-3 pb-3 pt-2.5 shadow-sm"
+                aria-label="תרגילי שיקום חובה"
               >
-                <div className="mb-3 px-0.5">
-                  <h2
-                    id="section-mandatory-rehab"
-                    className="text-sm font-black text-sky-950 tracking-tight text-center"
-                  >
-                    תוכנית שיקום (חובה)
-                  </h2>
-                </div>
-                <ul className="space-y-4 flex flex-col">
+                <ul className="space-y-2 flex flex-col">
                   {mandatoryRehabExercises.map((ex, i) => {
                     const idx = i + 1;
                     const done = completedSet.has(ex.id);
@@ -1449,7 +1461,7 @@ export default function PatientDailyView() {
                           rehabTier="core"
                           index={idx}
                           isCompleted={done}
-                          title={ex.name}
+                          title={displayPortalRehabExerciseTitle(ex.name)}
                           setsLabel={String(displaySets)}
                           repsLabel={repsShort}
                           weightLabel={weightLabel}
@@ -1459,7 +1471,7 @@ export default function PatientDailyView() {
                             setExerciseVideoModal({
                               kind: 'rehab',
                               exercise: ex,
-                              xpAward: ex.xpReward,
+                              xpAward: exerciseBaseXp(ex.xpReward),
                               coinsAward: PATIENT_REWARDS.EXERCISE_COMPLETE.coins,
                             })
                           }
@@ -1483,15 +1495,15 @@ export default function PatientDailyView() {
                 className="rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50/80 to-white p-3 shadow-sm"
                 aria-labelledby="section-optional-rehab"
               >
-                <div className="mb-3 px-0.5">
+                <div className="mb-2 px-0.5">
                   <h2
                     id="section-optional-rehab"
-                    className="text-sm font-bold text-slate-700 tracking-tight text-center"
+                    className="text-sm font-medium text-slate-500 tracking-tight text-center"
                   >
-                    תרגילים נוספים (לבחירה)
+                    תרגילים נוספים לבחירתך
                   </h2>
                 </div>
-                <ul className="space-y-4 flex flex-col">
+                <ul className="space-y-2 flex flex-col">
                   {optionalRehabExercises.map((ex, i) => {
                     const idx = i + 1;
                     const done = completedSet.has(ex.id);
@@ -1506,7 +1518,11 @@ export default function PatientDailyView() {
                     const w = ex.patientWeightKg;
                     const weightLabel =
                       w != null && w > 0 ? `${w} ק״ג` : 'ללא משקל';
-                    const optionalBonusCoins = PATIENT_REWARDS.EXERCISE_COMPLETE.coins + 10;
+                    const tier = optionalRehabDifficultyTiers[ex.id] ?? 1;
+                    const baseHalfXp = optionalRehabHalfBaseXp(ex.xpReward);
+                    const baseHalfCoins = optionalRehabHalfCoins();
+                    const displayXp = applyOptionalTierToHalfXp(baseHalfXp, tier);
+                    const displayCoins = applyOptionalTierToHalfCoins(baseHalfCoins, tier);
                     return (
                       <li key={`rehab-opt-${ex.id}`} className="w-full">
                         <PortalExerciseCard
@@ -1514,18 +1530,25 @@ export default function PatientDailyView() {
                           rehabTier="optional"
                           index={idx}
                           isCompleted={done}
-                          title={ex.name}
+                          title={displayPortalRehabExerciseTitle(ex.name)}
                           setsLabel={String(displaySets)}
                           repsLabel={repsShort}
                           weightLabel={weightLabel}
                           xpReward={ex.xpReward}
                           videoUrl={ex.videoUrl ?? null}
+                          optionalRehabDifficultyTier={tier}
+                          onOptionalRehabDifficultyTierChange={(newTier) =>
+                            setOptionalRehabDifficultyTiers((prev) => ({
+                              ...prev,
+                              [ex.id]: newTier,
+                            }))
+                          }
                           onOpenTraining={() =>
                             setExerciseVideoModal({
                               kind: 'rehab',
                               exercise: ex,
-                              xpAward: ex.xpReward,
-                              coinsAward: PATIENT_REWARDS.EXERCISE_COMPLETE.coins,
+                              xpAward: displayXp,
+                              coinsAward: displayCoins,
                             })
                           }
                           onMarkComplete={() => setReportFor(ex)}
@@ -1533,8 +1556,8 @@ export default function PatientDailyView() {
                           disabled={exercisesLocked}
                           typeKey={ex.type}
                           isCustomExercise={ex.isCustom}
-                          rewardLabelXp={0}
-                          rewardLabelCoins={optionalBonusCoins}
+                          rewardLabelXp={displayXp}
+                          rewardLabelCoins={displayCoins}
                         />
                       </li>
                     );
@@ -1543,7 +1566,11 @@ export default function PatientDailyView() {
                     const idx = optionalRehabExercises.length + j + 1;
                     const { area, exercise: ex, strengthTier } = row;
                     const selfXp = Math.max(1, Math.floor(ex.xpReward * 0.5));
-                    const selfCoins = PATIENT_REWARDS.EXERCISE_COMPLETE.coins;
+                    const fullCardXp = exerciseBaseXp(selfXp);
+                    const baseHalfXp = halfDisplayXp(fullCardXp);
+                    const baseHalfCoins = halfDisplayCoins(PATIENT_REWARDS.EXERCISE_COMPLETE.coins);
+                    const displayXp = applyOptionalTierToHalfXp(baseHalfXp, strengthTier);
+                    const displayCoins = applyOptionalTierToHalfCoins(baseHalfCoins, strengthTier);
                     const sid = ex.id;
                     const done = completedSet.has(sid);
                     const tierLabel =
@@ -1559,25 +1586,24 @@ export default function PatientDailyView() {
                           setsLabel={String(ex.sets)}
                           repsLabel={repsVal}
                           weightLabel={tierLabel}
-                          levelLine={`${bodyAreaLabels[area]} · כוח (½ XP)`}
                           xpReward={selfXp}
                           videoUrl={ex.videoUrl}
+                          selfCareStrengthTier={strengthTier}
+                          onSelfCareStrengthTierChange={(tier) =>
+                            setSelfCareStrengthTier(selectedPatient.id, area, tier)
+                          }
                           onOpenTraining={() =>
                             setExerciseVideoModal({
                               kind: 'selfCare',
                               bodyArea: area,
                               exercise: ex,
-                              xpAward: selfXp,
-                              coinsAward: selfCoins,
+                              xpAward: displayXp,
+                              coinsAward: displayCoins,
                             })
                           }
                           disabled={exercisesLocked}
-                          selfCareStrengthTier={strengthTier}
-                          onSelfCareStrengthTierChange={(tier) =>
-                            setSelfCareStrengthTier(selectedPatient.id, area, tier)
-                          }
-                          rewardLabelXp={exerciseBaseXp(selfXp)}
-                          rewardLabelCoins={selfCoins}
+                          rewardLabelXp={displayXp}
+                          rewardLabelCoins={displayCoins}
                         />
                       </li>
                     );
