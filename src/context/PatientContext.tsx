@@ -225,6 +225,7 @@ interface PatientContextValue {
       completionSource?: 'rehab' | 'self-care';
       /** אזור תרגול (כוח) או יעד שיקום — לזיהוי שרשרת */
       sessionBodyArea?: BodyArea;
+      optionalPoolNoReward?: boolean;
     }
   ) => void;
 

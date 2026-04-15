@@ -38,7 +38,7 @@ import DidYouKnowBubble from './DidYouKnowBubble';
 import PatientAiPlanSuggestionModal from './PatientAiPlanSuggestionModal';
 import PainAnalyticsModal from './PainAnalyticsModal';
 import ClinicalMonthCalendar from './ClinicalMonthCalendar';
-import type { AiSuggestion, PatientExercise, BodyArea } from '../../types';
+import type { AiSuggestion, PatientExercise, BodyArea, DailySession } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import {
   PAIN_SURGE_PATIENT_COPY,
@@ -64,6 +64,13 @@ import PatientPortalSettingsModal from './PatientPortalSettingsModal';
 import { fetchAiPlanAdjustmentSuggestion } from '../../ai/geminiAiPlanAdjustment';
 import { evaluateAiProgramLongitudinalGate } from '../../ai/aiProgramLongitudinalGate';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
+import {
+  buildOptionalPool,
+  computeOptionalCompletionsByAreaFromSession,
+  countOptionalPoolCompletionsInSession,
+  getOptionalPoolExerciseId,
+  getVisibleOptionalPoolItems,
+} from '../../utils/optionalExerciseUnlock';
 import { useLocalCalendarDayKey } from '../../utils/dailyKnowledgeFact';
 import {
   getTotalActiveDaysForScenery,
@@ -86,6 +93,8 @@ function portalHrefForTab(tab: PortalTab): string {
   if (tab === 'home') return '/patient-portal';
   return `/patient-portal/${tab}`;
 }
+
+const EMPTY_COMPLETED_IDS: string[] = [];
 
 /** אזור לחיצה נוח לאגודל + משוב ויזואלי לכרטיסי ניווט */
 const PORTAL_PROGRESS_NAV_SURFACE =
@@ -130,7 +139,7 @@ export default function PatientDailyView() {
     selectedPatient,
     messages,
     getExercisePlan,
-    getTodaySession,
+    dailySessions,
     submitExerciseReport,
     sendPatientMessage,
     getPatientMessages,
@@ -316,7 +325,14 @@ export default function PatientDailyView() {
 
   /** תוכנית אימון: PatientContext (מקור לוגי useExercisePlan) — תמיד גרסה פעילה. */
   const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
-  const session = selectedPatient ? getTodaySession(selectedPatient.id) : null;
+  const session = useMemo((): DailySession | null => {
+    if (!selectedPatient) return null;
+    return (
+      dailySessions.find(
+        (s) => s.patientId === selectedPatient.id && s.date === clinicalToday
+      ) ?? null
+    );
+  }, [dailySessions, selectedPatient?.id, clinicalToday]);
   const exercises = plan?.exercises ?? [];
 
   const activeAreas = useMemo(
@@ -454,9 +470,15 @@ export default function PatientDailyView() {
   const [optionalGlowBoost, setOptionalGlowBoost] = useState(0);
   /** אחרי «התחל תרגול» במודאל — מפעיל «סימון הושלמה» בכרטיס */
   const [timerArmedExerciseIds, setTimerArmedExerciseIds] = useState<string[]>([]);
+  const [newlyUnlockedPoolKeys, setNewlyUnlockedPoolKeys] = useState<Set<string>>(() => new Set());
+  const optionalUnlockFirstPaintRef = useRef(true);
+  const prevOptionalPoolKeyRef = useRef<string | null>(null);
   useEffect(() => {
     setOptionalGlowBoost(0);
     setTimerArmedExerciseIds([]);
+    setNewlyUnlockedPoolKeys(new Set());
+    optionalUnlockFirstPaintRef.current = true;
+    prevOptionalPoolKeyRef.current = null;
   }, [selectedPatient?.id, clinicalToday]);
 
   const aiProgramLongitudinalGate = useMemo(
@@ -503,6 +525,99 @@ export default function PatientDailyView() {
         };
       });
   }, [selectedZones, selectedPatient, getSelfCareStrengthTier]);
+
+  const fullOptionalPool = useMemo(
+    () => buildOptionalPool(optionalRehabExercises, strengthMissionRows),
+    [optionalRehabExercises, strengthMissionRows]
+  );
+
+  const completedIdsForUnlock = session?.completedIds ?? EMPTY_COMPLETED_IDS;
+
+  const optionalCompletionsByArea = useMemo(
+    () =>
+      computeOptionalCompletionsByAreaFromSession(
+        completedIdsForUnlock,
+        optionalRehabExercises,
+        strengthMissionRows
+      ),
+    [completedIdsForUnlock, optionalRehabExercises, strengthMissionRows]
+  );
+
+  /** כמה תרגילים מהבריכה הושלמו היום — לשכבת פרס (ראשון = 50%, הבאים = 0). */
+  const optionalPoolCompletionCount = useMemo(
+    () => countOptionalPoolCompletionsInSession(completedIdsForUnlock, fullOptionalPool),
+    [completedIdsForUnlock, fullOptionalPool]
+  );
+
+  /** הכרטיס הנוכחי הוא ה־2+ בתור היום — תצוגת 0 XP / 0 מטבעות. */
+  const optionalPoolRewardsAreZero = optionalPoolCompletionCount >= 1;
+
+  const visibleOptionalSlice = useMemo(
+    () =>
+      getVisibleOptionalPoolItems(
+        fullOptionalPool,
+        optionalCompletionsByArea,
+        completedIdsForUnlock
+      ),
+    [
+      fullOptionalPool,
+      optionalCompletionsByArea,
+      completedIdsForUnlock,
+      dailySessions,
+      clinicalToday,
+      selectedPatient?.id,
+    ]
+  );
+
+  const sessionNextOptionalPoolItem = visibleOptionalSlice[0] ?? null;
+
+  const allOptionalPoolExerciseIdsDone = useMemo(() => {
+    if (fullOptionalPool.length === 0) return true;
+    const done = new Set(completedIdsForUnlock);
+    return fullOptionalPool.every((p) => done.has(getOptionalPoolExerciseId(p)));
+  }, [fullOptionalPool, completedIdsForUnlock]);
+
+  useEffect(() => {
+    setTimerArmedExerciseIds([]);
+  }, [sessionNextOptionalPoolItem?.poolKey, selectedPatient?.id, clinicalToday]);
+
+  useEffect(() => {
+    if (!exerciseVideoModal) return;
+    const mid = exerciseVideoModal.exercise.id;
+    const nextId = sessionNextOptionalPoolItem
+      ? getOptionalPoolExerciseId(sessionNextOptionalPoolItem)
+      : null;
+    if (nextId === mid) return;
+    const wasInOptionalPool = fullOptionalPool.some((p) => getOptionalPoolExerciseId(p) === mid);
+    if (wasInOptionalPool) {
+      setExerciseVideoModal(null);
+    }
+  }, [sessionNextOptionalPoolItem?.poolKey, fullOptionalPool, exerciseVideoModal]);
+
+  useEffect(() => {
+    if (!selectedPatient || exercisesLocked) return;
+    const key = sessionNextOptionalPoolItem?.poolKey ?? null;
+    if (optionalUnlockFirstPaintRef.current) {
+      optionalUnlockFirstPaintRef.current = false;
+      prevOptionalPoolKeyRef.current = key;
+      return;
+    }
+    const prevKey = prevOptionalPoolKeyRef.current;
+    if (key && key !== prevKey) {
+      prevOptionalPoolKeyRef.current = key;
+      setNewlyUnlockedPoolKeys(new Set([key]));
+      const t = window.setTimeout(() => setNewlyUnlockedPoolKeys(new Set()), 2600);
+      setGuardiTransient({
+        key: `optional_unlock_${Date.now()}`,
+        mood: 'joy',
+        bubble: 'כל הכבוד! נפתח לך תרגיל נוסף לחיזוק אם תרצה.',
+        until: Date.now() + 8500,
+      });
+      return () => clearTimeout(t);
+    }
+    prevOptionalPoolKeyRef.current = key;
+    return undefined;
+  }, [sessionNextOptionalPoolItem?.poolKey, selectedPatient?.id, exercisesLocked]);
 
   const combinedMissionItems = useMemo((): MissionRow[] => {
     const rehab: MissionRow[] = clinicalRehabExercises.map((exercise) => ({
@@ -661,8 +776,7 @@ export default function PatientDailyView() {
     const mandatory = clinicalRehabExercises.filter((e) => !e.isOptional);
     if (mandatory.length === 0) return;
     const allMandatoryDone = mandatory.every((e) => completedSet.has(e.id));
-    const hasExtra =
-      optionalRehabExercises.length > 0 || strengthMissionRows.length > 0;
+    const hasExtra = fullOptionalPool.length > 0;
     if (!allMandatoryDone || !hasExtra) return;
     const k = `guardi_mandatory_extra_${selectedPatient.id}_${clinicalToday}`;
     try {
@@ -682,8 +796,7 @@ export default function PatientDailyView() {
     selectedPatient?.id,
     clinicalToday,
     clinicalRehabExercises,
-    optionalRehabExercises.length,
-    strengthMissionRows.length,
+    fullOptionalPool.length,
     completedSet,
     exercisesLocked,
   ]);
@@ -726,6 +839,13 @@ export default function PatientDailyView() {
   const handleTrainingComplete = (payload: ExerciseTrainingCompletePayload) => {
     const m = exerciseVideoModal;
     if (!selectedPatient || !m) return;
+
+    const exerciseInOptionalPool = fullOptionalPool.some(
+      (p) => getOptionalPoolExerciseId(p) === m.exercise.id
+    );
+    const optionalPoolNoReward =
+      exerciseInOptionalPool && optionalPoolCompletionCount >= 1;
+
     if (m.kind === 'selfCare') {
       const strengthTier = getSelfCareStrengthTier(selectedPatient.id, m.bodyArea);
       const strengthTierLabel =
@@ -735,6 +855,7 @@ export default function PatientDailyView() {
         skipPainHistory: true,
         completionSource: 'self-care',
         sessionBodyArea: m.bodyArea,
+        optionalPoolNoReward,
       });
       logSelfCareSession(
         selectedPatient.id,
@@ -766,10 +887,13 @@ export default function PatientDailyView() {
         {
           completionSource: 'rehab',
           sessionBodyArea: m.exercise.targetArea,
+          optionalPoolNoReward:
+            m.exercise.isOptional && exerciseInOptionalPool && optionalPoolCompletionCount >= 1,
         }
       );
       if (m.exercise.isOptional) {
         setOptionalGlowBoost((n) => Math.min(5, n + 1));
+        setTimerArmedExerciseIds([]);
       }
       pushExerciseCompleteMilestone();
       appendPatientExerciseFinishReport(selectedPatient.id, {
@@ -784,6 +908,8 @@ export default function PatientDailyView() {
       else if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
       else setLoadSafetyNudge(null);
     }
+
+    setExerciseVideoModal(null);
   };
 
   const handleAvatarZoneClick = (area: BodyArea) => {
@@ -816,26 +942,36 @@ export default function PatientDailyView() {
 
   const handleReportSubmit = (painLevel: number, effortRating: number) => {
     if (!reportFor || !selectedPatient) return;
-    submitExerciseReport(
-      selectedPatient.id,
-      reportFor.id,
-      painLevel,
-      effortRating,
-      reportFor.xpReward,
-      {
+    const ex = reportFor;
+    if (ex.isOptional) {
+      submitExerciseReport(selectedPatient.id, ex.id, painLevel, effortRating, ex.xpReward, {
         completionSource: 'rehab',
-        sessionBodyArea: reportFor.targetArea,
-      }
-    );
+        sessionBodyArea: ex.targetArea,
+        optionalPoolNoReward: optionalPoolCompletionCount >= 1,
+      });
+      setOptionalGlowBoost((n) => Math.min(5, n + 1));
+      setReportFor(null);
+      setReportInitialEffort(undefined);
+      setTimerArmedExerciseIds([]);
+    } else {
+      submitExerciseReport(
+        selectedPatient.id,
+        ex.id,
+        painLevel,
+        effortRating,
+        ex.xpReward,
+        {
+          completionSource: 'rehab',
+          sessionBodyArea: ex.targetArea,
+        }
+      );
+      setReportFor(null);
+      setReportInitialEffort(undefined);
+    }
     if (painLevel >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
     else if (effortRating === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
     else setLoadSafetyNudge(null);
-    if (reportFor.isOptional) {
-      setOptionalGlowBoost((n) => Math.min(5, n + 1));
-    }
     pushExerciseCompleteMilestone();
-    setReportFor(null);
-    setReportInitialEffort(undefined);
   };
 
   const submitPasswordChange = async () => {
@@ -1490,7 +1626,7 @@ export default function PatientDailyView() {
               </section>
             )}
 
-            {(optionalRehabExercises.length > 0 || strengthMissionRows.length > 0) && (
+            {fullOptionalPool.length > 0 && (
               <section
                 className="rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50/80 to-white p-3 shadow-sm"
                 aria-labelledby="section-optional-rehab"
@@ -1503,112 +1639,182 @@ export default function PatientDailyView() {
                     תרגילים נוספים לבחירתך
                   </h2>
                 </div>
-                <ul className="space-y-2 flex flex-col">
-                  {optionalRehabExercises.map((ex, i) => {
-                    const idx = i + 1;
-                    const done = completedSet.has(ex.id);
-                    const displaySets = ex.patientSets;
-                    const displayReps = ex.patientReps;
-                    const repsShort =
-                      ex.holdSeconds && displayReps === 0
-                        ? formatTime(ex.holdSeconds)
-                        : ex.holdSeconds && displayReps > 0
-                          ? `${displayReps}+${formatTime(ex.holdSeconds)}`
-                          : `${displayReps}`;
-                    const w = ex.patientWeightKg;
-                    const weightLabel =
-                      w != null && w > 0 ? `${w} ק״ג` : 'ללא משקל';
-                    const tier = optionalRehabDifficultyTiers[ex.id] ?? 1;
-                    const baseHalfXp = optionalRehabHalfBaseXp(ex.xpReward);
-                    const baseHalfCoins = optionalRehabHalfCoins();
-                    const displayXp = applyOptionalTierToHalfXp(baseHalfXp, tier);
-                    const displayCoins = applyOptionalTierToHalfCoins(baseHalfCoins, tier);
+                {!sessionNextOptionalPoolItem ? (
+                  <p className="text-xs text-slate-500 text-center leading-relaxed px-1 py-2">
+                    {allOptionalPoolExerciseIdsDone
+                      ? 'כל הכבוד! סיימת את כל התרגילים הנוספים שבחרת להיום.'
+                      : 'כל הכבוד! ניצלת את מכסת 4 התרגילים הנוספים לכל אזור גוף לפי התוכנית.'}
+                  </p>
+                ) : (
+                  (() => {
+                    const item = sessionNextOptionalPoolItem!;
+                    const cardKey = getOptionalPoolExerciseId(item);
                     return (
-                      <li key={`rehab-opt-${ex.id}`} className="w-full">
+                  <ul className="space-y-2 flex flex-col">
+                    <li
+                      key={item.poolKey}
+                      className={`w-full ${
+                        newlyUnlockedPoolKeys.has(item.poolKey)
+                          ? 'animate-optional-unlock'
+                          : ''
+                      }`}
+                    >
+                      {item.kind === 'rehab' ? (
                         <PortalExerciseCard
+                          key={cardKey}
                           variant="rehab"
                           rehabTier="optional"
-                          index={idx}
-                          isCompleted={done}
-                          title={displayPortalRehabExerciseTitle(ex.name)}
-                          setsLabel={String(displaySets)}
-                          repsLabel={repsShort}
-                          weightLabel={weightLabel}
-                          xpReward={ex.xpReward}
-                          videoUrl={ex.videoUrl ?? null}
-                          optionalRehabDifficultyTier={tier}
+                          index={1}
+                          isCompleted={false}
+                          title={displayPortalRehabExerciseTitle(item.exercise.name)}
+                          setsLabel={String(item.exercise.patientSets)}
+                          repsLabel={
+                            item.exercise.holdSeconds &&
+                            item.exercise.patientReps === 0
+                              ? formatTime(item.exercise.holdSeconds)
+                              : item.exercise.holdSeconds &&
+                                  item.exercise.patientReps > 0
+                                ? `${item.exercise.patientReps}+${formatTime(item.exercise.holdSeconds)}`
+                                : `${item.exercise.patientReps}`
+                          }
+                          weightLabel={
+                            item.exercise.patientWeightKg != null &&
+                            item.exercise.patientWeightKg > 0
+                              ? `${item.exercise.patientWeightKg} ק״ג`
+                              : 'ללא משקל'
+                          }
+                          xpReward={item.exercise.xpReward}
+                          videoUrl={item.exercise.videoUrl ?? null}
+                          optionalRehabDifficultyTier={
+                            optionalRehabDifficultyTiers[item.exercise.id] ?? 1
+                          }
                           onOptionalRehabDifficultyTierChange={(newTier) =>
                             setOptionalRehabDifficultyTiers((prev) => ({
                               ...prev,
-                              [ex.id]: newTier,
+                              [item.exercise.id]: newTier,
                             }))
                           }
-                          onOpenTraining={() =>
+                          onOpenTraining={() => {
+                            const ex = item.exercise;
+                            const tier = optionalRehabDifficultyTiers[ex.id] ?? 1;
+                            const baseHalfXp = optionalRehabHalfBaseXp(ex.xpReward);
+                            const baseHalfCoins = optionalRehabHalfCoins();
+                            const displayXp = optionalPoolRewardsAreZero
+                              ? 0
+                              : applyOptionalTierToHalfXp(baseHalfXp, tier);
+                            const displayCoins = optionalPoolRewardsAreZero
+                              ? 0
+                              : applyOptionalTierToHalfCoins(baseHalfCoins, tier);
                             setExerciseVideoModal({
                               kind: 'rehab',
                               exercise: ex,
                               xpAward: displayXp,
                               coinsAward: displayCoins,
-                            })
-                          }
-                          onMarkComplete={() => setReportFor(ex)}
-                          markCompleteAllowed={timerArmedExerciseIds.includes(ex.id)}
+                            });
+                          }}
+                          onMarkComplete={() => setReportFor(item.exercise)}
+                          markCompleteAllowed={timerArmedExerciseIds.includes(
+                            item.exercise.id
+                          )}
                           disabled={exercisesLocked}
-                          typeKey={ex.type}
-                          isCustomExercise={ex.isCustom}
-                          rewardLabelXp={displayXp}
-                          rewardLabelCoins={displayCoins}
-                        />
-                      </li>
-                    );
-                  })}
-                  {strengthMissionRows.map((row, j) => {
-                    const idx = optionalRehabExercises.length + j + 1;
-                    const { area, exercise: ex, strengthTier } = row;
-                    const selfXp = Math.max(1, Math.floor(ex.xpReward * 0.5));
-                    const fullCardXp = exerciseBaseXp(selfXp);
-                    const baseHalfXp = halfDisplayXp(fullCardXp);
-                    const baseHalfCoins = halfDisplayCoins(PATIENT_REWARDS.EXERCISE_COMPLETE.coins);
-                    const displayXp = applyOptionalTierToHalfXp(baseHalfXp, strengthTier);
-                    const displayCoins = applyOptionalTierToHalfCoins(baseHalfCoins, strengthTier);
-                    const sid = ex.id;
-                    const done = completedSet.has(sid);
-                    const tierLabel =
-                      strengthTier === 0 ? 'קל' : strengthTier === 1 ? 'בינוני' : 'קשה';
-                    const repsVal = ex.repsAreSeconds ? `${ex.reps} ש״` : String(ex.reps);
-                    return (
-                      <li key={`strength-${area}-${ex.id}`} className="w-full">
-                        <PortalExerciseCard
-                          variant="selfCare"
-                          index={idx}
-                          isCompleted={done}
-                          title={ex.name}
-                          setsLabel={String(ex.sets)}
-                          repsLabel={repsVal}
-                          weightLabel={tierLabel}
-                          xpReward={selfXp}
-                          videoUrl={ex.videoUrl}
-                          selfCareStrengthTier={strengthTier}
-                          onSelfCareStrengthTierChange={(tier) =>
-                            setSelfCareStrengthTier(selectedPatient.id, area, tier)
+                          typeKey={item.exercise.type}
+                          isCustomExercise={item.exercise.isCustom}
+                          rewardLabelXp={
+                            optionalPoolRewardsAreZero
+                              ? 0
+                              : applyOptionalTierToHalfXp(
+                                  optionalRehabHalfBaseXp(item.exercise.xpReward),
+                                  optionalRehabDifficultyTiers[item.exercise.id] ?? 1
+                                )
                           }
-                          onOpenTraining={() =>
+                          rewardLabelCoins={
+                            optionalPoolRewardsAreZero
+                              ? 0
+                              : applyOptionalTierToHalfCoins(
+                                  optionalRehabHalfCoins(),
+                                  optionalRehabDifficultyTiers[item.exercise.id] ?? 1
+                                )
+                          }
+                        />
+                      ) : (
+                        <PortalExerciseCard
+                          key={cardKey}
+                          variant="selfCare"
+                          index={1}
+                          isCompleted={false}
+                          title={item.exercise.name}
+                          setsLabel={String(item.exercise.sets)}
+                          repsLabel={
+                            item.exercise.repsAreSeconds
+                              ? `${item.exercise.reps} ש״`
+                              : String(item.exercise.reps)
+                          }
+                          weightLabel={
+                            item.strengthTier === 0
+                              ? 'קל'
+                              : item.strengthTier === 1
+                                ? 'בינוני'
+                                : 'קשה'
+                          }
+                          xpReward={Math.max(
+                            1,
+                            Math.floor(item.exercise.xpReward * 0.5)
+                          )}
+                          videoUrl={item.exercise.videoUrl}
+                          selfCareStrengthTier={item.strengthTier}
+                          onSelfCareStrengthTierChange={(tier) => {
+                            if (!selectedPatient) return;
+                            setSelfCareStrengthTier(selectedPatient.id, item.area, tier);
+                          }}
+                          onOpenTraining={() => {
+                            const ex = item.exercise;
+                            const strengthTier = item.strengthTier;
+                            const selfXp = Math.max(1, Math.floor(ex.xpReward * 0.5));
+                            const fullCardXp = exerciseBaseXp(selfXp);
+                            const baseHalfXp = halfDisplayXp(fullCardXp);
+                            const baseHalfCoins = halfDisplayCoins(PATIENT_REWARDS.EXERCISE_COMPLETE.coins);
+                            const displayXp = optionalPoolRewardsAreZero
+                              ? 0
+                              : applyOptionalTierToHalfXp(baseHalfXp, strengthTier);
+                            const displayCoins = optionalPoolRewardsAreZero
+                              ? 0
+                              : applyOptionalTierToHalfCoins(baseHalfCoins, strengthTier);
                             setExerciseVideoModal({
                               kind: 'selfCare',
-                              bodyArea: area,
+                              bodyArea: item.area,
                               exercise: ex,
                               xpAward: displayXp,
                               coinsAward: displayCoins,
-                            })
-                          }
+                            });
+                          }}
                           disabled={exercisesLocked}
-                          rewardLabelXp={displayXp}
-                          rewardLabelCoins={displayCoins}
+                          rewardLabelXp={
+                            optionalPoolRewardsAreZero
+                              ? 0
+                              : applyOptionalTierToHalfXp(
+                                  halfDisplayXp(
+                                    exerciseBaseXp(
+                                      Math.max(1, Math.floor(item.exercise.xpReward * 0.5))
+                                    )
+                                  ),
+                                  item.strengthTier
+                                )
+                          }
+                          rewardLabelCoins={
+                            optionalPoolRewardsAreZero
+                              ? 0
+                              : applyOptionalTierToHalfCoins(
+                                  halfDisplayCoins(PATIENT_REWARDS.EXERCISE_COMPLETE.coins),
+                                  item.strengthTier
+                                )
+                          }
                         />
-                      </li>
+                      )}
+                    </li>
+                  </ul>
                     );
-                  })}
-                </ul>
+                  })()
+                )}
               </section>
             )}
           </div>

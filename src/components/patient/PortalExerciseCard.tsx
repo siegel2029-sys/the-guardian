@@ -385,12 +385,10 @@ export default function PortalExerciseCard({
               <Zap className="w-3.5 h-3.5 shrink-0 text-amber-500" aria-hidden />
               <span>XP {xpDisplay}</span>
             </div>
-            {coinsDisplay > 0 && (
-              <div className="flex items-center justify-end gap-1 text-[11px] font-bold text-slate-700 tabular-nums">
-                <Coins className="w-3.5 h-3.5 shrink-0 text-amber-600" aria-hidden />
-                <span>{coinsDisplay} מטבעות</span>
-              </div>
-            )}
+            <div className="flex items-center justify-end gap-1 text-[11px] font-bold text-slate-700 tabular-nums">
+              <Coins className="w-3.5 h-3.5 shrink-0 text-amber-600" aria-hidden />
+              <span>{coinsDisplay} מטבעות</span>
+            </div>
           </div>
         )}
 

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { X, Play, Sparkles } from 'lucide-react';
+import { X, Play } from 'lucide-react';
 
 const EFFORT_LABELS: Record<number, string> = {
   1: 'קל מאוד',
@@ -99,20 +99,18 @@ export default function ExerciseVideoTimerModal({
   clinicalRegressionHint,
   clinicalProgressionHint,
   variant,
-  xpAward,
-  coinsAward,
+  xpAward: _xpAward,
+  coinsAward: _coinsAward,
   primeSeconds = 30,
   onClose,
   onComplete,
   timerArmExerciseId,
   onTimerStarted,
 }: ExerciseVideoTimerModalProps) {
-  const [phase, setPhase] = useState<'train' | 'success'>('train');
   const [remaining, setRemaining] = useState(primeSeconds);
   const [timerStarted, setTimerStarted] = useState(false);
   const [effort, setEffort] = useState<1 | 2 | 3 | 4 | 5>(3);
   const [painLevel, setPainLevel] = useState<ModalPainLevel>(3);
-  const [canCloseSuccess, setCanCloseSuccess] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const successTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -181,15 +179,12 @@ export default function ExerciseVideoTimerModal({
     if (!open) {
       clearTimer();
       clearSuccessTimers();
-      setCanCloseSuccess(false);
       return;
     }
-    setPhase('train');
     setEffort(3);
     setPainLevel(3);
     setTimerStarted(false);
     setRemaining(primeSeconds);
-    setCanCloseSuccess(false);
     clearTimer();
     clearSuccessTimers();
     const v = videoRef.current;
@@ -211,11 +206,10 @@ export default function ExerciseVideoTimerModal({
   }, [clearTimer, clearSuccessTimers]);
 
   const handleClose = useCallback(() => {
-    if (phase === 'success' && !canCloseSuccess) return;
     clearTimer();
     clearSuccessTimers();
     onClose();
-  }, [phase, canCloseSuccess, clearTimer, clearSuccessTimers, onClose]);
+  }, [clearTimer, clearSuccessTimers, onClose]);
 
   const handleStartExercise = useCallback(() => {
     setTimerStarted(true);
@@ -235,35 +229,19 @@ export default function ExerciseVideoTimerModal({
   }, [startTimer, tryPlayVideo, presentation.kind]);
 
   const handleFinish = useCallback(() => {
-    if (remaining > 0 || phase !== 'train' || !timerStarted) return;
+    if (remaining > 0 || !timerStarted) return;
     onComplete({
       effort,
       painLevel,
     });
-    setPhase('success');
-    setCanCloseSuccess(false);
+    clearTimer();
     clearSuccessTimers();
-    const t1 = window.setTimeout(() => setCanCloseSuccess(true), 2000);
-    const t2 = window.setTimeout(() => {
-      clearTimer();
-      clearSuccessTimers();
-      onCloseRef.current();
-    }, 5200);
-    successTimersRef.current = [t1, t2];
-  }, [
-    remaining,
-    phase,
-    timerStarted,
-    effort,
-    painLevel,
-    onComplete,
-    clearSuccessTimers,
-    clearTimer,
-  ]);
+    onCloseRef.current();
+  }, [remaining, timerStarted, effort, painLevel, onComplete, clearSuccessTimers, clearTimer]);
 
   if (!open) return null;
 
-  const canFinish = phase === 'train' && timerStarted && remaining === 0;
+  const canFinish = timerStarted && remaining === 0;
 
   return (
     <div
@@ -293,42 +271,14 @@ export default function ExerciseVideoTimerModal({
           <button
             type="button"
             onClick={handleClose}
-            disabled={phase === 'success' && !canCloseSuccess}
-            className="shrink-0 p-2 rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors disabled:opacity-25 disabled:pointer-events-none disabled:cursor-not-allowed"
+            className="shrink-0 p-2 rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
             aria-label="סגור בלי לסיים"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {phase === 'success' ? (
-          <div
-            className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center"
-            style={{ minHeight: 'min(52vh, 400px)' }}
-          >
-            <div
-              className="rounded-full p-5"
-              style={{
-                background: 'linear-gradient(135deg, rgba(16,185,129,0.35), rgba(13,148,136,0.45))',
-                boxShadow: '0 0 48px rgba(16,185,129,0.55), 0 0 80px rgba(34,211,238,0.2)',
-              }}
-            >
-              <Sparkles className="w-14 h-14 text-teal-200" strokeWidth={1.5} />
-            </div>
-            <p className="text-2xl font-black text-white tracking-tight">כל הכבוד!</p>
-            <div className="rounded-2xl px-6 py-4 border border-teal-500/40 bg-teal-950/40 w-full max-w-sm">
-              <p className="text-sm font-semibold text-teal-100/90 mb-2">הרווחת בביצוע הזה</p>
-              <p className="text-3xl font-black text-teal-300 tabular-nums leading-none">+{xpAward} XP</p>
-              <p className="text-lg font-bold text-amber-200 tabular-nums mt-2">+{coinsAward} מטבעות</p>
-            </div>
-            <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
-              {canCloseSuccess
-                ? 'אפשר לסגור את החלון או שהוא ייסגר אוטומטית בעוד רגע.'
-                : 'ההתקדמות נשמרה. נא להמתין רגע לפני סגירה.'}
-            </p>
-          </div>
-        ) : (
-          <>
+        <>
             <div className="relative w-full bg-black shrink-0 aspect-video max-h-[min(42vh,360px)] sm:max-h-[min(48vh,420px)]">
               {presentation.kind === 'iframe' ? (
                 <iframe
@@ -410,7 +360,7 @@ export default function ExerciseVideoTimerModal({
                     <Play className="w-4 h-4 shrink-0 fill-current" />
                     התחל תרגול
                   </button>
-                ) : (
+                ) : remaining > 0 ? (
                   <button
                     type="button"
                     onClick={handleRestartTimer}
@@ -421,13 +371,15 @@ export default function ExerciseVideoTimerModal({
                     }}
                   >
                     <Play className="w-4 h-4 shrink-0 fill-current" />
-                    {remaining === 0 ? 'אימון נוסף (איפוס טיימר)' : 'התחל מחדש'}
+                    התחל מחדש
                   </button>
-                )}
+                ) : null}
                 <span className="text-[11px] text-slate-500 leading-snug">
                   {!timerStarted
                     ? 'הטיימר מתחיל רק אחרי לחיצה על «התחל תרגול».'
-                    : 'ניתן לאפס את הספירה ולהתחיל שוב בכל עת.'}
+                    : remaining > 0
+                      ? 'ניתן לאפס את הספירה ולהתחיל שוב בכל עת.'
+                      : 'לחצו «סיים תרגול» כדי לשמור ולחזור לרשימת האימונים.'}
                 </span>
               </div>
 
@@ -514,8 +466,7 @@ export default function ExerciseVideoTimerModal({
                 סיים תרגול
               </button>
             </div>
-          </>
-        )}
+        </>
       </div>
     </div>
   );

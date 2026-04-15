@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import type {
   AiSuggestion,
   AiSuggestionSource,
@@ -263,6 +264,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         skipPainHistory?: boolean;
         completionSource?: 'rehab' | 'self-care';
         sessionBodyArea?: BodyArea;
+        /** 2nd+ optional pool exercise today — no XP/coins (anti-farming). */
+        optionalPoolNoReward?: boolean;
       }
     ) => {
       const clinicalDay = getClinicalDate();
@@ -296,58 +299,70 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       });
 
       const streakForXpMultiplier = firstOfDay ? nextStreak : patientBefore.currentStreak;
+      const noOptionalPoolReward = options?.optionalPoolNoReward === true;
       const {
         xpGain,
         streakBonusXp,
         coinsGain,
         rewardMessage,
-      } = isOptionalRehab
-        ? computeOptionalRehabExerciseRewards({
-            planXpReward: xpReward,
-            streakForXpMultiplier,
-            xpBoosterEquippedAndOwned:
-              gearSnap.equippedPassiveId === 'xp_booster' &&
-              gearSnap.ownedGearIds.includes('xp_booster'),
-          })
-        : computeExerciseCompletionRewards({
-            planXpReward: xpReward,
-            streakForXpMultiplier,
-            xpBoosterEquippedAndOwned:
-              gearSnap.equippedPassiveId === 'xp_booster' &&
-              gearSnap.ownedGearIds.includes('xp_booster'),
-          });
+      } = noOptionalPoolReward
+        ? {
+            xpGain: 0,
+            streakBonusXp: 0,
+            coinsGain: 0,
+            rewardMessage: undefined,
+          }
+        : isOptionalRehab
+          ? computeOptionalRehabExerciseRewards({
+              planXpReward: xpReward,
+              streakForXpMultiplier,
+              xpBoosterEquippedAndOwned:
+                gearSnap.equippedPassiveId === 'xp_booster' &&
+                gearSnap.ownedGearIds.includes('xp_booster'),
+            })
+          : computeExerciseCompletionRewards({
+              planXpReward: xpReward,
+              streakForXpMultiplier,
+              xpBoosterEquippedAndOwned:
+                gearSnap.equippedPassiveId === 'xp_booster' &&
+                gearSnap.ownedGearIds.includes('xp_booster'),
+            });
 
-      pushRewardFeedback(
-        xpGain,
-        coinsGain,
-        streakBonusXp > 0 ? streakBonusXp : undefined,
-        rewardMessage
-      );
-
-      setDailySessions((prev) => {
-        const existing = prev.find((s) => s.patientId === patientId && s.date === clinicalDay);
-        if (!existing) {
-          return [
-            ...prev,
-            {
-              patientId,
-              date: clinicalDay,
-              completedIds: [exerciseId],
-              sessionXp: xpGain,
-            },
-          ];
-        }
-        return prev.map((s) =>
-          s.patientId === patientId && s.date === clinicalDay
-            ? {
-                ...s,
-                completedIds: s.completedIds.includes(exerciseId)
-                  ? s.completedIds
-                  : [...s.completedIds, exerciseId],
-                sessionXp: s.sessionXp + xpGain,
-              }
-            : s
+      if (xpGain > 0 || coinsGain > 0 || streakBonusXp > 0) {
+        pushRewardFeedback(
+          xpGain,
+          coinsGain,
+          streakBonusXp > 0 ? streakBonusXp : undefined,
+          rewardMessage
         );
+      }
+
+      flushSync(() => {
+        setDailySessions((prev) => {
+          const existing = prev.find((s) => s.patientId === patientId && s.date === clinicalDay);
+          if (!existing) {
+            return [
+              ...prev,
+              {
+                patientId,
+                date: clinicalDay,
+                completedIds: [exerciseId],
+                sessionXp: xpGain,
+              },
+            ];
+          }
+          return prev.map((s) =>
+            s.patientId === patientId && s.date === clinicalDay
+              ? {
+                  ...s,
+                  completedIds: s.completedIds.includes(exerciseId)
+                    ? s.completedIds
+                    : [...s.completedIds, exerciseId],
+                  sessionXp: s.sessionXp + xpGain,
+                }
+              : s
+          );
+        });
       });
 
       setAllPatients((prev) =>
