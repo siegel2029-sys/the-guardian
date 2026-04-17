@@ -366,6 +366,7 @@ export default function PatientDailyView() {
   }, [selectedPatient, getPatientExerciseFinishReports]);
 
   const prevPatientIdRef = useRef<string | undefined>(undefined);
+  const bodyMapSectionRef = useRef<HTMLDivElement>(null);
   const [coinKick, setCoinKick] = useState(false);
   const [guardiVictoryBurst, setGuardiVictoryBurst] = useState(0);
   const [guardiVictoryRewards, setGuardiVictoryRewards] = useState<{
@@ -1179,7 +1180,10 @@ export default function PatientDailyView() {
         {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
             <div className="rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden mx-auto w-full max-w-md touch-pan-y">
-              <div className="relative w-full max-w-[300px] mx-auto aspect-[9/16] min-h-[420px] max-h-[min(640px,68dvh)] isolate overscroll-y-contain">
+              <div
+                ref={bodyMapSectionRef}
+                className="relative w-full max-w-[300px] mx-auto aspect-[9/16] min-h-[420px] max-h-[min(640px,68dvh)] isolate overscroll-y-contain"
+              >
                 <BodyMap3D
                   activeAreas={exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
@@ -1689,6 +1693,9 @@ export default function PatientDailyView() {
         celebrateBurstKey={guardiVictoryBurst}
         contextAnimationName={guardiCompanionContextAnimation}
         ambientEnvironmentBubble={guardiMountainAmbientLine}
+        placement={portalTab === 'home' ? 'bodyMap' : 'corner'}
+        bodyMapAnchorRef={bodyMapSectionRef}
+        portalTab={portalTab === 'activity' ? 'activity' : 'home'}
       />
 
       {sessionCelebrationBurst > 0 && (
