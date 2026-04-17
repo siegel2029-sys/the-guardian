@@ -59,6 +59,7 @@ import {
   PILOT11_GUARDI_DEBUG_EVENT,
   type Pilot11GuardiDebugDetail,
 } from '../../utils/pilot11GuardiDebugEvents';
+import type { GuardiSemanticKind } from '../../utils/guardiSemanticKinds';
 import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
 import PatientPortalSettingsModal from './PatientPortalSettingsModal';
 import { fetchAiPlanAdjustmentSuggestion } from '../../ai/geminiAiPlanAdjustment';
@@ -222,10 +223,27 @@ export default function PatientDailyView() {
 
   useEffect(() => {
     if (!selectedPatient || !isPilot11GamificationDebugPatient(selectedPatient)) return;
+    const moodForSemantic = (k: GuardiSemanticKind): GuardiTransientAppearance['mood'] => {
+      if (k === 'pain' || k === 'pain_intense') return 'concerned';
+      if (k === 'success' || k === 'strength') return 'like';
+      return 'joy';
+    };
+
     const onPilot11GuardiPreview = (ev: Event) => {
       const e = ev as CustomEvent<Pilot11GuardiDebugDetail>;
       const d = e.detail;
       if (!d) return;
+      if (d.action === 'semantic') {
+        setPilot11GuardiAmbientOverride(null);
+        setGuardiTransient({
+          key: `p11dbg_${Date.now()}`,
+          mood: moodForSemantic(d.kind),
+          bubble: '',
+          semantic: d.kind,
+          until: Date.now() + 120_000,
+        });
+        return;
+      }
       if (d.action === 'transient') {
         setPilot11GuardiAmbientOverride(null);
         setGuardiTransient({
@@ -432,7 +450,8 @@ export default function PatientDailyView() {
       setGuardiTransient({
         key: `daily_${clinicalToday}_${Date.now()}`,
         mood: 'joy',
-        bubble: 'בוקר טוב! ההתמדה שלכם נספרת — יום חזק 💚',
+        bubble: '',
+        semantic: 'welcome',
         until: Date.now() + 6000,
       });
     }
@@ -755,8 +774,8 @@ export default function PatientDailyView() {
     setGuardiTransient({
       key: `mandatory_extra_${Date.now()}`,
       mood: 'joy',
-      bubble:
-        'סיימת את תרגילי החובה! כל הכבוד. אם יש לך עוד כוח, מחכים לך תרגילים נוספים למטה.',
+      bubble: '',
+      semantic: 'success',
       until: Date.now() + 9000,
     });
   }, [
@@ -806,11 +825,20 @@ export default function PatientDailyView() {
         ? 'Wave'
         : undefined;
 
-  const pushExerciseCompleteMilestone = () => {
+  const pushExerciseCompleteMilestone = (painLevel?: number) => {
+    const semantic: GuardiSemanticKind =
+      painLevel == null
+        ? 'success'
+        : painLevel >= 7
+          ? 'pain_intense'
+          : painLevel >= 4
+            ? 'pain'
+            : 'success';
     setGuardiTransient({
-      key: `like_${Date.now()}`,
-      mood: 'like',
-      bubble: 'כל הכבוד! עוד צעד קטן בדרך לשיקום 👍',
+      key: `milestone_${Date.now()}`,
+      mood: semantic === 'pain' || semantic === 'pain_intense' ? 'concerned' : 'like',
+      bubble: '',
+      semantic,
       until: Date.now() + 5500,
     });
   };
@@ -862,7 +890,7 @@ export default function PatientDailyView() {
       });
       if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
       else setLoadSafetyNudge(null);
-      pushExerciseCompleteMilestone();
+      pushExerciseCompleteMilestone(payload.painLevel);
     } else {
       const pain = payload.painLevel;
       const nextAfterOptional =
@@ -892,7 +920,7 @@ export default function PatientDailyView() {
         setOptionalGlowBoost((n) => Math.min(5, n + 1));
         setTimerArmedExerciseIds([]);
       }
-      pushExerciseCompleteMilestone();
+      pushExerciseCompleteMilestone(pain);
       appendPatientExerciseFinishReport(selectedPatient.id, {
         exerciseId: m.exercise.id,
         exerciseName: m.exercise.name,
@@ -961,7 +989,7 @@ export default function PatientDailyView() {
     if (painLevel >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
     else if (effortRating === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
     else setLoadSafetyNudge(null);
-    pushExerciseCompleteMilestone();
+    pushExerciseCompleteMilestone(painLevel);
   };
 
   const submitPasswordChange = async () => {

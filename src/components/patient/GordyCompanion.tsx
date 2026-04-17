@@ -5,6 +5,7 @@ import GuardiAssistantModal, {
 } from './GuardiAssistantModal';
 
 export type { GuardiTransientAppearance };
+export type { GuardiSemanticKind } from '../../utils/guardiSemanticKinds';
 
 type Props = {
   eligible: boolean;

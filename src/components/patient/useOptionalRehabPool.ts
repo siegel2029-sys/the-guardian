@@ -170,7 +170,8 @@ export function useOptionalRehabPool(
           setGuardiTransient({
             key: `optional_unlock_${Date.now()}`,
             mood: 'joy',
-            bubble: 'כל הכבוד! נפתח לך תרגיל נוסף לחיזוק אם תרצה.',
+            bubble: '',
+            semantic: 'success',
             until: Date.now() + 8500,
           });
         }

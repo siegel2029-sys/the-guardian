@@ -520,6 +520,25 @@
     animation: guardi-assistant-image-fade-in 0.38s ease-out forwards;
   }
 
+  @keyframes guardi-assistant-content-swap {
+    0% {
+      opacity: 0.65;
+      transform: translateY(6px) scale(0.98);
+    }
+    55% {
+      opacity: 1;
+      transform: translateY(-3px) scale(1.02);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .animate-guardi-assistant-content-swap {
+    animation: guardi-assistant-content-swap 0.48s cubic-bezier(0.34, 1.2, 0.52, 1) forwards;
+  }
+
   @keyframes guardian-input-focus-pulse {
     0% {
       box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.35);

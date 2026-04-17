@@ -210,59 +210,51 @@ export default function Pilot11GamificationDebugPanel() {
             </div>
 
             <div>
-              <p className="text-[9px] font-bold text-slate-500 mb-1">גארדי (בועה)</p>
+              <p className="text-[9px] font-bold text-slate-500 mb-1">
+                גארדי — הקשר (תמונה + טקסט מסונכרנים)
+              </p>
               <div className="flex flex-wrap gap-1">
                 <button
                   type="button"
-                  className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-teal-900/70 text-teal-50 border border-teal-700/40"
-                  onClick={() =>
-                    dispatchGuardi({
-                      action: 'transient',
-                      mood: 'joy',
-                      bubble: '[דיבאג] שמחה — בדיקת בועה',
-                    })
-                  }
+                  className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-slate-800/90 text-slate-100 border border-slate-600/60"
+                  onClick={() => dispatchGuardi({ action: 'semantic', kind: 'welcome' })}
                 >
-                  שמחה
-                </button>
-                <button
-                  type="button"
-                  className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-orange-950/70 text-orange-50 border border-orange-700/40"
-                  onClick={() =>
-                    dispatchGuardi({
-                      action: 'transient',
-                      mood: 'concerned',
-                      bubble: '[דיבאג] חשש / כאב — בדיקת בועה',
-                    })
-                  }
-                >
-                  פחד
-                </button>
-                <button
-                  type="button"
-                  className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-sky-900/70 text-sky-50 border border-sky-700/40"
-                  onClick={() =>
-                    dispatchGuardi({
-                      action: 'transient',
-                      mood: 'like',
-                      bubble: '[דיבאג] הצלחה — בדיקת בועה',
-                    })
-                  }
-                >
-                  הצלחה
+                  welcome
                 </button>
                 <button
                   type="button"
                   className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-indigo-900/70 text-indigo-50 border border-indigo-700/40"
-                  onClick={() =>
-                    dispatchGuardi({
-                      action: 'transient',
-                      mood: 'joy',
-                      bubble: '[דיבאג] למידה — בדיקת בועה',
-                    })
-                  }
+                  onClick={() => dispatchGuardi({ action: 'semantic', kind: 'learning' })}
                 >
-                  למידה
+                  learning
+                </button>
+                <button
+                  type="button"
+                  className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-sky-900/70 text-sky-50 border border-sky-700/40"
+                  onClick={() => dispatchGuardi({ action: 'semantic', kind: 'success' })}
+                >
+                  success
+                </button>
+                <button
+                  type="button"
+                  className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-amber-950/70 text-amber-50 border border-amber-700/40"
+                  onClick={() => dispatchGuardi({ action: 'semantic', kind: 'pain' })}
+                >
+                  pain
+                </button>
+                <button
+                  type="button"
+                  className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-orange-950/70 text-orange-50 border border-orange-700/40"
+                  onClick={() => dispatchGuardi({ action: 'semantic', kind: 'pain_intense' })}
+                >
+                  pain+
+                </button>
+                <button
+                  type="button"
+                  className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-violet-900/70 text-violet-50 border border-violet-700/40"
+                  onClick={() => dispatchGuardi({ action: 'semantic', kind: 'strength' })}
+                >
+                  strength
                 </button>
                 <button
                   type="button"
@@ -270,11 +262,11 @@ export default function Pilot11GamificationDebugPanel() {
                   onClick={() =>
                     dispatchGuardi({
                       action: 'ambient',
-                      line: '[דיבאג] קו רקע — יוגה / נוף (בדיקת תמונה)',
+                      line: 'טקסט מותאם אישית לבדיקת רקע (יוגה / נוף)',
                     })
                   }
                 >
-                  רקע
+                  רקע מותאם
                 </button>
                 <button
                   type="button"

@@ -8,14 +8,19 @@ import imgExcited from '../../assets/guardi/guardi_excited.png';
 import imgSad from '../../assets/guardi/gurdi_sad.png';
 import imgAfraid from '../../assets/guardi/gurdi_afraid.png';
 import imgRelaxYoga from '../../assets/guardi/relax_yoga_guardi.png';
-import imgLifting from '../../assets/guardi/lifting_weight_guardi.png';
 import imgLearning from '../../assets/guardi/gurdi_learning.png';
+import type { GuardiSemanticKind } from '../../utils/guardiSemanticKinds';
+
+export type { GuardiSemanticKind } from '../../utils/guardiSemanticKinds';
 
 export type GuardiTransientAppearance = {
   key: string;
   mood: 'like' | 'joy' | 'concerned';
+  /** מוצג כשאין `semantic` — אחרת נשענים על טקסט קנוני */
   bubble: string;
   until: number;
+  /** מסנכרן תמונה + טקסט לפי מפת הקשר */
+  semantic?: GuardiSemanticKind;
 };
 
 export type GuardiAssistantPlacement = 'bodyMap' | 'corner';
@@ -29,11 +34,187 @@ type Props = {
   contextAnimationName?: string;
   ambientEnvironmentBubble?: string | null;
   placement: GuardiAssistantPlacement;
-  /** מיקום מעל מפת הגוף — נדרש כש־placement הוא `bodyMap`. */
   bodyMapAnchorRef?: RefObject<HTMLElement | null>;
-  /** כרטיסיית הבית / אימונים — משפיע על ברירת מחדל של התמונה כשאין בועה זמנית */
   portalTab: 'home' | 'activity';
 };
+
+/**
+ * טקסטים קנוניים (מיפוי לפי מצב) — תמונות: PNG ב־assets (שמות המקור ב־jpg בפרומפט).
+ */
+const GUARDI_CANONICAL: Record<GuardiSemanticKind, { imageSrc: string; text: string }> = {
+  welcome: {
+    imageSrc: imgFront,
+    text: 'שלום! איזה כיף שחזרתם, בואו נתחיל.',
+  },
+  learning: {
+    imageSrc: imgLearning,
+    text: 'הידעת? פעילות גופנית מבוקרת מזרזת את תהליך ההחלמה!',
+  },
+  success: {
+    imageSrc: imgThumbUp,
+    text: 'כל הכבוד! ביצוע מעולה, המשך כך!',
+  },
+  pain: {
+    imageSrc: imgSad,
+    text: 'אוי, אני מצטער לשמוע. תרגישו טוב, בואו ננסה להבין איך להקל.',
+  },
+  pain_intense: {
+    imageSrc: imgAfraid,
+    text: 'אוי, אני מצטער לשמוע. תרגישו טוב, בואו ננסה להבין איך להקל.',
+  },
+  strength: {
+    imageSrc: imgSuperman,
+    text: 'קדימה, עוד קצת מאמץ וסיימנו!',
+  },
+};
+
+export type GuardiResolvedPresentation = {
+  imageSrc: string;
+  bubbleText: string;
+  bubbleTitle: string;
+  bubbleProtective: boolean;
+  /** מפתח ל־animation (תמונה + טקסט) */
+  contentKey: string;
+};
+
+function moodFallbackImage(mood: GuardiTransientAppearance['mood']): string {
+  if (mood === 'concerned') return imgAfraid;
+  if (mood === 'joy') return imgExcited;
+  return imgThumbUp;
+}
+
+/**
+ * מחזיר תמונה + טקסט לבועה לפי מצב המטופל (שומר, transient, זמן, הקשר וכו׳).
+ */
+export function resolveGuardiPresentation(params: {
+  protectiveSafety: boolean;
+  protectiveRed: boolean;
+  transientLive: boolean;
+  transient: GuardiTransientAppearance | null;
+  hasAmbient: boolean;
+  ambientTrimmed: string;
+  burstFlash: boolean;
+  contextAnimationName?: string;
+  portalTab: 'home' | 'activity';
+}): GuardiResolvedPresentation {
+  const {
+    protectiveSafety,
+    protectiveRed,
+    transientLive,
+    transient,
+    hasAmbient,
+    ambientTrimmed,
+    burstFlash,
+    contextAnimationName,
+    portalTab,
+  } = params;
+
+  if (protectiveSafety) {
+    return {
+      imageSrc: imgAfraid,
+      bubbleTitle: 'מצב שומר',
+      bubbleProtective: true,
+      bubbleText:
+        'עצרתי את האימון לרגע למען הבטיחות — דווח כאב חזק מדי באזור השיקום. המטפל קיבל עדכון. נשארים בזהירות!',
+      contentKey: 'prot-safety',
+    };
+  }
+
+  if (protectiveRed) {
+    return {
+      imageSrc: imgSad,
+      bubbleTitle: 'מצב שומר',
+      bubbleProtective: true,
+      bubbleText:
+        'התרגול נעול כרגע לפי הנחיית הצוות. המטפל עודכן. אם יש חשד לחירום — התקשרו ל־101.',
+      contentKey: 'prot-red',
+    };
+  }
+
+  if (transientLive && transient) {
+    if (transient.semantic) {
+      const c = GUARDI_CANONICAL[transient.semantic];
+      return {
+        imageSrc: c.imageSrc,
+        bubbleTitle: 'גארדי',
+        bubbleProtective: false,
+        bubbleText: c.text,
+        contentKey: `sem-${transient.semantic}-${transient.key}`,
+      };
+    }
+    return {
+      imageSrc: moodFallbackImage(transient.mood),
+      bubbleTitle: 'גארדי',
+      bubbleProtective: false,
+      bubbleText: transient.bubble,
+      contentKey: `tr-${transient.key}-${transient.mood}`,
+    };
+  }
+
+  /** חגיגת XP — מעל ambient כדי שייראה גם כשיש שורת הר/נוף */
+  if (burstFlash && !protectiveSafety && !protectiveRed) {
+    const c = GUARDI_CANONICAL.success;
+    return {
+      imageSrc: c.imageSrc,
+      bubbleTitle: 'גארדי',
+      bubbleProtective: false,
+      bubbleText: c.text,
+      contentKey: 'burst-success',
+    };
+  }
+
+  if (hasAmbient) {
+    return {
+      imageSrc: portalTab === 'home' ? imgRelaxYoga : imgFront,
+      bubbleTitle: 'גארדי',
+      bubbleProtective: false,
+      bubbleText: ambientTrimmed,
+      contentKey: `amb-${portalTab}-${ambientTrimmed.slice(0, 24)}`,
+    };
+  }
+
+  if (contextAnimationName === 'Exercise1') {
+    const c = GUARDI_CANONICAL.strength;
+    return {
+      imageSrc: c.imageSrc,
+      bubbleTitle: 'גארדי',
+      bubbleProtective: false,
+      bubbleText: c.text,
+      contentKey: 'ctx-exercise-strength',
+    };
+  }
+
+  if (contextAnimationName === 'Wave' || contextAnimationName === 'Like') {
+    const c = GUARDI_CANONICAL.welcome;
+    return {
+      imageSrc: c.imageSrc,
+      bubbleTitle: 'גארדי',
+      bubbleProtective: false,
+      bubbleText: c.text,
+      contentKey: 'ctx-wave-welcome',
+    };
+  }
+
+  if (portalTab === 'activity') {
+    const c = GUARDI_CANONICAL.learning;
+    return {
+      imageSrc: c.imageSrc,
+      bubbleTitle: 'גארדי',
+      bubbleProtective: false,
+      bubbleText: c.text,
+      contentKey: 'fallback-activity-learning',
+    };
+  }
+
+  const c = GUARDI_CANONICAL.welcome;
+  return {
+    imageSrc: c.imageSrc,
+    bubbleTitle: 'גארדי',
+    bubbleProtective: false,
+    bubbleText: c.text,
+    contentKey: 'fallback-home-welcome',
+  };
+}
 
 function useAnchorRect(anchorRef: RefObject<HTMLElement | null> | undefined, enabled: boolean) {
   const [rect, setRect] = useState<DOMRect | null>(null);
@@ -65,50 +246,6 @@ function useAnchorRect(anchorRef: RefObject<HTMLElement | null> | undefined, ena
   }, [enabled, anchorRef]);
 
   return rect;
-}
-
-function resolveGuardiImageSrc(params: {
-  protectiveSafety: boolean;
-  protectiveRed: boolean;
-  transientLive: boolean;
-  transient: GuardiTransientAppearance | null;
-  hasAmbient: boolean;
-  burstFlash: boolean;
-  contextAnimationName?: string;
-  portalTab: 'home' | 'activity';
-}): string {
-  const {
-    protectiveSafety,
-    protectiveRed,
-    transientLive,
-    transient,
-    hasAmbient,
-    burstFlash,
-    contextAnimationName,
-    portalTab,
-  } = params;
-
-  if (protectiveSafety) return imgAfraid;
-  if (protectiveRed) return imgSad;
-
-  if (transientLive && transient) {
-    if (transient.mood === 'concerned') return imgAfraid;
-    if (transient.mood === 'joy') return imgExcited;
-    if (transient.mood === 'like') return imgThumbUp;
-  }
-
-  if (burstFlash) return imgThumbUp;
-
-  if (hasAmbient) {
-    return portalTab === 'home' ? imgRelaxYoga : imgFront;
-  }
-
-  if (contextAnimationName === 'Exercise1') return imgLifting;
-  if (contextAnimationName === 'Wave' || contextAnimationName === 'Like') return imgFront;
-
-  if (portalTab === 'activity') return imgLearning;
-
-  return imgSuperman;
 }
 
 /**
@@ -168,12 +305,13 @@ export default function GuardiAssistantModal({
     }
   }, [celebrateBurstKey]);
 
-  const imageSrc = resolveGuardiImageSrc({
+  const presentation = resolveGuardiPresentation({
     protectiveSafety,
     protectiveRed,
     transientLive,
     transient,
     hasAmbient,
+    ambientTrimmed,
     burstFlash: burstFlash && !protectiveSafety && !protectiveRed,
     contextAnimationName,
     portalTab,
@@ -192,40 +330,22 @@ export default function GuardiAssistantModal({
 
   if (overlayBodyMap && !rect) return null;
 
-  let bubble: string | null = null;
-  let bubbleTitle = 'גארדי';
-  let bubbleProtective = false;
-
-  if (protectiveSafety) {
-    bubbleTitle = 'מצב שומר';
-    bubbleProtective = true;
-    bubble =
-      'עצרתי את האימון לרגע למען הבטיחות — דווח כאב חזק מדי באזור השיקום. המטפל קיבל עדכון. נשארים בזהירות!';
-  } else if (protectiveRed) {
-    bubbleTitle = 'מצב שומר';
-    bubbleProtective = true;
-    bubble =
-      'התרגול נעול כרגע לפי הנחיית הצוות. המטפל עודכן. אם יש חשד לחירום — התקשרו ל־101.';
-  } else if (transientLive && transient) {
-    bubbleTitle = 'גארדי';
-    bubble = transient.bubble;
-  } else if (hasAmbient) {
-    bubbleTitle = 'גארדי';
-    bubble = ambientTrimmed;
-  }
-
-  const showBubble = bubble != null;
+  const { imageSrc, bubbleText, bubbleTitle, bubbleProtective } = presentation;
+  const swapKey = `${animKey}|${presentation.contentKey}`;
 
   const panel = (
     <div
-      className={`flex flex-col items-stretch gap-2 ${overlayBodyMap ? 'max-h-[min(92%,420px)] w-[min(92%,280px)]' : 'max-w-[min(300px,calc(100vw-2rem))]'}`}
+      className={`flex flex-col items-stretch gap-2 sm:flex-row sm:items-end sm:gap-3 ${overlayBodyMap ? 'max-h-[min(92%,420px)] w-[min(92%,min(100%,320px))]' : 'max-w-[min(300px,calc(100vw-2rem))]'}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="guardi-assistant-title"
     >
-      {showBubble && (
+      <div
+        key={swapKey}
+        className="animate-guardi-assistant-content-swap flex flex-col gap-2 sm:flex-1 sm:min-w-0 sm:flex-row sm:items-end sm:gap-3 w-full"
+      >
         <div
-          className="relative rounded-2xl border-2 px-3.5 py-2.5 animate-guardi-welcome-in pointer-events-auto cursor-pointer"
+          className="relative rounded-2xl border-2 px-3.5 py-2.5 pointer-events-auto cursor-pointer"
           style={{
             borderColor: bubbleProtective ? '#fecaca' : '#a7f3d0',
             background: bubbleProtective
@@ -254,7 +374,7 @@ export default function GuardiAssistantModal({
               bubbleProtective ? 'text-red-950' : 'text-teal-950'
             }`}
           >
-            {bubble}
+            {bubbleText}
           </p>
           <span
             className="absolute -bottom-1.5 end-8 w-3 h-3 rotate-45 border-2 border-t-0 border-e-0"
@@ -265,44 +385,44 @@ export default function GuardiAssistantModal({
             aria-hidden
           />
         </div>
-      )}
 
-      <div
-        className="relative rounded-3xl p-2 shadow-lg bg-white/95 pointer-events-auto cursor-pointer"
-        style={{
-          boxShadow: '0 12px 32px -10px rgba(15, 23, 42, 0.2)',
-        }}
-        onClick={handleDismiss}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            handleDismiss();
-          }
-        }}
-        tabIndex={0}
-        aria-label="סגירת גארדי"
-      >
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleDismiss();
+        <div
+          className="relative rounded-3xl p-2 shadow-lg bg-white/95 pointer-events-auto cursor-pointer shrink-0 mx-auto sm:mx-0"
+          style={{
+            boxShadow: '0 12px 32px -10px rgba(15, 23, 42, 0.2)',
           }}
-          className="absolute top-1.5 end-1.5 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-900/75 text-white hover:bg-slate-900 shadow-md touch-manipulation"
-          aria-label="סגירה"
+          onClick={handleDismiss}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleDismiss();
+            }
+          }}
+          tabIndex={0}
+          aria-label="סגירת גארדי"
         >
-          <X className="h-4 w-4" strokeWidth={2.5} aria-hidden />
-        </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDismiss();
+            }}
+            className="absolute top-1.5 end-1.5 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-900/75 text-white hover:bg-slate-900 shadow-md touch-manipulation"
+            aria-label="סגירה"
+          >
+            <X className="h-4 w-4" strokeWidth={2.5} aria-hidden />
+          </button>
 
-        <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-50 to-white w-[min(240px,calc(100vw-4rem))] aspect-square shrink-0 mx-auto">
-          <img
-            key={imageSrc}
-            src={imageSrc}
-            alt=""
-            className="h-full w-full object-contain object-bottom animate-guardi-assistant-image-fade-in"
-            decoding="async"
-            draggable={false}
-          />
+          <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-50 to-white w-[min(240px,calc(100vw-4rem))] aspect-square shrink-0 mx-auto">
+            <img
+              key={imageSrc}
+              src={imageSrc}
+              alt=""
+              className="h-full w-full object-contain object-bottom animate-guardi-assistant-image-fade-in"
+              decoding="async"
+              draggable={false}
+            />
+          </div>
         </div>
       </div>
     </div>

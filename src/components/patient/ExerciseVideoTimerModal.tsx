@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { X, Play } from 'lucide-react';
+import { X, Play, ChevronDown } from 'lucide-react';
 
 const EFFORT_LABELS: Record<number, string> = {
   1: 'קל מאוד',
@@ -111,6 +111,7 @@ export default function ExerciseVideoTimerModal({
   const [timerStarted, setTimerStarted] = useState(false);
   const [effort, setEffort] = useState<1 | 2 | 3 | 4 | 5>(3);
   const [painLevel, setPainLevel] = useState<ModalPainLevel>(3);
+  const [clinicalAdviceOpen, setClinicalAdviceOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const successTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -183,6 +184,7 @@ export default function ExerciseVideoTimerModal({
     }
     setEffort(3);
     setPainLevel(3);
+    setClinicalAdviceOpen(false);
     setTimerStarted(false);
     setRemaining(primeSeconds);
     clearTimer();
@@ -253,7 +255,7 @@ export default function ExerciseVideoTimerModal({
       aria-labelledby="ex-training-title"
     >
       <div
-        className="w-full max-w-[min(96vw,920px)] max-h-[min(96vh,880px)] flex flex-col rounded-2xl border shadow-2xl overflow-hidden"
+        className="w-full max-w-[min(96vw,920px)] max-h-[min(96vh,880px)] flex flex-col rounded-2xl border shadow-2xl overflow-hidden min-h-0"
         data-training-variant={variant}
         style={{
           background: '#0f172a',
@@ -261,7 +263,7 @@ export default function ExerciseVideoTimerModal({
           boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
         }}
       >
-        <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 border-b border-slate-700/80 shrink-0">
+        <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 border-b border-slate-700/80 shrink-0 z-40 bg-[#0f172a]">
           <h2
             id="ex-training-title"
             className="text-sm sm:text-base font-bold text-white truncate flex-1 min-w-0"
@@ -278,8 +280,9 @@ export default function ExerciseVideoTimerModal({
           </button>
         </div>
 
-        <>
-            <div className="relative w-full bg-black shrink-0 aspect-video max-h-[min(42vh,360px)] sm:max-h-[min(48vh,420px)]">
+        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto overscroll-y-contain">
+          <div className="sticky top-0 z-30 shrink-0 border-b border-slate-700/70 bg-[#0f172a] shadow-[0_8px_24px_-4px_rgba(0,0,0,0.55)]">
+            <div className="relative w-full bg-black aspect-video max-h-[min(38vh,320px)] sm:max-h-[min(42vh,360px)] md:max-h-[min(48vh,420px)] mx-auto">
               {presentation.kind === 'iframe' ? (
                 <iframe
                   title={title}
@@ -307,8 +310,9 @@ export default function ExerciseVideoTimerModal({
                 </div>
               )}
             </div>
+          </div>
 
-            <div className="px-3 sm:px-4 py-3 space-y-3 flex flex-col flex-1 min-h-0 overflow-y-auto">
+          <div className="px-3 sm:px-4 py-3 space-y-3 flex flex-col min-h-0">
               {description ? (
                 <div
                   className="rounded-xl px-3 py-2.5 text-xs sm:text-sm leading-relaxed max-h-32 overflow-y-auto"
@@ -323,27 +327,51 @@ export default function ExerciseVideoTimerModal({
               ) : null}
 
               <div
-                className="rounded-xl px-3 py-2.5 space-y-2 text-[11px] sm:text-xs leading-relaxed"
+                className="rounded-xl overflow-hidden text-[11px] sm:text-xs leading-relaxed"
                 style={{
                   background: 'rgba(15, 23, 42, 0.92)',
                   border: '1px solid rgba(56, 189, 248, 0.35)',
                 }}
               >
-                <p className="font-bold text-sky-200/95">עצה קלינית</p>
-                {painLevel > 4 ? (
-                  <p className="text-amber-200/90 font-semibold border-b border-slate-600/60 pb-2">
-                    לפי רמת הכאב שבחרתם: מעל 4/10 מומלץ לשקול רגרסיה, הקטנת טווח, ומנוחה קצרה לפני
-                    המשך.
-                  </p>
+                <button
+                  type="button"
+                  onClick={() => setClinicalAdviceOpen((o) => !o)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-right hover:bg-slate-800/40 transition-colors"
+                  aria-expanded={clinicalAdviceOpen}
+                  id="clinical-advice-toggle"
+                >
+                  <span className="font-semibold text-sky-200/95 text-xs sm:text-sm">
+                    לחץ כאן לעצה מקצועית מגורדי
+                  </span>
+                  <ChevronDown
+                    className={`w-4 h-4 shrink-0 text-sky-300/90 transition-transform duration-200 ${
+                      clinicalAdviceOpen ? 'rotate-180' : ''
+                    }`}
+                    aria-hidden
+                  />
+                </button>
+                {clinicalAdviceOpen ? (
+                  <div
+                    className="px-3 pb-2.5 pt-0 space-y-2 border-t border-slate-600/50"
+                    role="region"
+                    aria-labelledby="clinical-advice-toggle"
+                  >
+                    {painLevel > 4 ? (
+                      <p className="text-amber-200/90 font-semibold border-b border-slate-600/60 pb-2 pt-2">
+                        לפי רמת הכאב שבחרתם: מעל 4/10 מומלץ לשקול רגרסיה, הקטנת טווח, ומנוחה קצרה לפני
+                        המשך.
+                      </p>
+                    ) : null}
+                    <div>
+                      <p className="font-semibold text-emerald-200/90 mb-0.5">אם קשה מדי (רגרסיה)</p>
+                      <p className="text-slate-300">{regressionText}</p>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-teal-200/90 mb-0.5">אם קל מדי (התקדמות)</p>
+                      <p className="text-slate-300">{progressionText}</p>
+                    </div>
+                  </div>
                 ) : null}
-                <div>
-                  <p className="font-semibold text-emerald-200/90 mb-0.5">אם קשה מדי (רגרסיה)</p>
-                  <p className="text-slate-300">{regressionText}</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-teal-200/90 mb-0.5">אם קל מדי (התקדמות)</p>
-                  <p className="text-slate-300">{progressionText}</p>
-                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -465,8 +493,8 @@ export default function ExerciseVideoTimerModal({
               >
                 סיים תרגול
               </button>
-            </div>
-        </>
+          </div>
+        </div>
       </div>
     </div>
   );
