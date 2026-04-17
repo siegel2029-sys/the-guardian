@@ -2,7 +2,13 @@
  * Gemini access via Supabase Edge Function `gemini-proxy` (server holds GEMINI_API_KEY).
  */
 
-import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import {
+  FunctionsFetchError,
+  FunctionsHttpError,
+  FunctionsRelayError,
+} from '@supabase/supabase-js';
+
+import { isSupabaseConfigured, supabase, supabaseUrl } from '../lib/supabase';
 
 export const GEMINI_API_HOST = 'https://generativelanguage.googleapis.com';
 export const GEMINI_API_VERSION = 'v1beta' as const;
@@ -52,13 +58,67 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function invokeHttpStatus(error: unknown): Promise<number | null> {
-  if (!error || typeof error !== 'object') return null;
-  const ctx = (error as { context?: unknown }).context;
-  if (ctx instanceof Response && typeof ctx.status === 'number') {
-    return ctx.status;
+function getGeminiProxyInvokeUrl(): string {
+  const base = supabaseUrl.replace(/\/+$/, '');
+  return `${base}/functions/v1/gemini-proxy`;
+}
+
+function isEdgeFunctionResponseError(
+  error: unknown
+): error is FunctionsHttpError | FunctionsRelayError {
+  return (
+    (error instanceof FunctionsHttpError || error instanceof FunctionsRelayError) &&
+    error.context instanceof Response
+  );
+}
+
+/** Read status/body from Edge Function HTTP failures (Supabase puts the Response on `error.context`). */
+async function logEdgeFunctionHttpFailure(
+  error: FunctionsHttpError | FunctionsRelayError,
+  invokeUrl: string
+): Promise<{ status: number; statusText: string; bodyText: string; parsed: unknown }> {
+  const res = error.context as Response;
+  const status = res.status;
+  const statusText = res.statusText;
+  const bodyText = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bodyText);
+  } catch {
+    parsed = undefined;
   }
-  return null;
+
+  console.error('[gemini-proxy] Edge Function returned non-2xx', {
+    invokeUrl,
+    status,
+    statusText,
+    bodyText: bodyText.slice(0, 4000),
+    bodyJson: parsed,
+  });
+
+  return { status, statusText, bodyText, parsed };
+}
+
+function formatProxyFailureMessage(
+  statusText: string,
+  bodyText: string,
+  parsed: unknown
+): string {
+  if (parsed && typeof parsed === 'object' && parsed !== null) {
+    const p = parsed as { error?: unknown; message?: unknown; detail?: unknown };
+    if (typeof p.error === 'string' && p.error.trim()) {
+      const extra =
+        typeof p.detail === 'string' && p.detail.trim()
+          ? ` (${p.detail.slice(0, 300)})`
+          : '';
+      return `${p.error}${extra}`;
+    }
+    if (typeof p.message === 'string' && p.message.trim()) {
+      return p.message;
+    }
+  }
+  const snippet = bodyText.trim().slice(0, 500);
+  return snippet || statusText || 'Unknown error';
 }
 
 function isLikelyRateLimit(error: unknown): boolean {
@@ -78,19 +138,74 @@ async function invokeGeminiProxy(
     );
   }
 
+  const invokeUrl = getGeminiProxyInvokeUrl();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    console.error('[gemini-proxy] No Supabase session — cannot call Edge Function (Authorization required)', {
+      invokeUrl,
+    });
+    throw new Error(
+      'Gemini AI requires a signed-in user. Sign in and try again (gemini-proxy needs a valid Supabase session JWT).'
+    );
+  }
+
   const { data, error } = await supabase.functions.invoke<ProxySuccess | { error?: string }>(
     'gemini-proxy',
-    { body: { generation, patientInitials } }
+    {
+      body: { generation, patientInitials },
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    }
   );
 
   if (error) {
-    const status = await invokeHttpStatus(error);
-    if (status === 429 || isLikelyRateLimit(error)) {
+    if (isEdgeFunctionResponseError(error)) {
+      const { status, statusText, bodyText, parsed } = await logEdgeFunctionHttpFailure(
+        error,
+        invokeUrl
+      );
+
+      if (status === 429 || isLikelyRateLimit(error)) {
+        console.warn('[gemini-proxy] rate limited (429)', {
+          invokeUrl,
+          bodySnippet: bodyText.slice(0, 500),
+        });
+        throw new GeminiRateLimitedError(
+          'מכסת הבקשות ל-Gemini מלאה (429). המתינו דקות ספורות או בדקו מכסה ב-Google AI Studio.'
+        );
+      }
+
+      const detail = formatProxyFailureMessage(statusText, bodyText, parsed);
+      throw new Error(`gemini-proxy failed (${status}): ${detail}`);
+    }
+
+    if (error instanceof FunctionsFetchError) {
+      console.error('[gemini-proxy] network / fetch error calling Edge Function', {
+        invokeUrl,
+        message: error.message,
+        context: error.context,
+      });
+      throw new Error(error.message || 'Network error calling gemini-proxy');
+    }
+
+    console.error('[gemini-proxy] invoke error', {
+      invokeUrl,
+      name: error instanceof Error ? error.name : typeof error,
+      message: error instanceof Error ? error.message : String(error),
+      error,
+    });
+
+    if (isLikelyRateLimit(error)) {
       throw new GeminiRateLimitedError(
         'מכסת הבקשות ל-Gemini מלאה (429). המתינו דקות ספורות או בדקו מכסה ב-Google AI Studio.'
       );
     }
-    throw new Error(error.message || 'gemini-proxy invoke failed');
+
+    throw new Error(error instanceof Error ? error.message : 'gemini-proxy invoke failed');
   }
 
   if (data && typeof data === 'object' && 'error' in data && typeof (data as { error?: string }).error === 'string') {

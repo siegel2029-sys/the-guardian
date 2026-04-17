@@ -15,6 +15,7 @@ import TherapistQuickChat from './clinical/TherapistQuickChat';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import SmartClinicalAnalysisCenter from './clinical/SmartClinicalAnalysisCenter';
 import PatientDataManagement from './clinical/PatientDataManagement';
+import PatientClinicalHistory from './clinical/PatientClinicalHistory';
 import TherapistPatientGrid from './TherapistPatientGrid';
 import { bodyAreaLabels } from '../../types';
 
@@ -230,6 +231,8 @@ export default function PatientOverview() {
             </div>
           )}
         </div>
+
+        <PatientClinicalHistory patientId={p.id} />
 
         <SmartClinicalAnalysisCenter
           patient={p}

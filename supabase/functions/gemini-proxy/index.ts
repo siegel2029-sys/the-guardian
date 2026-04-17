@@ -105,9 +105,20 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
-  const apiKey = Deno.env.get("GEMINI_API_KEY")?.trim();
+  // Set in Supabase Dashboard → Edge Functions → Secrets, or: `supabase secrets set GEMINI_API_KEY=...`
+  // Local serve: use `supabase secrets set` or a `.env` loaded for the functions runtime.
+  const apiKey =
+    Deno.env.get("GEMINI_API_KEY")?.trim() ||
+    Deno.env.get("GOOGLE_AI_API_KEY")?.trim() ||
+    Deno.env.get("GOOGLE_GENERATIVE_AI_API_KEY")?.trim();
   if (!apiKey) {
-    return jsonResponse({ error: "GEMINI_API_KEY is not set" }, 500);
+    return jsonResponse(
+      {
+        error: "GEMINI_API_KEY is not set",
+        detail: "Configure the Gemini API key as an Edge Function secret (GEMINI_API_KEY).",
+      },
+      500,
+    );
   }
 
   let payload: RequestPayload;

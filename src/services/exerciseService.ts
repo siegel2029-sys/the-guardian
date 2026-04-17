@@ -1,8 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { DailySession, ExercisePlan, ExercisePlanHistoryEntry, PatientExercise } from '../types';
+import type { DailySession, ExercisePlanHistoryEntry, PatientExercise } from '../types';
 import { addClinicalDays } from '../utils/clinicalCalendar';
+import type { ClinicalPushResult } from './clinicalService';
 
-export type ExercisePushResult = { ok: true } | { ok: false; message: string };
+export type ExercisePushResult = ClinicalPushResult;
+
+export { upsertExercisePlans } from './clinicalService';
 
 export type DayCompliancePoint = {
   clinicalDate: string;
@@ -17,90 +20,6 @@ function formatDayLabel(ymd: string): string {
   if (!y || !m || !d) return ymd;
   const dt = new Date(y, m - 1, d);
   return dt.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' });
-}
-
-function exercisesJsonEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-type UpsertExercisePlansOptions = {
-  /** Optional per-patient note stored on the new version row when content changes. */
-  changeSummaryByPatientId?: Record<string, string>;
-};
-
-/**
- * Syncs exercise plans to Supabase with versioning: updates create a new row, increment
- * version_number, link parent_plan_id, and set the previous active row to is_active = false.
- * Unchanged exercises vs the current active row only refresh updated_at.
- */
-export async function upsertExercisePlans(
-  client: SupabaseClient,
-  exercisePlans: ExercisePlan[],
-  now: string,
-  options?: UpsertExercisePlansOptions
-): Promise<ExercisePushResult> {
-  const changeSummaryByPatientId = options?.changeSummaryByPatientId ?? {};
-
-  for (const plan of exercisePlans) {
-    const { patientId, exercises } = plan;
-    const changeSummary = changeSummaryByPatientId[patientId] ?? null;
-
-    const { data: active, error: selErr } = await client
-      .from('exercise_plans')
-      .select('id, version_number, exercises')
-      .eq('patient_id', patientId)
-      .eq('is_active', true)
-      .maybeSingle();
-
-    if (selErr) {
-      return { ok: false, message: `exercise_plans: ${selErr.message}` };
-    }
-
-    if (!active) {
-      const { error: insErr } = await client.from('exercise_plans').insert({
-        patient_id: patientId,
-        exercises,
-        updated_at: now,
-        version_number: 1,
-        is_active: true,
-        parent_plan_id: null,
-        change_summary: changeSummary,
-      });
-      if (insErr) return { ok: false, message: `exercise_plans: ${insErr.message}` };
-      continue;
-    }
-
-    const row = active as { id: string; version_number: number; exercises: unknown };
-
-    if (exercisesJsonEqual(row.exercises, exercises)) {
-      const { error: touchErr } = await client
-        .from('exercise_plans')
-        .update({ updated_at: now })
-        .eq('id', row.id);
-      if (touchErr) return { ok: false, message: `exercise_plans: ${touchErr.message}` };
-      continue;
-    }
-
-    const { error: deactErr } = await client
-      .from('exercise_plans')
-      .update({ is_active: false })
-      .eq('id', row.id);
-    if (deactErr) return { ok: false, message: `exercise_plans: ${deactErr.message}` };
-
-    const nextVersion = (row.version_number ?? 1) + 1;
-    const { error: insErr } = await client.from('exercise_plans').insert({
-      patient_id: patientId,
-      exercises,
-      updated_at: now,
-      version_number: nextVersion,
-      is_active: true,
-      parent_plan_id: row.id,
-      change_summary: changeSummary,
-    });
-    if (insErr) return { ok: false, message: `exercise_plans: ${insErr.message}` };
-  }
-
-  return { ok: true };
 }
 
 /** All inactive exercise_plans rows for a patient (ordered by version_number descending). */
