@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { flushSync } from 'react-dom';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   AiSuggestion,
   AiSuggestionSource,
@@ -46,6 +47,7 @@ import {
 import { defaultPatientGear, type PatientGearState } from '../context/patientGearUtils';
 import { buildEmptySession, clampPain, clampEffort } from '../context/patientDomainHelpers';
 import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
+import { completeExerciseSafe } from '../services/exerciseCompletionRpc';
 
 export type UseExercisePlanParams = {
   patients: Patient[];
@@ -97,6 +99,9 @@ export type UseExercisePlanParams = {
   therapistScopeIds: string[] | null | undefined;
   setSelectedPatientId: React.Dispatch<React.SetStateAction<string>>;
   setActiveSection: React.Dispatch<React.SetStateAction<NavSection>>;
+  /** When set (patient portal), rehab completions call `complete_exercise_safe` instead of updating `exercise_plans` directly. */
+  supabaseClient: SupabaseClient | null;
+  patientPortalPatientId: string | null;
 };
 
 function randomPatientPassword(): string {
@@ -139,6 +144,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
     therapistScopeIds,
     setSelectedPatientId,
     setActiveSection,
+    supabaseClient,
+    patientPortalPatientId,
   } = params;
   // ── Exercise plan CRUD ─────────────────────────────────────────
   const getExercisePlan = useCallback(
@@ -631,6 +638,26 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           }
         }
       }
+
+      if (
+        supabaseClient &&
+        patientPortalPatientId &&
+        patientId === patientPortalPatientId &&
+        options?.completionSource === 'rehab' &&
+        rehabEx
+      ) {
+        void completeExerciseSafe(supabaseClient, exerciseId, {
+          pain_level: pain,
+          effort_rating: effort,
+          clinical_date: clinicalDay,
+          optional_pool_no_reward: options?.optionalPoolNoReward ?? false,
+          session_body_area: options?.sessionBodyArea ?? null,
+        }).then((r) => {
+          if (!r.ok && import.meta.env.DEV) {
+            console.warn('[complete_exercise_safe]', r);
+          }
+        });
+      }
     },
     [
       exercisePlans,
@@ -641,6 +668,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       pushRewardFeedback,
       patientGearByPatientId,
       setExerciseSafetyLockedPatientIds,
+      supabaseClient,
+      patientPortalPatientId,
     ]
   );
 

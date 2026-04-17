@@ -1073,6 +1073,8 @@ export function PatientProvider({
     therapistScopeIds,
     setSelectedPatientId,
     setActiveSection,
+    supabaseClient: supabase,
+    patientPortalPatientId: restrictPatientSessionId ?? null,
   });
 
   const clinical = useClinicalData({

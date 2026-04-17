@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback, type KeyboardEvent } from 'react';
+import { flushSync } from 'react-dom';
 import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -68,6 +69,7 @@ import {
   buildOptionalPool,
   computeOptionalCompletionsByAreaFromSession,
   countOptionalPoolCompletionsInSession,
+  getNextOptionalPoolItem,
   getOptionalPoolExerciseId,
   getVisibleOptionalPoolItems,
 } from '../../utils/optionalExerciseUnlock';
@@ -95,6 +97,9 @@ function portalHrefForTab(tab: PortalTab): string {
 }
 
 const EMPTY_COMPLETED_IDS: string[] = [];
+
+/** המתנה קצרה אחרי סיום תרגיל בחירה לפני הצגת הכרטיס הבא */
+const OPTIONAL_REVEAL_MS = 300;
 
 /** אזור לחיצה נוח לאגודל + משוב ויזואלי לכרטיסי ניווט */
 const PORTAL_PROGRESS_NAV_SURFACE =
@@ -471,14 +476,12 @@ export default function PatientDailyView() {
   /** אחרי «התחל תרגול» במודאל — מפעיל «סימון הושלמה» בכרטיס */
   const [timerArmedExerciseIds, setTimerArmedExerciseIds] = useState<string[]>([]);
   const [newlyUnlockedPoolKeys, setNewlyUnlockedPoolKeys] = useState<Set<string>>(() => new Set());
-  const optionalUnlockFirstPaintRef = useRef(true);
-  const prevOptionalPoolKeyRef = useRef<string | null>(null);
+  const [optionalRevealHold, setOptionalRevealHold] = useState(false);
   useEffect(() => {
     setOptionalGlowBoost(0);
     setTimerArmedExerciseIds([]);
     setNewlyUnlockedPoolKeys(new Set());
-    optionalUnlockFirstPaintRef.current = true;
-    prevOptionalPoolKeyRef.current = null;
+    setOptionalRevealHold(false);
   }, [selectedPatient?.id, clinicalToday]);
 
   const aiProgramLongitudinalGate = useMemo(
@@ -571,6 +574,26 @@ export default function PatientDailyView() {
 
   const sessionNextOptionalPoolItem = visibleOptionalSlice[0] ?? null;
 
+  const getNextOptionalAfterAddingId = useCallback(
+    (exerciseId: string) => {
+      const hypIds = completedIdsForUnlock.includes(exerciseId)
+        ? [...completedIdsForUnlock]
+        : [...completedIdsForUnlock, exerciseId];
+      const hypArea = computeOptionalCompletionsByAreaFromSession(
+        hypIds,
+        optionalRehabExercises,
+        strengthMissionRows
+      );
+      return getNextOptionalPoolItem(fullOptionalPool, hypArea, hypIds);
+    },
+    [
+      completedIdsForUnlock,
+      fullOptionalPool,
+      optionalRehabExercises,
+      strengthMissionRows,
+    ]
+  );
+
   const allOptionalPoolExerciseIdsDone = useMemo(() => {
     if (fullOptionalPool.length === 0) return true;
     const done = new Set(completedIdsForUnlock);
@@ -595,29 +618,25 @@ export default function PatientDailyView() {
   }, [sessionNextOptionalPoolItem?.poolKey, fullOptionalPool, exerciseVideoModal]);
 
   useEffect(() => {
-    if (!selectedPatient || exercisesLocked) return;
-    const key = sessionNextOptionalPoolItem?.poolKey ?? null;
-    if (optionalUnlockFirstPaintRef.current) {
-      optionalUnlockFirstPaintRef.current = false;
-      prevOptionalPoolKeyRef.current = key;
-      return;
-    }
-    const prevKey = prevOptionalPoolKeyRef.current;
-    if (key && key !== prevKey) {
-      prevOptionalPoolKeyRef.current = key;
-      setNewlyUnlockedPoolKeys(new Set([key]));
-      const t = window.setTimeout(() => setNewlyUnlockedPoolKeys(new Set()), 2600);
-      setGuardiTransient({
-        key: `optional_unlock_${Date.now()}`,
-        mood: 'joy',
-        bubble: 'כל הכבוד! נפתח לך תרגיל נוסף לחיזוק אם תרצה.',
-        until: Date.now() + 8500,
+    if (!optionalRevealHold || exercisesLocked) return;
+    const poolKey = sessionNextOptionalPoolItem?.poolKey ?? null;
+    const t = window.setTimeout(() => {
+      setOptionalRevealHold(false);
+      window.requestAnimationFrame(() => {
+        if (poolKey) {
+          setNewlyUnlockedPoolKeys(new Set([poolKey]));
+          window.setTimeout(() => setNewlyUnlockedPoolKeys(new Set()), 2600);
+          setGuardiTransient({
+            key: `optional_unlock_${Date.now()}`,
+            mood: 'joy',
+            bubble: 'כל הכבוד! נפתח לך תרגיל נוסף לחיזוק אם תרצה.',
+            until: Date.now() + 8500,
+          });
+        }
       });
-      return () => clearTimeout(t);
-    }
-    prevOptionalPoolKeyRef.current = key;
-    return undefined;
-  }, [sessionNextOptionalPoolItem?.poolKey, selectedPatient?.id, exercisesLocked]);
+    }, OPTIONAL_REVEAL_MS);
+    return () => clearTimeout(t);
+  }, [optionalRevealHold, sessionNextOptionalPoolItem?.poolKey, exercisesLocked]);
 
   const combinedMissionItems = useMemo((): MissionRow[] => {
     const rehab: MissionRow[] = clinicalRehabExercises.map((exercise) => ({
@@ -851,12 +870,20 @@ export default function PatientDailyView() {
       const strengthTierLabel =
         strengthTier === 0 ? 'קל' : strengthTier === 1 ? 'בינוני' : 'קשה';
       const planXpForSelfCare = Math.max(1, Math.floor(m.exercise.xpReward * 0.5));
-      submitExerciseReport(selectedPatient.id, m.exercise.id, payload.painLevel, payload.effort, planXpForSelfCare, {
-        skipPainHistory: true,
-        completionSource: 'self-care',
-        sessionBodyArea: m.bodyArea,
-        optionalPoolNoReward,
+      const nextAfterOptional =
+        exerciseInOptionalPool ? getNextOptionalAfterAddingId(m.exercise.id) : null;
+      flushSync(() => {
+        submitExerciseReport(selectedPatient.id, m.exercise.id, payload.painLevel, payload.effort, planXpForSelfCare, {
+          skipPainHistory: true,
+          completionSource: 'self-care',
+          sessionBodyArea: m.bodyArea,
+          optionalPoolNoReward,
+        });
       });
+      setExerciseVideoModal(null);
+      if (nextAfterOptional) {
+        setOptionalRevealHold(true);
+      }
       logSelfCareSession(
         selectedPatient.id,
         m.exercise.id,
@@ -878,19 +905,29 @@ export default function PatientDailyView() {
       pushExerciseCompleteMilestone();
     } else {
       const pain = payload.painLevel;
-      submitExerciseReport(
-        selectedPatient.id,
-        m.exercise.id,
-        pain,
-        payload.effort,
-        m.exercise.xpReward,
-        {
-          completionSource: 'rehab',
-          sessionBodyArea: m.exercise.targetArea,
-          optionalPoolNoReward:
-            m.exercise.isOptional && exerciseInOptionalPool && optionalPoolCompletionCount >= 1,
-        }
-      );
+      const nextAfterOptional =
+        m.exercise.isOptional && exerciseInOptionalPool
+          ? getNextOptionalAfterAddingId(m.exercise.id)
+          : null;
+      flushSync(() => {
+        submitExerciseReport(
+          selectedPatient.id,
+          m.exercise.id,
+          pain,
+          payload.effort,
+          m.exercise.xpReward,
+          {
+            completionSource: 'rehab',
+            sessionBodyArea: m.exercise.targetArea,
+            optionalPoolNoReward:
+              m.exercise.isOptional && exerciseInOptionalPool && optionalPoolCompletionCount >= 1,
+          }
+        );
+      });
+      setExerciseVideoModal(null);
+      if (nextAfterOptional) {
+        setOptionalRevealHold(true);
+      }
       if (m.exercise.isOptional) {
         setOptionalGlowBoost((n) => Math.min(5, n + 1));
         setTimerArmedExerciseIds([]);
@@ -908,8 +945,6 @@ export default function PatientDailyView() {
       else if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
       else setLoadSafetyNudge(null);
     }
-
-    setExerciseVideoModal(null);
   };
 
   const handleAvatarZoneClick = (area: BodyArea) => {
@@ -940,19 +975,26 @@ export default function PatientDailyView() {
 
   const lastPainRecord = selectedPatient?.analytics.painHistory.slice(-1)[0];
 
+  /** Reports flow through {@link submitExerciseReport}; in the patient portal, Supabase stores rehab completion via `complete_exercise_safe` (no direct `exercise_plans` updates). */
   const handleReportSubmit = (painLevel: number, effortRating: number) => {
     if (!reportFor || !selectedPatient) return;
     const ex = reportFor;
     if (ex.isOptional) {
-      submitExerciseReport(selectedPatient.id, ex.id, painLevel, effortRating, ex.xpReward, {
-        completionSource: 'rehab',
-        sessionBodyArea: ex.targetArea,
-        optionalPoolNoReward: optionalPoolCompletionCount >= 1,
-      });
-      setOptionalGlowBoost((n) => Math.min(5, n + 1));
+      const nextAfterOptional = getNextOptionalAfterAddingId(ex.id);
       setReportFor(null);
       setReportInitialEffort(undefined);
       setTimerArmedExerciseIds([]);
+      flushSync(() => {
+        submitExerciseReport(selectedPatient.id, ex.id, painLevel, effortRating, ex.xpReward, {
+          completionSource: 'rehab',
+          sessionBodyArea: ex.targetArea,
+          optionalPoolNoReward: optionalPoolCompletionCount >= 1,
+        });
+      });
+      if (nextAfterOptional) {
+        setOptionalRevealHold(true);
+      }
+      setOptionalGlowBoost((n) => Math.min(5, n + 1));
     } else {
       submitExerciseReport(
         selectedPatient.id,
@@ -1645,10 +1687,15 @@ export default function PatientDailyView() {
                       ? 'כל הכבוד! סיימת את כל התרגילים הנוספים שבחרת להיום.'
                       : 'כל הכבוד! ניצלת את מכסת 4 התרגילים הנוספים לכל אזור גוף לפי התוכנית.'}
                   </p>
+                ) : optionalRevealHold ? (
+                  <div
+                    className="min-h-[5.75rem] rounded-lg border border-dashed border-slate-200/90 bg-slate-50/80 motion-safe:animate-optional-interstitial flex items-center justify-center"
+                    aria-busy="true"
+                  />
                 ) : (
                   (() => {
                     const item = sessionNextOptionalPoolItem!;
-                    const cardKey = getOptionalPoolExerciseId(item);
+                    const cardKey = item.poolKey;
                     return (
                   <ul className="space-y-2 flex flex-col">
                     <li
@@ -2019,7 +2066,9 @@ export default function PatientDailyView() {
 
       {exerciseVideoModal != null && (
         <ExerciseVideoTimerModal
-          key={`${exerciseVideoModal.kind}-${exerciseVideoModal.exercise.id}`}
+          key={`${exerciseVideoModal.kind}-${exerciseVideoModal.exercise.id}-${
+            exerciseVideoModal.kind === 'selfCare' ? exerciseVideoModal.bodyArea : 'rehab'
+          }`}
           open
           title={exerciseVideoModal.exercise.name}
           videoUrl={
