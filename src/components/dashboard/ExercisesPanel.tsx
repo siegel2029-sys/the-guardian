@@ -16,6 +16,7 @@ import ExerciseCard from './ExerciseCard';
 import type { BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
+import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
 // ── Video Modal ──────────────────────────────────────────────────
 function VideoModal({ title, onClose }: { title: string; onClose: () => void }) {
@@ -229,7 +230,7 @@ export default function ExercisesPanel() {
   return (
     <div className="h-full overflow-y-auto p-4 md:p-6" dir="rtl" style={{ background: '#F0F9FA' }}>
       {/* All-done celebration */}
-      {allDone && <CelebrationBanner name={selectedPatient.name} />}
+      {allDone && <CelebrationBanner name={getPatientDisplayName(selectedPatient)} />}
 
       {/* Session XP Bar */}
       <SessionXPBar

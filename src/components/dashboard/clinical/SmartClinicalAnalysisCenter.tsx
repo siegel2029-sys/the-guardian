@@ -21,6 +21,7 @@ import type {
 import type { ClinicalProgressInsight } from '../../../ai/clinicalCommandInsight';
 import { aggregateClinicalInsights } from '../../../services/clinicalInsightsAggregation';
 import { buildUnifiedClinicalNarrative } from '../../../ai/clinicalInsightsNarrative';
+import { getPatientDisplayName } from '../../../utils/patientDisplayName';
 import {
   analyzeSmartClinicalCenterWithGemini,
   getGeminiApiKey,
@@ -97,7 +98,7 @@ export default function SmartClinicalAnalysisCenter({
     });
     const localNarrative = buildUnifiedClinicalNarrative(
       aggregated,
-      patient.name,
+      getPatientDisplayName(patient),
       progressInsight
     );
     return { aggregated, localNarrative };
