@@ -5,7 +5,10 @@ import {
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
-import { computeClinicalProgressInsight } from '../../ai/clinicalCommandInsight';
+import {
+  computeClinicalProgressInsight,
+  type ClinicalProgressInsight,
+} from '../../ai/clinicalCommandInsight';
 import RedFlagAlert from './RedFlagAlert';
 import AiSuggestionsPanel from './AiSuggestionsPanel';
 import PendingApprovalsPanel from './PendingApprovalsPanel';
@@ -69,6 +72,11 @@ export default function PatientOverview() {
     return mine[0]?.createdAt ?? null;
   }, [selectedPatient, safetyAlerts]);
 
+  const progressInsight = useMemo((): ClinicalProgressInsight | null => {
+    if (!selectedPatient) return null;
+    return computeClinicalProgressInsight(selectedPatient, clinicalToday);
+  }, [selectedPatient, clinicalToday]);
+
   if (!selectedPatient) {
     return (
       <div
@@ -82,10 +90,7 @@ export default function PatientOverview() {
   }
 
   const p = selectedPatient;
-  const progressInsight = useMemo(
-    () => computeClinicalProgressInsight(p, clinicalToday),
-    [p, clinicalToday]
-  );
+  const insightForUi = progressInsight as ClinicalProgressInsight;
   const style = statusStyles[p.status];
   const plan = getExercisePlan(p.id);
   const exerciseCount = plan?.exercises.length ?? 0;
@@ -242,7 +247,7 @@ export default function PatientOverview() {
           selfSelectedZones={getSelfCareZones(p.id)}
           selfCareReports={getSelfCareReportsForPatient(p.id)}
           finishReports={getPatientExerciseFinishReports(p.id)}
-          progressInsight={progressInsight}
+          progressInsight={insightForUi}
           unreadFromPatient={unreadFromPatient}
           lastAlertIso={lastAlertIso}
         />

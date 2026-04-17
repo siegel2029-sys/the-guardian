@@ -263,6 +263,7 @@ export default function PatientDailyView() {
   );
   const [trainingAiPlanModalInfo, setTrainingAiPlanModalInfo] = useState<string | null>(null);
   const [aiSteadyBannerDismissed, setAiSteadyBannerDismissed] = useState(false);
+  const [sessionCelebrationBurst, setSessionCelebrationBurst] = useState(0);
 
   const careGiverName = useMemo(
     () => (selectedPatient ? getTherapistDisplayName(selectedPatient.therapistId) : ''),
@@ -593,6 +594,20 @@ export default function PatientDailyView() {
     acknowledgeTrainingAiPlanModal,
   ]);
 
+  const goToClinicalDashboardFromStreak = useCallback(() => {
+    if (portalTab !== 'home') {
+      navigate('/patient-portal#patient-clinical-dashboard');
+      return;
+    }
+    void navigate('/patient-portal#patient-clinical-dashboard', { replace: true });
+    window.requestAnimationFrame(() => {
+      document.getElementById('patient-clinical-dashboard')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+  }, [navigate, portalTab]);
+
   useEffect(() => {
     if (!selectedPatient || portalTab !== 'activity' || patientMustChangePassword || exercisesLocked) {
       setTrainingAiPlanModalOpen(false);
@@ -663,7 +678,6 @@ export default function PatientDailyView() {
     aiProgramLongitudinalGate,
   ]);
 
-  const [sessionCelebrationBurst, setSessionCelebrationBurst] = useState(0);
   useEffect(() => {
     if (!selectedPatient || exercisesLocked) return;
     const sk = `guardi_full_celebrate_${selectedPatient.id}_${clinicalToday}`;
@@ -710,6 +724,18 @@ export default function PatientDailyView() {
     completedSet,
     exercisesLocked,
   ]);
+
+  const latestEmergencyReason = useMemo(() => {
+    if (!selectedPatient) return undefined;
+    const hit = [...safetyAlerts]
+      .filter((a) => a.patientId === selectedPatient.id && a.severity === 'emergency')
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    return hit?.reasonHebrew;
+  }, [safetyAlerts, selectedPatient?.id]);
+
+  useEffect(() => {
+    setLoadSafetyNudge(null);
+  }, [selectedPatient?.id]);
 
   const endSessionCelebration = () => {
     if (selectedPatient) {
@@ -852,18 +878,6 @@ export default function PatientDailyView() {
     toggleSelfCareZone(selectedPatient.id, area);
   };
 
-  const latestEmergencyReason = useMemo(() => {
-    if (!selectedPatient) return undefined;
-    const hit = [...safetyAlerts]
-      .filter((a) => a.patientId === selectedPatient.id && a.severity === 'emergency')
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-    return hit?.reasonHebrew;
-  }, [safetyAlerts, selectedPatient?.id]);
-
-  useEffect(() => {
-    setLoadSafetyNudge(null);
-  }, [selectedPatient?.id]);
-
   const lastPainRecord = selectedPatient?.analytics.painHistory.slice(-1)[0];
 
   /** Reports flow through {@link submitExerciseReport}; in the patient portal, Supabase stores rehab completion via `complete_exercise_safe` (no direct `exercise_plans` updates). */
@@ -960,20 +974,6 @@ export default function PatientDailyView() {
     }
     navigate('/patient-portal/activity#today-missions');
   };
-
-  const goToClinicalDashboardFromStreak = useCallback(() => {
-    if (portalTab !== 'home') {
-      navigate('/patient-portal#patient-clinical-dashboard');
-      return;
-    }
-    void navigate('/patient-portal#patient-clinical-dashboard', { replace: true });
-    window.requestAnimationFrame(() => {
-      document.getElementById('patient-clinical-dashboard')?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      });
-    });
-  }, [navigate, portalTab]);
 
   return (
     <div

@@ -39,7 +39,7 @@ import {
 import { xpRequiredToReachNextLevel } from '../body/patientLevelXp';
 import { loadAuthSnapshot, addPatientAccount } from '../context/authPersistence';
 import {
-  useSupabaseAuthBridge,
+  isSupabaseAuthEnabled,
   signUpPortalPatientOnCreate,
   normalizePortalUsername,
   isValidPortalUsername,
@@ -878,7 +878,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
 
       const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? '';
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
-      if (useSupabaseAuthBridge() && url && anonKey) {
+      if (isSupabaseAuthEnabled() && url && anonKey) {
         const su = await signUpPortalPatientOnCreate({
           url,
           anonKey,
@@ -926,7 +926,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       };
       setAllPatients((prev) => [...prev, newPatient]);
       setExercisePlans((prev) => [...prev, { patientId, exercises: [] }]);
-      if (!useSupabaseAuthBridge()) {
+      if (!isSupabaseAuthEnabled()) {
         addPatientAccount(normalized, patientId, password, ownerTid, { mustChangePassword: true });
       }
       setSelectedPatientId(patientId);
@@ -1141,7 +1141,9 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       );
     },
     [clinicalToday, exercisePlans]
-  );  return {
+  );
+
+  return {
     getExercisePlan,
     addExerciseToPlan,
     removeExerciseFromPlan,

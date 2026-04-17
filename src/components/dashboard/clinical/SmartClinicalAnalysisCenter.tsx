@@ -26,7 +26,27 @@ import {
   getGeminiApiKey,
   GeminiRateLimitedError,
 } from '../../../ai/geminiSmartClinicalCenter';
+import { supabase } from '../../../lib/supabase';
 import { getPatientAvatarPresentation } from './clinical-patient-presentation';
+
+function formatGeminiFailureMessage(err: unknown): string {
+  if (err instanceof GeminiRateLimitedError) return err.message;
+  if (err instanceof Error) {
+    const m = err.message;
+    if (/\(401\)/.test(m) || /\b401\b/.test(m) || /Unauthorized/i.test(m)) {
+      return 'ההתחברות פגה או אינה מורשית (401). התחברו מחדש כדי להשתמש בניתוח AI דרך gemini-proxy.';
+    }
+    if (
+      m.includes('signed-in user') ||
+      m.includes('Supabase session JWT') ||
+      m.includes('No Supabase session')
+    ) {
+      return 'נדרשת התחברות תקפה ל-Supabase לניתוח AI. התחברו מחדש ונסו שוב.';
+    }
+    return m;
+  }
+  return 'שגיאת Gemini';
+}
 
 type Props = {
   patient: Patient;
@@ -95,32 +115,52 @@ export default function SmartClinicalAnalysisCenter({
     }
 
     let cancelled = false;
-    setGeminiLoading(true);
-    setGeminiError(null);
 
-    void analyzeSmartClinicalCenterWithGemini({
-      aggregated,
-      progressInsight,
-    })
-      .then((n) => {
+    void (async () => {
+      if (!supabase) {
+        if (!cancelled) {
+          setGeminiNarrative(null);
+          setGeminiLoading(false);
+          setGeminiError('Supabase לא מוגדר — ניתוח AI דרך gemini-proxy אינו זמין.');
+        }
+        return;
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        if (!cancelled) {
+          setGeminiNarrative(null);
+          setGeminiLoading(false);
+          setGeminiError(
+            'אין סשן התחברות תקף ל-Supabase. התחברו מחדש כדי לטעון ניתוח AI (נדרש JWT ל־gemini-proxy).'
+          );
+        }
+        return;
+      }
+
+      setGeminiLoading(true);
+      setGeminiError(null);
+
+      try {
+        const n = await analyzeSmartClinicalCenterWithGemini({
+          aggregated,
+          progressInsight,
+        });
         if (!cancelled) {
           setGeminiNarrative(n);
           setGeminiLoading(false);
         }
-      })
-      .catch((e: unknown) => {
+      } catch (e: unknown) {
         if (cancelled) return;
         setGeminiNarrative(null);
         setGeminiLoading(false);
-        const msg =
-          e instanceof GeminiRateLimitedError
-            ? e.message
-            : e instanceof Error
-              ? e.message
-              : 'שגיאת Gemini';
-        setGeminiError(msg);
+        setGeminiError(formatGeminiFailureMessage(e));
         console.warn('[SmartClinicalAnalysisCenter] Gemini failed, using local narrative', e);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
