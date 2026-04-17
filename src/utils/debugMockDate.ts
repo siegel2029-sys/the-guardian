@@ -41,8 +41,11 @@ export function getAppDate(): Date {
  * מוסיף/מחסיר ימים קלנדריים להזחת «עכשיו» (דיבוג). מפיץ אירוע לריענון UI.
  * ערך שלילי = «מכונת זמן» אחורה.
  */
-export function addDevCalendarOffsetDays(deltaDays: number): number {
-  if (import.meta.env.PROD) return getDevCalendarOffsetDays();
+export function addDevCalendarOffsetDays(
+  deltaDays: number,
+  options?: { allowInProd?: boolean }
+): number {
+  if (import.meta.env.PROD && !options?.allowInProd) return getDevCalendarOffsetDays();
   const cur = getDevCalendarOffsetDays();
   const next = clampOffsetDays(cur + Math.trunc(deltaDays));
   if (next === cur) return cur;
@@ -56,6 +59,6 @@ export function addDevCalendarOffsetDays(deltaDays: number): number {
 }
 
 /** מוסיף יום קלנדרי אחד להזחה (דיבוג). */
-export function bumpDevCalendarOffsetDays(): number {
-  return addDevCalendarOffsetDays(1);
+export function bumpDevCalendarOffsetDays(options?: { allowInProd?: boolean }): number {
+  return addDevCalendarOffsetDays(1, options);
 }

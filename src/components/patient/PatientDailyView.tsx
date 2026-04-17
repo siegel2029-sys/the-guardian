@@ -53,6 +53,12 @@ import StackedDumbbellsIcon from '../icons/StackedDumbbellsIcon';
 import GearStoreArmory from './GearStoreArmory';
 import { buildEquippedGearSnapshot } from '../../utils/gearSnapshot';
 import PortalPatientDebugPanel from './PortalPatientDebugPanel';
+import Pilot11GamificationDebugPanel from './Pilot11GamificationDebugPanel';
+import { isPilot11GamificationDebugPatient } from '../../utils/pilot11GamificationDebug';
+import {
+  PILOT11_GUARDI_DEBUG_EVENT,
+  type Pilot11GuardiDebugDetail,
+} from '../../utils/pilot11GuardiDebugEvents';
 import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
 import PatientPortalSettingsModal from './PatientPortalSettingsModal';
 import { fetchAiPlanAdjustmentSuggestion } from '../../ai/geminiAiPlanAdjustment';
@@ -201,6 +207,42 @@ export default function PatientDailyView() {
     tabFromPortalPath(typeof window !== 'undefined' ? window.location.pathname : '/patient-portal')
   );
   const [guardiTransient, setGuardiTransient] = useState<GuardiTransientAppearance | null>(null);
+  const [pilot11GuardiAmbientOverride, setPilot11GuardiAmbientOverride] = useState<string | null>(
+    null
+  );
+
+  const guardiAmbientBubble = useMemo(
+    () => pilot11GuardiAmbientOverride ?? guardiMountainAmbientLine,
+    [pilot11GuardiAmbientOverride, guardiMountainAmbientLine]
+  );
+
+  useEffect(() => {
+    setPilot11GuardiAmbientOverride(null);
+  }, [selectedPatient?.id]);
+
+  useEffect(() => {
+    if (!selectedPatient || !isPilot11GamificationDebugPatient(selectedPatient)) return;
+    const onPilot11GuardiPreview = (ev: Event) => {
+      const e = ev as CustomEvent<Pilot11GuardiDebugDetail>;
+      const d = e.detail;
+      if (!d) return;
+      if (d.action === 'transient') {
+        setPilot11GuardiAmbientOverride(null);
+        setGuardiTransient({
+          key: `p11dbg_${Date.now()}`,
+          mood: d.mood,
+          bubble: d.bubble,
+          until: Date.now() + 120_000,
+        });
+        return;
+      }
+      setGuardiTransient(null);
+      setPilot11GuardiAmbientOverride(d.line);
+    };
+    window.addEventListener(PILOT11_GUARDI_DEBUG_EVENT, onPilot11GuardiPreview as EventListener);
+    return () =>
+      window.removeEventListener(PILOT11_GUARDI_DEBUG_EVENT, onPilot11GuardiPreview as EventListener);
+  }, [selectedPatient?.id, selectedPatient?.name]);
 
   useEffect(() => {
     setPortalTab(tabFromPortalPath(location.pathname));
@@ -1595,6 +1637,9 @@ export default function PatientDailyView() {
       </div>
 
       {import.meta.env.DEV && <PortalPatientDebugPanel />}
+      {selectedPatient && isPilot11GamificationDebugPatient(selectedPatient) && (
+        <Pilot11GamificationDebugPanel />
+      )}
 
       <nav
         className="fixed bottom-0 inset-x-0 z-[35] rounded-t-2xl border border-slate-200/90 border-b-0 flex justify-center bg-white shadow-[0_-8px_30px_rgba(15,23,42,0.08)]"
@@ -1692,7 +1737,7 @@ export default function PatientDailyView() {
         transient={guardiTransient}
         celebrateBurstKey={guardiVictoryBurst}
         contextAnimationName={guardiCompanionContextAnimation}
-        ambientEnvironmentBubble={guardiMountainAmbientLine}
+        ambientEnvironmentBubble={guardiAmbientBubble}
         placement={portalTab === 'home' ? 'bodyMap' : 'corner'}
         bodyMapAnchorRef={bodyMapSectionRef}
         portalTab={portalTab === 'activity' ? 'activity' : 'home'}

@@ -47,6 +47,7 @@ import {
 import { defaultPatientGear, type PatientGearState } from '../context/patientGearUtils';
 import { buildEmptySession, clampPain, clampEffort } from '../context/patientDomainHelpers';
 import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
+import { canPilot11DebugMutatePatient } from '../utils/pilot11GamificationDebug';
 import { completeExerciseSafe } from '../services/exerciseCompletionRpc';
 
 export type UseExercisePlanParams = {
@@ -1099,7 +1100,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
 
   const devMockSevenDayExerciseHistory = useCallback(
     (patientId: string) => {
-      if (import.meta.env.PROD) return;
+      if (!canPilot11DebugMutatePatient(allPatients, patientId)) return;
       const plan = pickCanonicalExercisePlan(exercisePlans, patientId);
       const exId =
         plan?.exercises[0]?.id ??
@@ -1146,7 +1147,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         })
       );
     },
-    [clinicalToday, exercisePlans]
+    [clinicalToday, exercisePlans, allPatients]
   );
 
   return {

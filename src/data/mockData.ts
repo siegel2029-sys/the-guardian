@@ -157,6 +157,44 @@ export const mockPatients: Patient[] = [
       ],
     },
   },
+  {
+    id: 'pilot11',
+    therapistId: 'therapist-001',
+    name: 'Pilot 11',
+    age: 40,
+    diagnosis: 'חשבון בדיקות גמיפיקציה (pilot11)',
+    primaryBodyArea: 'back_lower',
+    status: 'active',
+    level: 3,
+    xp: 200,
+    xpForNextLevel: 600,
+    currentStreak: 2,
+    longestStreak: 4,
+    joinDate: '2026-03-01',
+    lastSessionDate: '2026-04-06',
+    pendingMessages: 0,
+    hasRedFlag: false,
+    therapistNotes: 'חשבון pilot לבדיקת פאנל דיבאג.',
+    coins: 25,
+    injuryHighlightSegments: [],
+    secondaryClinicalBodyAreas: [],
+    analytics: {
+      averageOverallPain: 3.5,
+      averageDifficulty: 3,
+      totalSessions: 8,
+      painByArea: { back_lower: 4 },
+      painHistory: [
+        { date: '2026-04-04', painLevel: 4, bodyArea: 'back_lower' },
+        { date: '2026-04-05', painLevel: 3, bodyArea: 'back_lower' },
+        { date: '2026-04-06', painLevel: 3, bodyArea: 'back_lower' },
+      ],
+      sessionHistory: [
+        { date: '2026-04-04', exercisesCompleted: 4, totalExercises: 5, difficultyRating: 3, xpEarned: 40 },
+        { date: '2026-04-05', exercisesCompleted: 5, totalExercises: 5, difficultyRating: 3, xpEarned: 50 },
+        { date: '2026-04-06', exercisesCompleted: 5, totalExercises: 5, difficultyRating: 3, xpEarned: 50 },
+      ],
+    },
+  },
 ];
 
 export const mockMessages: Message[] = [
@@ -257,6 +295,14 @@ export const mockExercisePlans: ExercisePlan[] = [
       pe({ id: 'ex-003-3', name: 'סיבוב חיצוני גומייה', muscleGroup: getMuscleGroupLabel('shoulder_right'), targetArea: 'shoulder_right', sets: 3, reps: 10,        difficulty: 2, type: 'clinical',  instructions: 'מרפק ב-90°. סובב האמה החוצה.',                     xpReward: 30, videoPlaceholder: 'סיבוב חיצוני – הדגמה', videoUrl: DEFAULT_EXERCISE_DEMO_VIDEO_URL }, 10, 3),
       pe({ id: 'ex-003-4', name: 'שכיבת סמיכה קיר',    muscleGroup: getMuscleGroupLabel('shoulder_right'), targetArea: 'shoulder_right', sets: 3, reps: 10,        difficulty: 2, type: 'standard', instructions: 'עמוד 60 ס"מ מהקיר. כופף מרפקים.',                   xpReward: 25, videoPlaceholder: 'שכיבה על קיר – הדגמה', videoUrl: DEFAULT_EXERCISE_DEMO_VIDEO_URL }, 10, 3),
       pe({ id: 'ex-003-5', name: 'הרמת זרוע קדמית',    muscleGroup: getMuscleGroupLabel('shoulder_right'), targetArea: 'shoulder_right', sets: 2, reps: 10,        difficulty: 2, type: 'standard', instructions: 'הרם זרוע פגועה לגובה כתף. ירד לאט.',               xpReward: 25, videoPlaceholder: 'הרמה קדמית – הדגמה', videoUrl: DEFAULT_EXERCISE_DEMO_VIDEO_URL }, 10, 2),
+    ],
+  },
+  {
+    patientId: 'pilot11',
+    exercises: [
+      pe({ id: 'ex-p11-1', name: 'גשר אגן', muscleGroup: getMuscleGroupLabel('back_lower'), targetArea: 'back_lower', sets: 3, reps: 12, difficulty: 2, type: 'clinical', instructions: 'שכב על הגב. הרם האגן.', xpReward: 30, videoPlaceholder: 'גשר אגן – הדגמה', videoUrl: DEFAULT_EXERCISE_DEMO_VIDEO_URL }, 12, 3),
+      pe({ id: 'ex-p11-2', name: 'פלאנק', muscleGroup: 'ליבה', targetArea: 'back_lower', sets: 3, holdSeconds: 20, difficulty: 3, type: 'clinical', instructions: 'עמוד על אמות ידיים.', xpReward: 40, videoPlaceholder: 'פלאנק – הדגמה', videoUrl: DEFAULT_EXERCISE_DEMO_VIDEO_URL }, 0, 3),
+      pe({ id: 'ex-p11-3', name: 'הטיית אגן', muscleGroup: getMuscleGroupLabel('back_lower'), targetArea: 'back_lower', sets: 3, reps: 15, difficulty: 1, type: 'standard', instructions: 'לחץ גב תחתון לרצפה.', xpReward: 20, videoPlaceholder: 'הטיית אגן – הדגמה', videoUrl: DEFAULT_EXERCISE_DEMO_VIDEO_URL }, 15, 3),
     ],
   },
 ];

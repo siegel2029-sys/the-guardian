@@ -50,6 +50,7 @@ import {
 } from '../safety/clinicalEmergencyScreening';
 import { getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
 import { addDevCalendarOffsetDays, bumpDevCalendarOffsetDays } from '../utils/debugMockDate';
+import { canPilot11DebugMutatePatient } from '../utils/pilot11GamificationDebug';
 import { mergeHistoryFromSessions } from '../utils/dailyHistory';
 import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
 import {
@@ -485,6 +486,8 @@ export function PatientProvider({
     const base = persisted?.patients ?? mockPatients;
     return normalizePatientsTherapistIds(base, {});
   });
+  const allPatientsRef = useRef(allPatients);
+  allPatientsRef.current = allPatients;
 
   const patients = useMemo(() => {
     if (restrictPatientSessionId) {
@@ -1193,9 +1196,9 @@ export function PatientProvider({
 
   const updatePatient = useCallback(
     (patientId: string, patch: Partial<Omit<Patient, 'id' | 'therapistId'>>) => {
-      if (import.meta.env.PROD) return;
-      setAllPatients((prev) =>
-        prev.map((p) => {
+      setAllPatients((prev) => {
+        if (!canPilot11DebugMutatePatient(prev, patientId)) return prev;
+        return prev.map((p) => {
           if (p.id !== patientId) return p;
           const next = { ...p, ...patch } as Patient;
           const L = Math.round(Number(next.level));
@@ -1209,14 +1212,14 @@ export function PatientProvider({
             next.xpForNextLevel = 100;
           }
           return next;
-        })
-      );
+        });
+      });
     },
     []
   );
 
   const resetPatientToCleanAvatar = useCallback((patientId: string) => {
-    if (import.meta.env.PROD) return;
+    if (!canPilot11DebugMutatePatient(allPatientsRef.current, patientId)) return;
     const gate = xpRequiredToReachNextLevel(1);
     setDailySessions((prev) => prev.filter((s) => s.patientId !== patientId));
     setAllPatients((prev) =>
@@ -1251,7 +1254,7 @@ export function PatientProvider({
 
   const devBreakStreakRemoveYesterday = useCallback(
     (patientId: string) => {
-      if (import.meta.env.PROD) return;
+      if (!canPilot11DebugMutatePatient(allPatientsRef.current, patientId)) return;
       const y = getClinicalYesterday();
       setDailySessions((prev) =>
         prev.filter((s) => !(s.patientId === patientId && s.date === y))
@@ -1275,7 +1278,7 @@ export function PatientProvider({
   );
 
   const devAdjustPatientLifetimeXp = useCallback((patientId: string, delta: number) => {
-    if (import.meta.env.PROD) return;
+    if (!canPilot11DebugMutatePatient(allPatientsRef.current, patientId)) return;
     setAllPatients((prev) =>
       prev.map((p) => {
         if (p.id !== patientId) return p;
@@ -1286,7 +1289,7 @@ export function PatientProvider({
   }, []);
 
   const devSetPatientLifetimeXp = useCallback((patientId: string, lifetimeXp: number) => {
-    if (import.meta.env.PROD) return;
+    if (!canPilot11DebugMutatePatient(allPatientsRef.current, patientId)) return;
     setAllPatients((prev) =>
       prev.map((p) => {
         if (p.id !== patientId) return p;
@@ -1296,8 +1299,8 @@ export function PatientProvider({
   }, []);
 
   const devSkipToNextCalendarDay = useCallback((patientId: string) => {
-    if (import.meta.env.PROD) return;
-    bumpDevCalendarOffsetDays();
+    if (!canPilot11DebugMutatePatient(allPatientsRef.current, patientId)) return;
+    bumpDevCalendarOffsetDays({ allowInProd: true });
     const nextClinical = getClinicalDate();
     setPatientRewardMetaByPatientId((prev) => {
       const cur = prev[patientId] ?? defaultPatientRewardMeta();
@@ -1322,15 +1325,15 @@ export function PatientProvider({
     setClinicalTick((t) => t + 1);
   }, []);
 
-  const devSkipToPreviousCalendarDay = useCallback((_patientId: string) => {
-    if (import.meta.env.PROD) return;
-    addDevCalendarOffsetDays(-1);
+  const devSkipToPreviousCalendarDay = useCallback((patientId: string) => {
+    if (!canPilot11DebugMutatePatient(allPatientsRef.current, patientId)) return;
+    addDevCalendarOffsetDays(-1, { allowInProd: true });
     setClinicalTick((t) => t + 1);
   }, []);
 
   const devSkipClinicalDaysAhead = useCallback(
     (patientId: string, days: number) => {
-      if (import.meta.env.PROD || days <= 0) return;
+      if (days <= 0 || !canPilot11DebugMutatePatient(allPatientsRef.current, patientId)) return;
       const n = Math.min(31, Math.floor(days));
       for (let i = 0; i < n; i++) {
         devSkipToNextCalendarDay(patientId);
@@ -1341,7 +1344,7 @@ export function PatientProvider({
 
   const devSeedAiLongitudinalWindow = useCallback(
     (patientId: string, scenario: AiDevLongitudinalScenario) => {
-      if (import.meta.env.PROD) return;
+      if (!canPilot11DebugMutatePatient(allPatientsRef.current, patientId)) return;
       const plan = pickCanonicalExercisePlan(exercisePlans, patientId);
       const planIds = plan?.exercises.map((e) => e.id) ?? [];
       const totalExercises = Math.max(1, planIds.length);
