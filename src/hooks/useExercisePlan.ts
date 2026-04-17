@@ -868,7 +868,13 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         return { ok: false, message: 'מזהה הפורטל תפוס בחשבון קיים.' };
       }
 
-      const ownerTid = therapistScopeIds?.[0] ?? mockTherapist.id;
+      let ownerTid = mockTherapist.id;
+      if (supabaseClient && isSupabaseAuthEnabled()) {
+        const { data: gu } = await supabaseClient.auth.getUser();
+        if (gu.user?.id) ownerTid = gu.user.id;
+      } else if (therapistScopeIds?.length) {
+        ownerTid = therapistScopeIds[0];
+      }
       const name = displayName.trim() || 'מטופל חדש';
       const patientId = `patient-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       const password =

@@ -368,3 +368,41 @@ export async function fetchClinicalAuditLogsForPatient(
   if (error) return null;
   return (data ?? []) as ClinicalAuditLogRow[];
 }
+
+/**
+ * Loads `patients.payload` rows visible to the current JWT (RLS: therapist_id = auth.uid()).
+ * Used to hydrate the therapist dashboard from Supabase instead of local mock IDs only.
+ */
+export async function fetchPatientPayloadsForTherapist(client: SupabaseClient): Promise<Patient[]> {
+  const {
+    data: { user },
+    error: userErr,
+  } = await client.auth.getUser();
+  if (userErr || !user?.id) return [];
+
+  const { data, error } = await client
+    .from('patients')
+    .select('payload')
+    .order('updated_at', { ascending: false });
+
+  if (error) {
+    if (import.meta.env.DEV) {
+      console.warn('[fetchPatientPayloadsForTherapist]', error.message);
+    }
+    return [];
+  }
+
+  const out: Patient[] = [];
+  for (const row of data ?? []) {
+    const payload = (row as { payload?: unknown }).payload;
+    if (
+      payload &&
+      typeof payload === 'object' &&
+      'id' in payload &&
+      typeof (payload as Patient).id === 'string'
+    ) {
+      out.push(payload as Patient);
+    }
+  }
+  return out;
+}

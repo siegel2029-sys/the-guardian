@@ -36,6 +36,7 @@ import {
   mockExercisePlans,
   mockAiSuggestions,
   mockTherapist,
+  mockTherapistB,
 } from '../data/mockData';
 import { getClinicalAlertStandardMessage } from '../ai/patientProgressReasoning';
 import {
@@ -69,6 +70,8 @@ import {
 import { computeStreakForPatient } from '../utils/exerciseStreak';
 import { type GearEquipSlot } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
+import { fetchPatientPayloadsForTherapist } from '../services/clinicalService';
 import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
 import { useAuth } from './AuthContext';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
@@ -425,12 +428,16 @@ export function randomPatientPassword(): string {
   return s;
 }
 
-function normalizePatientsTherapistIds(list: Patient[]): Patient[] {
+function normalizePatientsTherapistIds(
+  list: Patient[],
+  options?: { fallbackTherapistId?: string | null }
+): Patient[] {
+  const fallback = options?.fallbackTherapistId ?? mockTherapist.id;
   return list.map((p) => {
     const wa = (p.contactWhatsappE164 ?? '').replace(/\D/g, '');
     return normalizePatientProgressFields({
       ...p,
-      therapistId: p.therapistId ?? mockTherapist.id,
+      therapistId: p.therapistId ?? fallback,
       injuryHighlightSegments: Array.isArray(p.injuryHighlightSegments)
         ? p.injuryHighlightSegments
         : [],
@@ -459,7 +466,13 @@ export function PatientProvider({
   /** מטפל מחובר — סינון רשימת מטופלים (תומך בכינוי דמו + UUID מ-Supabase) */
   therapistScopeIds?: string[] | null;
 }) {
-  const { isAuthenticated } = useAuth();
+  const {
+    isAuthenticated,
+    therapist,
+    therapistPatientScopeIds,
+    sessionRole,
+    isLoading: authLoading,
+  } = useAuth();
 
   const [clinicalTick, setClinicalTick] = useState(0);
   useEffect(() => {
@@ -470,7 +483,7 @@ export function PatientProvider({
   const [allPatients, setAllPatients] = useState<Patient[]>(() => {
     const persisted = readPersistedOnce().patient;
     const base = persisted?.patients ?? mockPatients;
-    return normalizePatientsTherapistIds(base);
+    return normalizePatientsTherapistIds(base, {});
   });
 
   const patients = useMemo(() => {
@@ -485,7 +498,7 @@ export function PatientProvider({
 
   const [selectedPatientId, setSelectedPatientId] = useState<string>(() => {
     const persisted = readPersistedOnce().patient;
-    const listAll = normalizePatientsTherapistIds(persisted?.patients ?? mockPatients);
+    const listAll = normalizePatientsTherapistIds(persisted?.patients ?? mockPatients, {});
     if (restrictPatientSessionId && listAll.some((p) => p.id === restrictPatientSessionId)) {
       return restrictPatientSessionId;
     }
@@ -608,6 +621,85 @@ export function PatientProvider({
       }))
     );
   }, [allPatients]);
+
+  /** Debug: Supabase auth uid vs. therapist scope used to filter the list (see App.tsx therapistScopeIds). */
+  useEffect(() => {
+    if (restrictPatientSessionId) return;
+    if (sessionRole !== 'therapist') return;
+    let cancelled = false;
+    void (async () => {
+      const authUserId = supabase ? (await supabase.auth.getUser()).data.user?.id ?? null : null;
+      if (cancelled) return;
+      console.log('[Patients load scope]', {
+        authUserId,
+        therapistId: therapist?.id ?? null,
+        therapistScopeIdsFiltered: therapistScopeIds,
+        therapistPatientScopeIds,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    restrictPatientSessionId,
+    sessionRole,
+    therapist?.id,
+    therapistScopeIds,
+    therapistPatientScopeIds,
+  ]);
+
+  /**
+   * Non-demo Supabase therapists: remap legacy demo therapist ids on stored patients so RLS scope (real UID) matches.
+   */
+  useEffect(() => {
+    if (!isSupabaseAuthEnabled() || !therapist) return;
+    const em = therapist.email.trim().toLowerCase();
+    if (em === mockTherapist.email.toLowerCase() || em === mockTherapistB.email.toLowerCase()) return;
+
+    setAllPatients((prev) => {
+      let changed = false;
+      const next = prev.map((p) => {
+        if (p.therapistId === mockTherapist.id || p.therapistId === mockTherapistB.id) {
+          changed = true;
+          return { ...p, therapistId: therapist.id };
+        }
+        return p;
+      });
+      return changed ? next : prev;
+    });
+  }, [therapist?.id, therapist?.email]);
+
+  /** Hydrate patient list from Supabase (RLS returns only rows for the signed-in therapist). */
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    if (restrictPatientSessionId) return;
+    if (authLoading) return;
+    if (sessionRole !== 'therapist') return;
+    if (!isAuthenticated || !therapist?.id) return;
+
+    let cancelled = false;
+    void (async () => {
+      const list = await fetchPatientPayloadsForTherapist(supabase);
+      if (cancelled || list.length === 0) return;
+      setAllPatients((prev) => {
+        const normalized = normalizePatientsTherapistIds(list, { fallbackTherapistId: therapist.id });
+        const byId = new Map<string, Patient>(normalized.map((p) => [p.id, p]));
+        for (const p of prev) {
+          if (!byId.has(p.id)) byId.set(p.id, p);
+        }
+        return normalizePatientsTherapistIds([...byId.values()], { fallbackTherapistId: therapist.id });
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authLoading,
+    sessionRole,
+    isAuthenticated,
+    therapist?.id,
+    restrictPatientSessionId,
+  ]);
 
   useEffect(() => {
     if (!therapistScopeIds?.length || restrictPatientSessionId) return;
@@ -788,7 +880,9 @@ export function PatientProvider({
 
   const applyExternalSnapshot = useCallback(
     (data: PersistedPatientStateV1) => {
-      setAllPatients(normalizePatientsTherapistIds(data.patients));
+      setAllPatients(
+        normalizePatientsTherapistIds(data.patients, { fallbackTherapistId: therapist?.id })
+      );
       setMessages(data.messages ?? []);
       setExercisePlans(data.exercisePlans ?? []);
       setDailySessions(data.dailySessions ?? []);
@@ -824,7 +918,7 @@ export function PatientProvider({
         setSelectedPatientId(data.selectedPatientId ?? '');
       }
     },
-    [restrictPatientSessionId]
+    [restrictPatientSessionId, therapist?.id]
   );
 
   useEffect(() => {
