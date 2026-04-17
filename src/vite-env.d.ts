@@ -24,6 +24,12 @@ interface ImportMetaEnv {
    * כש־true — התחברות דמו מקומית (localStorage) גם כש־Supabase מוגדר.
    */
   readonly VITE_USE_LEGACY_AUTH?: string;
+  /** סיסמת מטפל א׳ בדמו מקומי (legacy auth בלבד). */
+  readonly VITE_DEMO_THERAPIST_A_PASSWORD?: string;
+  /** סיסמת מטפל ב׳ בדמו מקומי (legacy auth בלבד). */
+  readonly VITE_DEMO_THERAPIST_B_PASSWORD?: string;
+  /** סיסמת ברירת מחדל לחשבונות פורטל PT-… שנוצרים אוטומטית (legacy auth בלבד). */
+  readonly VITE_DEMO_SEED_PATIENT_PORTAL_PASSWORD?: string;
 }
 
 interface ImportMeta {

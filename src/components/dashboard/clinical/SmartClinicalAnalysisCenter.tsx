@@ -99,7 +99,6 @@ export default function SmartClinicalAnalysisCenter({
     setGeminiError(null);
 
     void analyzeSmartClinicalCenterWithGemini({
-      patientDisplayName: patient.name,
       aggregated,
       progressInsight,
     })
@@ -126,7 +125,7 @@ export default function SmartClinicalAnalysisCenter({
     return () => {
       cancelled = true;
     };
-  }, [aggregated, progressInsight, patient.name, patient.id]);
+  }, [aggregated, progressInsight, patient.id]);
 
   const narrative = geminiNarrative ?? localNarrative;
   const narrativeSource: 'gemini' | 'local' = geminiNarrative ? 'gemini' : 'local';

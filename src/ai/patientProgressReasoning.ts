@@ -12,8 +12,6 @@ export type { TipBodyContext } from '../data/clinicalTips';
 
 export interface PatientProgressPayload {
   patientId: string;
-  displayName: string;
-  firstName: string;
   primaryBodyArea: BodyArea;
   painHistory: PainRecord[];
   sessionHistory: ExerciseSession[];
@@ -78,8 +76,6 @@ export function buildPatientProgressPayload(
 
   return {
     patientId: patient.id,
-    displayName: patient.name,
-    firstName: firstNameFrom(patient.name),
     primaryBodyArea: patient.primaryBodyArea,
     painHistory,
     sessionHistory,

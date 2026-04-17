@@ -21,9 +21,6 @@ export const mockTherapistB: Therapist = {
   clinicName: 'מרכז The Guardian',
 };
 
-export const MOCK_PASSWORD = 'guardian2024';
-export const MOCK_THERAPIST_B_PASSWORD = 'guardian2demo';
-
 export const mockPatients: Patient[] = [
   {
     id: 'patient-001',

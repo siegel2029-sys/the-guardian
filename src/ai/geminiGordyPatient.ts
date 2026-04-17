@@ -26,7 +26,7 @@ function buildPatientSnapshotBlock(
   const sessions = patient.analytics.sessionHistory.slice(-5);
 
   return [
-    `שם: ${patient.name}`,
+    'ללא שמות פרטיים — נתוני תוכנית ומעקב בלבד.',
     `רמה במשחק: ${patient.level}, XP: ${patient.xp}`,
     `רצף ימים: ${patient.currentStreak}`,
     `מוקד גוף עיקרי בתוכנית: ${bodyAreaLabels[patient.primaryBodyArea]}`,

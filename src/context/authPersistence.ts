@@ -3,14 +3,16 @@
  * כש־Supabase Auth פעיל, שדה session אינו נשמר/נקרא מ־localStorage — הסשן מנוהל ע״י Supabase בלבד.
  */
 import { invalidatePersistedBootstrapCache } from '../bootstrap/invalidateBootstrap';
+import {
+  getDemoSeedPatientPortalPassword,
+  getDemoTherapistAPassword,
+  getDemoTherapistBPassword,
+} from '../lib/demoAuthEnv';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
-import { mockTherapist, mockTherapistB, MOCK_PASSWORD, MOCK_THERAPIST_B_PASSWORD } from '../data/mockData';
+import { mockTherapist, mockTherapistB } from '../data/mockData';
 import type { Therapist } from '../types';
 
 export const AUTH_STORAGE_KEY = 'guardian-auth-v1';
-
-/** סיסמה אחידה למטופלים שנוצרו אוטומטית (דמו) — התחברות מ־/login */
-export const SEED_PATIENT_PORTAL_PASSWORD = 'GuardianPatient';
 
 /**
  * יוצר חשבונות PT-… + סיסמה לכל מטופל שאין לו רישום ב-auth (כולל mock ראשוני).
@@ -46,10 +48,14 @@ export function ensurePatientAccountsForPatients(
       pu.length >= 2 ? pu.replace(/[^A-Z0-9]/g, '') : allocateLoginKey(id);
     if (!key) continue;
     if (patientAccounts[key]?.patientId === id) continue;
+    const seedPw = getDemoSeedPatientPortalPassword();
+    if (!seedPw) {
+      continue;
+    }
     patientAccounts[key] = {
       patientId: id,
       therapistId,
-      password: SEED_PATIENT_PORTAL_PASSWORD,
+      password: seedPw,
       mustChangePassword: false,
     };
     added += 1;
@@ -106,13 +112,13 @@ export function defaultAuthSnapshot(): AuthSnapshotV2 {
     therapists: {
       [mockTherapist.id]: {
         email: mockTherapist.email,
-        password: MOCK_PASSWORD,
+        password: getDemoTherapistAPassword(),
         displayName: mockTherapist.name,
         clinicName: mockTherapist.clinicName,
       },
       [mockTherapistB.id]: {
         email: mockTherapistB.email,
-        password: MOCK_THERAPIST_B_PASSWORD,
+        password: getDemoTherapistBPassword(),
         displayName: mockTherapistB.name,
         clinicName: mockTherapistB.clinicName,
       },
@@ -132,7 +138,7 @@ function migrateLegacyV1(data: AuthSnapshotLegacyV1): AuthSnapshotV2 {
       password:
         typeof data.therapistPassword === 'string' && data.therapistPassword.length > 0
           ? data.therapistPassword
-          : MOCK_PASSWORD,
+          : getDemoTherapistAPassword(),
       displayName: mockTherapist.name,
       clinicName: mockTherapist.clinicName,
     },

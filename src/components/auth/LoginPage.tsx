@@ -11,8 +11,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { SEED_PATIENT_PORTAL_PASSWORD } from '../../context/authPersistence';
-import { mockTherapist, mockTherapistB, MOCK_THERAPIST_B_PASSWORD } from '../../data/mockData';
+import { mockTherapist, mockTherapistB } from '../../data/mockData';
 import { PATIENT_REWARDS } from '../../config/patientRewards';
 import { RewardLabel } from '../ui/RewardLabel';
 
@@ -278,22 +277,24 @@ export default function LoginPage() {
 
                 {showHint && (
                   <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-sm text-teal-800 text-right space-y-2 leading-relaxed">
-                    <p className="font-medium">דמו מטפל א׳ (מטופלים: אריאל, יוסף):</p>
-                    <p className="font-mono text-xs break-all">{mockTherapist.email}</p>
-                    <p className="font-mono text-xs">guardian2024</p>
-                    <p className="font-medium pt-2 border-t border-teal-200/80">דמו מטפל ב׳ (מטופל: שירה בלבד):</p>
-                    <p className="font-mono text-xs break-all">{mockTherapistB.email}</p>
-                    <p className="font-mono text-xs">{MOCK_THERAPIST_B_PASSWORD}</p>
-                    <p className="font-medium pt-2 border-t border-teal-200/80">מטופל (דמו מקומי — ללא Supabase):</p>
-                    <p className="text-xs">
-                      מזההי גישה: <span className="font-mono">PT-001</span>,{' '}
-                      <span className="font-mono">PT-002</span>, <span className="font-mono">PT-003</span> · סיסמה:{' '}
-                      <span className="font-mono">{SEED_PATIENT_PORTAL_PASSWORD}</span>
-                    </p>
-                    <p className="text-xs text-teal-700/90">
-                      עם Supabase Auth: מזהה הפורטל הוא הרמזים שהוגדרו ביצירה (למשל JD). הגדירו{' '}
-                      <span className="font-mono">VITE_USE_LEGACY_AUTH=true</span> ב־.env לדמו מקומי בלבד.
-                    </p>
+                    {import.meta.env.DEV && import.meta.env.VITE_USE_LEGACY_AUTH === 'true' ? (
+                      <>
+                        <p className="font-medium">מצב פיתוח — אימות legacy מקומי</p>
+                        <p className="text-xs">
+                          הגדירו סיסמאות בקובץ <span className="font-mono">.env</span> בלבד:{' '}
+                          <span className="font-mono">VITE_DEMO_THERAPIST_A_PASSWORD</span>,{' '}
+                          <span className="font-mono">VITE_DEMO_THERAPIST_B_PASSWORD</span>,{' '}
+                          <span className="font-mono">VITE_DEMO_SEED_PATIENT_PORTAL_PASSWORD</span> — לא מוצגות כאן.
+                        </p>
+                        <p className="font-mono text-[11px] break-all opacity-90">
+                          {mockTherapist.email} · {mockTherapistB.email}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs">
+                        אם שכחתם את הסיסמה, פנו למנהל המערכת או לאיפוס דרך הארגון. סיסמאות אינן מוצגות באפליקציה.
+                      </p>
+                    )}
                   </div>
                 )}
               </form>

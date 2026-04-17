@@ -14,7 +14,6 @@ function patientJsonForTherapist(patient: Patient): string {
 
   return JSON.stringify(
     {
-      name: patient.name,
       age: patient.age,
       diagnosisField: patient.diagnosis,
       primaryBodyArea: patient.primaryBodyArea,

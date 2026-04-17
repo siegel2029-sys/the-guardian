@@ -72,7 +72,6 @@ function normalizeNarrative(raw: unknown): UnifiedClinicalNarrative {
  * מפיק סיכום קליני ופעולות מומלצות בעברית, מבוסס אך ורק על ה-JSON שסופק (כולל נקודות הגרף).
  */
 export async function analyzeSmartClinicalCenterWithGemini(params: {
-  patientDisplayName: string;
   aggregated: ClinicalInsightsAggregated;
   progressInsight: ClinicalProgressInsight;
 }): Promise<UnifiedClinicalNarrative> {
@@ -86,6 +85,7 @@ export async function analyzeSmartClinicalCenterWithGemini(params: {
 כללים קשיחים:
 - התבסס אך ורק על ה-JSON שסופק; אל תמציא מטופלים, תאריכים או מספרים שלא הופיעו.
 - הזכר במפורש את שני צירי הגרף כשזה רלוונטי: כאב 0–10 באזור המוקד, ומאמץ מדווח 1–5.
+- אל תכלול שמות פרטיים בפלט; השתמש ב"המטופל" או "במקרה זה" בלבד.
 - אל תקבע אבחנה רפואית סופית; הצע רק הערכה, מגמות והמלצות להמשך מעקב/טיפול.
 - טון: מקצועי, תמציתי, מכבד.
 - הפלט חייב להיות אך ורק JSON תקף, ללא טקסט לפני או אחרי, ללא Markdown.
@@ -96,9 +96,7 @@ export async function analyzeSmartClinicalCenterWithGemini(params: {
   "recommendedActions": ["<פעולה 1>", "<פעולה 2>", "... עד 6 פריטים"]
 }`;
 
-  const userText = `שם תצוגה של המטופל (לניסוח בלבד): ${params.patientDisplayName.trim()}
-
-נתונים מאוגדים (JSON):
+  const userText = `נתונים מאוגדים (JSON):
 ${JSON.stringify(aggregatedPayloadForPrompt(params.aggregated), null, 2)}
 
 המלצת מערכת (דטרמיניסטית, לשילוב בהקשר):
