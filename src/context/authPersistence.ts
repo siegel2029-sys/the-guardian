@@ -230,6 +230,15 @@ export function loadAuthSnapshot(): AuthSnapshotV2 {
   if (typeof window === 'undefined' || !window.localStorage) {
     return defaultAuthSnapshot();
   }
+  /** Non-legacy Supabase: do not read `guardian-auth-v1` / demo therapist rows (avoids mock/legacy confusion). */
+  if (import.meta.env.VITE_USE_LEGACY_AUTH !== 'true' && isSupabaseAuthEnabled()) {
+    return {
+      version: 2,
+      therapists: {},
+      patientAccounts: {},
+      session: null,
+    };
+  }
   try {
     const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return defaultAuthSnapshot();

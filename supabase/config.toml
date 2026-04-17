@@ -361,8 +361,10 @@ authorization_url_path = "/oauth/consent"
 # Allow dynamic client registration
 allow_dynamic_registration = false
 
+# Gateway JWT check only supports legacy HS256; projects with ES256 signing keys get 401
+# UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM before the function runs. Auth is enforced in code via getUser().
 [functions.gemini-proxy]
-verify_jwt = true
+verify_jwt = false
 
 [edge_runtime]
 enabled = true

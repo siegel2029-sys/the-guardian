@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   LineChart,
   Line,
@@ -33,7 +33,17 @@ function formatGeminiFailureMessage(err: unknown): string {
   if (err instanceof GeminiRateLimitedError) return err.message;
   if (err instanceof Error) {
     const m = err.message;
+    // Upstream Gemini errors are returned as HTTP 502 from gemini-proxy (not 401 — avoids confusing with JWT).
+    if (/gemini-proxy failed \(502\)/i.test(m) && /Gemini HTTP/i.test(m)) {
+      return 'שגיאת Gemini מהשרת (מפתח API או מכסה ב-Google). בדקו ב-Supabase את סוד GEMINI_API_KEY לפונקציית gemini-proxy.';
+    }
     if (/\(401\)/.test(m) || /\b401\b/.test(m) || /Unauthorized/i.test(m)) {
+      if (/UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM|ES256/i.test(m)) {
+        return (
+          'שער Edge Functions דוחה JWT מסוג ES256 (הגדרת verify_jwt). ' +
+          'בפרויקט: supabase/config.toml → [functions.gemini-proxy] verify_jwt = false, פרסמו מחדש את gemini-proxy.'
+        );
+      }
       return 'ההתחברות פגה או אינה מורשית (401). התחברו מחדש כדי להשתמש בניתוח AI דרך gemini-proxy.';
     }
     if (
@@ -102,11 +112,39 @@ export default function SmartClinicalAnalysisCenter({
     progressInsight,
   ]);
 
+  const aggregatedRef = useRef(aggregated);
+  const progressInsightRef = useRef(progressInsight);
+  aggregatedRef.current = aggregated;
+  progressInsightRef.current = progressInsight;
+
+  /** `undefined` = auth not hydrated yet; avoids re-fetch loops from unstable object deps. */
+  const [authUserId, setAuthUserId] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (!supabase) {
+      setAuthUserId(null);
+      return;
+    }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUserId(session?.user?.id ?? null);
+    });
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      setAuthUserId(session?.user?.id ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   const [geminiNarrative, setGeminiNarrative] = useState<typeof localNarrative | null>(null);
   const [geminiLoading, setGeminiLoading] = useState(false);
   const [geminiError, setGeminiError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (authUserId === undefined) {
+      return;
+    }
+
     if (!getGeminiApiKey()) {
       setGeminiNarrative(null);
       setGeminiError(null);
@@ -134,9 +172,8 @@ export default function SmartClinicalAnalysisCenter({
         if (!cancelled) {
           setGeminiNarrative(null);
           setGeminiLoading(false);
-          setGeminiError(
-            'אין סשן התחברות תקף ל-Supabase. התחברו מחדש כדי לטעון ניתוח AI (נדרש JWT ל־gemini-proxy).'
-          );
+          /** No JWT — use local narrative only; avoid alarming 401-style banners for guests. */
+          setGeminiError(null);
         }
         return;
       }
@@ -146,8 +183,8 @@ export default function SmartClinicalAnalysisCenter({
 
       try {
         const n = await analyzeSmartClinicalCenterWithGemini({
-          aggregated,
-          progressInsight,
+          aggregated: aggregatedRef.current,
+          progressInsight: progressInsightRef.current,
         });
         if (!cancelled) {
           setGeminiNarrative(n);
@@ -165,7 +202,7 @@ export default function SmartClinicalAnalysisCenter({
     return () => {
       cancelled = true;
     };
-  }, [aggregated, progressInsight, patient.id]);
+  }, [authUserId, patient.id]);
 
   const narrative = geminiNarrative ?? localNarrative;
   const narrativeSource: 'gemini' | 'local' = geminiNarrative ? 'gemini' : 'local';

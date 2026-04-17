@@ -70,6 +70,7 @@ import { computeStreakForPatient } from '../utils/exerciseStreak';
 import { type GearEquipSlot } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
+import { useAuth } from './AuthContext';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
 import type {
   GearPurchaseResult,
@@ -458,6 +459,8 @@ export function PatientProvider({
   /** מטפל מחובר — סינון רשימת מטופלים (תומך בכינוי דמו + UUID מ-Supabase) */
   therapistScopeIds?: string[] | null;
 }) {
+  const { isAuthenticated } = useAuth();
+
   const [clinicalTick, setClinicalTick] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => setClinicalTick((n) => n + 1), 60_000);
@@ -734,6 +737,11 @@ export function PatientProvider({
         setSupabaseSyncStatus('idle');
         return false;
       }
+      /** Therapist/patient cloud writes require a real JWT — anon key cannot upsert profiles (400 / RLS). */
+      if (isSupabaseConfigured && !isAuthenticated) {
+        setSupabaseSyncStatus('idle');
+        return false;
+      }
       setSupabaseSyncStatus('saving');
       setSupabaseSyncError(null);
       const result = await pushPersistedStateToSupabase(supabase, buildPersistSnapshot(), {
@@ -749,7 +757,7 @@ export function PatientProvider({
       setSupabaseSyncError(result.message);
       return false;
     },
-    [buildPersistSnapshot, supabasePushOptions]
+    [buildPersistSnapshot, supabasePushOptions, isAuthenticated]
   );
 
   /** אחרי עדכון סשנים יומיים — דחיפה ל־Supabase (מטפל: מלא; מטופל בפורטל: רק שורת patients) */

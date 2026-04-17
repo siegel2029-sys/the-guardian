@@ -6,6 +6,7 @@ import {
   useCallback,
   useMemo,
   useEffect,
+  useRef,
   type ReactNode,
 } from 'react';
 import type { Therapist } from '../types';
@@ -27,12 +28,14 @@ import {
 } from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 import { mockTherapist, mockTherapistB } from '../data/mockData';
-import { supabase } from '../lib/supabase';
+import type { Session, User } from '@supabase/supabase-js';
+import { hasPersistedSupabaseAuthSession, supabase } from '../lib/supabase';
 import { supabaseAuthErrorMessageHe } from '../lib/supabaseAuthErrors';
 import {
   getSupabaseUserMetadata,
   mapSupabaseUserToTherapist,
   metadataString,
+  type ProfileRow,
 } from '../lib/mapSupabaseUser';
 import {
   isSupabaseAuthEnabled,
@@ -41,6 +44,9 @@ import {
   isValidPortalUsername,
   linkPatientAuthUserRow,
 } from '../lib/patientPortalAuth';
+
+/** Only `VITE_USE_LEGACY_AUTH=true` enables local demo users — any other value is treated as false. */
+const LEGACY_AUTH_ENABLED = import.meta.env.VITE_USE_LEGACY_AUTH === 'true';
 
 export type SessionRole = 'therapist' | 'patient' | null;
 
@@ -53,6 +59,30 @@ function isEmailLike(s: string): boolean {
 
 function isUuidLike(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id.trim());
+}
+
+/** Legacy keys that could disagree with Supabase Auth — clear on Supabase login. */
+function clearLegacyLocalUserStorageKeys(): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.removeItem('patient-user');
+    window.localStorage.removeItem('therapist-user');
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+/** Profile/RLS failures must not invalidate a valid Supabase JWT session. */
+function isProfileAccessDeniedError(err: { code?: string; message?: string; status?: number }): boolean {
+  const st = (err as { status?: number }).status;
+  const c = err.code ?? '';
+  return (
+    st === 401 ||
+    st === 403 ||
+    c === '42501' ||
+    c === 'PGRST301' ||
+    /permission denied|jwt|row-level security/i.test(err.message ?? '')
+  );
 }
 
 /** מזהי therapistId מקומיים (דמו) המותאמים למטפל מחובר ל-Supabase לפי דוא״ל — לסינון מטופלים ישנים. */
@@ -102,6 +132,8 @@ interface AuthContextValue {
   patientLoginId: string | null;
   /** true כשהסשן מגיע מ-Supabase Auth */
   usesSupabaseSession: boolean;
+  /** JWT session from Supabase Auth (for routing before profile hydration). */
+  hasSupabaseSession: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -119,38 +151,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const snap = readPersistedOnce().auth;
     return snap.session?.role === 'patient' ? snap.session.patientId : null;
   });
-  const [isLoading, setIsLoading] = useState(false);
+  /** True until Supabase initial session + profile load finishes (avoids redirect to /login during hydration). */
+  const [isLoading, setIsLoading] = useState(() => isSupabaseAuthEnabled());
   const [loginError, setLoginError] = useState<string | null>(null);
   const [patientAuthRevision, setPatientAuthRevision] = useState(0);
   const [usesSupabaseSession, setUsesSupabaseSession] = useState(false);
   const [patientPortalDisplayId, setPatientPortalDisplayId] = useState<string | null>(null);
+  const [supabaseAuthSession, setSupabaseAuthSession] = useState<Session | null>(null);
+  /** Row from `public.profiles` when fetched (for debugging / UI). */
+  const [profile, setProfile] = useState<ProfileRow | null>(null);
 
   const supabaseAuth = isSupabaseAuthEnabled();
 
+  /** Minimal columns only — avoids 400 when optional columns are missing from remote schema. DB uses `name` for display (not `full_name`). */
   const syncTherapistProfileRow = useCallback(async (userId: string, email: string, displayName: string) => {
     if (!supabase) return;
-    const now = new Date().toISOString();
-    const initials = displayName
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0])
-      .join('');
     await supabase.from('profiles').upsert(
       {
         id: userId,
         email: email || '',
         name: displayName || email || '',
-        title: '',
-        avatar_initials: initials || '—',
-        clinic_name: '',
-        updated_at: now,
       },
       { onConflict: 'id' }
     );
   }, [supabase]);
 
   const clearSupabaseAuthState = useCallback(() => {
+    setSupabaseAuthSession(null);
+    setProfile(null);
     setUsesSupabaseSession(false);
     setTherapist(null);
     setPatientSessionId(null);
@@ -161,68 +189,252 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const loadSupabaseUserIntoState = useCallback(async () => {
-    if (!supabase) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      clearSupabaseAuthState();
-      return;
-    }
+  /**
+   * Clears only when there is no Supabase auth token in localStorage and getSession() stays empty.
+   * If `sb-*-auth-token` exists, waits for hydration — never kicks while storage suggests a session.
+   */
+  const clearSupabaseAuthStateIfSessionGone = useCallback(
+    async (reason: string) => {
+      const client = supabase;
+      if (!client) return;
 
-    setUsesSupabaseSession(true);
-    const meta = getSupabaseUserMetadata(user);
-    const pid = metadataString(meta, 'patient_id') ?? '';
-    if (pid) {
-      await linkPatientAuthUserRow(supabase, pid);
-      const pun = metadataString(meta, 'portal_username') ?? null;
-      setPatientPortalDisplayId(pun);
-      setTherapist(null);
-      setPatientSessionId(pid);
-      setSession({ role: 'patient', patientId: pid });
-      return;
-    }
+      const sessionHasUser = async () => {
+        const { data: w } = await client.auth.getSession();
+        return Boolean(w.session?.user);
+      };
 
-    setPatientPortalDisplayId(null);
-    const tid = user.id;
-    const email = user.email ?? '';
-    const { data: prof } = await supabase.from('profiles').select('*').eq('id', tid).maybeSingle();
-    const nextTherapist = mapSupabaseUserToTherapist(user, prof ?? undefined);
-    if (!prof) {
-      await syncTherapistProfileRow(tid, email, nextTherapist.name);
-    }
-    setTherapist(nextTherapist);
-    setPatientSessionId(null);
-    setSession({ role: 'therapist', therapistId: tid });
-  }, [supabase, clearSupabaseAuthState, syncTherapistProfileRow]);
+      if (await sessionHasUser()) return;
 
-  useEffect(() => {
-    if (!supabaseAuth || !supabase) return;
+      if (hasPersistedSupabaseAuthSession()) {
+        for (let i = 0; i < 20; i++) {
+          await new Promise((r) => setTimeout(r, 50 + i * 25));
+          if (await sessionHasUser()) return;
+          if (!hasPersistedSupabaseAuthSession()) break;
+        }
+      }
 
-    void supabase.auth.getSession().then(({ data: { session: s } }) => {
-      if (!s) clearSupabaseAuthState();
-      else void loadSupabaseUserIntoState();
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
-      if (event === 'SIGNED_OUT' || !s) {
-        clearSupabaseAuthState();
+      if (hasPersistedSupabaseAuthSession()) {
         return;
       }
-      void loadSupabaseUserIntoState();
+
+      if (await sessionHasUser()) return;
+      await new Promise((r) => setTimeout(r, 50));
+      if (await sessionHasUser()) return;
+
+      if (hasPersistedSupabaseAuthSession()) {
+        return;
+      }
+
+      if (import.meta.env.DEV) {
+        console.debug(`[Auth] clear session (no Supabase JWT): ${reason}`);
+      }
+      clearSupabaseAuthState();
+    },
+    [supabase, clearSupabaseAuthState]
+  );
+
+  const loadSupabaseUserIntoState = useCallback(async () => {
+    if (!supabase) return;
+
+    try {
+      const { data: sessWrap } = await supabase.auth.getSession();
+      let user: User | null = sessWrap.session?.user ?? null;
+      if (!user) {
+        await clearSupabaseAuthStateIfSessionGone('loadSupabaseUserIntoState: getSession had no user');
+        return;
+      }
+
+      if (!LEGACY_AUTH_ENABLED) {
+        clearLegacyLocalUserStorageKeys();
+      }
+
+      try {
+        const { data: gu } = await supabase.auth.getUser();
+        if (gu.user) user = gu.user;
+      } catch (e) {
+        if (import.meta.env.DEV) console.warn('[Auth] getUser (keeping getSession user)', e);
+      }
+
+      setUsesSupabaseSession(true);
+      const meta = getSupabaseUserMetadata(user);
+      const pid = metadataString(meta, 'patient_id') ?? '';
+      if (pid) {
+        try {
+          await linkPatientAuthUserRow(supabase, pid);
+        } catch (e) {
+          if (import.meta.env.DEV) console.warn('[Auth] linkPatientAuthUserRow', e);
+        }
+        const pun = metadataString(meta, 'portal_username') ?? null;
+        setPatientPortalDisplayId(pun);
+        setTherapist(null);
+        setPatientSessionId(pid);
+        setSession({ role: 'patient', patientId: pid });
+        setProfile(null);
+        return;
+      }
+
+      setPatientPortalDisplayId(null);
+      const tid = user.id;
+      const email = user.email ?? '';
+
+      let prof: ProfileRow | undefined;
+      try {
+        const { data, error } = await supabase.from('profiles').select('*').eq('id', tid).maybeSingle();
+        if (error) {
+          if (import.meta.env.DEV) {
+            console.warn('[Auth] profiles select', error.message, isProfileAccessDeniedError(error) ? '(session kept)' : '');
+          }
+          prof = undefined;
+        } else {
+          prof = data ?? undefined;
+        }
+      } catch (e) {
+        if (import.meta.env.DEV) console.warn('[Auth] profiles fetch', e);
+      }
+
+      setProfile(prof ?? null);
+      const nextTherapist = mapSupabaseUserToTherapist(user, prof);
+      setTherapist(nextTherapist);
+      setPatientSessionId(null);
+      setSession({ role: 'therapist', therapistId: tid });
+
+      if (!prof) {
+        try {
+          await syncTherapistProfileRow(tid, email, nextTherapist.name);
+          const { data: after } = await supabase.from('profiles').select('*').eq('id', tid).maybeSingle();
+          if (after) setProfile(after);
+        } catch (e) {
+          if (import.meta.env.DEV) console.warn('[Auth] profile upsert', e);
+        }
+      }
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn('[Auth] loadSupabaseUserIntoState', e);
+      const { data: sessWrap } = await supabase.auth.getSession();
+      const user = sessWrap.session?.user;
+      if (!user) {
+        return;
+      }
+      /* Session still valid — never clear auth because profile or getUser failed. */
+      setUsesSupabaseSession(true);
+      const meta = getSupabaseUserMetadata(user);
+      const pid = metadataString(meta, 'patient_id') ?? '';
+      if (pid) {
+        setPatientPortalDisplayId(metadataString(meta, 'portal_username') ?? null);
+        setTherapist(null);
+        setPatientSessionId(pid);
+        setSession({ role: 'patient', patientId: pid });
+        setProfile(null);
+        return;
+      }
+      setProfile(null);
+      setTherapist(mapSupabaseUserToTherapist(user, undefined));
+      setPatientSessionId(null);
+      setSession({ role: 'therapist', therapistId: user.id });
+    }
+  }, [supabase, clearSupabaseAuthStateIfSessionGone, syncTherapistProfileRow]);
+
+  const loadSupabaseUserIntoStateRef = useRef(loadSupabaseUserIntoState);
+  loadSupabaseUserIntoStateRef.current = loadSupabaseUserIntoState;
+  const clearIfSessionGoneRef = useRef(clearSupabaseAuthStateIfSessionGone);
+  clearIfSessionGoneRef.current = clearSupabaseAuthStateIfSessionGone;
+  const clearSupabaseAuthStateRef = useRef(clearSupabaseAuthState);
+  clearSupabaseAuthStateRef.current = clearSupabaseAuthState;
+
+  useEffect(() => {
+    if (!supabaseAuth || !supabase) {
+      setIsLoading(false);
+      return;
+    }
+
+    /* No navigate("/login") here — access control is in ProtectedRoute only (avoids redirect loops). */
+
+    let cancelled = false;
+
+    void (async () => {
+      const { data: { session: s } } = await supabase.auth.getSession();
+      if (cancelled) return;
+      setSupabaseAuthSession(s);
+      try {
+        if (!s) {
+          await clearIfSessionGoneRef.current('initial auth bootstrap: getSession returned null');
+        } else {
+          await loadSupabaseUserIntoStateRef.current();
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, sess) => {
+      setSupabaseAuthSession(sess ?? null);
+      if (import.meta.env.DEV) console.debug('[Auth] onAuthStateChange', event, sess ? 'session' : 'null');
+      if (event === 'INITIAL_SESSION') {
+        return;
+      }
+      if (event === 'SIGNED_OUT') {
+        if (!hasPersistedSupabaseAuthSession()) {
+          if (import.meta.env.DEV) {
+            console.debug(
+              '[Auth] SIGNED_OUT — cleared app auth (no sb-*-auth-token in localStorage)'
+            );
+          }
+          clearSupabaseAuthStateRef.current();
+        }
+        if (!cancelled) setIsLoading(false);
+        return;
+      }
+      if (!sess) {
+        void (async () => {
+          await clearIfSessionGoneRef.current(
+            `onAuthStateChange: null session after event ${event}`
+          );
+          if (!cancelled) setIsLoading(false);
+        })();
+        return;
+      }
+      void loadSupabaseUserIntoStateRef.current().finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
     });
 
-    return () => subscription.unsubscribe();
-  }, [supabaseAuth, supabase, clearSupabaseAuthState, loadSupabaseUserIntoState]);
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [supabaseAuth, supabase]);
+
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      console.debug('[Auth] state', { hasSession: !!supabaseAuthSession, hasProfile: profile !== null });
+    }
+  }, [supabaseAuthSession, profile]);
 
   const sessionRole: SessionRole = useMemo(() => {
-    if (!session) return null;
-    return session.role;
-  }, [session]);
+    if (session) return session.role;
+    const u = supabaseAuthSession?.user;
+    if (!u) return null;
+    const meta = getSupabaseUserMetadata(u);
+    return metadataString(meta, 'patient_id') ? 'patient' : 'therapist';
+  }, [session, supabaseAuthSession]);
 
-  const therapistPatientScopeIds = useMemo(
-    () => therapistPatientScopeIdsForUser(therapist),
-    [therapist]
-  );
+  const patientSessionIdForUi = useMemo(() => {
+    if (session?.role === 'patient') return session.patientId;
+    const u = supabaseAuthSession?.user;
+    if (u) {
+      const fromJwt = metadataString(getSupabaseUserMetadata(u), 'patient_id');
+      if (fromJwt) return fromJwt;
+    }
+    return patientSessionId;
+  }, [session, patientSessionId, supabaseAuthSession]);
+
+  const therapistPatientScopeIds = useMemo(() => {
+    if (therapist) return therapistPatientScopeIdsForUser(therapist);
+    const u = supabaseAuthSession?.user;
+    if (!u) return [];
+    const meta = getSupabaseUserMetadata(u);
+    if (metadataString(meta, 'patient_id')) return [];
+    return [u.id];
+  }, [therapist, supabaseAuthSession]);
 
   const patientMustChangePassword = useMemo(() => {
     void patientAuthRevision;
@@ -234,12 +446,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const patientLoginId = useMemo(() => {
     void patientAuthRevision;
-    if (!patientSessionId) return null;
+    if (!patientSessionIdForUi) return null;
     if (usesSupabaseSession && patientPortalDisplayId) {
       return patientPortalDisplayId;
     }
-    return findPatientLoginByPatientId(patientSessionId);
-  }, [patientSessionId, patientAuthRevision, usesSupabaseSession, patientPortalDisplayId]);
+    return findPatientLoginByPatientId(patientSessionIdForUi);
+  }, [patientSessionIdForUi, patientAuthRevision, usesSupabaseSession, patientPortalDisplayId]);
 
   const clearLoginError = useCallback(() => {
     setLoginError(null);
@@ -252,7 +464,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       displayName?: string
     ): Promise<TherapistSignUpResult> => {
       if (!supabaseAuth || !supabase) {
-        setLoginError('הרשמה דורשת Supabase מוגדר ו־VITE_USE_LEGACY_AUTH שאינו true.');
+        setLoginError('הרשמה דורשת Supabase מוגדר (או VITE_USE_LEGACY_AUTH=true לדמו מקומי).');
         return 'failure';
       }
       const email = emailRaw.trim().toLowerCase();
@@ -373,47 +585,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setPatientPortalDisplayId((prev) => prev ?? normalized);
           setIsLoading(false);
           return 'patient';
-        }
+        } else if (LEGACY_AUTH_ENABLED) {
+          await new Promise((r) => setTimeout(r, 300));
+          const snap = loadAuthSnapshot();
 
-        await new Promise((r) => setTimeout(r, 300));
-        const snap = loadAuthSnapshot();
-
-        if (isEmailLike(id)) {
-          const therapistId = findTherapistIdByCredentials(id, pw);
-          if (therapistId) {
-            const rec = snap.therapists[therapistId];
-            if (rec) {
-              setTherapist(therapistRecordToTherapist(therapistId, rec));
-              setPatientSessionId(null);
-              setPatientAuthRevision((n) => n + 1);
-              setUsesSupabaseSession(false);
-              const sess = { role: 'therapist' as const, therapistId };
-              setSession(sess);
-              setAuthSession(sess);
-              setIsLoading(false);
-              return 'therapist';
+          if (isEmailLike(id)) {
+            const therapistId = findTherapistIdByCredentials(id, pw);
+            if (therapistId) {
+              const rec = snap.therapists[therapistId];
+              if (rec) {
+                setTherapist(therapistRecordToTherapist(therapistId, rec));
+                setPatientSessionId(null);
+                setPatientAuthRevision((n) => n + 1);
+                setUsesSupabaseSession(false);
+                const sess = { role: 'therapist' as const, therapistId };
+                setSession(sess);
+                setAuthSession(sess);
+                setIsLoading(false);
+                return 'therapist';
+              }
             }
+            setLoginError('כתובת דוא"ל או סיסמה שגויים (מטפל).');
+            setIsLoading(false);
+            return null;
           }
-          setLoginError('כתובת דוא"ל או סיסמה שגויים (מטפל).');
+
+          const loginKey = id.toUpperCase();
+          const acc = snap.patientAccounts[loginKey];
+          if (acc && acc.password === pw) {
+            setTherapist(null);
+            setPatientSessionId(acc.patientId);
+            setPatientAuthRevision((n) => n + 1);
+            setUsesSupabaseSession(false);
+            const sess = { role: 'patient' as const, patientId: acc.patientId };
+            setSession(sess);
+            setAuthSession(sess);
+            setIsLoading(false);
+            return 'patient';
+          }
+
+          setLoginError('מזהה גישה או סיסמה שגויים (מטופל).');
           setIsLoading(false);
           return null;
         }
 
-        const loginKey = id.toUpperCase();
-        const acc = snap.patientAccounts[loginKey];
-        if (acc && acc.password === pw) {
-          setTherapist(null);
-          setPatientSessionId(acc.patientId);
-          setPatientAuthRevision((n) => n + 1);
-          setUsesSupabaseSession(false);
-          const sess = { role: 'patient' as const, patientId: acc.patientId };
-          setSession(sess);
-          setAuthSession(sess);
-          setIsLoading(false);
-          return 'patient';
-        }
-
-        setLoginError('מזהה גישה או סיסמה שגויים (מטופל).');
+        setLoginError(
+          'התחברות דורשת Supabase (VITE_SUPABASE_URL ו־VITE_SUPABASE_ANON_KEY) או מצב דמו מקומי (VITE_USE_LEGACY_AUTH=true).'
+        );
         setIsLoading(false);
         return null;
       } catch {
@@ -430,6 +648,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (supabaseAuth && supabase) {
       await supabase.auth.signOut();
     }
+    setSupabaseAuthSession(null);
+    setProfile(null);
     setTherapist(null);
     setPatientSessionId(null);
     setSession(null);
@@ -444,7 +664,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const completePatientPasswordChange = useCallback(
     async (currentPassword: string, newPassword: string): Promise<PatientPasswordChangeResult> => {
-      if (!patientSessionId) return 'bad_current';
+      if (!patientSessionIdForUi) return 'bad_current';
       if (supabaseAuth && supabase) {
         const { error } = await supabase.auth.updateUser({ password: newPassword.trim() });
         if (error) {
@@ -452,17 +672,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return 'ok';
       }
-      const result = verifyAndUpdatePatientPassword(patientSessionId, currentPassword, newPassword);
+      const result = verifyAndUpdatePatientPassword(
+        patientSessionIdForUi,
+        currentPassword,
+        newPassword
+      );
       if (result === 'ok') setPatientAuthRevision((n) => n + 1);
       return result;
     },
-    [patientSessionId, supabaseAuth, supabase]
+    [patientSessionIdForUi, supabaseAuth, supabase]
   );
 
   const changePatientLoginId = useCallback(
     (currentPassword: string, newLoginId: string): PatientLoginChangeResult =>
-      verifyAndUpdatePatientLoginId(patientSessionId ?? '', currentPassword, newLoginId),
-    [patientSessionId]
+      verifyAndUpdatePatientLoginId(patientSessionIdForUi ?? '', currentPassword, newLoginId),
+    [patientSessionIdForUi]
   );
 
   const updateTherapistProfile = useCallback(
@@ -513,9 +737,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       therapist,
       sessionRole,
-      patientSessionId,
+      patientSessionId: patientSessionIdForUi,
       therapistPatientScopeIds,
-      isAuthenticated: session !== null,
+      isAuthenticated:
+        session !== null || (supabaseAuth && supabaseAuthSession !== null),
       isLoading,
       loginError,
       clearLoginError,
@@ -528,13 +753,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       changePatientLoginId,
       patientLoginId,
       usesSupabaseSession,
+      hasSupabaseSession: supabaseAuth && supabaseAuthSession !== null,
     }),
     [
       therapist,
       sessionRole,
-      patientSessionId,
+      patientSessionIdForUi,
       therapistPatientScopeIds,
       session,
+      supabaseAuth,
+      supabaseAuthSession,
       isLoading,
       loginError,
       clearLoginError,

@@ -1,5 +1,4 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -92,17 +91,28 @@ Deno.serve(async (req) => {
   }
 
   const authHeader = req.headers.get("Authorization") ?? "";
-  const bearer = authHeader.match(/^Bearer\s+(\S+)/i);
-  if (!bearer?.[1]) {
+  if (!authHeader.trim()) {
     return jsonResponse({ error: "Unauthorized: missing or invalid Authorization" }, 401);
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  // Forward the caller's Authorization header on the Supabase client so `getUser()` uses the
+  // server-side JWT verification path (supports ES256). Do not pass the raw JWT string to
+  // `getUser(jwt)` — that path can reject ES256 tokens.
+  const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: authHeader } },
   });
-  const { data: { user }, error: authError } = await supabase.auth.getUser(bearer[1]);
+  const {
+    data: { user },
+    error: authError,
+  } = await supabaseAuth.auth.getUser();
   if (authError || !user) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
+    return jsonResponse(
+      {
+        error: "Unauthorized",
+        detail: authError?.message ?? "Invalid or expired session",
+      },
+      401,
+    );
   }
 
   // Set in Supabase Dashboard → Edge Functions → Secrets, or: `supabase secrets set GEMINI_API_KEY=...`
@@ -153,9 +163,11 @@ Deno.serve(async (req) => {
   }
 
   if (!geminiRes.ok) {
+    // Never forward Gemini upstream 401/403 as HTTP 401 — the browser client maps 401 to
+    // "Supabase session expired". API key / quota issues must not look like JWT auth failures.
     return jsonResponse(
       { error: `Gemini HTTP ${geminiRes.status}`, detail: rawBody.slice(0, 500) },
-      geminiRes.status >= 400 && geminiRes.status < 600 ? geminiRes.status : 502,
+      502,
     );
   }
 

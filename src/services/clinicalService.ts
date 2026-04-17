@@ -1,6 +1,23 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient, User } from '@supabase/supabase-js';
 import type { ExercisePlan, Patient, Therapist } from '../types';
 import { mockTherapist, mockTherapistB } from '../data/mockData';
+import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
+
+/**
+ * RLS requires `patients.therapist_id = auth.uid()::text`. Local/demo data still uses
+ * `therapist-001` etc.; map those to the signed-in user's id when email matches the demo therapist.
+ */
+function resolveTherapistIdForSupabaseRls(patientTherapistId: string, user: User): string | null {
+  if (patientTherapistId === user.id) return user.id;
+  const em = user.email?.trim().toLowerCase() ?? '';
+  if (em === mockTherapist.email.toLowerCase() && patientTherapistId === mockTherapist.id) {
+    return user.id;
+  }
+  if (em === mockTherapistB.email.toLowerCase() && patientTherapistId === mockTherapistB.id) {
+    return user.id;
+  }
+  return null;
+}
 
 const THERAPISTS_BY_ID: Record<string, Therapist> = {
   [mockTherapist.id]: mockTherapist,
@@ -22,18 +39,38 @@ export type ClinicalAuditLogRow = {
 
 /**
  * Therapist profile rows for Supabase — used when syncing patient state (patient.therapistId).
+ *
+ * With Supabase Auth + RLS (`profiles.id = auth.uid()::text`), only the signed-in user's row may be
+ * written. Demo ids like `therapist-001` are not valid UUIDs for `auth.uid()` — upserting them causes 400.
+ * When {@link isSupabaseAuthEnabled} is true, we only upsert the row for `auth.getUser().id`.
  */
 export async function upsertTherapistProfilesForPatients(
   client: SupabaseClient,
   patients: Patient[],
   now: string
 ): Promise<ClinicalPushResult> {
-  const therapistIds = new Set<string>();
-  for (const p of patients) {
-    therapistIds.add(p.therapistId);
+  let therapistIds: string[];
+  let authUser: User | null = null;
+
+  if (isSupabaseAuthEnabled()) {
+    const {
+      data: { user },
+      error: userErr,
+    } = await client.auth.getUser();
+    if (userErr || !user?.id) {
+      return { ok: true };
+    }
+    therapistIds = [user.id];
+    authUser = user;
+  } else {
+    const ids = new Set<string>();
+    for (const p of patients) {
+      ids.add(p.therapistId);
+    }
+    therapistIds = [...ids];
   }
 
-  const profileRows = [...therapistIds].map((id) => {
+  const profileRows = therapistIds.map((id) => {
     const t = THERAPISTS_BY_ID[id] ?? {
       id,
       name: 'מטפל',
@@ -42,10 +79,20 @@ export async function upsertTherapistProfilesForPatients(
       avatarInitials: '—',
       clinicName: '',
     };
+    const meta = authUser?.user_metadata as Record<string, unknown> | undefined;
+    const fromMetaName =
+      typeof meta?.full_name === 'string' && meta.full_name.trim()
+        ? meta.full_name.trim()
+        : typeof meta?.name === 'string' && meta.name.trim()
+          ? meta.name.trim()
+          : '';
     return {
       id,
-      email: t.email,
-      name: t.name,
+      email:
+        authUser?.id === id && authUser.email?.trim()
+          ? authUser.email.trim()
+          : t.email,
+      name: fromMetaName || t.name,
       title: t.title,
       avatar_initials: t.avatarInitials,
       clinic_name: t.clinicName,
@@ -99,8 +146,35 @@ export async function upsertPatientRecords(
   const source =
     onlyId && onlyId.length > 0 ? patients.filter((p) => p.id === onlyId) : patients;
   const skipAudit = Boolean(onlyId && onlyId.length > 0);
+  const isPatientPortal = Boolean(onlyId && onlyId.length > 0);
+
+  let therapistUser: User | null = null;
+  if (isSupabaseAuthEnabled() && !isPatientPortal) {
+    const {
+      data: { user },
+      error: userErr,
+    } = await client.auth.getUser();
+    if (userErr || !user?.id) {
+      return { ok: false, message: 'patients: נדרש מטפל מחובר ל-Supabase לכתיבה' };
+    }
+    therapistUser = user;
+  }
+
+  let wroteAny = false;
 
   for (const p of source) {
+    let therapistIdForRow = p.therapistId;
+    let payloadForRow: Patient = p;
+
+    if (therapistUser) {
+      const resolved = resolveTherapistIdForSupabaseRls(p.therapistId, therapistUser);
+      if (resolved === null) {
+        continue;
+      }
+      therapistIdForRow = resolved;
+      payloadForRow = resolved === p.therapistId ? p : { ...p, therapistId: resolved };
+    }
+
     const { data: existing, error: fetchErr } = await client
       .from('patients')
       .select('payload')
@@ -113,9 +187,9 @@ export async function upsertPatientRecords(
 
     const patientRows = [
       {
-        id: p.id,
-        therapist_id: p.therapistId,
-        payload: p,
+        id: payloadForRow.id,
+        therapist_id: therapistIdForRow,
+        payload: payloadForRow,
         updated_at: now,
       },
     ];
@@ -123,31 +197,41 @@ export async function upsertPatientRecords(
     const { error } = await client.from('patients').upsert(patientRows, { onConflict: 'id' });
     if (error) return { ok: false, message: `patients: ${error.message}` };
 
+    wroteAny = true;
+
     if (skipAudit) continue;
 
     const unchanged =
-      oldPayload !== undefined && JSON.stringify(oldPayload) === JSON.stringify(p);
+      oldPayload !== undefined && JSON.stringify(oldPayload) === JSON.stringify(payloadForRow);
     if (unchanged) continue;
 
     const audit =
       oldPayload === undefined
         ? await insertClinicalAuditLog(client, {
-            therapistId: p.therapistId,
+            therapistId: therapistIdForRow,
             patientId: p.id,
             entityType: 'patient_info',
             action: 'create',
             oldValue: null,
-            newValue: p,
+            newValue: payloadForRow,
           })
         : await insertClinicalAuditLog(client, {
-            therapistId: p.therapistId,
+            therapistId: therapistIdForRow,
             patientId: p.id,
             entityType: 'patient_info',
             action: 'update',
             oldValue: oldPayload,
-            newValue: p,
+            newValue: payloadForRow,
           });
     if (!audit.ok) return audit;
+  }
+
+  if (therapistUser && source.length > 0 && !wroteAny) {
+    return {
+      ok: false,
+      message:
+        'patients: אין מטופלים שמשויכים למטפל המחובר (או שורות קיימות ב-DB עם therapist_id ישן — עדכן ב-SQL או מחק מקומית)',
+    };
   }
 
   return { ok: true };
