@@ -26,10 +26,10 @@ function isLikelyDirectVideoUrl(url: string | null): boolean {
   return /\.(mp4|webm|ogg|mov)(\?|$)/i.test(u) || u.startsWith('blob:');
 }
 
-export type PortalExerciseCardVariant = 'rehab' | 'selfCare';
+export type ExerciseCardVariant = 'rehab' | 'selfCare';
 
-export interface PortalExerciseCardProps {
-  variant: PortalExerciseCardVariant;
+export interface ExerciseCardProps {
+  variant: ExerciseCardVariant;
   index: number;
   isCompleted: boolean;
   title: string;
@@ -64,7 +64,7 @@ export interface PortalExerciseCardProps {
   hideStrengthPreviewControls?: boolean;
 }
 
-export default function PortalExerciseCard({
+export default function ExerciseCard({
   variant,
   index,
   isCompleted,
@@ -91,7 +91,7 @@ export default function PortalExerciseCard({
   optionalRehabDifficultyTier,
   onOptionalRehabDifficultyTierChange,
   hideStrengthPreviewControls = false,
-}: PortalExerciseCardProps) {
+}: ExerciseCardProps) {
   const hasVideo = Boolean(videoUrl);
   const thumbVideoRef = useRef<HTMLVideoElement>(null);
   const prevCompletedRef = useRef(isCompleted);

@@ -25,7 +25,9 @@ import GuardiVictorySequence from './GordyVictorySequence';
 import GuardiCompanion, { type GuardiTransientAppearance } from './GordyCompanion';
 import GuardiFullScreenCelebration from './GordyFullScreenCelebration';
 import ExerciseReportModal from './ExerciseReportModal';
-import PortalExerciseCard from './PortalExerciseCard';
+import ExerciseCard from './ExerciseCard';
+import OptionalSection from './OptionalSection';
+import { useOptionalRehabPool } from './useOptionalRehabPool';
 import ExerciseVideoTimerModal, {
   type ExerciseTrainingCompletePayload,
 } from './ExerciseVideoTimerModal';
@@ -45,16 +47,7 @@ import {
   PAIN_SURGE_PATIENT_COPY,
   DIFFICULTY_MAX_PATIENT_COPY,
 } from '../../safety/clinicalEmergencyScreening';
-import {
-  PATIENT_REWARDS,
-  exerciseBaseXp,
-  optionalRehabHalfBaseXp,
-  optionalRehabHalfCoins,
-  halfDisplayXp,
-  halfDisplayCoins,
-  applyOptionalTierToHalfXp,
-  applyOptionalTierToHalfCoins,
-} from '../../config/patientRewards';
+import { PATIENT_REWARDS, exerciseBaseXp } from '../../config/patientRewards';
 import { RewardLabel } from '../ui/RewardLabel';
 import StackedDumbbellsIcon from '../icons/StackedDumbbellsIcon';
 import GearStoreArmory from './GearStoreArmory';
@@ -65,14 +58,8 @@ import PatientPortalSettingsModal from './PatientPortalSettingsModal';
 import { fetchAiPlanAdjustmentSuggestion } from '../../ai/geminiAiPlanAdjustment';
 import { evaluateAiProgramLongitudinalGate } from '../../ai/aiProgramLongitudinalGate';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
-import {
-  buildOptionalPool,
-  computeOptionalCompletionsByAreaFromSession,
-  countOptionalPoolCompletionsInSession,
-  getNextOptionalPoolItem,
-  getOptionalPoolExerciseId,
-  getVisibleOptionalPoolItems,
-} from '../../utils/optionalExerciseUnlock';
+import { getOptionalPoolExerciseId } from '../../utils/optionalExerciseUnlock';
+import { displayPortalRehabExerciseTitle } from '../../utils/portalRehabExerciseTitle';
 import { useLocalCalendarDayKey } from '../../utils/dailyKnowledgeFact';
 import {
   getTotalActiveDaysForScenery,
@@ -98,9 +85,6 @@ function portalHrefForTab(tab: PortalTab): string {
 
 const EMPTY_COMPLETED_IDS: string[] = [];
 
-/** המתנה קצרה אחרי סיום תרגיל בחירה לפני הצגת הכרטיס הבא */
-const OPTIONAL_REVEAL_MS = 300;
-
 /** אזור לחיצה נוח לאגודל + משוב ויזואלי לכרטיסי ניווט */
 const PORTAL_PROGRESS_NAV_SURFACE =
   'cursor-pointer touch-manipulation select-none motion-safe:transition-[transform,opacity] duration-200 ease-out motion-safe:hover:scale-[1.02] motion-safe:active:scale-[0.98] motion-safe:hover:opacity-[0.94] motion-safe:active:opacity-[0.88] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-medical-primary';
@@ -110,15 +94,6 @@ function activateOnEnterSpace(e: KeyboardEvent, fn: () => void) {
     e.preventDefault();
     fn();
   }
-}
-
-/** מסיר כותרת מיותרת מול כותרת העמוד (תכנית השיקום / תכנית השיקום (חובה)) */
-function displayPortalRehabExerciseTitle(name: string): string {
-  const t = name.trim();
-  const stripped = t
-    .replace(/^תכנית\s*השיקום\s*(?:\(\s*חובה\s*\))?\s*[:\-–—]?\s*/u, '')
-    .trim();
-  return stripped.length > 0 ? stripped : t;
 }
 
 /** מניעת כפילות חגיגת סיום תחת React StrictMode (אותו מפתח ביום) */
@@ -189,15 +164,6 @@ export default function PatientDailyView() {
   }, [selectedPatient, dailyHistoryByPatient, clinicalToday]);
 
   const [guardiFlowerBloomLine, setGuardiFlowerBloomLine] = useState<string | null>(null);
-
-  /** רמת קושי לתרגילי שיקום לבחירה (מקומי לכרטיס — לא חובה) */
-  const [optionalRehabDifficultyTiers, setOptionalRehabDifficultyTiers] = useState<
-    Record<string, 0 | 1 | 2>
-  >({});
-
-  useEffect(() => {
-    setOptionalRehabDifficultyTiers({});
-  }, [selectedPatient?.id]);
 
   useEffect(() => {
     setGuardiFlowerBloomLine(null);
@@ -475,13 +441,9 @@ export default function PatientDailyView() {
   const [optionalGlowBoost, setOptionalGlowBoost] = useState(0);
   /** אחרי «התחל תרגול» במודאל — מפעיל «סימון הושלמה» בכרטיס */
   const [timerArmedExerciseIds, setTimerArmedExerciseIds] = useState<string[]>([]);
-  const [newlyUnlockedPoolKeys, setNewlyUnlockedPoolKeys] = useState<Set<string>>(() => new Set());
-  const [optionalRevealHold, setOptionalRevealHold] = useState(false);
   useEffect(() => {
     setOptionalGlowBoost(0);
     setTimerArmedExerciseIds([]);
-    setNewlyUnlockedPoolKeys(new Set());
-    setOptionalRevealHold(false);
   }, [selectedPatient?.id, clinicalToday]);
 
   const aiProgramLongitudinalGate = useMemo(
@@ -529,76 +491,26 @@ export default function PatientDailyView() {
       });
   }, [selectedZones, selectedPatient, getSelfCareStrengthTier]);
 
-  const fullOptionalPool = useMemo(
-    () => buildOptionalPool(optionalRehabExercises, strengthMissionRows),
-    [optionalRehabExercises, strengthMissionRows]
-  );
-
   const completedIdsForUnlock = session?.completedIds ?? EMPTY_COMPLETED_IDS;
 
-  const optionalCompletionsByArea = useMemo(
-    () =>
-      computeOptionalCompletionsByAreaFromSession(
-        completedIdsForUnlock,
-        optionalRehabExercises,
-        strengthMissionRows
-      ),
-    [completedIdsForUnlock, optionalRehabExercises, strengthMissionRows]
-  );
+  const optionalPool = useOptionalRehabPool({
+    optionalRehabExercises,
+    strengthMissionRows,
+    completedIdsForUnlock,
+    exercisesLocked,
+    setGuardiTransient,
+    selectedPatientId: selectedPatient?.id,
+    clinicalToday,
+    dailySessions,
+  });
 
-  /** כמה תרגילים מהבריכה הושלמו היום — לשכבת פרס (ראשון = 50%, הבאים = 0). */
-  const optionalPoolCompletionCount = useMemo(
-    () => countOptionalPoolCompletionsInSession(completedIdsForUnlock, fullOptionalPool),
-    [completedIdsForUnlock, fullOptionalPool]
-  );
-
-  /** הכרטיס הנוכחי הוא ה־2+ בתור היום — תצוגת 0 XP / 0 מטבעות. */
-  const optionalPoolRewardsAreZero = optionalPoolCompletionCount >= 1;
-
-  const visibleOptionalSlice = useMemo(
-    () =>
-      getVisibleOptionalPoolItems(
-        fullOptionalPool,
-        optionalCompletionsByArea,
-        completedIdsForUnlock
-      ),
-    [
-      fullOptionalPool,
-      optionalCompletionsByArea,
-      completedIdsForUnlock,
-      dailySessions,
-      clinicalToday,
-      selectedPatient?.id,
-    ]
-  );
-
-  const sessionNextOptionalPoolItem = visibleOptionalSlice[0] ?? null;
-
-  const getNextOptionalAfterAddingId = useCallback(
-    (exerciseId: string) => {
-      const hypIds = completedIdsForUnlock.includes(exerciseId)
-        ? [...completedIdsForUnlock]
-        : [...completedIdsForUnlock, exerciseId];
-      const hypArea = computeOptionalCompletionsByAreaFromSession(
-        hypIds,
-        optionalRehabExercises,
-        strengthMissionRows
-      );
-      return getNextOptionalPoolItem(fullOptionalPool, hypArea, hypIds);
-    },
-    [
-      completedIdsForUnlock,
-      fullOptionalPool,
-      optionalRehabExercises,
-      strengthMissionRows,
-    ]
-  );
-
-  const allOptionalPoolExerciseIdsDone = useMemo(() => {
-    if (fullOptionalPool.length === 0) return true;
-    const done = new Set(completedIdsForUnlock);
-    return fullOptionalPool.every((p) => done.has(getOptionalPoolExerciseId(p)));
-  }, [fullOptionalPool, completedIdsForUnlock]);
+  const {
+    fullOptionalPool,
+    optionalPoolCompletionCount,
+    getNextOptionalAfterAddingId,
+    sessionNextOptionalPoolItem,
+    signalOptionalReveal,
+  } = optionalPool;
 
   useEffect(() => {
     setTimerArmedExerciseIds([]);
@@ -616,27 +528,6 @@ export default function PatientDailyView() {
       setExerciseVideoModal(null);
     }
   }, [sessionNextOptionalPoolItem?.poolKey, fullOptionalPool, exerciseVideoModal]);
-
-  useEffect(() => {
-    if (!optionalRevealHold || exercisesLocked) return;
-    const poolKey = sessionNextOptionalPoolItem?.poolKey ?? null;
-    const t = window.setTimeout(() => {
-      setOptionalRevealHold(false);
-      window.requestAnimationFrame(() => {
-        if (poolKey) {
-          setNewlyUnlockedPoolKeys(new Set([poolKey]));
-          window.setTimeout(() => setNewlyUnlockedPoolKeys(new Set()), 2600);
-          setGuardiTransient({
-            key: `optional_unlock_${Date.now()}`,
-            mood: 'joy',
-            bubble: 'כל הכבוד! נפתח לך תרגיל נוסף לחיזוק אם תרצה.',
-            until: Date.now() + 8500,
-          });
-        }
-      });
-    }, OPTIONAL_REVEAL_MS);
-    return () => clearTimeout(t);
-  }, [optionalRevealHold, sessionNextOptionalPoolItem?.poolKey, exercisesLocked]);
 
   const combinedMissionItems = useMemo((): MissionRow[] => {
     const rehab: MissionRow[] = clinicalRehabExercises.map((exercise) => ({
@@ -882,7 +773,7 @@ export default function PatientDailyView() {
       });
       setExerciseVideoModal(null);
       if (nextAfterOptional) {
-        setOptionalRevealHold(true);
+        signalOptionalReveal(true);
       }
       logSelfCareSession(
         selectedPatient.id,
@@ -926,7 +817,7 @@ export default function PatientDailyView() {
       });
       setExerciseVideoModal(null);
       if (nextAfterOptional) {
-        setOptionalRevealHold(true);
+        signalOptionalReveal(true);
       }
       if (m.exercise.isOptional) {
         setOptionalGlowBoost((n) => Math.min(5, n + 1));
@@ -992,7 +883,7 @@ export default function PatientDailyView() {
         });
       });
       if (nextAfterOptional) {
-        setOptionalRevealHold(true);
+        signalOptionalReveal(true);
       }
       setOptionalGlowBoost((n) => Math.min(5, n + 1));
     } else {
@@ -1634,7 +1525,7 @@ export default function PatientDailyView() {
                       w != null && w > 0 ? `${w} ק״ג` : 'ללא משקל';
                     return (
                       <li key={`rehab-core-${ex.id}`} className="w-full">
-                        <PortalExerciseCard
+                        <ExerciseCard
                           variant="rehab"
                           rehabTier="core"
                           index={idx}
@@ -1668,201 +1559,16 @@ export default function PatientDailyView() {
               </section>
             )}
 
-            {fullOptionalPool.length > 0 && (
-              <section
-                className="rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50/80 to-white p-3 shadow-sm"
-                aria-labelledby="section-optional-rehab"
-              >
-                <div className="mb-2 px-0.5">
-                  <h2
-                    id="section-optional-rehab"
-                    className="text-sm font-medium text-slate-500 tracking-tight text-center"
-                  >
-                    תרגילים נוספים לבחירתך
-                  </h2>
-                </div>
-                {!sessionNextOptionalPoolItem ? (
-                  <p className="text-xs text-slate-500 text-center leading-relaxed px-1 py-2">
-                    {allOptionalPoolExerciseIdsDone
-                      ? 'כל הכבוד! סיימת את כל התרגילים הנוספים שבחרת להיום.'
-                      : 'כל הכבוד! ניצלת את מכסת 4 התרגילים הנוספים לכל אזור גוף לפי התוכנית.'}
-                  </p>
-                ) : optionalRevealHold ? (
-                  <div
-                    className="min-h-[5.75rem] rounded-lg border border-dashed border-slate-200/90 bg-slate-50/80 motion-safe:animate-optional-interstitial flex items-center justify-center"
-                    aria-busy="true"
-                  />
-                ) : (
-                  (() => {
-                    const item = sessionNextOptionalPoolItem!;
-                    const cardKey = item.poolKey;
-                    return (
-                  <ul className="space-y-2 flex flex-col">
-                    <li
-                      key={item.poolKey}
-                      className={`w-full ${
-                        newlyUnlockedPoolKeys.has(item.poolKey)
-                          ? 'animate-optional-unlock'
-                          : ''
-                      }`}
-                    >
-                      {item.kind === 'rehab' ? (
-                        <PortalExerciseCard
-                          key={cardKey}
-                          variant="rehab"
-                          rehabTier="optional"
-                          index={1}
-                          isCompleted={false}
-                          title={displayPortalRehabExerciseTitle(item.exercise.name)}
-                          setsLabel={String(item.exercise.patientSets)}
-                          repsLabel={
-                            item.exercise.holdSeconds &&
-                            item.exercise.patientReps === 0
-                              ? formatTime(item.exercise.holdSeconds)
-                              : item.exercise.holdSeconds &&
-                                  item.exercise.patientReps > 0
-                                ? `${item.exercise.patientReps}+${formatTime(item.exercise.holdSeconds)}`
-                                : `${item.exercise.patientReps}`
-                          }
-                          weightLabel={
-                            item.exercise.patientWeightKg != null &&
-                            item.exercise.patientWeightKg > 0
-                              ? `${item.exercise.patientWeightKg} ק״ג`
-                              : 'ללא משקל'
-                          }
-                          xpReward={item.exercise.xpReward}
-                          videoUrl={item.exercise.videoUrl ?? null}
-                          optionalRehabDifficultyTier={
-                            optionalRehabDifficultyTiers[item.exercise.id] ?? 1
-                          }
-                          onOptionalRehabDifficultyTierChange={(newTier) =>
-                            setOptionalRehabDifficultyTiers((prev) => ({
-                              ...prev,
-                              [item.exercise.id]: newTier,
-                            }))
-                          }
-                          onOpenTraining={() => {
-                            const ex = item.exercise;
-                            const tier = optionalRehabDifficultyTiers[ex.id] ?? 1;
-                            const baseHalfXp = optionalRehabHalfBaseXp(ex.xpReward);
-                            const baseHalfCoins = optionalRehabHalfCoins();
-                            const displayXp = optionalPoolRewardsAreZero
-                              ? 0
-                              : applyOptionalTierToHalfXp(baseHalfXp, tier);
-                            const displayCoins = optionalPoolRewardsAreZero
-                              ? 0
-                              : applyOptionalTierToHalfCoins(baseHalfCoins, tier);
-                            setExerciseVideoModal({
-                              kind: 'rehab',
-                              exercise: ex,
-                              xpAward: displayXp,
-                              coinsAward: displayCoins,
-                            });
-                          }}
-                          onMarkComplete={() => setReportFor(item.exercise)}
-                          markCompleteAllowed={timerArmedExerciseIds.includes(
-                            item.exercise.id
-                          )}
-                          disabled={exercisesLocked}
-                          typeKey={item.exercise.type}
-                          isCustomExercise={item.exercise.isCustom}
-                          rewardLabelXp={
-                            optionalPoolRewardsAreZero
-                              ? 0
-                              : applyOptionalTierToHalfXp(
-                                  optionalRehabHalfBaseXp(item.exercise.xpReward),
-                                  optionalRehabDifficultyTiers[item.exercise.id] ?? 1
-                                )
-                          }
-                          rewardLabelCoins={
-                            optionalPoolRewardsAreZero
-                              ? 0
-                              : applyOptionalTierToHalfCoins(
-                                  optionalRehabHalfCoins(),
-                                  optionalRehabDifficultyTiers[item.exercise.id] ?? 1
-                                )
-                          }
-                        />
-                      ) : (
-                        <PortalExerciseCard
-                          key={cardKey}
-                          variant="selfCare"
-                          index={1}
-                          isCompleted={false}
-                          title={item.exercise.name}
-                          setsLabel={String(item.exercise.sets)}
-                          repsLabel={
-                            item.exercise.repsAreSeconds
-                              ? `${item.exercise.reps} ש״`
-                              : String(item.exercise.reps)
-                          }
-                          weightLabel={
-                            item.strengthTier === 0
-                              ? 'קל'
-                              : item.strengthTier === 1
-                                ? 'בינוני'
-                                : 'קשה'
-                          }
-                          xpReward={Math.max(
-                            1,
-                            Math.floor(item.exercise.xpReward * 0.5)
-                          )}
-                          videoUrl={item.exercise.videoUrl}
-                          selfCareStrengthTier={item.strengthTier}
-                          onSelfCareStrengthTierChange={(tier) => {
-                            if (!selectedPatient) return;
-                            setSelfCareStrengthTier(selectedPatient.id, item.area, tier);
-                          }}
-                          onOpenTraining={() => {
-                            const ex = item.exercise;
-                            const strengthTier = item.strengthTier;
-                            const selfXp = Math.max(1, Math.floor(ex.xpReward * 0.5));
-                            const fullCardXp = exerciseBaseXp(selfXp);
-                            const baseHalfXp = halfDisplayXp(fullCardXp);
-                            const baseHalfCoins = halfDisplayCoins(PATIENT_REWARDS.EXERCISE_COMPLETE.coins);
-                            const displayXp = optionalPoolRewardsAreZero
-                              ? 0
-                              : applyOptionalTierToHalfXp(baseHalfXp, strengthTier);
-                            const displayCoins = optionalPoolRewardsAreZero
-                              ? 0
-                              : applyOptionalTierToHalfCoins(baseHalfCoins, strengthTier);
-                            setExerciseVideoModal({
-                              kind: 'selfCare',
-                              bodyArea: item.area,
-                              exercise: ex,
-                              xpAward: displayXp,
-                              coinsAward: displayCoins,
-                            });
-                          }}
-                          disabled={exercisesLocked}
-                          rewardLabelXp={
-                            optionalPoolRewardsAreZero
-                              ? 0
-                              : applyOptionalTierToHalfXp(
-                                  halfDisplayXp(
-                                    exerciseBaseXp(
-                                      Math.max(1, Math.floor(item.exercise.xpReward * 0.5))
-                                    )
-                                  ),
-                                  item.strengthTier
-                                )
-                          }
-                          rewardLabelCoins={
-                            optionalPoolRewardsAreZero
-                              ? 0
-                              : applyOptionalTierToHalfCoins(
-                                  halfDisplayCoins(PATIENT_REWARDS.EXERCISE_COMPLETE.coins),
-                                  item.strengthTier
-                                )
-                          }
-                        />
-                      )}
-                    </li>
-                  </ul>
-                    );
-                  })()
-                )}
-              </section>
+            {selectedPatient && (
+              <OptionalSection
+                pool={optionalPool}
+                selectedPatient={selectedPatient}
+                exercisesLocked={exercisesLocked}
+                timerArmedExerciseIds={timerArmedExerciseIds}
+                setExerciseVideoModal={setExerciseVideoModal}
+                setReportFor={setReportFor}
+                setSelfCareStrengthTier={setSelfCareStrengthTier}
+              />
             )}
           </div>
         )}
