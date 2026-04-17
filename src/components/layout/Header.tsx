@@ -1,5 +1,6 @@
 import { Bell, AlertTriangle, Search } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { useAuth } from '../../context/AuthContext';
 import type { NavSection } from '../../types';
 
@@ -39,7 +40,9 @@ export default function Header() {
         {selectedPatient && (
           <>
             <span className="text-slate-300 text-lg leading-none">·</span>
-            <span className="text-sm text-teal-600 font-medium">{selectedPatient.name}</span>
+            <span className="text-sm text-teal-600 font-medium">
+              {getPatientDisplayName(selectedPatient)}
+            </span>
           </>
         )}
       </div>

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Star, Flame, Trophy, Activity, TrendingUp, Dumbbell, BarChart3 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { addClinicalDays } from '../../utils/clinicalCalendar';
 import StatsCard from './StatsCard';
 import XPProgressBar from './XPProgressBar';
@@ -63,7 +64,7 @@ export default function HistoryAnalyticsPanel() {
         <BarChart3 className="w-5 h-5 text-teal-600" />
         היסטוריה ואנליטיקה
       </h2>
-      <p className="text-sm text-slate-500 mb-5">{p.name}</p>
+      <p className="text-sm text-slate-500 mb-5">{getPatientDisplayName(p)}</p>
 
       <div className="bg-white rounded-2xl p-5 border border-teal-100 shadow-sm mb-5">
         <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">

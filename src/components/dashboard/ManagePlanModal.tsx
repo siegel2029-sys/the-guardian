@@ -9,6 +9,7 @@ import { EXERCISE_LIBRARY } from '../../data/mockData';
 import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../../data/exerciseVideoDefaults';
 import type { PatientExercise, BodyArea, ExerciseDifficulty } from '../../types';
 import { bodyAreaLabels } from '../../types';
+import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
 interface ManagePlanModalProps {
   onClose: () => void;
@@ -713,7 +714,9 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
         >
           <div>
             <h2 className="text-lg font-bold text-slate-800">ניהול תוכנית תרגול</h2>
-            <p className="text-sm text-teal-600 mt-0.5">{selectedPatient.name} — {selectedPatient.diagnosis}</p>
+            <p className="text-sm text-teal-600 mt-0.5">
+              {getPatientDisplayName(selectedPatient)} — {selectedPatient.diagnosis}
+            </p>
             <p className="text-[11px] text-slate-500 mt-1 leading-snug">
               עריכה נשמרת מקומית; לסנכרון לענן — «שמירה» בתחתית.
             </p>

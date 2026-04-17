@@ -111,6 +111,7 @@ export default function ExerciseVideoTimerModal({
   const [timerStarted, setTimerStarted] = useState(false);
   const [effort, setEffort] = useState<1 | 2 | 3 | 4 | 5>(3);
   const [painLevel, setPainLevel] = useState<ModalPainLevel>(3);
+  /** עצה קלינית — אקורדיון, סגור כברירת מחדל */
   const [clinicalAdviceOpen, setClinicalAdviceOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -281,7 +282,7 @@ export default function ExerciseVideoTimerModal({
         </div>
 
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto overscroll-y-contain">
-          <div className="sticky top-0 z-30 shrink-0 border-b border-slate-700/70 bg-[#0f172a] shadow-[0_8px_24px_-4px_rgba(0,0,0,0.55)]">
+          <div className="shrink-0 border-b border-slate-700/70 bg-[#0f172a]">
             <div className="relative w-full bg-black aspect-video max-h-[min(38vh,320px)] sm:max-h-[min(42vh,360px)] md:max-h-[min(48vh,420px)] mx-auto">
               {presentation.kind === 'iframe' ? (
                 <iframe
@@ -302,97 +303,31 @@ export default function ExerciseVideoTimerModal({
                   loop
                 />
               ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 text-sm px-4 text-center">
-                  <p className="font-semibold text-slate-300 mb-1">אין סרטון הדגמה</p>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    הוסיפו <code className="text-teal-400/90">videoUrl</code> למסד התרגילים (YouTube, Vimeo או MP4).
-                  </p>
+                <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm px-4 text-center">
+                  <p className="text-slate-300">אין סרטון הדגמה</p>
                 </div>
               )}
             </div>
-          </div>
-
-          <div className="px-3 sm:px-4 py-3 space-y-3 flex flex-col min-h-0">
-              {description ? (
-                <div
-                  className="rounded-xl px-3 py-2.5 text-xs sm:text-sm leading-relaxed max-h-32 overflow-y-auto"
-                  style={{
-                    background: 'rgba(30, 41, 59, 0.9)',
-                    color: '#e2e8f0',
-                    border: '1px solid #475569',
-                  }}
-                >
-                  {description}
-                </div>
-              ) : null}
-
-              <div
-                className="rounded-xl overflow-hidden text-[11px] sm:text-xs leading-relaxed"
-                style={{
-                  background: 'rgba(15, 23, 42, 0.92)',
-                  border: '1px solid rgba(56, 189, 248, 0.35)',
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => setClinicalAdviceOpen((o) => !o)}
-                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-right hover:bg-slate-800/40 transition-colors"
-                  aria-expanded={clinicalAdviceOpen}
-                  id="clinical-advice-toggle"
-                >
-                  <span className="font-semibold text-sky-200/95 text-xs sm:text-sm">
-                    לחץ כאן לעצה מקצועית מגורדי
-                  </span>
-                  <ChevronDown
-                    className={`w-4 h-4 shrink-0 text-sky-300/90 transition-transform duration-200 ${
-                      clinicalAdviceOpen ? 'rotate-180' : ''
-                    }`}
-                    aria-hidden
-                  />
-                </button>
-                {clinicalAdviceOpen ? (
-                  <div
-                    className="px-3 pb-2.5 pt-0 space-y-2 border-t border-slate-600/50"
-                    role="region"
-                    aria-labelledby="clinical-advice-toggle"
-                  >
-                    {painLevel > 4 ? (
-                      <p className="text-amber-200/90 font-semibold border-b border-slate-600/60 pb-2 pt-2">
-                        לפי רמת הכאב שבחרתם: מעל 4/10 מומלץ לשקול רגרסיה, הקטנת טווח, ומנוחה קצרה לפני
-                        המשך.
-                      </p>
-                    ) : null}
-                    <div>
-                      <p className="font-semibold text-emerald-200/90 mb-0.5">אם קשה מדי (רגרסיה)</p>
-                      <p className="text-slate-300">{regressionText}</p>
-                    </div>
-                    <div>
-                      <p className="font-semibold text-teal-200/90 mb-0.5">אם קל מדי (התקדמות)</p>
-                      <p className="text-slate-300">{progressionText}</p>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
+            {!timerStarted || (timerStarted && remaining > 0) ? (
+              <div className="px-3 sm:px-4 py-3 border-t border-slate-700/60 bg-[#0f172a]">
                 {!timerStarted ? (
                   <button
                     type="button"
                     onClick={handleStartExercise}
-                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-black text-white transition-all"
+                    className="w-full inline-flex items-center justify-center gap-2.5 px-5 py-4 rounded-xl text-base font-black text-white transition-all active:scale-[0.99]"
                     style={{
                       background: 'linear-gradient(135deg, #0d9488, #059669)',
-                      boxShadow: '0 4px 18px rgba(13, 148, 136, 0.45)',
+                      boxShadow: '0 6px 22px rgba(13, 148, 136, 0.5)',
                     }}
                   >
-                    <Play className="w-4 h-4 shrink-0 fill-current" />
+                    <Play className="w-5 h-5 shrink-0 fill-current" />
                     התחל תרגול
                   </button>
-                ) : remaining > 0 ? (
+                ) : (
                   <button
                     type="button"
                     onClick={handleRestartTimer}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition-all border border-slate-600"
+                    className="w-full inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl text-sm font-bold text-white transition-all border border-slate-600 active:scale-[0.99]"
                     style={{
                       background: 'rgba(30, 41, 59, 0.95)',
                       boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
@@ -401,14 +336,73 @@ export default function ExerciseVideoTimerModal({
                     <Play className="w-4 h-4 shrink-0 fill-current" />
                     התחל מחדש
                   </button>
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="px-3 sm:px-4 pt-6 pb-4 space-y-6 flex flex-col min-h-0">
+              <div className="space-y-4">
+                {description ? (
+                  <div
+                    className="rounded-xl px-3 py-3 text-xs sm:text-sm leading-relaxed"
+                    style={{
+                      background: 'rgba(30, 41, 59, 0.9)',
+                      color: '#e2e8f0',
+                      border: '1px solid #475569',
+                    }}
+                  >
+                    {description}
+                  </div>
                 ) : null}
-                <span className="text-[11px] text-slate-500 leading-snug">
-                  {!timerStarted
-                    ? 'הטיימר מתחיל רק אחרי לחיצה על «התחל תרגול».'
-                    : remaining > 0
-                      ? 'ניתן לאפס את הספירה ולהתחיל שוב בכל עת.'
-                      : 'לחצו «סיים תרגול» כדי לשמור ולחזור לרשימת האימונים.'}
-                </span>
+
+                <div
+                  className="rounded-xl overflow-hidden text-[11px] sm:text-xs leading-relaxed"
+                  style={{
+                    background: 'rgba(15, 23, 42, 0.92)',
+                    border: '1px solid rgba(56, 189, 248, 0.35)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    id="clinical-advice-toggle"
+                    onClick={() => setClinicalAdviceOpen((o) => !o)}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-start hover:bg-slate-800/35 transition-colors"
+                    aria-expanded={clinicalAdviceOpen}
+                  >
+                    <span className="font-semibold text-sky-200/95 text-xs sm:text-sm">
+                      עצה קלינית (רגרסיה / התקדמות)
+                    </span>
+                    <ChevronDown
+                      className={`w-4 h-4 shrink-0 text-sky-300/90 transition-transform duration-200 ${
+                        clinicalAdviceOpen ? 'rotate-180' : ''
+                      }`}
+                      aria-hidden
+                    />
+                  </button>
+                  {clinicalAdviceOpen ? (
+                    <div
+                      className="px-3 pb-3 pt-0 space-y-2 border-t border-slate-600/50"
+                      role="region"
+                      aria-labelledby="clinical-advice-toggle"
+                    >
+                      {painLevel > 4 ? (
+                        <p className="text-amber-200/90 font-semibold border-b border-slate-600/60 pb-2 pt-2">
+                          לפי רמת הכאב שבחרתם: מעל 4/10 מומלץ לשקול רגרסיה, הקטנת טווח, ומנוחה קצרה לפני
+                          המשך.
+                        </p>
+                      ) : null}
+                      <div>
+                        <p className="font-semibold text-emerald-200/90 mb-0.5">אם קשה מדי (רגרסיה)</p>
+                        <p className="text-slate-300">{regressionText}</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold text-teal-200/90 mb-0.5">אם קל מדי (התקדמות)</p>
+                        <p className="text-slate-300">{progressionText}</p>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               <div
@@ -422,9 +416,6 @@ export default function ExerciseVideoTimerModal({
                   {remaining}
                 </span>
                 <span className="text-slate-400 mr-2 text-sm">שניות נותרו</span>
-                {!timerStarted ? (
-                  <p className="text-[11px] text-slate-500 mt-1">לחצו «התחל תרגול» כדי להתחיל ספירה לאחור</p>
-                ) : null}
               </div>
 
               <div className="space-y-1.5">
@@ -473,10 +464,6 @@ export default function ExerciseVideoTimerModal({
                   <span>5</span>
                 </div>
               </div>
-
-              <p className="text-[11px] text-center text-slate-500 leading-relaxed">
-                «סיים תרגול» יופעל רק לאחר סיום הטיימר. סגירת החלון (×) לא שומרת התקדמות.
-              </p>
 
               <button
                 type="button"

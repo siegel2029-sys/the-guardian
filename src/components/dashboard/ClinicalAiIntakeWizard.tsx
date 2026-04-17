@@ -232,6 +232,14 @@ export default function ClinicalAiIntakeWizard({
       out.injuryHighlightSegments = [...analysisBundle.injuryHighlightSegments];
       out.secondaryClinicalBodyAreas = [...analysisBundle.secondaryClinicalBodyAreas];
       out.clinicalDiagnosis = analysisBundle.clinicalDiagnosis;
+      const narrativeParts: string[] = [analysisBundle.clinicalDiagnosis];
+      if (analysisBundle.rationaleLinesHe.length > 0) {
+        narrativeParts.push('', ...analysisBundle.rationaleLinesHe);
+      }
+      if (analysisBundle.redFlags.length > 0) {
+        narrativeParts.push('', 'דגלים:', ...analysisBundle.redFlags.map((f) => `• ${f}`));
+      }
+      out.geminiClinicalNarrative = narrativeParts.join('\n');
       if (analysisBundle.redFlagDetected) out.intakeRedFlag = true;
     }
     return Object.keys(out).length ? out : undefined;

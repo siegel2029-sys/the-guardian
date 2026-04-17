@@ -6,9 +6,11 @@ import { usePatient } from '../../../context/PatientContext';
 import { analyzeClinicalNote, type ClinicalIntakeAnalysis } from '../../../utils/clinicalParser';
 import { summarizeTherapistIntakeNote } from '../../../ai/geminiTherapistDive';
 import { getGeminiApiKey, GeminiRateLimitedError } from '../../../ai/geminiClient';
+import { deriveDiagnosisHeadline } from '../../../utils/clinicalNarrative';
 
 export default function ClinicalIntakePanel({ patient }: { patient: Patient }) {
-  const { applyIntakeExercisePlan, updateTherapistNotes } = usePatient();
+  const { applyIntakeExercisePlan, updateTherapistNotes, updatePatient, savePersistedStateToCloud } =
+    usePatient();
   const [note, setNote] = useState('');
   const [analysis, setAnalysis] = useState<ClinicalIntakeAnalysis | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,6 +54,11 @@ export default function ClinicalIntakePanel({ patient }: { patient: Patient }) {
     try {
       const text = await summarizeTherapistIntakeNote(patient, t, followUpMode ? 'follow_up' : 'initial');
       setGeminiSummary(text);
+      updatePatient(patient.id, {
+        geminiClinicalNarrative: text,
+        diagnosis: deriveDiagnosisHeadline(text),
+      });
+      void savePersistedStateToCloud();
     } catch (e) {
       const msg =
         e instanceof GeminiRateLimitedError

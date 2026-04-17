@@ -9,7 +9,6 @@ import {
   Settings,
   BookOpen,
   LogOut,
-  ChevronDown,
   AlertTriangle,
   User,
   Bell,
@@ -23,6 +22,7 @@ import { useAuth } from '../../context/AuthContext';
 import { usePatient } from '../../context/PatientContext';
 import type { NavSection } from '../../types';
 import SidebarNewPatient from './SidebarNewPatient';
+import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
 const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'overview', label: 'סקירה קלינית', icon: LayoutDashboard },
@@ -60,7 +60,6 @@ export default function Sidebar() {
     safetyAlerts,
     dismissSafetyAlert,
   } = usePatient();
-  const [patientSwitcherOpen, setPatientSwitcherOpen] = useState(false);
   const [redFlagEmailOpen, setRedFlagEmailOpen] = useState(false);
 
   const totalUnreadMessages = patients.reduce((sum, p) => {
@@ -119,149 +118,94 @@ export default function Sidebar() {
 
       <SidebarNewPatient />
 
-      {/* Patient Switcher */}
-      <div className="px-3 py-3 border-b border-teal-50">
-        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
-          מטופל נבחר
+      {/* רשימת מטופלים — תמיד גלויה */}
+      <div className="px-3 py-3 border-b border-teal-50 flex flex-col min-h-0 max-h-[min(42vh,360px)]">
+        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1 shrink-0">
+          מטופלים
         </p>
-        <div className="relative">
-          <button
-            onClick={() => setPatientSwitcherOpen((v) => !v)}
-            className="w-full flex items-center gap-2.5 p-2.5 rounded-xl transition-all duration-200 text-right border border-teal-100"
-            style={{
-              background: patientSwitcherOpen ? '#e0f7f9' : '#f0fffe',
-            }}
-          >
-            {/* Avatar */}
-            <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm"
-              style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
-            >
-              {selectedPatient?.name.charAt(0)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-slate-800 truncate">
-                {selectedPatient?.name}
-              </p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{
-                    background: statusColors[selectedPatient?.status ?? 'active'],
-                  }}
-                />
-                <span className="text-xs text-slate-500">
-                  {statusLabels[selectedPatient?.status ?? 'active']}
-                </span>
-                {selectedPatient?.hasRedFlag && (
-                  <span
-                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold border"
-                    style={{ background: '#fef2f2', color: '#b91c1c', borderColor: '#fecaca' }}
-                  >
-                    <AlertTriangle className="w-3 h-3 shrink-0" />
-                    התראה
-                  </span>
-                )}
-              </div>
-            </div>
-            <ChevronDown
-              className="w-4 h-4 text-slate-400 transition-transform duration-200"
-              style={{ transform: patientSwitcherOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
-            />
-          </button>
+        <div className="overflow-y-auto min-h-0 flex-1 space-y-1 pr-0.5">
+          {patients.length === 0 ? (
+            <p className="text-xs text-slate-400 px-2 py-2">אין מטופלים ברשימה</p>
+          ) : (
+            patients.map((patient) => {
+              const unreadCount = getPatientMessages(patient.id).filter(
+                (m) => !m.isRead && m.fromPatient
+              ).length;
+              const isSelected = patient.id === selectedPatient?.id;
+              const label = getPatientDisplayName(patient);
 
-          {/* Dropdown */}
-          {patientSwitcherOpen && (
-            <div
-              className="absolute top-full right-0 left-0 mt-1 rounded-xl border border-teal-100 shadow-xl overflow-hidden z-50"
-              style={{ background: 'white' }}
-            >
-              {patients.map((patient) => {
-                const unreadCount = getPatientMessages(patient.id).filter(
-                  (m) => !m.isRead && m.fromPatient
-                ).length;
-                const isSelected = patient.id === selectedPatient?.id;
-
-                return (
-                  <div
-                    key={patient.id}
-                    className="w-full flex items-stretch border-b border-teal-50 last:border-0 transition-colors duration-150"
-                    style={{
-                      background: isSelected ? '#f0fffe' : 'transparent',
+              return (
+                <div
+                  key={patient.id}
+                  className={`flex items-stretch rounded-xl border transition-colors ${
+                    isSelected ? 'border-teal-400 bg-teal-50/90' : 'border-transparent hover:bg-slate-50'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      selectPatient(patient.id);
+                      setActiveSection('overview');
                     }}
+                    className="flex-1 flex items-center gap-2 px-2 py-2 text-right min-w-0"
                   >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        selectPatient(patient.id);
-                        setPatientSwitcherOpen(false);
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                      style={{
+                        background: isSelected
+                          ? 'linear-gradient(135deg, #0d9488, #10b981)'
+                          : 'linear-gradient(135deg, #94a3b8, #cbd5e1)',
                       }}
-                      className="flex-1 flex items-center gap-2.5 px-3 py-2.5 text-right min-w-0"
                     >
-                      <div
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                        style={{
-                          background: isSelected
-                            ? 'linear-gradient(135deg, #0d9488, #10b981)'
-                            : 'linear-gradient(135deg, #94a3b8, #cbd5e1)',
-                        }}
-                      >
-                        {patient.name.charAt(0)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-sm font-medium text-slate-800 truncate">{patient.name}</p>
-                          {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-teal-500" />}
-                        </div>
-                        <p className="text-xs text-slate-500 truncate">{patient.diagnosis}</p>
-                      </div>
-                    </button>
-                    <div className="flex flex-col items-center justify-center gap-1 px-2 py-1 shrink-0 border-s border-teal-50/80">
-                      {patient.hasRedFlag && (
-                        <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold border"
-                          style={{ background: '#fef2f2', color: '#b91c1c', borderColor: '#fecaca' }}
-                          title="דגל אדום — נדרשת בדיקה"
-                        >
-                          <AlertTriangle className="w-3 h-3 shrink-0" />
-                          התראה
-                        </span>
-                      )}
-                      {awaitingForPatient(patient.id) > 0 && (
-                        <span
-                          className="min-w-[20px] h-5 px-1 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center"
-                          title="אישור AI ממתין"
-                        >
-                          {awaitingForPatient(patient.id)}
-                        </span>
-                      )}
-                      {unreadCount > 0 && (
-                        <span className="w-5 h-5 rounded-full bg-teal-500 text-white text-[10px] font-bold flex items-center justify-center">
-                          {unreadCount}
-                        </span>
-                      )}
-                      {unreadCount > 0 && (
-                        <button
-                          type="button"
-                          title="מענה — פתיחת צ׳אט"
-                          onClick={() => {
-                            selectPatient(patient.id, { openSection: 'messages' });
-                            setPatientSwitcherOpen(false);
-                          }}
-                          className="p-1.5 rounded-lg text-teal-700 hover:bg-teal-100 border border-teal-200/80"
-                        >
-                          <Reply className="w-4 h-4" />
-                        </button>
-                      )}
-                      <span
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ background: statusColors[patient.status] }}
-                      />
+                      {label.charAt(0)}
                     </div>
+                    <div className="flex-1 min-w-0 text-start">
+                      <div className="flex items-center gap-1">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{label}</p>
+                        {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />}
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full shrink-0"
+                          style={{ background: statusColors[patient.status] }}
+                        />
+                        <span className="text-[10px] text-slate-500">
+                          {statusLabels[patient.status]}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                  <div className="flex flex-col items-center justify-center gap-0.5 px-1 py-1 shrink-0 border-s border-teal-100/60">
+                    {patient.hasRedFlag && (
+                      <span title="דגל אדום">
+                        <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
+                      </span>
+                    )}
+                    {awaitingForPatient(patient.id) > 0 && (
+                      <span className="min-w-[18px] h-4 px-0.5 rounded-full bg-amber-500 text-white text-[8px] font-bold flex items-center justify-center">
+                        {awaitingForPatient(patient.id)}
+                      </span>
+                    )}
+                    {unreadCount > 0 && (
+                      <button
+                        type="button"
+                        title="צ׳אט"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          selectPatient(patient.id, { openSection: 'messages' });
+                        }}
+                        className="relative p-1 rounded-md text-teal-700 hover:bg-teal-100"
+                      >
+                        <Reply className="w-3.5 h-3.5" />
+                        <span className="absolute -top-0.5 -end-0.5 min-w-[14px] h-3.5 px-0.5 rounded-full bg-teal-600 text-white text-[8px] font-bold flex items-center justify-center">
+                          {unreadCount > 9 ? '!' : unreadCount}
+                        </span>
+                      </button>
+                    )}
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })
           )}
         </div>
       </div>
@@ -276,8 +220,8 @@ export default function Sidebar() {
             {[...safetyAlerts]
               .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
               .map((alert) => {
-                const pname =
-                  patients.find((x) => x.id === alert.patientId)?.name ?? alert.patientId;
+                const pRow = patients.find((x) => x.id === alert.patientId);
+                const pname = pRow ? getPatientDisplayName(pRow) : alert.patientId;
                 return (
                   <li
                     key={alert.id}
@@ -288,7 +232,7 @@ export default function Sidebar() {
                       className="w-full text-right px-2.5 py-2 hover:bg-red-100/80 transition-colors"
                       onClick={() => {
                         selectPatient(alert.patientId);
-                        setPatientSwitcherOpen(false);
+                        setActiveSection('overview');
                       }}
                     >
                       <p className="text-xs font-black text-red-950 leading-tight">{pname}</p>
@@ -419,7 +363,7 @@ export default function Sidebar() {
           open={redFlagEmailOpen}
           onClose={() => setRedFlagEmailOpen(false)}
           patientId={selectedPatient.id}
-          patientName={selectedPatient.name}
+          patientName={getPatientDisplayName(selectedPatient)}
           therapistId={selectedPatient.therapistId}
         />
       )}

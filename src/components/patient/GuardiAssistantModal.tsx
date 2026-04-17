@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { X } from 'lucide-react';
 
-import imgFront from '../../assets/guardi/front.png';
-import imgSuperman from '../../assets/guardi/supermen_pose_guardi.png';
-import imgThumbUp from '../../assets/guardi/thumb_up_guardi.png';
-import imgExcited from '../../assets/guardi/guardi_excited.png';
-import imgSad from '../../assets/guardi/gurdi_sad.png';
-import imgAfraid from '../../assets/guardi/gurdi_afraid.png';
-import imgRelaxYoga from '../../assets/guardi/relax_yoga_guardi.png';
-import imgLearning from '../../assets/guardi/gurdi_learning.png';
+import imgFront from '../../assets/guardi/front.jpg';
+import imgSuperman from '../../assets/guardi/supermen_pose_guardi.jpg';
+import imgThumbUp from '../../assets/guardi/thumb_up_guardi.jpg';
+import imgExcited from '../../assets/guardi/guardi_excited.jpg';
+import imgSad from '../../assets/guardi/gurdi_sad.jpg';
+import imgAfraid from '../../assets/guardi/gurdi_afraid.jpg';
+import imgRelaxYoga from '../../assets/guardi/relax_yoga_guardi.jpg';
+import imgLearning from '../../assets/guardi/gurdi_learning.jpg';
 import type { GuardiSemanticKind } from '../../utils/guardiSemanticKinds';
 
 export type { GuardiSemanticKind } from '../../utils/guardiSemanticKinds';
@@ -39,7 +39,7 @@ type Props = {
 };
 
 /**
- * טקסטים קנוניים (מיפוי לפי מצב) — תמונות: PNG ב־assets (שמות המקור ב־jpg בפרומפט).
+ * טקסטים קנוניים (מיפוי לפי מצב) — תמונות: JPG ב־assets/guardi.
  */
 const GUARDI_CANONICAL: Record<GuardiSemanticKind, { imageSrc: string; text: string }> = {
   welcome: {

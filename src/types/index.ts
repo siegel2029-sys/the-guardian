@@ -153,9 +153,18 @@ export interface Patient {
    * מטופלים ישנים ללא שדה: נגזר ממפתח הדמו PT-… ב־auth מקומי.
    */
   portalUsername?: string;
+  /**
+   * כינוי קצר לתצוגה (ראשי תיבות / Alias) — עדיף על שם מלא או על מזהה גנרי מהמסד.
+   */
+  displayAlias?: string;
   name: string;
   age: number;
   diagnosis: string;
+  /**
+   * סיכום AI (אבחנה/תוכנית) — טקסט מלא מ-Gemini או עריכה ידנית; מוצג בדף המטופל ובפורטל.
+   * כשחסר — משתמשים ב־`diagnosis` כתצוגה קצרה.
+   */
+  geminiClinicalNarrative?: string;
   primaryBodyArea: BodyArea;
   status: PatientStatus;
   level: ExerciseLevel;
@@ -198,6 +207,8 @@ export type InitialClinicalProfileExtras = {
   secondaryClinicalBodyAreas?: BodyArea[];
   /** אבחון/רושם קליני קצר */
   clinicalDiagnosis?: string;
+  /** סיכום מלא (אבחנה + נימוקים) — נשמר בפרופיל המטופל */
+  geminiClinicalNarrative?: string;
   /** דגל אדום שזוהה בסיפור — התראה למטפל */
   intakeRedFlag?: boolean;
 };

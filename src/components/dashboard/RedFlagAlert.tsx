@@ -1,6 +1,7 @@
 import { AlertTriangle, X, CheckCircle } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import type { Patient } from '../../types';
+import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
 interface RedFlagAlertProps {
   patient: Patient;
@@ -30,7 +31,7 @@ export default function RedFlagAlert({ patient }: RedFlagAlertProps) {
             <h3 className="text-base font-bold text-red-700">דגל אדום – נדרשת תגובה דחופה</h3>
           </div>
           <p className="text-sm text-red-600 mb-1">
-            המטופל <strong>{patient.name}</strong> דיווח שמפעיל התראת בטיחות (כאב מוגבר ו/או קושי גבוה):
+            המטופל <strong>{getPatientDisplayName(patient)}</strong> דיווח שמפעיל התראת בטיחות (כאב מוגבר ו/או קושי גבוה):
           </p>
           {latestFlag && (
             <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2 mb-2">

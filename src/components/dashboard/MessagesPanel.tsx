@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, MessageSquare, Clock, User, Bot } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
 /** צ׳אט ישיר מטפל ↔ המטופל הנבחר (המטופל רואה בפורטל) */
 export default function MessagesPanel() {
@@ -14,6 +15,7 @@ export default function MessagesPanel() {
   const [replyText, setReplyText] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const messages = selectedPatient ? getPatientMessages(selectedPatient.id) : [];
+  const displayName = selectedPatient ? getPatientDisplayName(selectedPatient) : '';
 
   const threadSignature = useMemo(
     () =>
@@ -71,12 +73,12 @@ export default function MessagesPanel() {
             className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-md"
             style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
           >
-            {selectedPatient.name.charAt(0)}
+            {displayName.charAt(0)}
           </div>
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-slate-800 truncate flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-teal-600 shrink-0" />
-              צ׳אט עם {selectedPatient.name}
+              צ׳אט עם {displayName}
             </h2>
             <p className="text-xs text-slate-500 truncate">{selectedPatient.diagnosis}</p>
           </div>
@@ -131,7 +133,7 @@ export default function MessagesPanel() {
                       : isAiAlert
                         ? 'Guardian AI'
                         : isFromPatient
-                          ? selectedPatient.name
+                          ? displayName
                           : 'אני (מטפל)';
                 return (
                   <div

@@ -817,6 +817,9 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             diagnosisFromAi && diagnosisFromAi.length > 0
               ? diagnosisFromAi
               : `מוקד טיפול: ${bodyAreaLabels[primaryBodyArea]}`;
+          const geminiClinicalNarrative = extras?.geminiClinicalNarrative?.trim()
+            ? extras.geminiClinicalNarrative.trim()
+            : undefined;
           const injury =
             extras?.injuryHighlightSegments !== undefined
               ? [...extras.injuryHighlightSegments]
@@ -828,9 +831,15 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           return {
             ...p,
             name,
+            ...(extras?.displayName?.trim()
+              ? { displayAlias: extras.displayName.trim() }
+              : {}),
             primaryBodyArea,
             status: 'active',
             diagnosis,
+            ...(geminiClinicalNarrative != null
+              ? { geminiClinicalNarrative }
+              : {}),
             therapistNotes,
             injuryHighlightSegments: injury,
             secondaryClinicalBodyAreas: secondary,
@@ -903,6 +912,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         id: patientId,
         therapistId: ownerTid,
         portalUsername: normalized,
+        displayAlias: name !== 'מטופל חדש' ? name : undefined,
         name,
         age: 30,
         diagnosis: 'חדש — עדכנו אבחון ואזור גוף',

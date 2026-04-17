@@ -4,6 +4,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import type { AiSuggestion } from '../../types';
+import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
 const typeConfig: Record<string, { label: string; icon: LucideIcon; color: string; bg: string }> = {
   increase_reps: { label: 'הגברת חזרות', icon: TrendingUp, color: '#059669', bg: '#d1fae5' },
@@ -121,7 +122,7 @@ export default function PendingApprovalsPanel() {
 
   if (awaiting.length === 0) return null;
 
-  const nameById = Object.fromEntries(patients.map((p) => [p.id, p.name]));
+  const nameById = Object.fromEntries(patients.map((p) => [p.id, getPatientDisplayName(p)]));
 
   return (
     <div

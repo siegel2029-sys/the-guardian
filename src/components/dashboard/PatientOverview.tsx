@@ -18,9 +18,10 @@ import TherapistQuickChat from './clinical/TherapistQuickChat';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import SmartClinicalAnalysisCenter from './clinical/SmartClinicalAnalysisCenter';
 import PatientDataManagement from './clinical/PatientDataManagement';
+import PatientClinicalRecordSection from './clinical/PatientClinicalRecordSection';
 import PatientClinicalHistory from './clinical/PatientClinicalHistory';
-import TherapistPatientGrid from './TherapistPatientGrid';
 import { bodyAreaLabels } from '../../types';
+import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
 const statusLabels: Record<string, string> = {
   active: 'פעיל',
@@ -119,8 +120,6 @@ export default function PatientOverview() {
           </p>
         </header>
 
-        <TherapistPatientGrid />
-
         {p.hasRedFlag && <RedFlagAlert patient={p} />}
 
         {isPatientExerciseSafetyLocked(p.id) && (
@@ -155,11 +154,11 @@ export default function PatientOverview() {
                 className="w-14 h-14 rounded-xl flex items-center justify-center text-white text-xl font-black shadow-md shrink-0"
                 style={{ background: 'linear-gradient(135deg, #1e40af, #3b82f6)' }}
               >
-                {p.name.charAt(0)}
+                {getPatientDisplayName(p).charAt(0)}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-xl font-bold text-slate-900">{p.name}</h2>
+                  <h2 className="text-xl font-bold text-slate-900">{getPatientDisplayName(p)}</h2>
                   <span
                     className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold"
                     style={{ background: style.bg, color: style.text }}
@@ -239,6 +238,8 @@ export default function PatientOverview() {
 
         <PatientClinicalHistory patientId={p.id} />
 
+        <PatientClinicalRecordSection patient={p} />
+
         <SmartClinicalAnalysisCenter
           patient={p}
           clinicalToday={clinicalToday}
@@ -253,7 +254,7 @@ export default function PatientOverview() {
         />
 
         <div className="mb-5">
-          <TherapistQuickChat patientId={p.id} patientName={p.name} />
+          <TherapistQuickChat patientId={p.id} patientName={getPatientDisplayName(p)} />
         </div>
 
         <div className="mb-5">
@@ -347,7 +348,7 @@ export default function PatientOverview() {
           <ClinicalAiIntakeWizard
             clinicalIntakeMode="edit"
             lockedPortalUsername={portalUsernameDisplay}
-            initialPatientName={p.name}
+            initialPatientName={getPatientDisplayName(p)}
             onClose={() => setShowClinicalModal(false)}
             onSave={(primaryBodyArea, libraryExerciseIds, extras) =>
               applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds, extras)

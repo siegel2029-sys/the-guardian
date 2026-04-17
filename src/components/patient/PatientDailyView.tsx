@@ -73,6 +73,7 @@ import {
   getGuardiFlowerBloomAnnouncement,
   guardiBloomTierStorageKey,
 } from '../../hooks/useGamification';
+import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
 type PortalTab = 'home' | 'activity' | 'gear' | 'messages';
 
@@ -169,6 +170,11 @@ export default function PatientDailyView() {
     const map = dailyHistoryByPatient[selectedPatient.id];
     return getTotalActiveDaysForScenery(selectedPatient.joinDate, clinicalToday, map);
   }, [selectedPatient, dailyHistoryByPatient, clinicalToday]);
+
+  const portalPatientLabel = useMemo(
+    () => (selectedPatient ? getPatientDisplayName(selectedPatient) : ''),
+    [selectedPatient]
+  );
 
   const [guardiFlowerBloomLine, setGuardiFlowerBloomLine] = useState<string | null>(null);
 
@@ -1134,7 +1140,7 @@ export default function PatientDailyView() {
                     className="w-full min-w-0 text-lg sm:text-xl font-bold text-slate-900 leading-snug tracking-tight break-words text-center [overflow-wrap:anywhere]"
                     dir="rtl"
                   >
-                    {selectedPatient.name}
+                    {portalPatientLabel}
                   </span>
                   {hasDailyLoginBonusPending(selectedPatient.id) && (
                     <div className="flex justify-center items-center gap-1.5 flex-wrap" dir="rtl">
@@ -1170,7 +1176,7 @@ export default function PatientDailyView() {
               className="w-full min-w-0 text-lg sm:text-xl font-bold leading-snug tracking-tight text-slate-900 break-words text-center [overflow-wrap:anywhere]"
               dir="rtl"
             >
-              {selectedPatient.name}
+              {portalPatientLabel}
             </p>
           )}
           {patientMustChangePassword && hasDailyLoginBonusPending(selectedPatient.id) && (
@@ -1280,6 +1286,21 @@ export default function PatientDailyView() {
                 />
               </div>
             </div>
+
+            {(selectedPatient.geminiClinicalNarrative?.trim() ||
+              selectedPatient.diagnosis?.trim()) && (
+              <div
+                className="mt-4 rounded-2xl border border-slate-200/90 bg-white/95 px-4 py-3 shadow-sm text-start"
+                dir="rtl"
+              >
+                <h3 className="text-xs font-black text-slate-500 uppercase tracking-wide mb-1.5">
+                  סיכום קליני מהמטפל
+                </h3>
+                <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
+                  {(selectedPatient.geminiClinicalNarrative ?? selectedPatient.diagnosis).trim()}
+                </p>
+              </div>
+            )}
 
             {!patientMustChangePassword && totalMissions > 0 && (
               <div
@@ -1828,7 +1849,7 @@ export default function PatientDailyView() {
         open={redFlagOpen}
         onClose={() => setRedFlagOpen(false)}
         patientId={selectedPatient.id}
-        patientName={selectedPatient.name}
+        patientName={portalPatientLabel}
         therapistId={selectedPatient.therapistId}
         defaultBodyArea={selectedPatient.primaryBodyArea}
       />

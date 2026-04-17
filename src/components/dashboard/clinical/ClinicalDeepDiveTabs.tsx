@@ -8,6 +8,7 @@ import ClinicalSessionLineChart from './ClinicalSessionLineChart';
 import TherapistReportsView from './TherapistReportsView';
 import { summarizeTherapistAssessmentDraft } from '../../../ai/geminiTherapistDive';
 import { getGeminiApiKey, GeminiRateLimitedError } from '../../../ai/geminiClient';
+import { deriveDiagnosisHeadline } from '../../../utils/clinicalNarrative';
 
 type TabId = 'pain' | 'exercise' | 'finishReports' | 'assessment' | 'intake';
 
@@ -122,7 +123,12 @@ function ExerciseHistoryPanel({ patient }: { patient: Patient }) {
 }
 
 function ClinicalAssessmentPanel({ patient }: { patient: Patient }) {
-  const { updateTherapistNotes, runClinicalAssessmentEngine } = usePatient();
+  const {
+    updateTherapistNotes,
+    runClinicalAssessmentEngine,
+    updatePatient,
+    savePersistedStateToCloud,
+  } = usePatient();
   const [draft, setDraft] = useState(patient.therapistNotes);
   const [savedFlash, setSavedFlash] = useState(false);
   const [runFlash, setRunFlash] = useState(false);
@@ -161,6 +167,11 @@ function ClinicalAssessmentPanel({ patient }: { patient: Patient }) {
     try {
       const text = await summarizeTherapistAssessmentDraft(patient, t);
       setGeminiSummary(text);
+      updatePatient(patient.id, {
+        geminiClinicalNarrative: text,
+        diagnosis: deriveDiagnosisHeadline(text),
+      });
+      void savePersistedStateToCloud();
     } catch (e) {
       const msg =
         e instanceof GeminiRateLimitedError

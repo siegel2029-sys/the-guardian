@@ -1,5 +1,6 @@
 import { Activity } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import PainAnalytics from './PainAnalytics';
 
 /** דוחות קליניים למטופל נבחר — כאב ואזורים (ללא מפת גוף / תרגילים — בפורטל בלבד) */
@@ -22,7 +23,7 @@ export default function ClinicalReportsPanel() {
         <Activity className="w-5 h-5 text-teal-600" />
         דוחות קליניים
       </h2>
-      <p className="text-sm text-slate-500 mb-5">{p.name}</p>
+      <p className="text-sm text-slate-500 mb-5">{getPatientDisplayName(p)}</p>
       <PainAnalytics analytics={p.analytics} primaryBodyArea={p.primaryBodyArea} />
     </div>
   );
