@@ -382,7 +382,7 @@ export default function Sidebar() {
                     : 'border-transparent text-slate-900 hover:bg-slate-200 hover:border-slate-400'
                 }`}
               >
-                <Icon className="w-5 h-5 shrink-0" strokeWidth={2.5} />
+                <Icon className="w-5 h-5 shrink-0" />
                 {showBadge && (
                   <span className="absolute -top-0.5 -left-0.5 min-w-[18px] h-[18px] px-0.5 rounded-full bg-emerald-600 text-white text-[9px] font-black flex items-center justify-center border-2 border-white">
                     {totalUnreadMessages > 9 ? '9+' : totalUnreadMessages}
@@ -405,7 +405,7 @@ export default function Sidebar() {
             >
               <Icon
                 className={`w-5 h-5 shrink-0 ${isActive ? 'text-white' : 'text-slate-900'}`}
-                strokeWidth={2.5}
+              
               />
               <span className={`text-[15px] font-bold flex-1 leading-snug ${isActive ? 'text-white' : 'text-slate-950'}`}>
                 {label}
