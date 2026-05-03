@@ -44,6 +44,7 @@ import {
 } from './muscleVertexInflation';
 import EquippedGearAttachments from './equipped-gear/equipped-gear-attachments';
 import type { EquippedGearSnapshot } from '../../config/gearCatalog';
+import { avatarMeshCounterRotation } from './avatarPostureCorrection';
 
 // ── Static world-position for each area's pulsing glow light ─────
 /** ראש בולט יותר, צוואר קצר — מסונכרן עם HEAD_* למטה */
@@ -170,14 +171,6 @@ const GAIT_TORSO_PITCH_KEYFRAMES: readonly (readonly [number, number])[] = [
   [100, 0.028],
 ];
 
-const GAIT_TORSO_ROLL_KEYFRAMES: readonly (readonly [number, number])[] = [
-  [0, 0],
-  [25, 0.017],
-  [50, 0],
-  [75, -0.017],
-  [100, 0],
-];
-
 /** מרפק מסונכרן לפאזת רגל נגדית: יותר כיפוף ב־swing קדימה, כמעט ישר ב־stance אחורה */
 const GAIT_OPPOSITE_ELBOW_KEYFRAMES: readonly (readonly [number, number])[] = [
   [0, 0.4],
@@ -196,7 +189,7 @@ const ARM_HIP_TO_SHOULDER = 0.88;
  */
 const GAIT_HIP_SWING_MUL = -0.8;
 
-const GAIT_TORSO_YAW_MAX = 0.08;
+const GAIT_TORSO_YAW_MAX = 0;
 
 // ── Simple non-interactive meshes (base body silhouette) ──────────
 /** עור בסיס רך (נייטרלי; מיפוי קליני אדום/ירוק נשאר ב־MuscleSegment / limb tint) */
@@ -720,8 +713,8 @@ function IdleSwayRoot({ children }: { children: ReactNode }) {
 }
 
 /** פיבוט ירך / ברך להליכה במקום (קואורדינטות מקומיות מול מרכז הירך) */
-const WALK_HIP_L: [number, number, number] = [0.24, 0.08, 0.07];
-const WALK_HIP_R: [number, number, number] = [-0.24, 0.08, 0.07];
+const WALK_HIP_L: [number, number, number] = [0.24, 0.08, 0];
+const WALK_HIP_R: [number, number, number] = [-0.24, 0.08, 0];
 const WALK_KNEE_OFF: [number, number, number] = [0, -0.7, 0.01];
 
 /** שוק: קפסולה 0.32 + r 0.068; קצה תחתון ≈ −0.588 — כף מיושרת עם חפיפה קלה לקרסול */
@@ -1172,8 +1165,8 @@ export default function AnatomyModel({
     if (torsoSwayRef.current) {
       torsoSwayRef.current.rotation.x =
         lerpAngle(t, GAIT_TORSO_PITCH_KEYFRAMES) + postureTorsoPitch;
-      torsoSwayRef.current.rotation.z = lerpAngle(t, GAIT_TORSO_ROLL_KEYFRAMES);
-      /** סביבת Y: אל הרגל הקדמית/ב־swing (מקס׳ ~0.08) */
+      /** Roll (Z) must stay 0 — gait roll was tilting the whole torso sideways. */
+      torsoSwayRef.current.rotation.z = 0;
       torsoSwayRef.current.rotation.y =
         GAIT_TORSO_YAW_MAX * Math.cos(t * Math.PI * 2);
     }
@@ -1276,6 +1269,7 @@ export default function AnatomyModel({
       <IdleSwayRoot>
         <group scale={physiqueScale}>
         <group ref={walkRootRef}>
+        <group rotation={avatarMeshCounterRotation}>
       {/* Pulsing injury spotlight */}
       {primaryArea && (
         <pointLight
@@ -1601,6 +1595,7 @@ export default function AnatomyModel({
           resolution={768}
         />
       ) : null}
+        </group>
         </group>
         </group>
       </IdleSwayRoot>

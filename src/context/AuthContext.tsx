@@ -27,7 +27,6 @@ import {
   type PatientLoginChangeResult,
 } from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
-import { mockTherapist, mockTherapistB } from '../data/mockData';
 import type { Session, User } from '@supabase/supabase-js';
 import { hasPersistedSupabaseAuthSession, supabase } from '../lib/supabase';
 import { supabaseAuthErrorMessageHe } from '../lib/supabaseAuthErrors';
@@ -85,14 +84,14 @@ function isProfileAccessDeniedError(err: { code?: string; message?: string; stat
   );
 }
 
-/** מזהי therapistId מקומיים (דמו) המותאמים למטפל מחובר ל-Supabase לפי דוא״ל — לסינון מטופלים ישנים. */
+/** Returns the therapist's Supabase id plus legacy demo ids for backward-compat patient scoping. */
 function therapistPatientScopeIdsForUser(therapist: Therapist | null): string[] {
   if (!therapist) return [];
-  if (!isUuidLike(therapist.id)) return [therapist.id];
-  const em = therapist.email.trim().toLowerCase();
-  if (em === mockTherapist.email.toLowerCase()) return [therapist.id, mockTherapist.id];
-  if (em === mockTherapistB.email.toLowerCase()) return [therapist.id, mockTherapistB.id];
-  return [therapist.id];
+  const ids = [therapist.id];
+  if (isUuidLike(therapist.id)) {
+    ids.push('therapist-001', 'therapist-002');
+  }
+  return ids;
 }
 
 function therapistFromSession(snap: ReturnType<typeof loadAuthSnapshot>, therapistId: string): Therapist | null {
@@ -578,9 +577,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return null;
           }
           const patientId = metadataString(getSupabaseUserMetadata(data.user), 'patient_id');
-          if (patientId) {
-            await linkPatientAuthUserRow(supabase, patientId);
+          if (!patientId) {
+            // Account exists but has no patient_id in JWT metadata — misconfigured portal account.
+            setLoginError('חשבון פורטל לא תקין: חסר מזהה מטופל. פנו למטפל לתיקון.');
+            await supabase.auth.signOut();
+            setIsLoading(false);
+            return null;
           }
+          await linkPatientAuthUserRow(supabase, patientId);
           await loadSupabaseUserIntoState();
           setPatientPortalDisplayId((prev) => prev ?? normalized);
           setIsLoading(false);

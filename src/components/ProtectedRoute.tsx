@@ -15,14 +15,16 @@ function AuthLoadingFallback() {
 }
 
 /**
- * When a Supabase JWT exists (context or persisted in localStorage), never bounce to /login
- * while profile or app state is still loading.
+ * Gate access to a route: `allow` means a credential exists; `waitForBootstrap` means
+ * auth is still resolving and we should show a spinner rather than redirect.
+ * Always waits for the Supabase bootstrap to finish so sessionRole is known before routing.
  */
 function useRouteAccess() {
   const { isAuthenticated, hasSupabaseSession, isLoading } = useAuth();
   const persistedJwt = hasPersistedSupabaseAuthSession();
   const allow = isAuthenticated || hasSupabaseSession || persistedJwt;
-  const waitForBootstrap = persistedJwt ? false : isLoading && !allow;
+  // Always wait while Supabase is bootstrapping — this prevents routing before sessionRole is known.
+  const waitForBootstrap = isLoading;
   return { allow, waitForBootstrap, isAuthenticated, hasSupabaseSession, persistedJwt };
 }
 
@@ -51,9 +53,6 @@ function PatientPortalRoute() {
   const { sessionRole, patientSessionId } = useAuth();
   const { allow, waitForBootstrap } = useRouteAccess();
 
-  if (hasPersistedSupabaseAuthSession()) {
-    return <PatientDailyView />;
-  }
   if (waitForBootstrap) {
     return <AuthLoadingFallback />;
   }
@@ -70,9 +69,6 @@ function TherapistRoute() {
   const { sessionRole } = useAuth();
   const { allow, waitForBootstrap } = useRouteAccess();
 
-  if (hasPersistedSupabaseAuthSession()) {
-    return <DashboardLayout />;
-  }
   if (waitForBootstrap) {
     return <AuthLoadingFallback />;
   }
@@ -89,12 +85,6 @@ function RootRedirect() {
   const { sessionRole } = useAuth();
   const { allow, waitForBootstrap } = useRouteAccess();
 
-  if (hasPersistedSupabaseAuthSession()) {
-    if (sessionRole === 'patient') {
-      return <Navigate to="/patient-portal" replace />;
-    }
-    return <Navigate to="/therapist" replace />;
-  }
   if (waitForBootstrap) {
     return <AuthLoadingFallback />;
   }

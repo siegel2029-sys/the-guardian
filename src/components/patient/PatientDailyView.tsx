@@ -1287,20 +1287,6 @@ export default function PatientDailyView() {
               </div>
             </div>
 
-            {(selectedPatient.geminiClinicalNarrative?.trim() ||
-              selectedPatient.diagnosis?.trim()) && (
-              <div
-                className="mt-4 rounded-2xl border border-slate-200/90 bg-white/95 px-4 py-3 shadow-sm text-start"
-                dir="rtl"
-              >
-                <h3 className="text-xs font-black text-slate-500 uppercase tracking-wide mb-1.5">
-                  סיכום קליני מהמטפל
-                </h3>
-                <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
-                  {(selectedPatient.geminiClinicalNarrative ?? selectedPatient.diagnosis).trim()}
-                </p>
-              </div>
-            )}
 
             {!patientMustChangePassword && totalMissions > 0 && (
               <div

@@ -29,6 +29,7 @@ import {
 } from './skinningHighlightMaterial';
 import { GLTF_ANATOMY_URLS } from './gltf-anatomy-sources';
 import FallbackHumanoidPick from './FallbackHumanoidPick';
+import { avatarMeshCounterRotation } from './avatarPostureCorrection';
 
 export interface GltfAnatomyModelProps {
   activeAreas: BodyArea[];
@@ -328,15 +329,17 @@ function GltfAnatomyModelCore({
 
   return (
     <group ref={rootRef}>
-      <primitive
-        object={cloned}
-        onClick={handleClick}
-        onPointerMove={handlePointerMove}
-        onPointerOut={handlePointerOut}
-        onPointerOver={() => {
-          document.body.style.cursor = 'pointer';
-        }}
-      />
+      <group rotation={avatarMeshCounterRotation}>
+        <primitive
+          object={cloned}
+          onClick={handleClick}
+          onPointerMove={handlePointerMove}
+          onPointerOut={handlePointerOut}
+          onPointerOver={() => {
+            document.body.style.cursor = 'pointer';
+          }}
+        />
+      </group>
 
       {clinicalZone && (
         <pointLight

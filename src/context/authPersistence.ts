@@ -9,7 +9,7 @@ import {
   getDemoTherapistBPassword,
 } from '../lib/demoAuthEnv';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
-import { mockTherapist, mockTherapistB } from '../data/mockData';
+import { mockTherapist } from '../data/mockData';
 import type { Therapist } from '../types';
 
 export const AUTH_STORAGE_KEY = 'guardian-auth-v1';
@@ -109,38 +109,23 @@ type AuthSnapshotLegacyV1 = {
 export function defaultAuthSnapshot(): AuthSnapshotV2 {
   return {
     version: 2,
-    therapists: {
-      [mockTherapist.id]: {
-        email: mockTherapist.email,
-        password: getDemoTherapistAPassword(),
-        displayName: mockTherapist.name,
-        clinicName: mockTherapist.clinicName,
-      },
-      [mockTherapistB.id]: {
-        email: mockTherapistB.email,
-        password: getDemoTherapistBPassword(),
-        displayName: mockTherapistB.name,
-        clinicName: mockTherapistB.clinicName,
-      },
-    },
+    therapists: {},
     patientAccounts: {},
     session: null,
   };
 }
 
 function migrateLegacyV1(data: AuthSnapshotLegacyV1): AuthSnapshotV2 {
-  const def = defaultAuthSnapshot();
-  const tid = mockTherapist.id;
+  const tid = 'therapist-001';
   const therapists: Record<string, TherapistAuthRecord> = {
-    ...def.therapists,
     [tid]: {
       email: data.therapistEmail.trim(),
       password:
         typeof data.therapistPassword === 'string' && data.therapistPassword.length > 0
           ? data.therapistPassword
           : getDemoTherapistAPassword(),
-      displayName: mockTherapist.name,
-      clinicName: mockTherapist.clinicName,
+      displayName: data.therapistEmail.trim(),
+      clinicName: '',
     },
   };
   const patientAccounts: Record<string, PatientAccountV1> = {};

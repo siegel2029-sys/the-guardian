@@ -30,14 +30,6 @@ import type {
   KnowledgeFact,
   PainRecord,
 } from '../types';
-import {
-  mockPatients,
-  mockMessages,
-  mockExercisePlans,
-  mockAiSuggestions,
-  mockTherapist,
-  mockTherapistB,
-} from '../data/mockData';
 import { getClinicalAlertStandardMessage } from '../ai/patientProgressReasoning';
 import {
   rollingClinicalDayKeys,
@@ -48,6 +40,7 @@ import {
   screenPatientFreeTextForEmergency,
   type EmergencyScreenResult,
 } from '../safety/clinicalEmergencyScreening';
+import { mockTherapist, mockTherapistB } from '../data/mockData';
 import { getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
 import { addDevCalendarOffsetDays, bumpDevCalendarOffsetDays } from '../utils/debugMockDate';
 import { canPilot11DebugMutatePatient } from '../utils/pilot11GamificationDebug';
@@ -433,7 +426,7 @@ function normalizePatientsTherapistIds(
   list: Patient[],
   options?: { fallbackTherapistId?: string | null }
 ): Patient[] {
-  const fallback = options?.fallbackTherapistId ?? mockTherapist.id;
+  const fallback = options?.fallbackTherapistId ?? '';
   return list.map((p) => {
     const wa = (p.contactWhatsappE164 ?? '').replace(/\D/g, '');
     return normalizePatientProgressFields({
@@ -483,7 +476,7 @@ export function PatientProvider({
 
   const [allPatients, setAllPatients] = useState<Patient[]>(() => {
     const persisted = readPersistedOnce().patient;
-    const base = persisted?.patients ?? mockPatients;
+    const base = persisted?.patients ?? [];
     return normalizePatientsTherapistIds(base, {});
   });
   const allPatientsRef = useRef(allPatients);
@@ -501,7 +494,7 @@ export function PatientProvider({
 
   const [selectedPatientId, setSelectedPatientId] = useState<string>(() => {
     const persisted = readPersistedOnce().patient;
-    const listAll = normalizePatientsTherapistIds(persisted?.patients ?? mockPatients, {});
+    const listAll = normalizePatientsTherapistIds(persisted?.patients ?? [], {});
     if (restrictPatientSessionId && listAll.some((p) => p.id === restrictPatientSessionId)) {
       return restrictPatientSessionId;
     }
@@ -516,11 +509,11 @@ export function PatientProvider({
   const [activeSection, setActiveSection] = useState<NavSection>('overview');
   const [messages, setMessages] = useState<Message[]>(() => {
     const persisted = readPersistedOnce().patient;
-    return persisted?.messages ?? mockMessages;
+    return persisted?.messages ?? [];
   });
   const [exercisePlans, setExercisePlans] = useState<ExercisePlan[]>(() => {
     const persisted = readPersistedOnce().patient;
-    return persisted?.exercisePlans ?? mockExercisePlans;
+    return persisted?.exercisePlans ?? [];
   });
   const [dailySessions, setDailySessions] = useState<DailySession[]>(() => {
     const persisted = readPersistedOnce().patient;
@@ -532,13 +525,13 @@ export function PatientProvider({
     const persisted = readPersistedOnce().patient;
     return mergeHistoryFromSessions(
       persisted?.dailySessions ?? [],
-      persisted?.exercisePlans ?? mockExercisePlans,
+      persisted?.exercisePlans ?? [],
       {}
     );
   });
   const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>(() => {
     const persisted = readPersistedOnce().patient;
-    return persisted?.aiSuggestions ?? mockAiSuggestions;
+    return persisted?.aiSuggestions ?? [];
   });
   const [safetyAlerts, setSafetyAlerts] = useState<SafetyAlert[]>(() => {
     const persisted = readPersistedOnce().patient;
@@ -671,6 +664,48 @@ export function PatientProvider({
       return changed ? next : prev;
     });
   }, [therapist?.id, therapist?.email]);
+
+  /**
+   * Hydrate own patient record from Supabase when a patient is logged in on a fresh device.
+   * RLS `patients_select_patient` (auth_user_id = auth.uid()) returns only their own row.
+   * This is required because allPatients initialises from localStorage/mockPatients which
+   * won't contain the real patient on a brand-new device.
+   */
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    if (!restrictPatientSessionId) return;
+    if (authLoading || !isAuthenticated) return;
+    if (allPatientsRef.current.some((p) => p.id === restrictPatientSessionId)) return;
+
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from('patients')
+        .select('payload')
+        .eq('id', restrictPatientSessionId)
+        .maybeSingle();
+
+      if (cancelled) return;
+      if (error) {
+        if (import.meta.env.DEV) console.warn('[PatientContext] patient self-fetch', error.message);
+        return;
+      }
+      const payload = (data as { payload?: unknown } | null)?.payload;
+      if (
+        !payload ||
+        typeof payload !== 'object' ||
+        !('id' in payload) ||
+        typeof (payload as { id?: unknown }).id !== 'string'
+      ) return;
+
+      const fetched = payload as Patient;
+      setAllPatients((prev) => {
+        if (prev.some((p) => p.id === fetched.id)) return prev;
+        return [...prev, fetched];
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [restrictPatientSessionId, authLoading, isAuthenticated]);
 
   /** Hydrate patient list from Supabase (RLS returns only rows for the signed-in therapist). */
   useEffect(() => {

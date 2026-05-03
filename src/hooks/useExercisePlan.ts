@@ -19,7 +19,7 @@ import type {
   SelfCareSessionReport,
 } from '../types';
 import { bodyAreaLabels } from '../types';
-import { EXERCISE_LIBRARY, mockTherapist } from '../data/mockData';
+import { EXERCISE_LIBRARY } from '../data/mockData';
 import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../data/exerciseVideoDefaults';
 import { addClinicalDays, getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
 import { sendDataToTherapist } from '../utils/therapistAnalytics';
@@ -878,7 +878,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         return { ok: false, message: 'מזהה הפורטל תפוס בחשבון קיים.' };
       }
 
-      let ownerTid = mockTherapist.id;
+      let ownerTid = '';
       if (supabaseClient && isSupabaseAuthEnabled()) {
         const { data: gu } = await supabaseClient.auth.getUser();
         if (gu.user?.id) ownerTid = gu.user.id;

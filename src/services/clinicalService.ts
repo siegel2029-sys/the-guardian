@@ -1,28 +1,20 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 import type { ExercisePlan, Patient, Therapist } from '../types';
-import { mockTherapist, mockTherapistB } from '../data/mockData';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
 
 /**
- * RLS requires `patients.therapist_id = auth.uid()::text`. Local/demo data still uses
- * `therapist-001` etc.; map those to the signed-in user's id when email matches the demo therapist.
+ * RLS requires `patients.therapist_id = auth.uid()::text`. Legacy data may use
+ * `therapist-001` / `therapist-002`; map those to the signed-in user's real id.
  */
 function resolveTherapistIdForSupabaseRls(patientTherapistId: string, user: User): string | null {
   if (patientTherapistId === user.id) return user.id;
-  const em = user.email?.trim().toLowerCase() ?? '';
-  if (em === mockTherapist.email.toLowerCase() && patientTherapistId === mockTherapist.id) {
-    return user.id;
-  }
-  if (em === mockTherapistB.email.toLowerCase() && patientTherapistId === mockTherapistB.id) {
+  if (patientTherapistId === 'therapist-001' || patientTherapistId === 'therapist-002') {
     return user.id;
   }
   return null;
 }
 
-const THERAPISTS_BY_ID: Record<string, Therapist> = {
-  [mockTherapist.id]: mockTherapist,
-  [mockTherapistB.id]: mockTherapistB,
-};
+const THERAPISTS_BY_ID: Record<string, Therapist> = {};
 
 export type ClinicalPushResult = { ok: true } | { ok: false; message: string };
 

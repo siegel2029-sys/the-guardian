@@ -11,11 +11,10 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { mockTherapist, mockTherapistB } from '../../data/mockData';
-import { PATIENT_REWARDS } from '../../config/patientRewards';
-import { RewardLabel } from '../ui/RewardLabel';
 
 type AuthCardMode = 'login' | 'signup';
+
+const THERAPIST_REGISTRATION_PIN = '1234';
 
 const VERIFY_EMAIL_SUCCESS_HE =
   'נשלח אליכם מייל לאימות כתובת הדוא״ל. לאחר לחיצה על הקישור במייל תוכלו לחזור לכאן ולהתחבר. אם אינכם רואים את המייל, בדקו גם בתיקיית הספאם.';
@@ -39,12 +38,11 @@ export default function LoginPage() {
   const [mode, setMode] = useState<AuthCardMode>('login');
   const [signUpStep, setSignUpStep] = useState<'form' | 'check_email'>('form');
 
-  const [email, setEmail] = useState(() =>
-    typeof window !== 'undefined' ? mockTherapist.email : 'michal.levi@guardian-clinic.co.il'
-  );
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showHint, setShowHint] = useState(false);
+  const [pinGateError, setPinGateError] = useState(false);
 
   const [fullName, setFullName] = useState('');
   const [signUpEmail, setSignUpEmail] = useState('');
@@ -55,6 +53,21 @@ export default function LoginPage() {
     clearLoginError();
     setSignUpStep('form');
     setMode(next);
+    if (next === 'login') {
+      setPinGateError(false);
+    }
+  };
+
+  const handleTherapistRegistrationClick = () => {
+    setPinGateError(false);
+    const entered = window.prompt('הזינו קוד PIN בארבע ספרות');
+    if (entered === null) return;
+    const normalized = entered.trim();
+    if (normalized === THERAPIST_REGISTRATION_PIN) {
+      switchMode('signup');
+      return;
+    }
+    setPinGateError(true);
   };
 
   const handleLoginSubmit = async (e: FormEvent) => {
@@ -103,71 +116,24 @@ export default function LoginPage() {
           >
             <Shield className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-slate-800">The Guardian</h1>
+          <h1 className="text-3xl font-bold text-slate-800">PHYSIOSHIELD</h1>
           <p className="text-slate-500 mt-1 text-base">פורטל מטפלים מקצועי</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-teal-100">
-          <div
-            className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100/90 border border-slate-200/80 mb-6"
-            dir="rtl"
-            role="tablist"
-            aria-label="בחירת מצב כניסה או הרשמה"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'login'}
-              onClick={() => switchMode('login')}
-              className={`rounded-lg py-2.5 text-sm font-medium transition-all duration-200 ${
-                mode === 'login'
-                  ? 'bg-white text-teal-800 shadow-sm border border-teal-100/80'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              כניסה
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'signup'}
-              onClick={() => switchMode('signup')}
-              className={`rounded-lg py-2.5 text-sm font-medium transition-all duration-200 ${
-                mode === 'signup'
-                  ? 'bg-white text-teal-800 shadow-sm border border-teal-100/80'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              יצירת חשבון מטפל
-            </button>
-          </div>
-
           {mode === 'login' ? (
             <>
-              <h2 className="text-xl font-semibold text-slate-800 mb-1 text-right">ברוכים הבאים</h2>
-              <p className="text-slate-500 text-sm mb-3 text-right">
-                מטפלים: דוא״ל מקצועי. מטופלים: מזהה הפורטל (רמזים, לדוגמה JD) שקיבלתם מהמטפל — לא דוא״ל.
-              </p>
-              <div className="flex flex-wrap items-center justify-end gap-2 mb-6" dir="rtl">
-                <span className="text-[11px] text-slate-500">מטופלים — בונוס כניסה יומית בפורטל:</span>
-                <RewardLabel
-                  xp={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.xp}
-                  coins={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.coins}
-                />
-              </div>
+              <h2 className="text-xl font-semibold text-slate-800 mb-6 text-right">ברוכים הבאים</h2>
 
               <form onSubmit={handleLoginSubmit} className="space-y-5" dir="rtl">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    דוא״ל (מטפל) או מזהה פורטל (מטופל)
-                  </label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">שם משתמש</label>
                   <div className="relative">
-                    <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <UserRound className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                       type="text"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="michal.levi@… או JD"
                       required
                       autoComplete="username"
                       className="w-full pr-10 pl-4 py-3 rounded-xl border border-slate-200 text-slate-800 text-sm
@@ -188,7 +154,6 @@ export default function LoginPage() {
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="הכנס סיסמה"
                       required
                       autoComplete="current-password"
                       className="w-full pr-10 pl-10 py-3 rounded-xl border border-slate-200 text-slate-800 text-sm
@@ -286,9 +251,6 @@ export default function LoginPage() {
                           <span className="font-mono">VITE_DEMO_THERAPIST_B_PASSWORD</span>,{' '}
                           <span className="font-mono">VITE_DEMO_SEED_PATIENT_PORTAL_PASSWORD</span> — לא מוצגות כאן.
                         </p>
-                        <p className="font-mono text-[11px] break-all opacity-90">
-                          {mockTherapist.email} · {mockTherapistB.email}
-                        </p>
                       </>
                     ) : (
                       <p className="text-xs">
@@ -298,6 +260,21 @@ export default function LoginPage() {
                   </div>
                 )}
               </form>
+
+              <div className="mt-6 flex flex-col items-center gap-1">
+                {pinGateError && (
+                  <p className="text-xs text-red-400/90 text-center" role="status">
+                    קוד שגוי
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={handleTherapistRegistrationClick}
+                  className="text-xs text-gray-400 hover:text-gray-500 transition-colors"
+                >
+                  רישום צוות
+                </button>
+              </div>
             </>
           ) : signUpStep === 'check_email' ? (
             <div className="space-y-5 text-right" dir="rtl">
@@ -322,10 +299,16 @@ export default function LoginPage() {
             </div>
           ) : (
             <>
-              <h2 className="text-xl font-semibold text-slate-800 mb-1 text-right">יצירת חשבון מטפל</h2>
-              <p className="text-slate-500 text-sm mb-6 text-right">
-                הרשמה למטפלים בלבד. לאחר ההרשמה תוכלו לנהל מטופלים בדשבורד. מטופלים נרשמים דרך המטפל — לא כאן.
-              </p>
+              <div className="flex flex-col gap-2 mb-6 text-right" dir="rtl">
+                <button
+                  type="button"
+                  onClick={() => switchMode('login')}
+                  className="self-start text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  חזרה לכניסה
+                </button>
+                <h2 className="text-xl font-semibold text-slate-800">יצירת חשבון מטפל</h2>
+              </div>
 
               <form onSubmit={handleSignUpSubmit} className="space-y-5" dir="rtl">
                 <div>
@@ -462,7 +445,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-6">
-          © 2026 The Guardian · כל הזכויות שמורות
+          © 2026 PHYSIOSHIELD · כל הזכויות שמורות
         </p>
       </div>
     </div>
