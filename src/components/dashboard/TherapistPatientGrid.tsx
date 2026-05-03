@@ -1,5 +1,6 @@
-import { User, ClipboardList, Activity, AlertCircle } from 'lucide-react';
+import { ClipboardList, Activity, AlertCircle } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import type { Patient } from '../../types';
 
 type BadgeKind = 'active_today' | 'needs_plan' | 'high_pain';
@@ -74,7 +75,7 @@ export default function TherapistPatientGrid() {
               key={p.id}
               type="button"
               onClick={() => selectPatient(p.id)}
-              className={`text-start rounded-2xl border-2 p-4 transition-all shadow-sm hover:shadow-md ${
+              className={`text-start rounded-2xl border-2 p-4 transition-all shadow-sm hover:shadow-md active:scale-[0.99] min-h-[80px] ${
                 selected
                   ? 'border-teal-500 bg-gradient-to-br from-teal-50/90 to-white ring-2 ring-teal-200/60'
                   : 'border-slate-200 bg-white hover:border-teal-200'
@@ -89,10 +90,10 @@ export default function TherapistPatientGrid() {
                       : 'linear-gradient(135deg, #64748b, #94a3b8)',
                   }}
                 >
-                  {p.name.charAt(0)}
+                  {getPatientDisplayName(p).charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-slate-900 truncate">{p.name}</p>
+                  <p className="font-bold text-slate-900 truncate">{getPatientDisplayName(p)}</p>
                   <p className="text-xs text-slate-600 truncate mt-0.5">{p.diagnosis}</p>
                   <div className="flex items-center gap-2 mt-2 text-[11px] text-slate-500">
                     <span className="inline-flex items-center gap-1">
@@ -105,7 +106,6 @@ export default function TherapistPatientGrid() {
                     </span>
                   </div>
                 </div>
-                <User className="w-4 h-4 text-slate-300 shrink-0 mt-1" aria-hidden />
               </div>
               <div className="flex flex-wrap gap-1.5 mt-3">
                 {badgeList.length === 0 ? (

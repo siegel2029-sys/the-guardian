@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   User, CalendarDays, Stethoscope, FileText, ClipboardList, AlertTriangle,
-  KeyRound, Copy, Eye, EyeOff,
+  KeyRound, Copy, Eye, EyeOff, MessageSquare, BarChart3,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
@@ -20,6 +20,7 @@ import SmartClinicalAnalysisCenter from './clinical/SmartClinicalAnalysisCenter'
 import PatientDataManagement from './clinical/PatientDataManagement';
 import PatientClinicalRecordSection from './clinical/PatientClinicalRecordSection';
 import PatientClinicalHistory from './clinical/PatientClinicalHistory';
+import TherapistPatientGrid from './TherapistPatientGrid';
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
@@ -49,6 +50,7 @@ export default function PatientOverview() {
     getSelfCareZones,
     getSelfCareReportsForPatient,
     getPatientExerciseFinishReports,
+    setActiveSection,
   } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
   const [showClinicalModal, setShowClinicalModal] = useState(false);
@@ -80,12 +82,17 @@ export default function PatientOverview() {
 
   if (!selectedPatient) {
     return (
-      <div
-        className="flex items-center justify-center h-full text-slate-500 text-sm px-4 text-center"
-        dir="rtl"
-        style={{ background: '#f1f5f9' }}
-      >
-        בחרו מטופל מרשימת הפיקוד הקליני בסרגל הצד
+      <div className="h-full overflow-y-auto" style={{ background: '#f1f5f9' }} dir="rtl">
+        <div className="p-4 md:p-6 max-w-4xl mx-auto">
+          <header className="mb-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-800/80 mb-1">
+              מרכז פיקוד קליני
+            </p>
+            <h1 className="text-xl md:text-2xl font-black text-slate-900">סקירה קלינית</h1>
+            <p className="text-sm text-slate-500 mt-1">בחרו מטופל להצגת הנתונים הקליניים</p>
+          </header>
+          <TherapistPatientGrid />
+        </div>
       </div>
     );
   }
@@ -200,29 +207,58 @@ export default function PatientOverview() {
                 </div>
               </div>
             </div>
-            <div className="flex flex-col gap-2 shrink-0 w-full lg:w-auto">
+            {/* Quick Actions — always visible, touch-friendly (min 44 px) */}
+            <div className="flex flex-row flex-wrap lg:flex-col gap-2 shrink-0 w-full lg:w-auto">
               <button
                 type="button"
                 onClick={() => setShowManageModal(true)}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5"
+                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 active:scale-95"
                 style={{ background: 'linear-gradient(135deg, #1d4ed8, #2563eb)' }}
+                title="עדכון תוכנית תרגול"
               >
-                <ClipboardList className="w-4 h-4" />
-                ניהול תוכנית
+                <ClipboardList className="w-4 h-4 shrink-0" />
+                <span>עדכן תוכנית</span>
                 {exerciseCount > 0 && (
-                  <span className="w-5 h-5 rounded-full bg-white/25 flex items-center justify-center text-xs font-black">
+                  <span className="w-5 h-5 rounded-full bg-white/25 flex items-center justify-center text-xs font-black shrink-0">
                     {exerciseCount}
                   </span>
                 )}
               </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection('messages')}
+                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold border-2 border-teal-500 text-teal-900 bg-teal-50 hover:bg-teal-100 active:scale-95 transition-all"
+                title="שלח הודעה למטופל"
+              >
+                <MessageSquare className="w-4 h-4 shrink-0" />
+                <span>שלח הודעה</span>
+                {unreadFromPatient > 0 && (
+                  <span className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs font-black shrink-0">
+                    {unreadFromPatient}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection('analytics')}
+                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold border-2 border-slate-300 text-slate-700 bg-white hover:bg-slate-50 active:scale-95 transition-all"
+                title="צפה בנתוני התקדמות"
+              >
+                <BarChart3 className="w-4 h-4 shrink-0" />
+                <span>התקדמות</span>
+              </button>
+
               {needsClinicalSetup && (
                 <button
                   type="button"
                   onClick={() => setShowClinicalModal(true)}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 border-amber-500 text-amber-900 bg-amber-50 hover:bg-amber-100"
+                  className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold border-2 border-amber-500 text-amber-900 bg-amber-50 hover:bg-amber-100 active:scale-95 transition-all"
+                  title="הגדרת פרופיל קליני"
                 >
-                  <Stethoscope className="w-4 h-4" />
-                  עריכת פרופיל קליני
+                  <Stethoscope className="w-4 h-4 shrink-0" />
+                  <span>הגדרת פרופיל</span>
                 </button>
               )}
             </div>

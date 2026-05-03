@@ -1,5 +1,7 @@
+import { useState, useCallback } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import MobileBottomNav from './MobileBottomNav';
 import PatientOverview from '../dashboard/PatientOverview';
 import MessagesPanel from '../dashboard/MessagesPanel';
 import ClinicalReportsPanel from '../dashboard/ClinicalReportsPanel';
@@ -11,6 +13,10 @@ import type { NavSection } from '../../types';
 
 export default function DashboardLayout() {
   const { activeSection } = usePatient();
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+
+  const openMobileDrawer = useCallback(() => setMobileDrawerOpen(true), []);
+  const closeMobileDrawer = useCallback(() => setMobileDrawerOpen(false), []);
 
   const renderContent = () => {
     const raw = activeSection as string;
@@ -36,19 +42,48 @@ export default function DashboardLayout() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: '#F0F9FA' }}>
-      {/* Sidebar */}
-      <Sidebar />
+    <div className="flex h-dvh overflow-hidden" style={{ background: '#F0F9FA' }}>
+      {/* Desktop sidebar — hidden on mobile */}
+      <div className="hidden md:flex md:h-full md:shrink-0">
+        <Sidebar />
+      </div>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <Header />
+      {/* Mobile sidebar drawer overlay */}
+      <div
+        className={`fixed inset-0 z-50 md:hidden transition-opacity duration-200 ${
+          mobileDrawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        aria-hidden={!mobileDrawerOpen}
+      >
+        {/* Backdrop */}
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          onClick={closeMobileDrawer}
+          aria-hidden
+        />
+        {/* Drawer panel — slides in from right (RTL: leading edge) */}
+        <div
+          className={`absolute inset-y-0 right-0 w-72 shadow-2xl transition-transform duration-200 ${
+            mobileDrawerOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        >
+          <Sidebar mobileMode onClose={closeMobileDrawer} />
+        </div>
+      </div>
 
-        {/* Page Content */}
+      {/* Main content */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <Header onMenuToggle={openMobileDrawer} />
+
         <main className="flex-1 min-h-0 overflow-hidden flex flex-col">
-          <div className="flex-1 min-h-0 overflow-hidden">{renderContent()}</div>
+          {/* Extra bottom padding on mobile so content isn't hidden behind bottom nav */}
+          <div className="flex-1 min-h-0 overflow-hidden [padding-bottom:env(safe-area-inset-bottom)] pb-14 md:pb-0">
+            {renderContent()}
+          </div>
         </main>
+
+        {/* Mobile bottom navigation */}
+        <MobileBottomNav onOpenSidebar={openMobileDrawer} />
       </div>
     </div>
   );

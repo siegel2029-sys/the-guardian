@@ -19,6 +19,7 @@ import {
   Pin,
   Users,
   PanelRightOpen,
+  X,
 } from 'lucide-react';
 import RedFlagEmailNotificationModal from './RedFlagEmailNotificationModal';
 import { useAuth } from '../../context/AuthContext';
@@ -48,7 +49,14 @@ const statusLabels: Record<string, string> = {
   paused: 'מושהה',
 };
 
-export default function Sidebar() {
+type Props = {
+  /** When true the sidebar always renders expanded and adds a close button (mobile drawer mode). */
+  mobileMode?: boolean;
+  /** Called when the user taps the close button or a nav item in mobile mode. */
+  onClose?: () => void;
+};
+
+export default function Sidebar({ mobileMode = false, onClose }: Props) {
   const navigate = useNavigate();
   const { therapist, logout } = useAuth();
   const {
@@ -67,7 +75,8 @@ export default function Sidebar() {
   const [hoverOpen, setHoverOpen] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
 
-  const expanded = hoverOpen || pinnedOpen;
+  // In mobile mode the panel is always fully expanded
+  const expanded = mobileMode || hoverOpen || pinnedOpen;
 
   const totalUnreadMessages = patients.reduce((sum, p) => {
     const unread = getPatientMessages(p.id).filter(
@@ -84,13 +93,15 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`flex flex-col h-screen shrink-0 border-l-2 border-slate-900/15 bg-white shadow-[inset_1px_0_0_rgba(15,23,42,0.06)] transition-[width] duration-200 ease-out z-30 ${
-        expanded ? 'w-64' : 'w-14'
+      className={`flex flex-col shrink-0 border-l-2 border-slate-900/15 bg-white shadow-[inset_1px_0_0_rgba(15,23,42,0.06)] z-30 ${
+        mobileMode
+          ? 'w-full h-full overflow-y-auto'
+          : `h-screen transition-[width] duration-200 ease-out ${expanded ? 'w-64' : 'w-14'}`
       }`}
-      style={{ minWidth: expanded ? undefined : '3.5rem' }}
+      style={{ minWidth: mobileMode ? undefined : expanded ? undefined : '3.5rem' }}
       dir="rtl"
-      onMouseEnter={() => setHoverOpen(true)}
-      onMouseLeave={() => setHoverOpen(false)}
+      onMouseEnter={mobileMode ? undefined : () => setHoverOpen(true)}
+      onMouseLeave={mobileMode ? undefined : () => setHoverOpen(false)}
     >
       {/* Brand */}
       <div className="px-2 py-3 border-b-2 border-slate-200 bg-slate-50 shrink-0">
@@ -139,19 +150,32 @@ export default function Sidebar() {
                   </span>
                 </div>
               )}
-              <button
-                type="button"
-                onClick={() => setPinnedOpen((p) => !p)}
-                className={`p-2 rounded-xl border-2 transition-colors ${
-                  pinnedOpen
-                    ? 'border-slate-900 bg-slate-900 text-white'
-                    : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'
-                }`}
-                title={pinnedOpen ? 'שחרר — הסרגל ייסגר כשתעזבו אותו' : 'הצמד — הסרגל יישאר פתוח'}
-                aria-pressed={pinnedOpen}
-              >
-                <Pin className={`w-4 h-4 ${pinnedOpen ? 'fill-current' : ''}`} strokeWidth={2.5} />
-              </button>
+              {/* Mobile close button — shown instead of pin */}
+              {mobileMode ? (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-2 rounded-xl border-2 border-slate-300 bg-white text-slate-800 hover:border-red-300 hover:bg-red-50 hover:text-red-700 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  title="סגור תפריט"
+                  aria-label="סגור תפריט"
+                >
+                  <X className="w-4 h-4" strokeWidth={2.5} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setPinnedOpen((p) => !p)}
+                  className={`p-2 rounded-xl border-2 transition-colors ${
+                    pinnedOpen
+                      ? 'border-slate-900 bg-slate-900 text-white'
+                      : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'
+                  }`}
+                  title={pinnedOpen ? 'שחרר — הסרגל ייסגר כשתעזבו אותו' : 'הצמד — הסרגל יישאר פתוח'}
+                  aria-pressed={pinnedOpen}
+                >
+                  <Pin className={`w-4 h-4 ${pinnedOpen ? 'fill-current' : ''}`} strokeWidth={2.5} />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -188,8 +212,9 @@ export default function Sidebar() {
                       onClick={() => {
                         selectPatient(patient.id);
                         setActiveSection('overview');
+                        if (mobileMode) onClose?.();
                       }}
-                      className="flex-1 flex items-center gap-2 px-2 py-2 text-right min-w-0"
+                      className="flex-1 flex items-center gap-2 px-2 py-2 text-right min-w-0 min-h-[44px]"
                     >
                       <div
                         className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-black shrink-0 bg-slate-900"
@@ -396,8 +421,11 @@ export default function Sidebar() {
             <button
               key={id}
               type="button"
-              onClick={() => setActiveSection(id)}
-              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-right border-2 transition-colors ${
+              onClick={() => {
+                setActiveSection(id);
+                if (mobileMode) onClose?.();
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-right border-2 transition-colors min-h-[44px] ${
                 isActive
                   ? 'bg-slate-900 text-white border-slate-900 shadow-md'
                   : 'border-transparent text-slate-950 bg-white hover:bg-slate-100 hover:border-slate-400'
