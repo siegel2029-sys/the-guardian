@@ -5,6 +5,7 @@ import { hasPersistedSupabaseAuthSession } from '../lib/supabase';
 import LoginPage from './auth/LoginPage';
 import DashboardLayout from './layout/DashboardLayout';
 import PatientDailyView from './patient/PatientDailyView';
+import AccessibilityPage from './AccessibilityPage';
 
 function AuthLoadingFallback() {
   return (
@@ -101,6 +102,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
+      <Route path="/accessibility" element={<AccessibilityPage />} />
       <Route path="/shop" element={<Navigate to="/patient-portal/gear" replace />} />
       <Route path="/patient-portal/*" element={<PatientPortalRoute />} />
       <Route path="/therapist" element={<TherapistRoute />} />

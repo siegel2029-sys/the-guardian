@@ -1,0 +1,59 @@
+---
+description: Accessibility standards for PHYSIOSHIELD — semantic HTML, ARIA, and alt text
+globs: **/*.tsx
+alwaysApply: false
+---
+
+# Accessibility Standards
+
+## Semantic HTML
+
+Always prefer semantic HTML elements over generic `<div>`/`<span>`:
+
+```tsx
+// ❌ BAD
+<div onClick={handleSave}>שמור</div>
+<div role="banner"><span>כותרת</span></div>
+
+// ✅ GOOD
+<button type="button" onClick={handleSave}>שמור</button>
+<header><h1>כותרת</h1></header>
+```
+
+Use `<header>`, `<nav>`, `<main>`, `<section>`, `<footer>`, `<article>` at page/layout level.
+
+## Icon Buttons — aria-label Required
+
+Every interactive element without visible text MUST have an `aria-label`:
+
+```tsx
+// ❌ BAD
+<button onClick={onClose}><XIcon /></button>
+
+// ✅ GOOD
+<button type="button" onClick={onClose} aria-label="סגור"><XIcon aria-hidden="true" /></button>
+```
+
+Mark decorative icons with `aria-hidden="true"`.
+
+## Images & Avatars
+
+All `<img>` elements must have an `alt` attribute:
+
+```tsx
+// ❌ BAD
+<img src={avatarUrl} />
+
+// ✅ GOOD
+<img src={avatarUrl} alt={`תמונת פרופיל של ${patientName}`} />
+// Decorative:
+<img src={decorativeBg} alt="" />
+```
+
+## Form Labels
+
+Every `<input>`, `<select>`, and `<textarea>` must be associated with a `<label>` via `htmlFor`/`id`, or have `aria-label`.
+
+## Focus Visibility
+
+Never remove focus outlines without a visible replacement (`focus-visible:ring-*`).

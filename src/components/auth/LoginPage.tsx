@@ -444,7 +444,14 @@ export default function LoginPage() {
           )}
         </div>
 
-        <p className="text-center text-xs text-slate-400 mt-6">
+        <p className="text-center text-xs text-slate-400 mt-6 space-x-1">
+          <a
+            href="/accessibility"
+            className="hover:text-teal-600 underline underline-offset-2 transition-colors"
+          >
+            הצהרת נגישות
+          </a>
+          <span aria-hidden="true"> · </span>
           © 2026 PHYSIOSHIELD · כל הזכויות שמורות
         </p>
       </div>
