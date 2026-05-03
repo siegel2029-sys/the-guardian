@@ -930,6 +930,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         redFlagActive: false,
         therapistNotes: '',
         coins: 0,
+        clinicalTimeline: [],
         injuryHighlightSegments: [],
         secondaryClinicalBodyAreas: [],
         analytics: {

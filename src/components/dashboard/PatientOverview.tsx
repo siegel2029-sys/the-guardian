@@ -5,10 +5,6 @@ import {
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
-import {
-  computeClinicalProgressInsight,
-  type ClinicalProgressInsight,
-} from '../../ai/clinicalCommandInsight';
 import RedFlagAlert from './RedFlagAlert';
 import AiSuggestionsPanel from './AiSuggestionsPanel';
 import PendingApprovalsPanel from './PendingApprovalsPanel';
@@ -16,10 +12,8 @@ import ManagePlanModal from './ManagePlanModal';
 import ClinicalAiIntakeWizard from './ClinicalAiIntakeWizard';
 import TherapistQuickChat from './clinical/TherapistQuickChat';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
-import SmartClinicalAnalysisCenter from './clinical/SmartClinicalAnalysisCenter';
+import SmartClinicalDocumentation from './clinical/SmartClinicalDocumentation';
 import PatientDataManagement from './clinical/PatientDataManagement';
-import PatientClinicalRecordSection from './clinical/PatientClinicalRecordSection';
-import PatientClinicalHistory from './clinical/PatientClinicalHistory';
 import TherapistPatientGrid from './TherapistPatientGrid';
 import SidebarNewPatient from '../layout/SidebarNewPatient';
 import { bodyAreaLabels } from '../../types';
@@ -42,15 +36,9 @@ export default function PatientOverview() {
     getExercisePlan,
     getPatientMessages,
     messages,
-    clinicalToday,
-    dailyHistoryByPatient,
-    safetyAlerts,
     isPatientExerciseSafetyLocked,
     clearPatientExerciseSafetyLock,
     applyInitialClinicalProfile,
-    getSelfCareZones,
-    getSelfCareReportsForPatient,
-    getPatientExerciseFinishReports,
     setActiveSection,
     patients,
   } = usePatient();
@@ -69,19 +57,6 @@ export default function PatientOverview() {
     ).length;
   }, [selectedPatient, getPatientMessages, messages]);
 
-  const lastAlertIso = useMemo(() => {
-    if (!selectedPatient) return null;
-    const mine = safetyAlerts
-      .filter((a) => a.patientId === selectedPatient.id)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return mine[0]?.createdAt ?? null;
-  }, [selectedPatient, safetyAlerts]);
-
-  const progressInsight = useMemo((): ClinicalProgressInsight | null => {
-    if (!selectedPatient) return null;
-    return computeClinicalProgressInsight(selectedPatient, clinicalToday);
-  }, [selectedPatient, clinicalToday]);
-
   const rosterStats = useMemo(() => {
     return {
       total: patients.length,
@@ -97,10 +72,9 @@ export default function PatientOverview() {
         <div className="p-4 md:p-8 max-w-7xl mx-auto">
           <header className="flex flex-col gap-4 mb-6 md:flex-row md:justify-between md:items-center">
             <div>
-              <p className="text-sm text-gray-500">מרכז פיקוד קליני</p>
               <h1 className="text-2xl font-bold text-slate-900">ברוכים השבים</h1>
               <p className="text-sm text-gray-500 mt-1">
-                בחרו מטופל להצגת הנתונים הקליניים או הוסיפו מטופל חדש
+                בחרו מטופל להצגת הנתונים או הוסיפו מטופל חדש
               </p>
             </div>
             <SidebarNewPatient layout="dashboard" />
@@ -171,7 +145,6 @@ export default function PatientOverview() {
   }
 
   const p = selectedPatient;
-  const insightForUi = progressInsight as ClinicalProgressInsight;
   const style = statusStyles[p.status];
   const plan = getExercisePlan(p.id);
   const exerciseCount = plan?.exercises.length ?? 0;
@@ -192,11 +165,8 @@ export default function PatientOverview() {
       <div className="p-4 md:p-8 max-w-6xl mx-auto">
         <header className="flex flex-col gap-4 mb-6 md:flex-row md:justify-between md:items-center">
           <div>
-            <p className="text-sm text-gray-500">מרכז פיקוד קליני</p>
-            <h1 className="text-2xl font-bold text-slate-900">סקירה קלינית</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              סיכום למטופל הנבחר · נתונים חיים מהמערכת (נשמרים בדפדפן)
-            </p>
+            <h1 className="text-2xl font-bold text-slate-900">{getPatientDisplayName(p)}</h1>
+            <p className="text-sm text-gray-500 mt-1">תיעוד, מעקב וכלים</p>
           </div>
           <SidebarNewPatient layout="dashboard" />
         </header>
@@ -342,22 +312,7 @@ export default function PatientOverview() {
           )}
         </div>
 
-        <PatientClinicalHistory patientId={p.id} />
-
-        <PatientClinicalRecordSection patient={p} />
-
-        <SmartClinicalAnalysisCenter
-          patient={p}
-          clinicalToday={clinicalToday}
-          plan={plan}
-          dailyHistoryForPatient={dailyHistoryByPatient[p.id]}
-          selfSelectedZones={getSelfCareZones(p.id)}
-          selfCareReports={getSelfCareReportsForPatient(p.id)}
-          finishReports={getPatientExerciseFinishReports(p.id)}
-          progressInsight={insightForUi}
-          unreadFromPatient={unreadFromPatient}
-          lastAlertIso={lastAlertIso}
-        />
+        <SmartClinicalDocumentation patient={p} />
 
         <div className="mb-5">
           <TherapistQuickChat patientId={p.id} patientName={getPatientDisplayName(p)} />

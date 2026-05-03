@@ -47,6 +47,74 @@ export async function fetchPlanHistory(
   }));
 }
 
+/** גרסאות תוכנית מתרגילים לצורך הקשר AI / תצוגה */
+export type ExercisePlanContextRow = {
+  versionNumber: number;
+  isActive: boolean;
+  updatedAt: string;
+  exerciseCount: number;
+  changeSummary: string | null;
+};
+
+/** סשנים אחרונים מ־Supabase (לפי תאריך יורד). */
+export async function fetchRecentSessionHistoryForPatient(
+  client: SupabaseClient,
+  patientId: string,
+  limit = 14
+): Promise<DailySession[] | null> {
+  const { data, error } = await client
+    .from('session_history')
+    .select('session_date, payload')
+    .eq('patient_id', patientId)
+    .order('session_date', { ascending: false })
+    .limit(limit);
+
+  if (error) return null;
+
+  const out: DailySession[] = [];
+  for (const row of data ?? []) {
+    const sessionDate = (row as { session_date: string }).session_date;
+    const payload = (row as { payload: unknown }).payload as DailySession | null;
+    if (payload && typeof payload === 'object' && typeof payload.date === 'string') {
+      out.push(payload);
+    } else {
+      out.push({
+        patientId,
+        date: sessionDate,
+        completedIds: [],
+        sessionXp: 0,
+      });
+    }
+  }
+  return out;
+}
+
+export async function fetchExercisePlanVersionsForPatient(
+  client: SupabaseClient,
+  patientId: string,
+  limit = 8
+): Promise<ExercisePlanContextRow[] | null> {
+  const { data, error } = await client
+    .from('exercise_plans')
+    .select('version_number, is_active, updated_at, exercises, change_summary')
+    .eq('patient_id', patientId)
+    .order('version_number', { ascending: false })
+    .limit(limit);
+
+  if (error) return null;
+
+  return (data ?? []).map((row) => {
+    const ex = row.exercises as unknown[] | null;
+    return {
+      versionNumber: row.version_number as number,
+      isActive: row.is_active === true,
+      updatedAt: row.updated_at as string,
+      exerciseCount: Array.isArray(ex) ? ex.length : 0,
+      changeSummary: (row.change_summary as string | null) ?? null,
+    };
+  });
+}
+
 export async function upsertSessionHistory(
   client: SupabaseClient,
   dailySessions: DailySession[],

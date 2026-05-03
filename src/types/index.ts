@@ -195,7 +195,18 @@ export interface Patient {
   secondaryClinicalBodyAreas: BodyArea[];
   /** שדה קשר ישן (מספר בינלאומי ללא +) — נשמר לתאימות; התראות קליניות נשלחות בדוא״ל בלבד */
   contactWhatsappE164?: string;
+  /**
+   * רשומות תיעוד קליני מאושרות (ציר זמן) — נשמר ב־payload מטופל ומסונכרן ל־Supabase.
+   */
+  clinicalTimeline?: ClinicalTimelineEntry[];
 }
+
+/** רשומת ציר זמן קליני — תאריך + טקסט סופי לאחר אישור מטפל */
+export type ClinicalTimelineEntry = {
+  id: string;
+  createdAt: string;
+  text: string;
+};
 
 /** שדות נוספים לשמירת פרופיל קליני ראשוני (אינטייק AI) */
 export type InitialClinicalProfileExtras = {

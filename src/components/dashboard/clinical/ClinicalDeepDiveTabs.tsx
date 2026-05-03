@@ -1,23 +1,16 @@
-import { useState, useMemo, useEffect } from 'react';
-import { LineChart, Dumbbell, Stethoscope, ClipboardList, ClipboardCheck, Loader2, Sparkles } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { LineChart, Dumbbell, ClipboardCheck } from 'lucide-react';
 import type { Patient } from '../../../types';
 import { bodyAreaLabels } from '../../../types';
-import { usePatient } from '../../../context/PatientContext';
-import ClinicalIntakePanel from './ClinicalIntakePanel';
 import ClinicalSessionLineChart from './ClinicalSessionLineChart';
 import TherapistReportsView from './TherapistReportsView';
-import { summarizeTherapistAssessmentDraft } from '../../../ai/geminiTherapistDive';
-import { getGeminiApiKey, GeminiRateLimitedError } from '../../../ai/geminiClient';
-import { deriveDiagnosisHeadline } from '../../../utils/clinicalNarrative';
 
-type TabId = 'pain' | 'exercise' | 'finishReports' | 'assessment' | 'intake';
+type TabId = 'pain' | 'exercise' | 'finishReports';
 
 const tabs: { id: TabId; label: string; icon: typeof LineChart }[] = [
   { id: 'pain', label: 'דוחות כאב', icon: LineChart },
   { id: 'exercise', label: 'היסטוריית תרגול', icon: Dumbbell },
   { id: 'finishReports', label: 'דיווחי סיום תרגול', icon: ClipboardCheck },
-  { id: 'assessment', label: 'הערכה קלינית', icon: Stethoscope },
-  { id: 'intake', label: 'אינטייק קליני', icon: ClipboardList },
 ];
 
 function PainTrendPanel({ patient }: { patient: Patient }) {
@@ -122,128 +115,6 @@ function ExerciseHistoryPanel({ patient }: { patient: Patient }) {
   );
 }
 
-function ClinicalAssessmentPanel({ patient }: { patient: Patient }) {
-  const {
-    updateTherapistNotes,
-    runClinicalAssessmentEngine,
-    updatePatient,
-    savePersistedStateToCloud,
-  } = usePatient();
-  const [draft, setDraft] = useState(patient.therapistNotes);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const [runFlash, setRunFlash] = useState(false);
-  const [geminiSummary, setGeminiSummary] = useState<string | null>(null);
-  const [geminiBusy, setGeminiBusy] = useState(false);
-  const [geminiError, setGeminiError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDraft(patient.therapistNotes);
-    setGeminiSummary(null);
-    setGeminiError(null);
-  }, [patient.id]);
-
-  const saveOnly = () => {
-    updateTherapistNotes(patient.id, draft);
-    setSavedFlash(true);
-    window.setTimeout(() => setSavedFlash(false), 2000);
-  };
-
-  const saveAndRun = () => {
-    runClinicalAssessmentEngine(patient.id, draft);
-    setRunFlash(true);
-    window.setTimeout(() => setRunFlash(false), 3200);
-  };
-
-  const runGeminiAssessment = async () => {
-    const t = draft.trim();
-    if (!t || !getGeminiApiKey()) {
-      setGeminiError(
-        'הגדירו Supabase ב־.env, פרסמו את פונקציית gemini-proxy והגדירו את סוד GEMINI_API_KEY בפרויקט.'
-      );
-      return;
-    }
-    setGeminiBusy(true);
-    setGeminiError(null);
-    try {
-      const text = await summarizeTherapistAssessmentDraft(patient, t);
-      setGeminiSummary(text);
-      updatePatient(patient.id, {
-        geminiClinicalNarrative: text,
-        diagnosis: deriveDiagnosisHeadline(text),
-      });
-      void savePersistedStateToCloud();
-    } catch (e) {
-      const msg =
-        e instanceof GeminiRateLimitedError
-          ? e.message
-          : e instanceof Error
-            ? e.message
-            : 'שגיאת Gemini';
-      setGeminiError(msg);
-    } finally {
-      setGeminiBusy(false);
-    }
-  };
-
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-slate-600 leading-relaxed">
-        תיעדו הערכה חופשית. שמירה עם «הפעלת ניתוח מערכת» תייצר המלצת תרגיל (pending) למטופל — בהתאם
-        למגמות כאב ולעמידה בתוכנית, יחד עם תוכן ההערה.
-      </p>
-      <textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        rows={8}
-        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-        placeholder="סיכום קליני, תסמינים, תגובה לתרגול, המלצות להמשך…"
-      />
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={saveOnly}
-          className="px-4 py-2 rounded-lg text-sm font-semibold border border-slate-300 text-slate-700 bg-white hover:bg-slate-50"
-        >
-          שמירת הערות בלבד
-        </button>
-        <button
-          type="button"
-          onClick={saveAndRun}
-          className="px-4 py-2 rounded-lg text-sm font-bold text-white"
-          style={{ background: 'linear-gradient(135deg, #1d4ed8, #2563eb)' }}
-        >
-          שמירה והפעלת המלצת מערכת
-        </button>
-        <button
-          type="button"
-          onClick={() => void runGeminiAssessment()}
-          disabled={geminiBusy || !draft.trim()}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white disabled:opacity-45"
-          style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)' }}
-        >
-          {geminiBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-          סיכום AI (Gemini)
-        </button>
-      </div>
-      {geminiError && (
-        <p className="text-xs text-red-600 font-medium whitespace-pre-wrap">{geminiError}</p>
-      )}
-      {geminiSummary && (
-        <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
-          <p className="text-xs font-bold text-indigo-900 mb-2">ניתוח מקצועי (Gemini)</p>
-          {geminiSummary}
-        </div>
-      )}
-      {savedFlash && <p className="text-xs text-emerald-600 font-medium">ההערות נשמרו.</p>}
-      {runFlash && (
-        <p className="text-xs text-blue-700 font-medium">
-          ההערות נשמרו. אם התאימה מגמה קלינית — נוצרה הצעת תרגיל חדשה בלשונית המעקב אצל המטופל.
-        </p>
-      )}
-    </div>
-  );
-}
-
 export default function ClinicalDeepDiveTabs({ patient }: { patient: Patient }) {
   const [tab, setTab] = useState<TabId>('pain');
 
@@ -278,8 +149,6 @@ export default function ClinicalDeepDiveTabs({ patient }: { patient: Patient }) 
         {tab === 'pain' && <PainTrendPanel patient={patient} />}
         {tab === 'exercise' && <ExerciseHistoryPanel patient={patient} />}
         {tab === 'finishReports' && <TherapistReportsView patient={patient} />}
-        {tab === 'assessment' && <ClinicalAssessmentPanel patient={patient} />}
-        {tab === 'intake' && <ClinicalIntakePanel patient={patient} />}
       </div>
     </div>
   );

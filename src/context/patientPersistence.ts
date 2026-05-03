@@ -41,6 +41,7 @@ function redactPatientForPersistence(p: Patient): Patient {
     name: '',
     therapistNotes: '',
     diagnosis: '',
+    clinicalTimeline: [],
     contactWhatsappE164: undefined,
     analytics: {
       ...p.analytics,

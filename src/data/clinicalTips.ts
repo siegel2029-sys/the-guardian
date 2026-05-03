@@ -97,7 +97,7 @@ export const CLINICAL_TIPS: ClinicalTip[] = [
     headline: 'חימום קצר לפני תרגילים מפחית סיכון לפציעה.',
     explanation:
       'הגדלת זרימת הדם לשרירים משפרת גמישות ומוכנות לעומס. אפשר להתחיל ב־3–5 דקות תנועה קלה לפני התוכנית.',
-    articleTitle: 'חימום דינמי לפני פעילות — סקירה קלינית (placeholder)',
+    articleTitle: 'חימום דינמי לפני פעילות (placeholder)',
     articleUrl: 'https://example.com/research/warmup-placeholder',
     bodyContexts: ['general'],
   },
