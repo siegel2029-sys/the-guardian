@@ -15,6 +15,7 @@ import type {
   Patient,
   PatientExercise,
   PatientExerciseFinishReport,
+  PatientIntakeArchive,
   SafetyAlert,
   SelfCareSessionReport,
 } from '../types';
@@ -828,6 +829,42 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             extras?.secondaryClinicalBodyAreas !== undefined
               ? [...extras.secondaryClinicalBodyAreas]
               : p.secondaryClinicalBodyAreas;
+          const archive: PatientIntakeArchive | undefined = p.initialIntakeArchive
+            ? p.initialIntakeArchive
+            : {
+                capturedAt: addedAt,
+                primaryBodyArea,
+                libraryExerciseIds: [...libraryExerciseIds],
+                diagnosis,
+                therapistNotes,
+                ...(geminiClinicalNarrative != null ? { geminiClinicalNarrative } : {}),
+                ...(extras?.displayName?.trim()
+                  ? { displayName: extras.displayName.trim() }
+                  : {}),
+                extras: {
+                  ...(extras?.displayName?.trim()
+                    ? { displayName: extras.displayName.trim() }
+                    : {}),
+                  ...(extras?.intakeStory?.trim()
+                    ? { intakeStory: extras.intakeStory.trim() }
+                    : {}),
+                  ...(extras?.injuryHighlightSegments
+                    ? { injuryHighlightSegments: [...extras.injuryHighlightSegments] }
+                    : {}),
+                  ...(extras?.secondaryClinicalBodyAreas
+                    ? {
+                        secondaryClinicalBodyAreas: [...extras.secondaryClinicalBodyAreas],
+                      }
+                    : {}),
+                  ...(extras?.clinicalDiagnosis?.trim()
+                    ? { clinicalDiagnosis: extras.clinicalDiagnosis.trim() }
+                    : {}),
+                  ...(extras?.geminiClinicalNarrative?.trim()
+                    ? { geminiClinicalNarrative: extras.geminiClinicalNarrative.trim() }
+                    : {}),
+                  ...(extras?.intakeRedFlag === true ? { intakeRedFlag: true } : {}),
+                },
+              };
           return {
             ...p,
             name,
@@ -844,6 +881,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             injuryHighlightSegments: injury,
             secondaryClinicalBodyAreas: secondary,
             hasRedFlag: p.hasRedFlag || !!extras?.intakeRedFlag,
+            initialIntakeArchive: archive,
           };
         })
       );

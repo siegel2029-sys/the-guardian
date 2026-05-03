@@ -1,146 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { RefObject } from 'react';
-import { ChevronDown, Loader2, Sparkles, X, CheckCircle2 } from 'lucide-react';
-import type { BodyArea, ClinicalTimelineEntry, Patient } from '../../../types';
-import { bodyAreaLabels } from '../../../types';
+import { Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
+import type { ClinicalTimelineEntry, Patient } from '../../../types';
 import { usePatient } from '../../../context/PatientContext';
-import { supabase, isSupabaseConfigured } from '../../../lib/supabase';
-import {
-  fetchExercisePlanVersionsForPatient,
-  fetchRecentSessionHistoryForPatient,
-} from '../../../services/exerciseService';
+import { getGeminiApiKey, GeminiRateLimitedError } from '../../../ai/geminiClient';
 import {
   analyzeClinicalNoteWithSupabaseContext,
   type ClinicalContextReviewResult,
 } from '../../../ai/geminiClinicalContextReview';
-import { getGeminiApiKey, GeminiRateLimitedError } from '../../../ai/geminiClient';
-import { PortalDropdown } from '../../ui/PortalDropdown';
+import { buildSupabaseClinicalDatastoreJson } from '../../../utils/buildSupabaseClinicalDatastoreJson';
 import ClinicalTimeline from './ClinicalTimeline';
 import { deriveDiagnosisHeadline } from '../../../utils/clinicalNarrative';
-
-const ALL_AREAS_SORTED: BodyArea[] = (Object.keys(bodyAreaLabels) as BodyArea[]).sort((a, b) =>
-  bodyAreaLabels[a].localeCompare(bodyAreaLabels[b], 'he')
-);
-
-function PainAreasMultiSelect({
-  selected,
-  onToggle,
-  onClear,
-}: {
-  selected: ReadonlySet<BodyArea>;
-  onToggle: (area: BodyArea) => void;
-  onClear: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const count = selected.size;
-  const summary = count === 0 ? 'בחרו אזורי כאב' : `${count} אזורים נבחרו`;
-  const handleClose = useCallback(() => setOpen(false), []);
-
-  return (
-    <div className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between gap-2 rounded-xl border-2 border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm hover:border-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/35"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-      >
-        <span className="truncate text-right flex-1">{summary}</span>
-        <ChevronDown
-          className={`w-4 h-4 shrink-0 text-slate-600 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-      {count > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {[...selected]
-            .sort((a, b) => bodyAreaLabels[a].localeCompare(bodyAreaLabels[b], 'he'))
-            .map((area) => (
-              <span
-                key={area}
-                className="inline-flex items-center gap-1 rounded-lg bg-teal-900/90 text-white text-xs font-semibold px-2 py-1"
-              >
-                {bodyAreaLabels[area]}
-                <button
-                  type="button"
-                  onClick={() => onToggle(area)}
-                  className="rounded p-0.5 hover:bg-white/20"
-                  aria-label={`הסר ${bodyAreaLabels[area]}`}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-        </div>
-      )}
-      <PortalDropdown
-        open={open}
-        onClose={handleClose}
-        triggerRef={triggerRef as RefObject<HTMLElement | null>}
-      >
-        <div dir="rtl" role="listbox" aria-multiselectable className="py-1">
-          <div className="flex justify-between items-center px-2 py-1.5 border-b border-slate-100">
-            <span className="text-[11px] font-bold text-slate-600">אזורי גוף</span>
-            {count > 0 && (
-              <button
-                type="button"
-                onClick={onClear}
-                className="text-[11px] font-bold text-red-700 hover:underline"
-              >
-                נקה הכל
-              </button>
-            )}
-          </div>
-          {ALL_AREAS_SORTED.map((area) => (
-            <label
-              key={area}
-              className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-slate-50 text-sm text-slate-900"
-            >
-              <input
-                type="checkbox"
-                checked={selected.has(area)}
-                onChange={() => onToggle(area)}
-                className="rounded border-slate-400 text-teal-700 focus:ring-teal-600/40 shrink-0"
-              />
-              <span>{bodyAreaLabels[area]}</span>
-            </label>
-          ))}
-        </div>
-      </PortalDropdown>
-    </div>
-  );
-}
-
-async function buildSupabaseDatastoreJson(patientId: string): Promise<string> {
-  if (!isSupabaseConfigured || !supabase) {
-    return JSON.stringify(
-      { error: 'Supabase לא מוגדר — מוצגים רק נתונים מקומיים במודל.' },
-      null,
-      2
-    );
-  }
-  const [planRows, sessions] = await Promise.all([
-    fetchExercisePlanVersionsForPatient(supabase, patientId, 8),
-    fetchRecentSessionHistoryForPatient(supabase, patientId, 14),
-  ]);
-
-  const sessionSummaries =
-    sessions?.map((s) => ({
-      date: s.date,
-      completedExercises: s.completedIds?.length ?? 0,
-      sessionXp: s.sessionXp,
-    })) ?? [];
-
-  return JSON.stringify(
-    {
-      exercise_plans: planRows ?? [],
-      session_history_recent: sessionSummaries,
-    },
-    null,
-    2
-  );
-}
 
 function formatAiError(err: unknown): string {
   if (err instanceof GeminiRateLimitedError) return err.message;
@@ -151,12 +20,7 @@ function formatAiError(err: unknown): string {
 type Props = { patient: Patient };
 
 export default function SmartClinicalDocumentation({ patient }: Props) {
-  const {
-    updatePatient,
-    savePersistedStateToCloud,
-    togglePatientInjuryHighlight,
-    clearPatientInjuryHighlights,
-  } = usePatient();
+  const { updatePatient, savePersistedStateToCloud } = usePatient();
 
   const [noteDraft, setNoteDraft] = useState('');
   const [analyzeBusy, setAnalyzeBusy] = useState(false);
@@ -195,7 +59,7 @@ export default function SmartClinicalDocumentation({ patient }: Props) {
       setAnalyzeBusy(true);
       setAnalyzeError(null);
       try {
-        const datastoreJson = await buildSupabaseDatastoreJson(patient.id);
+        const datastoreJson = await buildSupabaseClinicalDatastoreJson(patient.id);
         const result: ClinicalContextReviewResult = await analyzeClinicalNoteWithSupabaseContext(
           patient,
           trimmed,
@@ -231,20 +95,6 @@ export default function SmartClinicalDocumentation({ patient }: Props) {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
-
-  const injurySet = new Set(patient.injuryHighlightSegments ?? []);
-
-  const scheduleCloudSave = useCallback(() => {
-    void savePersistedStateToCloud();
-  }, [savePersistedStateToCloud]);
-
-  const handleToggleArea = useCallback(
-    (area: BodyArea) => {
-      togglePatientInjuryHighlight(patient.id, area);
-      scheduleCloudSave();
-    },
-    [patient.id, togglePatientInjuryHighlight, scheduleCloudSave]
-  );
 
   const timeline = patient.clinicalTimeline ?? [];
 
@@ -283,12 +133,6 @@ export default function SmartClinicalDocumentation({ patient }: Props) {
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm mb-5 overflow-hidden" dir="rtl">
       <div className="px-5 py-4 border-b border-slate-200 bg-slate-50">
         <h2 className="text-base font-bold text-slate-950">תיעוד קליני חכם</h2>
-        <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-          הניתוח משתמש ב־<code className="text-[11px] bg-slate-200/80 px-1 rounded">exercise_plans</code>
-          {' ו־'}
-          <code className="text-[11px] bg-slate-200/80 px-1 rounded">session_history</code>
-          {' מ־Supabase לצד נתוני מטופל מקומיים. הטיוטה נשמרת לציר הזמן רק לאחר האישור שלך.'}
-        </p>
       </div>
 
       <div className="p-5 space-y-8">
@@ -370,19 +214,6 @@ export default function SmartClinicalDocumentation({ patient }: Props) {
             {approveBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
             אשר ושמור לציר הזמן
           </button>
-        </section>
-
-        <section className="space-y-2">
-          <h3 className="text-sm font-bold text-slate-950">אזורי כאב</h3>
-          <p className="text-xs text-slate-600">הבחירה נשמרת בפרופיל המטופל.</p>
-          <PainAreasMultiSelect
-            selected={injurySet}
-            onToggle={handleToggleArea}
-            onClear={() => {
-              clearPatientInjuryHighlights(patient.id);
-              scheduleCloudSave();
-            }}
-          />
         </section>
       </div>
     </div>

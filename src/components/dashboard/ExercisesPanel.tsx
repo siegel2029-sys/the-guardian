@@ -276,6 +276,9 @@ export default function ExercisesPanel() {
                 primaryArea={selectedPatient.primaryBodyArea}
                 clinicalArea={selectedPatient.primaryBodyArea}
                 secondaryClinicalBodyAreas={selectedPatient.secondaryClinicalBodyAreas}
+                manualClinicalSegmentLockOverrides={
+                  selectedPatient.manualClinicalSegmentLockOverrides
+                }
                 stableInteraction
                 painByArea={selectedPatient.analytics.painByArea}
                 level={selectedPatient.level}

@@ -190,9 +190,15 @@ export interface Patient {
    */
   injuryHighlightSegments: BodyArea[];
   /**
+   * עקיפות נעילה קלינית (טל — נעול / פתוח) על שרשרת המוקד — לשליטת מטפל במודל 3D.
+   */
+  manualClinicalSegmentLockOverrides?: Partial<Record<BodyArea, ManualClinicalSegmentLockOverride>>;
+  /**
    * מוקד משני מהמטפל — כתום במפה; חוסם פרהאב כמו מוקד ראשי לפי אותו מקטע.
    */
   secondaryClinicalBodyAreas: BodyArea[];
+  /** צילום האינטייק הראשון — לא מתעדכן אחרי השמירה הראשונה */
+  initialIntakeArchive?: PatientIntakeArchive;
   /** שדה קשר ישן (מספר בינלאומי ללא +) — נשמר לתאימות; התראות קליניות נשלחות בדוא״ל בלבד */
   contactWhatsappE164?: string;
   /**
@@ -222,6 +228,23 @@ export type InitialClinicalProfileExtras = {
   geminiClinicalNarrative?: string;
   /** דגל אדום שזוהה בסיפור — התראה למטפל */
   intakeRedFlag?: boolean;
+};
+
+/** עקיפת נעילה קלינית ויזואלית במפת גוף — מול חישוב שרשרת אוטומטי */
+export type ManualClinicalSegmentLockOverride = 'force_locked' | 'force_unlocked';
+
+/**
+ * צילום אינטייק ראשון (נשמר פעם אחת ב־payload) — להשוואה לאורך זמן ולמסך «כספת האינטייק».
+ */
+export type PatientIntakeArchive = {
+  capturedAt: string;
+  primaryBodyArea: BodyArea;
+  libraryExerciseIds: string[];
+  diagnosis: string;
+  therapistNotes: string;
+  geminiClinicalNarrative?: string;
+  displayName?: string;
+  extras: InitialClinicalProfileExtras;
 };
 
 export interface AuthUser {

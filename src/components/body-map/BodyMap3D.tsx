@@ -17,7 +17,7 @@ import {
   getPatientAvatarCssStyle,
   getPatientAvatarMountainElevationY,
 } from '../../hooks/useGamification';
-import type { BodyArea } from '../../types';
+import type { BodyArea, ManualClinicalSegmentLockOverride } from '../../types';
 import { EMPTY_EQUIPPED_GEAR, type EquippedGearSnapshot } from '../../config/gearCatalog';
 
 export interface BodyMap3DProps {
@@ -61,6 +61,10 @@ export interface BodyMap3DProps {
   injuryHighlightSegments?: BodyArea[];
   /** מוקד משני מהמטפל (כתום) */
   secondaryClinicalBodyAreas?: BodyArea[];
+  /** עקיפת נעילה קלינית ויזואלית במודל */
+  manualClinicalSegmentLockOverrides?: Partial<
+    Record<BodyArea, ManualClinicalSegmentLockOverride>
+  >;
   /** כבה אנימציות צף/בלום — לחיצות מדויקות */
   stableInteraction?: boolean;
   /** פורטל מטופל — סמן «אסור» על אזורי שיקום */
@@ -290,6 +294,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     equippedGear: equippedGearProp,
     injuryHighlightSegments = [],
     secondaryClinicalBodyAreas = [],
+    manualClinicalSegmentLockOverrides,
     stableInteraction = true,
     patientPortalInteractive = false,
     segmentGrowthMul,
@@ -477,6 +482,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                   equippedGear={equippedGear}
                   injuryHighlightSegments={injuryHighlightSegments}
                   secondaryClinicalBodyAreas={secondaryClinicalBodyAreas}
+                  manualClinicalSegmentLockOverrides={manualClinicalSegmentLockOverrides}
                   stableInteraction={stableInteraction}
                   patientPortalInteractive={patientPortalInteractive}
                   pauseWalkAnimation={

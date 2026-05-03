@@ -44,7 +44,7 @@ export default function DashboardLayout() {
   return (
     <div className="flex h-dvh overflow-hidden" style={{ background: '#F0F9FA' }}>
       {/* Desktop sidebar — hidden on mobile */}
-      <div className="hidden md:flex md:h-full md:shrink-0">
+      <div className="hidden md:flex md:h-full md:shrink-0 md:sticky md:top-0 md:self-start">
         <Sidebar />
       </div>
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   User, CalendarDays, Stethoscope, FileText, ClipboardList, AlertTriangle,
-  KeyRound, Copy, Eye, EyeOff, MessageSquare, BarChart3,
+  KeyRound, Copy, Eye, EyeOff, MessageSquare, BarChart3, Archive,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
@@ -14,6 +14,8 @@ import TherapistQuickChat from './clinical/TherapistQuickChat';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import SmartClinicalDocumentation from './clinical/SmartClinicalDocumentation';
 import PatientDataManagement from './clinical/PatientDataManagement';
+import FullIntakeVaultModal from './clinical/FullIntakeVaultModal';
+import TherapistBodyAreaCommand from './clinical/TherapistBodyAreaCommand';
 import TherapistPatientGrid from './TherapistPatientGrid';
 import SidebarNewPatient from '../layout/SidebarNewPatient';
 import { bodyAreaLabels } from '../../types';
@@ -44,6 +46,7 @@ export default function PatientOverview() {
   } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
   const [showClinicalModal, setShowClinicalModal] = useState(false);
+  const [showIntakeVault, setShowIntakeVault] = useState(false);
   const [revealPortalPassword, setRevealPortalPassword] = useState(false);
 
   useEffect(() => {
@@ -166,7 +169,6 @@ export default function PatientOverview() {
         <header className="flex flex-col gap-4 mb-6 md:flex-row md:justify-between md:items-center">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">{getPatientDisplayName(p)}</h1>
-            <p className="text-sm text-gray-500 mt-1">תיעוד, מעקב וכלים</p>
           </div>
           <SidebarNewPatient layout="dashboard" />
         </header>
@@ -282,6 +284,16 @@ export default function PatientOverview() {
 
               <button
                 type="button"
+                onClick={() => setShowIntakeVault(true)}
+                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold border border-violet-300 text-violet-900 bg-violet-50 hover:bg-violet-100 active:scale-[0.99] transition-colors"
+                title="סיכום אינטייק מלא והשוואה"
+              >
+                <Archive className="w-4 h-4 shrink-0" />
+                <span>סיכום אינטייק מלא</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setActiveSection('analytics')}
                 className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold border border-gray-200 text-slate-700 bg-white hover:bg-slate-50 active:scale-[0.99] transition-colors"
                 title="צפה בנתוני התקדמות"
@@ -311,6 +323,8 @@ export default function PatientOverview() {
             </div>
           )}
         </div>
+
+        <TherapistBodyAreaCommand patient={p} />
 
         <SmartClinicalDocumentation patient={p} />
 
@@ -394,6 +408,10 @@ export default function PatientOverview() {
 
         <PendingApprovalsPanel />
         <AiSuggestionsPanel />
+
+        {showIntakeVault && (
+          <FullIntakeVaultModal patient={p} onClose={() => setShowIntakeVault(false)} />
+        )}
 
         {showManageModal && <ManagePlanModal onClose={() => setShowManageModal(false)} />}
 

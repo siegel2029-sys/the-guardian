@@ -10,10 +10,10 @@ import { useFrame } from '@react-three/fiber';
 import { ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
 import MuscleSegment from './MuscleSegment';
-import type { BodyArea } from '../../types';
+import type { BodyArea, ManualClinicalSegmentLockOverride } from '../../types';
 import {
   bodyAreaBlocksSelfCare,
-  bodyAreaIsClinicalFocus,
+  resolveClinicalLockedVisual,
 } from '../../body/bodyPickMapping';
 import {
   createUpperTorso,
@@ -968,6 +968,10 @@ interface AnatomyModelProps {
   injuryHighlightSegments?: BodyArea[];
   /** מוקד משני מהמטפל — כתום */
   secondaryClinicalBodyAreas?: BodyArea[];
+  /** עקיפת נעילה קלינית ויזואלית — שליטת מטפל */
+  manualClinicalSegmentLockOverrides?: Partial<
+    Record<BodyArea, ManualClinicalSegmentLockOverride>
+  >;
   /** כבה אנימציות מפריעות — לחיצות מדויקות (ברירת מחדל: כן) */
   stableInteraction?: boolean;
   /** פורטל מטופל — עכבר «אסור» על אזורים חסומים לפרהאב */
@@ -1000,6 +1004,7 @@ export default function AnatomyModel({
   equippedGear,
   injuryHighlightSegments = [],
   secondaryClinicalBodyAreas = [],
+  manualClinicalSegmentLockOverrides,
   stableInteraction = true,
   patientPortalInteractive = false,
   pauseWalkAnimation = false,
@@ -1018,14 +1023,12 @@ export default function AnatomyModel({
   );
   const growthOf = (a: BodyArea) =>
     Math.max(0, Math.min(1, segmentGrowthMul?.[a] ?? 1));
-  const clinicalLockVisual = (a: BodyArea) =>
-    clinicalArea != null &&
-    bodyAreaIsClinicalFocus(a, clinicalArea) &&
-    !secondarySet.has(a);
+  const clinicalLockResolved = (a: BodyArea) =>
+    resolveClinicalLockedVisual(a, clinicalArea, secondarySet, manualClinicalSegmentLockOverrides);
   const clinicalRefForBlock = clinicalArea ?? primaryArea ?? ('neck' as BodyArea);
   const limbPickProps = (a: BodyArea) => ({
     injuryHighlight: injurySet.has(a),
-    clinicalLocked: clinicalLockVisual(a),
+    clinicalLocked: clinicalLockResolved(a),
     clinicalSecondary: secondarySet.has(a),
     selfCareSelected:
       selfCareSelectedAreas.includes(a) &&
@@ -1221,10 +1224,16 @@ export default function AnatomyModel({
 
   // Shared props factory (מפרקים: ללא אינפלציה; כן ניתן לסמן פגיעה)
   const S = (area: BodyArea | null) => {
-    const inChain =
-      area != null && clinicalArea != null && bodyAreaIsClinicalFocus(area, clinicalArea);
     const clinicalSecondary = area != null && secondarySet.has(area);
-    const clinicalLocked = Boolean(inChain && !clinicalSecondary);
+    const clinicalLocked =
+      area != null
+        ? resolveClinicalLockedVisual(
+            area,
+            clinicalArea,
+            secondarySet,
+            manualClinicalSegmentLockOverrides
+          )
+        : false;
     const blockSelfCare =
       area != null &&
       bodyAreaBlocksSelfCare(

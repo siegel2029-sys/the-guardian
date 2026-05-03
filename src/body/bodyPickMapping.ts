@@ -1,4 +1,4 @@
-import type { BodyArea } from '../types';
+import type { BodyArea, ManualClinicalSegmentLockOverride } from '../types';
 
 /**
  * Granular picks from Mixamo-style bones (Soldier.glb).
@@ -143,6 +143,23 @@ export function bodyAreaBlocksSelfCare(
   return (
     bodyAreaIsClinicalFocus(zone, primaryBodyArea) ||
     secondaryClinicalBodyAreas.includes(zone)
+  );
+}
+
+/** נעילה ויזואלית במודל — כולל עקיפת מטפל (כפה נעול / כפה פתוח / אוטומטי). */
+export function resolveClinicalLockedVisual(
+  area: BodyArea,
+  clinicalArea: BodyArea | undefined,
+  secondarySet: ReadonlySet<BodyArea>,
+  manual?: Partial<Record<BodyArea, ManualClinicalSegmentLockOverride>>
+): boolean {
+  const o = manual?.[area];
+  if (o === 'force_locked') return true;
+  if (o === 'force_unlocked') return false;
+  return (
+    clinicalArea != null &&
+    bodyAreaIsClinicalFocus(area, clinicalArea) &&
+    !secondarySet.has(area)
   );
 }
 
