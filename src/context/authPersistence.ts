@@ -6,7 +6,6 @@ import { invalidatePersistedBootstrapCache } from '../bootstrap/invalidateBootst
 import {
   getDemoSeedPatientPortalPassword,
   getDemoTherapistAPassword,
-  getDemoTherapistBPassword,
 } from '../lib/demoAuthEnv';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
 import { mockTherapist } from '../data/mockData';

@@ -2,7 +2,7 @@ import { useRef, useState, useMemo } from 'react';
 import type { RefObject } from 'react';
 import {
   X, Plus, Trash2, Pencil, Check, Search, BookOpen,
-  ClipboardList, Filter, Clock, RotateCcw, ChevronDown,
+  ClipboardList, Filter, Clock, RotateCcw, ChevronDown, ChevronUp,
   Wand2, Sparkles, AlertCircle, Loader2,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
