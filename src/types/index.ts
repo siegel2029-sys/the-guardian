@@ -229,7 +229,7 @@ export interface Message {
   timestamp: string;
   isRead: boolean;
   fromPatient: boolean;
-  /** התראה אוטומטית ממנוע Guardian — מופיעה בתיבת המטפל כנקראת */
+  /** התראה אוטומטית ממנוע PHYSIOSHIELD — מופיעה בתיבת המטפל כנקראת */
   aiClinicalAlert?: boolean;
   /** דרגת חומרה לתצוגת מטפל */
   clinicalSafetyTier?: ClinicalSafetyTier;

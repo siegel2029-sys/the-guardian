@@ -17,7 +17,7 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_ANON_KEY?: string;
   /**
    * דומיין סינתטי לדוא״ל Auth של מטופלים (למשל patient.clinic.internal).
-   * ברירת מחדל: patient.guardian.internal
+   * ברירת מחדל: patient.guardian.internal (דומיין demo; נשמר לתאימות לאחור עם מיתוג PHYSIOSHIELD).
    */
   readonly VITE_PATIENT_AUTH_EMAIL_DOMAIN?: string;
   /**

@@ -28,7 +28,7 @@ function buildRedFlagEmailBody(
 ): { subject: string; body: string } {
   const seg = bodyAreaLabels[segment];
   const sym = symptomLabels.length ? symptomLabels.join(', ') : 'לא צוין';
-  const subject = `[The Guardian] דגל אדום — ${patientName}`;
+  const subject = `[PHYSIOSHIELD] דגל אדום — ${patientName}`;
   const body =
     `דיווח דגל אדום (מטפל)\n\n` +
     `מטופל: ${patientName}\n` +

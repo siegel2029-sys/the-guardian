@@ -215,7 +215,7 @@ export function loadAuthSnapshot(): AuthSnapshotV2 {
   if (typeof window === 'undefined' || !window.localStorage) {
     return defaultAuthSnapshot();
   }
-  /** Non-legacy Supabase: do not read `guardian-auth-v1` / demo therapist rows (avoids mock/legacy confusion). */
+  /** Non-legacy Supabase: do not read legacy `guardian-auth-v1` / demo therapist rows (avoids mock/legacy confusion). */
   if (import.meta.env.VITE_USE_LEGACY_AUTH !== 'true' && isSupabaseAuthEnabled()) {
     return {
       version: 2,

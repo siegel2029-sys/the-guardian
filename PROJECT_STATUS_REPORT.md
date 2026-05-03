@@ -1,4 +1,4 @@
-# Application Status Report — The Guardian
+# Application Status Report — PHYSIOSHIELD
 
 **Report type:** Codebase audit (static analysis, April 2026)  
 **Scope:** Repository as of audit date  
@@ -9,7 +9,7 @@
 
 ## Current Status
 
-The Guardian is a **Hebrew-first, RTL** single-page application built with **React 19**, **Vite 8**, and **TypeScript ~6**. It delivers a **feature-rich clinical rehabilitation prototype**: therapist dashboard, patient portal with 3D anatomy, gamification, AI-assisted flows (Google Gemini via direct HTTP), heuristic safety screening, and **optional Supabase** persistence (manual push and selective reads—not a full real-time multi-tenant backend).
+PHYSIOSHIELD is a **Hebrew-first, RTL** single-page application built with **React 19**, **Vite 8**, and **TypeScript ~6**. It delivers a **feature-rich clinical rehabilitation prototype**: therapist dashboard, patient portal with 3D anatomy, gamification, AI-assisted flows (Google Gemini via direct HTTP), heuristic safety screening, and **optional Supabase** persistence (manual push and selective reads—not a full real-time multi-tenant backend).
 
 **Production readiness:** Suitable for **demonstration and usability research**. It is **not** a validated clinical device, monitored alerting service, or HIPAA-grade deployment without substantial backend, identity, and audit work.
 

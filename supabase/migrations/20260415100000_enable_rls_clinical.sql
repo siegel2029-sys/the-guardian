@@ -1,4 +1,4 @@
--- The Guardian — Row Level Security (RLS) for clinical tables + knowledge base
+-- PHYSIOSHIELD — Row Level Security (RLS) for clinical tables + knowledge base
 --
 -- BRIDGE (custom auth today → Supabase Auth tomorrow)
 -- ---------------------------------------------------------------------------

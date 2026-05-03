@@ -132,7 +132,7 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
             </div>
             {expanded && (
               <div className="flex-1 min-w-0">
-                <h1 className="text-sm font-black text-slate-950 leading-tight truncate">The Guardian</h1>
+                <h1 className="text-sm font-black text-slate-950 leading-tight truncate">PHYSIOSHIELD</h1>
                 <p className="text-[11px] font-semibold text-slate-700">פורטל מטפלים</p>
               </div>
             )}

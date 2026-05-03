@@ -1,4 +1,4 @@
-/** הקשר גוף לסינון טיפים (מנוע Guardian) */
+/** הקשר גוף לסינון טיפים (מנוע PHYSIOSHIELD) */
 export type TipBodyContext =
   | 'knee'
   | 'shoulder'

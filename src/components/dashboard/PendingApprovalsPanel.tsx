@@ -32,7 +32,7 @@ function ApprovalCard({
 }) {
   const tc = typeConfig[suggestion.type] ?? typeConfig.increase_reps;
   const Icon = tc.icon;
-  const fromGuardian = suggestion.source === 'guardian_patient';
+  const isPatientAiSuggestion = suggestion.source === 'guardian_patient';
 
   return (
     <div
@@ -50,12 +50,12 @@ function ApprovalCard({
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-bold text-slate-800">{patientName}</span>
-            {fromGuardian && (
+            {isPatientAiSuggestion && (
               <span
                 className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
                 style={{ background: '#e0e7ff', color: '#4338ca' }}
               >
-                מ-Guardian
+                מ-PHYSIOSHIELD
               </span>
             )}
             <span

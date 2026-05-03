@@ -149,7 +149,7 @@ interface PatientContextValue {
   sendTherapistReply: (patientId: string, content: string) => void;
   /** Simulated patient → therapist (unread for therapist). */
   sendPatientMessage: (patientId: string, content: string) => void;
-  /** התראה קלינית ממנוע Guardian לתיבת המטפל */
+  /** התראה קלינית ממנוע PHYSIOSHIELD לתיבת המטפל */
   sendAiClinicalAlert: (
     patientId: string,
     detailHebrew?: string,
@@ -240,7 +240,7 @@ interface PatientContextValue {
   therapistApproveAiSuggestion: (suggestionId: string) => void;
   /** מטפל: דחייה אחרי בקשת מטופל */
   therapistDeclineAiSuggestion: (suggestionId: string) => void;
-  /** Guardian: בקשת העלאת חזרות למטפל */
+  /** PHYSIOSHIELD: בקשת העלאת חזרות למטפל */
   submitGuardianRepsIncreaseRequest: (
     patientId: string,
     exerciseId: string,

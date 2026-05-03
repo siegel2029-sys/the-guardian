@@ -106,7 +106,7 @@ export default function PatientRedFlagEmergencyModal({
 
   const submit = () => {
     const to = getTherapistAlertEmail(therapistId);
-    const subject = `[The Guardian] דגל אדום דחוף — ${patientName}`;
+    const subject = `[PHYSIOSHIELD] דגל אדום דחוף — ${patientName}`;
     const body =
       `דגל אדום דחוף מהפורטל\n\n` +
       `מטופל: ${patientName}\n` +

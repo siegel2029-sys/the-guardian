@@ -4,7 +4,13 @@ import { usePatient } from '../../context/PatientContext';
 import ClinicalAiIntakeWizard from '../dashboard/ClinicalAiIntakeWizard';
 import { randomPatientPassword } from '../../context/PatientContext';
 
-export default function SidebarNewPatient({ compact = false }: { compact?: boolean }) {
+type SidebarNewPatientProps = {
+  compact?: boolean;
+  /** `dashboard`: header-style primary button only (no sidebar chrome). Default: sidebar strip. */
+  layout?: 'sidebar' | 'dashboard';
+};
+
+export default function SidebarNewPatient({ compact = false, layout = 'sidebar' }: SidebarNewPatientProps) {
   const { createPatientWithAccess, applyInitialClinicalProfile, deletePatient } = usePatient();
   const [open, setOpen] = useState(false);
   const [credentialsOpen, setCredentialsOpen] = useState(false);
@@ -87,19 +93,29 @@ export default function SidebarNewPatient({ compact = false }: { compact?: boole
     }
   };
 
+  const dashboardButton = (
+    <button
+      type="button"
+      onClick={openCredentials}
+      title="מטופל חדש + גישה"
+      className="w-full md:w-auto inline-flex items-center justify-center gap-2 py-3 px-5 rounded-xl text-sm font-bold text-white shadow-sm bg-teal-600 hover:bg-teal-700 transition-colors min-h-[44px]"
+    >
+      <UserPlus className="w-4 h-4 shrink-0" />
+      מטופל חדש + גישה
+    </button>
+  );
+
   return (
     <>
-      {compact ? (
+      {layout === 'dashboard' ? (
+        dashboardButton
+      ) : compact ? (
         <div className="px-2 py-2 border-b border-teal-50 shrink-0">
           <button
             type="button"
             onClick={openCredentials}
             title="מטופל חדש + גישה"
-            className="w-full flex items-center justify-center py-2.5 rounded-xl text-white shadow-sm transition-transform hover:-translate-y-0.5"
-            style={{
-              background: 'linear-gradient(135deg, #0d9488, #059669)',
-              boxShadow: '0 6px 16px -6px rgba(13, 148, 136, 0.45)',
-            }}
+            className="w-full flex items-center justify-center py-2.5 rounded-xl text-white shadow-sm bg-teal-600 hover:bg-teal-700 transition-colors"
           >
             <UserPlus className="w-5 h-5 shrink-0" />
           </button>
@@ -109,16 +125,12 @@ export default function SidebarNewPatient({ compact = false }: { compact?: boole
           <button
             type="button"
             onClick={openCredentials}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-bold text-white shadow-sm transition-transform hover:-translate-y-0.5"
-            style={{
-              background: 'linear-gradient(135deg, #0d9488, #059669)',
-              boxShadow: '0 6px 16px -6px rgba(13, 148, 136, 0.45)',
-            }}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-bold text-white shadow-sm bg-teal-600 hover:bg-teal-700 transition-colors"
           >
             <UserPlus className="w-4 h-4 shrink-0" />
             מטופל חדש + גישה
           </button>
-          <p className="text-[10px] text-slate-500 mt-1.5 px-0.5 leading-snug text-center">
+          <p className="text-xs text-gray-500 mt-1.5 px-0.5 leading-snug text-center">
             רמזי פורטל (פרטיות), סיסמה, ואז אינטייק קליני
           </p>
         </div>

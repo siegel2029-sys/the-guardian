@@ -1,4 +1,4 @@
--- The Guardian — initial persistence schema (Supabase / Postgres)
+-- PHYSIOSHIELD — initial persistence schema (Supabase / Postgres)
 -- Run in: SQL Editor → New query, or `supabase db push` if using Supabase CLI.
 --
 -- Maps app types (src/types/index.ts):

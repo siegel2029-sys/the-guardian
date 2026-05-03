@@ -509,7 +509,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       ) {
         setExerciseSafetyLockedPatientIds((prev) => ({ ...prev, [patientId]: true }));
         const email = getTherapistAlertEmail(patientBefore.therapistId);
-        const subject = '[The Guardian] עצירת אימון — כאב גבוה במוקד פגיעה';
+        const subject = '[PHYSIOSHIELD] עצירת אימון — כאב גבוה במוקד פגיעה';
         const body =
           `מטופל: ${patientBefore.name}\n` +
           `מוקד פגיעה ראשי: ${bodyAreaLabels[patientBefore.primaryBodyArea]}\n` +
@@ -542,7 +542,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       ) {
         setExerciseSafetyLockedPatientIds((prev) => ({ ...prev, [patientId]: true }));
         const email = getTherapistAlertEmail(patientBefore.therapistId);
-        const subject = '[The Guardian] עצירת בטיחות — תגובת שרשרת';
+        const subject = '[PHYSIOSHIELD] עצירת בטיחות — תגובת שרשרת';
         const body =
           `מטופל: ${patientBefore.name}\n` +
           `אזור קליני ראשי: ${bodyAreaLabels[patientBefore.primaryBodyArea]}\n` +
@@ -570,7 +570,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
 
       if (pain >= 7) {
         const email = getTherapistAlertEmail(patientBefore.therapistId);
-        const subject = '[The Guardian] התראת כאב גבוהה';
+        const subject = '[PHYSIOSHIELD] התראת כאב גבוהה';
         const body =
           `מטופל: ${patientBefore.name}\n` +
           `אזור תרגול: ${sessionZone ? bodyAreaLabels[sessionZone] : bodyAreaLabels[patientBefore.primaryBodyArea]}\n` +
@@ -765,7 +765,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         currentValue: currentReps,
         suggestedValue: suggestedReps,
         reason:
-          'בקשה שהתקבלה מהמטופל דרך עוזר Guardian: דיווח קושי נמוך בימים האחרונים והצעה להעלות חזרות.',
+          'בקשה שהתקבלה מהמטופל דרך עוזר PHYSIOSHIELD: דיווח קושי נמוך בימים האחרונים והצעה להעלות חזרות.',
         createdAt: new Date().toISOString(),
         status: 'awaiting_therapist',
         source: 'guardian_patient' as AiSuggestionSource,

@@ -161,7 +161,7 @@ export default function ProceduralHumanoidScene({
       if (primaryBodyArea != null && isPickKeyClinicalFocus(key, primaryBodyArea)) {
         return;
       }
-      console.log('[Guardian BodyMap] procedural pick', { part, pickKey: key });
+      console.log('[PHYSIOSHIELD BodyMap] procedural pick', { part, pickKey: key });
 
       if (onPickKey) {
         onPickKey(key);

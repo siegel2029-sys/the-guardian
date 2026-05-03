@@ -257,7 +257,7 @@ function GltfAnatomyModelCore({
       const directHits = rc.intersectObjects(pickableMeshesRef.current, false);
 
       if (import.meta.env.DEV) {
-        console.log('[Guardian BodyMap] pick', {
+        console.log('[PHYSIOSHIELD BodyMap] pick', {
           gltfMeshName: dbg.meshName,
           dominantBone: dbg.dominantBoneName,
           boneIndex: dbg.dominantBoneIndex,
@@ -270,7 +270,7 @@ function GltfAnatomyModelCore({
         });
       } else {
         console.log(
-          '[Guardian BodyMap] pick',
+          '[PHYSIOSHIELD BodyMap] pick',
           `mesh=${dbg.meshName}`,
           `bone=${dbg.dominantBoneName}`,
           `key=${dbg.pickKey ?? '—'}`

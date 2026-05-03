@@ -7,7 +7,7 @@ interface PatientPainProgressSheetProps {
   onClose: () => void;
   painHistory: PainRecord[];
   sessionHistory: ExerciseSession[];
-  /** פסקה מותאמת אישית ממנוע Guardian */
+  /** פסקה מותאמת אישית ממנוע PHYSIOSHIELD */
   aiNarrative?: string;
 }
 
@@ -146,7 +146,7 @@ export default function PatientPainProgressSheet({
               }}
             >
               <p className="text-[10px] font-bold text-teal-800 uppercase tracking-wide mb-1">
-                סיכום מותאם (Guardian)
+                סיכום מותאם (PHYSIOSHIELD)
               </p>
               <p>{aiNarrative}</p>
             </div>

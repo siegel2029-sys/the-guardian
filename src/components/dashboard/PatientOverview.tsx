@@ -21,6 +21,7 @@ import PatientDataManagement from './clinical/PatientDataManagement';
 import PatientClinicalRecordSection from './clinical/PatientClinicalRecordSection';
 import PatientClinicalHistory from './clinical/PatientClinicalHistory';
 import TherapistPatientGrid from './TherapistPatientGrid';
+import SidebarNewPatient from '../layout/SidebarNewPatient';
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
@@ -51,6 +52,7 @@ export default function PatientOverview() {
     getSelfCareReportsForPatient,
     getPatientExerciseFinishReports,
     setActiveSection,
+    patients,
   } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
   const [showClinicalModal, setShowClinicalModal] = useState(false);
@@ -80,18 +82,89 @@ export default function PatientOverview() {
     return computeClinicalProgressInsight(selectedPatient, clinicalToday);
   }, [selectedPatient, clinicalToday]);
 
+  const rosterStats = useMemo(() => {
+    return {
+      total: patients.length,
+      active: patients.filter((x) => x.status === 'active').length,
+      pending: patients.filter((x) => x.status === 'pending').length,
+      redFlags: patients.filter((x) => x.hasRedFlag).length,
+    };
+  }, [patients]);
+
   if (!selectedPatient) {
     return (
-      <div className="h-full overflow-y-auto" style={{ background: '#f1f5f9' }} dir="rtl">
-        <div className="p-4 md:p-6 max-w-4xl mx-auto">
-          <header className="mb-5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-blue-800/80 mb-1">
-              מרכז פיקוד קליני
-            </p>
-            <h1 className="text-xl md:text-2xl font-black text-slate-900">סקירה קלינית</h1>
-            <p className="text-sm text-slate-500 mt-1">בחרו מטופל להצגת הנתונים הקליניים</p>
+      <div className="h-full overflow-y-auto bg-slate-50" dir="rtl">
+        <div className="p-4 md:p-8 max-w-7xl mx-auto">
+          <header className="flex flex-col gap-4 mb-6 md:flex-row md:justify-between md:items-center">
+            <div>
+              <p className="text-sm text-gray-500">מרכז פיקוד קליני</p>
+              <h1 className="text-2xl font-bold text-slate-900">ברוכים השבים</h1>
+              <p className="text-sm text-gray-500 mt-1">
+                בחרו מטופל להצגת הנתונים הקליניים או הוסיפו מטופל חדש
+              </p>
+            </div>
+            <SidebarNewPatient layout="dashboard" />
           </header>
-          <TherapistPatientGrid />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            <section className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 md:col-span-1 lg:col-span-1">
+              <h2 className="text-lg font-bold text-slate-900">סטטיסטיקה</h2>
+              <p className="text-sm text-gray-500 mt-0.5 mb-4">תמונת מצב מהירה מהרשימה</p>
+              <dl className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-slate-50 px-3 py-2 border border-gray-100">
+                  <dt className="text-sm text-gray-500">סה״כ</dt>
+                  <dd className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.total}</dd>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2 border border-gray-100">
+                  <dt className="text-sm text-gray-500">פעילים</dt>
+                  <dd className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.active}</dd>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2 border border-gray-100">
+                  <dt className="text-sm text-gray-500">ממתינים</dt>
+                  <dd className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.pending}</dd>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2 border border-gray-100">
+                  <dt className="text-sm text-gray-500">דגלים אדומים</dt>
+                  <dd className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.redFlags}</dd>
+                </div>
+              </dl>
+            </section>
+
+            <div className="md:col-span-2 lg:col-span-2 min-w-0">
+              <TherapistPatientGrid />
+            </div>
+
+            <section className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 md:col-span-2 lg:col-span-3">
+              <h2 className="text-lg font-bold text-slate-900">כלי קליניים</h2>
+              <p className="text-sm text-gray-500 mt-0.5 mb-4">קיצורי דרך — לאחר בחירת מטופל</p>
+              <div className="flex flex-col sm:flex-row flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveSection('clinical')}
+                  className="w-full sm:w-auto inline-flex justify-center items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 min-h-[44px]"
+                >
+                  <Stethoscope className="w-4 h-4 shrink-0" />
+                  דוחות קליניים
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveSection('analytics')}
+                  className="w-full sm:w-auto inline-flex justify-center items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 min-h-[44px]"
+                >
+                  <BarChart3 className="w-4 h-4 shrink-0" />
+                  היסטוריה ואנליטיקה
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveSection('messages')}
+                  className="w-full sm:w-auto inline-flex justify-center items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 min-h-[44px]"
+                >
+                  <MessageSquare className="w-4 h-4 shrink-0" />
+                  הודעות וצ׳אט
+                </button>
+              </div>
+            </section>
+          </div>
         </div>
       </div>
     );
@@ -115,16 +188,17 @@ export default function PatientOverview() {
   };
 
   return (
-    <div className="h-full overflow-y-auto" style={{ background: '#f1f5f9' }} dir="rtl">
-      <div className="p-5 lg:p-6 max-w-6xl mx-auto">
-        <header className="mb-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-blue-800/80 mb-1">
-            מרכז פיקוד קליני
-          </p>
-          <h1 className="text-2xl font-black text-slate-900">סקירה קלינית</h1>
-          <p className="text-sm text-slate-600 mt-1">
-            סיכום למטופל הנבחר · נתונים חיים מהמערכת (נשמרים בדפדפן)
-          </p>
+    <div className="h-full overflow-y-auto bg-slate-50" dir="rtl">
+      <div className="p-4 md:p-8 max-w-6xl mx-auto">
+        <header className="flex flex-col gap-4 mb-6 md:flex-row md:justify-between md:items-center">
+          <div>
+            <p className="text-sm text-gray-500">מרכז פיקוד קליני</p>
+            <h1 className="text-2xl font-bold text-slate-900">סקירה קלינית</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              סיכום למטופל הנבחר · נתונים חיים מהמערכת (נשמרים בדפדפן)
+            </p>
+          </div>
+          <SidebarNewPatient layout="dashboard" />
         </header>
 
         {p.hasRedFlag && <RedFlagAlert patient={p} />}
@@ -154,18 +228,15 @@ export default function PatientOverview() {
           </div>
         )}
 
-        <div className="rounded-2xl border bg-white p-5 shadow-sm mb-5" style={{ borderColor: '#e2e8f0' }}>
+        <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 mb-5">
           <div className="flex flex-col lg:flex-row gap-5 lg:items-start">
             <div className="flex items-start gap-4 flex-1">
-              <div
-                className="w-14 h-14 rounded-xl flex items-center justify-center text-white text-xl font-black shadow-md shrink-0"
-                style={{ background: 'linear-gradient(135deg, #1e40af, #3b82f6)' }}
-              >
+              <div className="w-14 h-14 rounded-xl flex items-center justify-center text-white text-xl font-bold shadow-sm shrink-0 bg-teal-600">
                 {getPatientDisplayName(p).charAt(0)}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-xl font-bold text-slate-900">{getPatientDisplayName(p)}</h2>
+                  <h2 className="text-lg font-bold text-slate-900">{getPatientDisplayName(p)}</h2>
                   <span
                     className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold"
                     style={{ background: style.bg, color: style.text }}
@@ -187,8 +258,8 @@ export default function PatientOverview() {
                     </span>
                   )}
                 </div>
-                <p className="text-sm text-blue-900/90 font-medium mt-0.5">{p.diagnosis}</p>
-                <div className="flex items-center gap-4 mt-2 flex-wrap text-xs text-slate-500">
+                <p className="text-sm text-gray-600 font-medium mt-0.5">{p.diagnosis}</p>
+                <div className="flex items-center gap-4 mt-2 flex-wrap text-sm text-gray-500">
                   <span className="flex items-center gap-1.5">
                     <User className="w-3.5 h-3.5" /> גיל {p.age}
                   </span>
@@ -212,8 +283,7 @@ export default function PatientOverview() {
               <button
                 type="button"
                 onClick={() => setShowManageModal(true)}
-                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 active:scale-95"
-                style={{ background: 'linear-gradient(135deg, #1d4ed8, #2563eb)' }}
+                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold text-white shadow-sm bg-teal-600 hover:bg-teal-700 transition-colors active:scale-[0.99]"
                 title="עדכון תוכנית תרגול"
               >
                 <ClipboardList className="w-4 h-4 shrink-0" />
@@ -228,7 +298,7 @@ export default function PatientOverview() {
               <button
                 type="button"
                 onClick={() => setActiveSection('messages')}
-                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold border-2 border-teal-500 text-teal-900 bg-teal-50 hover:bg-teal-100 active:scale-95 transition-all"
+                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold border border-teal-600 text-teal-700 bg-teal-50 hover:bg-teal-100 active:scale-[0.99] transition-colors"
                 title="שלח הודעה למטופל"
               >
                 <MessageSquare className="w-4 h-4 shrink-0" />
@@ -243,7 +313,7 @@ export default function PatientOverview() {
               <button
                 type="button"
                 onClick={() => setActiveSection('analytics')}
-                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold border-2 border-slate-300 text-slate-700 bg-white hover:bg-slate-50 active:scale-95 transition-all"
+                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold border border-gray-200 text-slate-700 bg-white hover:bg-slate-50 active:scale-[0.99] transition-colors"
                 title="צפה בנתוני התקדמות"
               >
                 <BarChart3 className="w-4 h-4 shrink-0" />
@@ -254,7 +324,7 @@ export default function PatientOverview() {
                 <button
                   type="button"
                   onClick={() => setShowClinicalModal(true)}
-                  className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold border-2 border-amber-500 text-amber-900 bg-amber-50 hover:bg-amber-100 active:scale-95 transition-all"
+                  className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold border border-amber-500 text-amber-900 bg-amber-50 hover:bg-amber-100 active:scale-[0.99] transition-colors"
                   title="הגדרת פרופיל קליני"
                 >
                   <Stethoscope className="w-4 h-4 shrink-0" />
@@ -265,9 +335,9 @@ export default function PatientOverview() {
           </div>
 
           {p.therapistNotes && (
-            <div className="mt-4 p-3 rounded-xl bg-blue-50/80 border border-blue-100 flex items-start gap-2">
-              <FileText className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-              <p className="text-xs text-blue-950 leading-relaxed">{p.therapistNotes}</p>
+            <div className="mt-4 p-4 rounded-xl bg-slate-50 border border-gray-100 flex items-start gap-2">
+              <FileText className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-gray-700 leading-relaxed">{p.therapistNotes}</p>
             </div>
           )}
         </div>
@@ -300,34 +370,26 @@ export default function PatientOverview() {
         <PatientDataManagement patient={p} />
 
         {portalUsernameDisplay || portalAccess ? (
-          <div
-            className="rounded-2xl p-5 border shadow-sm mb-5 text-white"
-            style={{
-              background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)',
-              borderColor: '#334155',
-            }}
-          >
+          <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 mb-5">
             <div className="flex items-center gap-2 mb-3">
-              <KeyRound className="w-5 h-5 text-blue-400" />
-              <h3 className="text-sm font-bold">גישה לפורטל מטופל</h3>
+              <KeyRound className="w-5 h-5 text-teal-600" />
+              <h3 className="text-lg font-bold text-slate-900">גישה לפורטל מטופל</h3>
             </div>
-            <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+            <p className="text-sm text-gray-500 mb-4 leading-relaxed">
               מזהה הפורטל (רמזים) <strong>קבוע</strong> — אי אפשר לשנותו אחרי היצירה. בכניסה ל־/login יש להזין את
               המזהה ואת הסיסמה (לא דוא״ל).
             </p>
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2 flex-wrap bg-slate-800/80 rounded-xl px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap rounded-xl border border-gray-100 bg-slate-50 px-3 py-2.5">
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
-                    מזהה פורטל (קבוע)
-                  </p>
-                  <code className="text-sm font-mono font-bold text-blue-300">{portalUsernameDisplay ?? '—'}</code>
+                  <p className="text-sm text-gray-500">מזהה פורטל (קבוע)</p>
+                  <code className="text-sm font-mono font-bold text-slate-900">{portalUsernameDisplay ?? '—'}</code>
                 </div>
                 {portalUsernameDisplay && (
                   <button
                     type="button"
                     onClick={() => copyField(portalUsernameDisplay)}
-                    className="p-2 rounded-lg text-slate-300 hover:bg-slate-700"
+                    className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
                     title="העתקה"
                   >
                     <Copy className="w-4 h-4" />
@@ -335,10 +397,10 @@ export default function PatientOverview() {
                 )}
               </div>
               {portalAccess ? (
-                <div className="flex items-center justify-between gap-2 flex-wrap bg-slate-800/80 rounded-xl px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap rounded-xl border border-gray-100 bg-slate-50 px-3 py-2.5">
                   <div className="min-w-0">
-                    <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">סיסמה (דמו)</p>
-                    <code className="text-sm font-mono font-bold text-amber-200 break-all">
+                    <p className="text-sm text-gray-500">סיסמה (דמו)</p>
+                    <code className="text-sm font-mono font-bold text-slate-900 break-all">
                       {revealPortalPassword ? portalAccess.password : '••••••••'}
                     </code>
                   </div>
@@ -346,7 +408,7 @@ export default function PatientOverview() {
                     <button
                       type="button"
                       onClick={() => setRevealPortalPassword((v) => !v)}
-                      className="p-2 rounded-lg text-slate-300 hover:bg-slate-700"
+                      className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
                       title={revealPortalPassword ? 'הסתר' : 'הצג'}
                     >
                       {revealPortalPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -354,7 +416,7 @@ export default function PatientOverview() {
                     <button
                       type="button"
                       onClick={() => copyField(portalAccess.password)}
-                      className="p-2 rounded-lg text-slate-300 hover:bg-slate-700"
+                      className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
                       title="העתקה"
                     >
                       <Copy className="w-4 h-4" />
@@ -362,7 +424,7 @@ export default function PatientOverview() {
                   </div>
                 </div>
               ) : (
-                <p className="text-[11px] text-slate-400 leading-relaxed">
+                <p className="text-sm text-gray-500 leading-relaxed">
                   סיסמה הוצגה פעם אחת בעת היצירה (Supabase Auth). איפוס סיסמה: דרך הגדרות המטופל בפורטל או ממשק
                   Supabase.
                 </p>
@@ -370,7 +432,7 @@ export default function PatientOverview() {
             </div>
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600 mb-5">
+          <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 text-sm text-gray-600 mb-5">
             אין חשבון פורטל למטופל זה. השתמשו ב־«מטופל חדש + גישה» כדי ליצור מזהה פורטל וסיסמה.
           </div>
         )}

@@ -1,5 +1,5 @@
 /**
- * מנוע ניתוח Guardian — לוגיקה ברמת בקר לקראת חיבור API חיצוני.
+ * מנוע ניתוח PHYSIOSHIELD — לוגיקה ברמת בקר לקראת חיבור API חיצוני.
  * מדמה קריאת LLM: הפלט מובנה ונגזר מנתוני המטופל בלבד.
  */
 
@@ -42,7 +42,7 @@ export interface PatientProgressAnalysis {
   therapistAlertDetailHebrew?: string;
 }
 
-const MODEL_VERSION = 'guardian-reasoning-v1';
+const MODEL_VERSION = 'physioshield-reasoning-v1';
 
 const CLINICAL_ALERT_STANDARD =
   'ה-AI זיהה בקשת מטופל לשינוי שאינה תואמת את נתוני הכאב. נדרשת החלטת מטפל.';

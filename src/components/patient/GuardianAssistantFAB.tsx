@@ -110,7 +110,7 @@ export default function GuardianAssistantFAB({
     const emergency = screenPatientFreeTextForEmergency(text);
     if (emergency.isEmergency) {
       onPatientEmergencyText?.();
-      screenAndHandleEmergencyText(patient.id, text, 'צ׳אט Guardian');
+      screenAndHandleEmergencyText(patient.id, text, 'צ׳אט PHYSIOSHIELD');
       setMessages((m) => [
         ...m,
         { role: 'user', text },
@@ -203,7 +203,7 @@ export default function GuardianAssistantFAB({
           userMessage: text,
         });
       } catch (err) {
-        console.warn('[GuardianAssistantFAB] Gemini fallback to rule reply', err);
+        console.warn('[PHYSIOSHIELD Assistant FAB] Gemini fallback to rule reply', err);
         assistantText = reply;
       } finally {
         setReplyLoading(false);
@@ -343,7 +343,7 @@ export default function GuardianAssistantFAB({
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="guardian-title"
+            aria-labelledby="physioshield-title"
           >
             <div
               className="flex items-center justify-between px-4 py-3 border-b shrink-0"
@@ -354,8 +354,8 @@ export default function GuardianAssistantFAB({
                   <Sparkles className="w-5 h-5 text-medical-primary shrink-0" strokeWidth={2} aria-hidden />
                 </div>
                 <div className="min-w-0">
-                  <h2 id="guardian-title" className="text-sm font-bold text-indigo-950 truncate">
-                    {isPortal ? 'עוזר השיקום' : 'עוזר Guardian'}
+                  <h2 id="physioshield-title" className="text-sm font-bold text-indigo-950 truncate">
+                    {isPortal ? 'עוזר השיקום' : 'עוזר PHYSIOSHIELD'}
                   </h2>
                   <p className="text-[11px] text-indigo-600/90">
                     {isPortal

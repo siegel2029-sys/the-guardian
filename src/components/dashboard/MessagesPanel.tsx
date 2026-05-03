@@ -131,7 +131,7 @@ export default function MessagesPanel() {
                     : isAiAlert && tier === 'high_priority'
                       ? 'התראת בטיחות'
                       : isAiAlert
-                        ? 'Guardian AI'
+                        ? 'PHYSIOSHIELD AI'
                         : isFromPatient
                           ? displayName
                           : 'אני (מטפל)';
