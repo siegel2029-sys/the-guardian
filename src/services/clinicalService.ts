@@ -279,16 +279,50 @@ export async function upsertExercisePlans(
     }
 
     if (!active) {
+      // Guard against a concurrent insert that beat us here (unique constraint: one active per patient).
+      // Re-check before inserting so we don't violate the constraint in a race.
+      const { data: recheck } = await client
+        .from('exercise_plans')
+        .select('id, version_number, exercises')
+        .eq('patient_id', patientId)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (recheck) {
+        // A concurrent save already created the active row — treat as an update path.
+        const recheckRow = recheck as { id: string; version_number: number; exercises: unknown };
+        if (exercisesJsonEqual(recheckRow.exercises, exercises)) {
+          const { error: touchErr } = await client
+            .from('exercise_plans')
+            .update({ updated_at: now })
+            .eq('id', recheckRow.id);
+          if (touchErr) return { ok: false, message: `exercise_plans: ${touchErr.message}` };
+          continue;
+        }
+        // Fall through to update the newly-created active row.
+        const { error: deactRecheck } = await client
+          .from('exercise_plans')
+          .update({ is_active: false })
+          .eq('id', recheckRow.id);
+        if (deactRecheck) return { ok: false, message: `exercise_plans: ${deactRecheck.message}` };
+      }
+
       const { error: insErr } = await client.from('exercise_plans').insert({
         patient_id: patientId,
         exercises,
         updated_at: now,
-        version_number: 1,
+        version_number: (recheck as { version_number?: number } | null)?.version_number
+          ? ((recheck as { version_number: number }).version_number + 1)
+          : 1,
         is_active: true,
-        parent_plan_id: null,
+        parent_plan_id: (recheck as { id?: string } | null)?.id ?? null,
         change_summary: changeSummary,
       });
-      if (insErr) return { ok: false, message: `exercise_plans: ${insErr.message}` };
+      if (insErr) {
+        // 23505 = unique_violation — another concurrent write won the race; treat as non-fatal.
+        if ((insErr as { code?: string }).code === '23505') continue;
+        return { ok: false, message: `exercise_plans: ${insErr.message}` };
+      }
 
       const audit = await insertClinicalAuditLog(client, {
         therapistId,
@@ -329,7 +363,18 @@ export async function upsertExercisePlans(
       parent_plan_id: row.id,
       change_summary: changeSummary,
     });
-    if (insErr) return { ok: false, message: `exercise_plans: ${insErr.message}` };
+    if (insErr) {
+      // 23505 = unique_violation — a concurrent save also inserted an active row.
+      // The other writer won; our deactivation already ran so we need to reactivate their row.
+      if ((insErr as { code?: string }).code === '23505') {
+        await client
+          .from('exercise_plans')
+          .update({ is_active: true })
+          .eq('id', row.id);
+        continue;
+      }
+      return { ok: false, message: `exercise_plans: ${insErr.message}` };
+    }
 
     const audit = await insertClinicalAuditLog(client, {
       therapistId,
@@ -372,9 +417,12 @@ export async function fetchPatientPayloadsForTherapist(client: SupabaseClient): 
   } = await client.auth.getUser();
   if (userErr || !user?.id) return [];
 
+  // Defence-in-depth: filter by therapist_id in addition to relying on RLS,
+  // so a misconfigured RLS policy cannot return another therapist's patients.
   const { data, error } = await client
     .from('patients')
     .select('payload')
+    .eq('therapist_id', user.id)
     .order('updated_at', { ascending: false });
 
   if (error) {

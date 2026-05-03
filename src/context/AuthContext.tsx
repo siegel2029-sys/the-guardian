@@ -278,7 +278,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       let prof: ProfileRow | undefined;
       try {
-        const { data, error } = await supabase.from('profiles').select('*').eq('id', tid).maybeSingle();
+        const { data, error } = await supabase.from('profiles').select('id, email, name, title, clinic_name, avatar_initials').eq('id', tid).maybeSingle();
         if (error) {
           if (import.meta.env.DEV) {
             console.warn('[Auth] profiles select', error.message, isProfileAccessDeniedError(error) ? '(session kept)' : '');
@@ -300,7 +300,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!prof) {
         try {
           await syncTherapistProfileRow(tid, email, nextTherapist.name);
-          const { data: after } = await supabase.from('profiles').select('*').eq('id', tid).maybeSingle();
+          const { data: after } = await supabase.from('profiles').select('id, email, name, title, clinic_name, avatar_initials').eq('id', tid).maybeSingle();
           if (after) setProfile(after);
         } catch (e) {
           if (import.meta.env.DEV) console.warn('[Auth] profile upsert', e);

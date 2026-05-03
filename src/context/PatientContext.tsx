@@ -600,6 +600,12 @@ export function PatientProvider({
   /** דילוג על ריצה ראשונה — מניעת דחיפה מלאה לענן בטעינת דף ללא שינוי */
   const dailySessionsHydratedRef = useRef(false);
   const knowledgeFactsHydratedRef = useRef(false);
+  /**
+   * Mutex: prevents two concurrent savePersistedStateToCloud calls from racing each other
+   * and causing a double-insert on exercise_plans (→ unique constraint violation).
+   * Stores the in-flight promise; callers await it before starting a new save.
+   */
+  const cloudSaveMutexRef = useRef<Promise<boolean> | null>(null);
 
   const isPatientSessionLocked = restrictPatientSessionId != null && restrictPatientSessionId !== '';
 
@@ -872,12 +878,26 @@ export function PatientProvider({
         setSupabaseSyncStatus('idle');
         return false;
       }
+
+      // Wait for any in-flight save to finish before starting a new one.
+      // This prevents two concurrent calls from racing on exercise_plans inserts.
+      if (cloudSaveMutexRef.current) {
+        try {
+          await cloudSaveMutexRef.current;
+        } catch {
+          /* ignore errors from the previous save — we'll attempt again below */
+        }
+      }
+
       setSupabaseSyncStatus('saving');
       setSupabaseSyncError(null);
-      const result = await pushPersistedStateToSupabase(supabase, buildPersistSnapshot(), {
+      const savePromise = pushPersistedStateToSupabase(supabase, buildPersistSnapshot(), {
         ...supabasePushOptions,
         ...options,
       });
+      cloudSaveMutexRef.current = savePromise.then((r) => r.ok);
+      const result = await savePromise;
+      cloudSaveMutexRef.current = null;
       if (result.ok) {
         setSupabaseSyncStatus('saved');
         setSupabaseLastSavedAt(new Date().toISOString());

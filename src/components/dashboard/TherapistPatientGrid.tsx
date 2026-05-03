@@ -154,8 +154,8 @@ export default function TherapistPatientGrid() {
                         {statusLabels[p.status]}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-500 truncate mt-1 hidden md:block">{p.diagnosis}</p>
-                    <div className="hidden md:flex items-center gap-3 mt-2 text-xs text-gray-500 flex-wrap">
+                    <p className="text-sm text-gray-500 truncate mt-1">{p.diagnosis}</p>
+                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 flex-wrap">
                       <span className="inline-flex items-center gap-1">
                         <ClipboardList className="w-3.5 h-3.5 text-teal-600 shrink-0" />
                         {n} בתוכנית
@@ -164,7 +164,7 @@ export default function TherapistPatientGrid() {
                         <Activity className="w-3.5 h-3.5 shrink-0" />
                         רמה {p.level}
                       </span>
-                      <span className="inline-flex items-center gap-1 lg:inline-flex">
+                      <span className="hidden md:inline-flex items-center gap-1">
                         <CalendarDays className="w-3.5 h-3.5 shrink-0" />
                         הצטרף {new Date(p.joinDate).toLocaleDateString('he-IL')}
                       </span>
@@ -175,16 +175,16 @@ export default function TherapistPatientGrid() {
                     </div>
                   </div>
                 </div>
-                <div className="hidden md:flex flex-wrap gap-1.5 mt-3">
+                <div className="flex flex-wrap gap-1.5 mt-3">
                   {badgeList.length === 0 ? (
-                    <span className="text-xs font-medium px-2 py-1 rounded-lg bg-gray-50 text-gray-500 border border-gray-100">
+                    <span className="hidden md:inline-flex text-xs font-medium px-2 py-1 rounded-lg bg-gray-50 text-gray-500 border border-gray-100">
                       ללא דגל סטטוס
                     </span>
                   ) : (
                     badgeList.map((b) => (
                       <span
                         key={b.kind}
-                        className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg border ${b.className}`}
+                        className={`${b.kind === 'active_today' ? 'hidden md:inline-flex' : 'inline-flex'} items-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg border ${b.className}`}
                       >
                         {b.kind === 'high_pain' && (
                           <AlertCircle className="w-3 h-3 shrink-0" aria-hidden />
