@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { PortalSelect } from '../ui/PortalDropdown';
 import {
   X,
   Stethoscope,
@@ -445,23 +446,18 @@ export default function ClinicalAiIntakeWizard({
           {step === 'review' && detailedEdit && (
             <>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-2">
-                  אזור גוף מרכזי (מפת גוף + תרגילים)
-                </label>
-                <select
+              <label className="block text-xs font-semibold text-slate-600 mb-2">
+                אזור גוף מרכזי (מפת גוף + תרגילים)
+              </label>
+                <PortalSelect
                   value={primary}
-                  onChange={(e) => {
-                    setPrimary(e.target.value as BodyArea);
+                  onChange={(v) => {
+                    setPrimary(v as BodyArea);
                     setSelectedIds(new Set());
                   }}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800"
-                >
-                  {ALL_AREAS.map((a) => (
-                    <option key={a} value={a}>
-                      {bodyAreaLabels[a]}
-                    </option>
-                  ))}
-                </select>
+                  options={ALL_AREAS.map((a) => ({ value: a, label: bodyAreaLabels[a] }))}
+                  className="rounded-xl border border-slate-200 px-3 py-2.5"
+                />
               </div>
 
               <div

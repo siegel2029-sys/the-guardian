@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useRef, useState, useMemo } from 'react';
+import type { RefObject } from 'react';
 import {
   X, Plus, Trash2, Pencil, Check, Search, BookOpen,
-  ClipboardList, Filter, Clock, RotateCcw, ChevronDown, ChevronUp,
+  ClipboardList, Filter, Clock, RotateCcw, ChevronDown,
   Wand2, Sparkles, AlertCircle, Loader2,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
@@ -10,6 +11,7 @@ import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../../data/exerciseVideoDefault
 import type { PatientExercise, BodyArea, ExerciseDifficulty } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
+import { PortalDropdown, PortalSelect } from '../ui/PortalDropdown';
 
 interface ManagePlanModalProps {
   onClose: () => void;
@@ -103,16 +105,15 @@ function CustomExerciseForm({
 
   return (
     <div
-      className="mx-3 mb-3 rounded-2xl border-2 overflow-hidden flex flex-col"
+      className="mx-3 mb-3 rounded-2xl border-2 flex flex-col"
       style={{
         borderColor: '#0d9488',
         background: 'linear-gradient(135deg,#f0fffe,#f8fffb)',
-        maxHeight: '72vh',   // outer cap; scrollable fields + sticky button
       }}
       dir="rtl"
     >
-      {/* ── Scrollable fields area ─────────────────────────── */}
-      <div className="overflow-y-auto flex-1 p-4">
+      {/* ── Form fields ────────────────────────────────────── */}
+      <div className="p-4">
 
       {/* Form header */}
       <div className="flex items-center gap-2 mb-4">
@@ -151,29 +152,21 @@ function CustomExerciseForm({
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="text-xs font-medium text-slate-600 mb-1 block">קבוצת שרירים</label>
-            <select
+            <PortalSelect
               value={form.muscleGroup}
-              onChange={(e) => set('muscleGroup', e.target.value)}
-              className={inputClass() + ' appearance-none cursor-pointer'}
-              style={{ background: 'white' }}
-            >
-              {MUSCLE_GROUPS_SELECT.map((g) => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-            </select>
+              onChange={(v) => set('muscleGroup', v)}
+              options={MUSCLE_GROUPS_SELECT.map((g) => ({ value: g, label: g }))}
+              className={inputClass() + ' cursor-pointer'}
+            />
           </div>
           <div>
             <label className="text-xs font-medium text-slate-600 mb-1 block">אזור גוף</label>
-            <select
+            <PortalSelect
               value={form.targetArea}
-              onChange={(e) => set('targetArea', e.target.value as BodyArea)}
-              className={inputClass() + ' appearance-none cursor-pointer'}
-              style={{ background: 'white' }}
-            >
-              {ALL_BODY_AREAS.map(([area, label]) => (
-                <option key={area} value={area}>{label}</option>
-              ))}
-            </select>
+              onChange={(v) => set('targetArea', v as BodyArea)}
+              options={ALL_BODY_AREAS.map(([area, label]) => ({ value: area, label }))}
+              className={inputClass() + ' cursor-pointer'}
+            />
           </div>
         </div>
 
@@ -328,7 +321,7 @@ function CustomExerciseForm({
         </label>
 
       </div>{/* end space-y-3 */}
-      </div>{/* end scrollable fields */}
+      </div>{/* end form fields */}
 
       {/* ── Sticky submit footer – ALWAYS VISIBLE ─────────── */}
       <div
@@ -625,6 +618,12 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [changeSummary, setChangeSummary] = useState('');
+  const [planOpen, setPlanOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+
+  const planTriggerRef = useRef<HTMLButtonElement>(null);
+  const libraryTriggerRef = useRef<HTMLButtonElement>(null);
+  const customTriggerRef = useRef<HTMLButtonElement>(null);
 
   const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
   const currentExercises = useMemo(() => plan?.exercises ?? [], [plan]);
@@ -702,8 +701,8 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full overflow-hidden flex flex-col"
-        style={{ maxWidth: '940px', maxHeight: '92vh' }}
+        className="bg-white rounded-2xl shadow-2xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+        style={{ maxWidth: '520px' }}
         onClick={(e) => e.stopPropagation()}
         dir="rtl"
       >
@@ -728,162 +727,205 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
         </div>
 
         {/* Body */}
-        <div className="flex flex-1 overflow-hidden">
+        {/* ── Body: compact button strip ─────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3" dir="rtl">
 
-          {/* LEFT: Current plan ──────────────────────────────────── */}
-          <div className="flex flex-col border-l overflow-hidden"
-            style={{ width: '44%', borderColor: '#e0f2f1' }}>
-
-            {/* Section header with Add Custom button */}
-            <div className="px-4 py-3 border-b shrink-0"
-              style={{ background: '#f8fffe', borderColor: '#e0f2f1' }}>
-              <div className="flex items-center justify-between mb-2.5">
-                <div className="flex items-center gap-2">
-                  <ClipboardList className="w-4 h-4 text-teal-600" />
-                  <span className="text-sm font-semibold text-slate-700">תרגילים בתוכנית</span>
-                  <span className="text-xs font-bold px-2 py-0.5 rounded-full"
-                    style={{ background: '#ccfbf1', color: '#0d9488' }}>
-                    {currentExercises.length}
-                  </span>
-                </div>
-              </div>
-              {/* Add Custom Exercise button */}
-              <button
-                onClick={() => setShowCustomForm((v) => !v)}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all border-2"
-                style={showCustomForm
-                  ? { background: '#f0fffe', borderColor: '#0d9488', color: '#0d9488' }
-                  : { background: 'linear-gradient(135deg,#0d9488,#10b981)', borderColor: 'transparent', color: 'white' }
-                }
-              >
-                {showCustomForm
-                  ? <><ChevronUp className="w-4 h-4" /> סגור טופס</>
-                  : <><Wand2 className="w-4 h-4" /> הוסף תרגיל מותאם</>
-                }
-              </button>
+          {/* Plan summary card */}
+          <div
+            className="flex items-center justify-between p-3 rounded-xl border"
+            style={{ background: '#f8fffe', borderColor: '#e0f2f1' }}
+          >
+            <div className="flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-teal-600" />
+              <span className="text-sm font-semibold text-slate-700">
+                <span className="text-teal-700 font-black">{currentExercises.length}</span> תרגילים בתוכנית
+              </span>
             </div>
-
-            {/* Success notification – full-width, prominent */}
-            {successMsg && (
-              <div
-                className="mx-3 mt-2 px-4 py-3 rounded-2xl flex items-center gap-3 text-sm font-bold shadow-md"
-                style={{
-                  background: 'linear-gradient(135deg,#d1fae5,#ccfbf1)',
-                  color: '#065f46',
-                  border: '2px solid #6ee7b7',
-                }}
-              >
-                <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                  style={{ background: '#059669' }}>
-                  <Check className="w-4 h-4 text-white" />
-                </div>
-                <span className="flex-1">{successMsg}</span>
-                <span className="text-xs font-normal opacity-60">הרשימה מתעדכנת...</span>
-              </div>
-            )}
-
-            {/* Custom form (collapsible) */}
-            {showCustomForm && (
-              <CustomExerciseForm
-                onAdd={handleAddCustom}
-                onCancel={() => setShowCustomForm(false)}
-              />
-            )}
-
-            {/* Exercise list */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {currentExercises.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-center text-slate-400 gap-2 py-10">
-                  <ClipboardList className="w-10 h-10 opacity-30" />
-                  <p className="text-sm">התוכנית ריקה</p>
-                  <p className="text-xs">הוסף תרגילים מהספרייה או צור תרגיל מותאם</p>
-                </div>
-              ) : (
-                currentExercises.map((ex) => (
-                  <PlanExerciseRow
-                    key={ex.id}
-                    exercise={ex}
-                    onRemove={() => removeExerciseFromPlan(selectedPatient.id, ex.id)}
-                    onUpdate={(updates) => updateExerciseInPlan(selectedPatient.id, ex.id, updates)}
-                  />
-                ))
-              )}
-            </div>
-
-            {/* Total XP footer */}
             {currentExercises.length > 0 && (
-              <div className="px-4 py-2 border-t shrink-0 flex items-center justify-between"
-                style={{ background: '#f8fffe', borderColor: '#e0f2f1' }}>
-                <span className="text-xs text-slate-500">
-                  סה"כ XP פוטנציאלי:{' '}
-                  <strong className="text-teal-700">
-                    {currentExercises.reduce((s, e) => s + e.xpReward, 0)} XP
-                  </strong>
-                </span>
-                <span className="text-xs text-slate-400">
-                  {currentExercises.filter((e) => e.isCustom).length > 0 &&
-                    `${currentExercises.filter((e) => e.isCustom).length} מותאמים`}
-                </span>
-              </div>
+              <span className="text-xs text-slate-500">
+                {currentExercises.reduce((s, e) => s + e.xpReward, 0)} XP ·{' '}
+                {currentExercises.filter((e) => e.isCustom).length > 0 &&
+                  `${currentExercises.filter((e) => e.isCustom).length} מותאמים`}
+              </span>
             )}
           </div>
 
-          {/* RIGHT: Library ─────────────────────────────────────── */}
-          <div className="flex flex-col flex-1 overflow-hidden">
-            <div className="px-4 py-3 border-b shrink-0"
-              style={{ background: '#f8fffe', borderColor: '#e0f2f1' }}>
-              <div className="flex items-center gap-2 mb-2">
-                <BookOpen className="w-4 h-4 text-teal-600" />
-                <span className="text-sm font-semibold text-slate-700">ספריית תרגילים</span>
-                <span className="text-xs text-slate-400">({filteredLibrary.length})</span>
+          {/* Success notification */}
+          {successMsg && (
+            <div
+              className="px-4 py-3 rounded-2xl flex items-center gap-3 text-sm font-bold shadow-md"
+              style={{ background: 'linear-gradient(135deg,#d1fae5,#ccfbf1)', color: '#065f46', border: '2px solid #6ee7b7' }}
+            >
+              <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: '#059669' }}>
+                <Check className="w-4 h-4 text-white" />
               </div>
-              <div className="relative mb-2">
-                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                <input
-                  type="search"
-                  placeholder="חיפוש לפי שם, קבוצת שריר או אזור גוף…"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pr-9 pl-3 py-2 text-sm rounded-xl border border-slate-200 focus:outline-none focus:border-teal-400"
-                  style={{ background: 'white' }}
-                />
+              <span className="flex-1">{successMsg}</span>
+              <span className="text-xs font-normal opacity-60">הרשימה מתעדכנת...</span>
+            </div>
+          )}
+
+          {/* ── Trigger: current plan ──────────────────────────────────── */}
+          <button
+            ref={planTriggerRef}
+            type="button"
+            onClick={() => setPlanOpen((v) => !v)}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl border-2 text-sm font-semibold transition-all min-h-[48px]"
+            style={planOpen
+              ? { background: '#f0fffe', borderColor: '#0d9488', color: '#0d9488' }
+              : { background: 'white', borderColor: '#e0f2f1', color: '#475569' }}
+          >
+            <div className="flex items-center gap-2">
+              <ClipboardList className="w-4 h-4" />
+              <span>📋 צפה בתרגילים שבתוכנית</span>
+            </div>
+            <span className="text-xs px-2 py-0.5 rounded-full font-bold shrink-0" style={{ background: '#ccfbf1', color: '#0d9488' }}>
+              {currentExercises.length}
+            </span>
+          </button>
+
+          {/* ── Trigger: exercise library ──────────────────────────────── */}
+          <button
+            ref={libraryTriggerRef}
+            type="button"
+            onClick={() => setLibraryOpen((v) => !v)}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl border-2 text-sm font-semibold transition-all min-h-[48px]"
+            style={libraryOpen
+              ? { background: '#f0fffe', borderColor: '#0d9488', color: '#0d9488' }
+              : { background: 'white', borderColor: '#e0f2f1', color: '#475569' }}
+          >
+            <div className="flex items-center gap-2">
+              <BookOpen className="w-4 h-4" />
+              <span>📚 הוסף מספריית התרגילים</span>
+            </div>
+            <span className="text-xs text-slate-400 shrink-0">({filteredLibrary.length})</span>
+          </button>
+
+          {/* ── Trigger: custom exercise form ─────────────────────────── */}
+          <button
+            ref={customTriggerRef}
+            type="button"
+            onClick={() => setShowCustomForm((v) => !v)}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-sm font-semibold transition-all min-h-[48px]"
+            style={showCustomForm
+              ? { background: '#f0fffe', borderColor: '#0d9488', color: '#0d9488' }
+              : { background: 'linear-gradient(135deg,#0d9488,#10b981)', borderColor: 'transparent', color: 'white' }}
+          >
+            <Wand2 className="w-4 h-4" />
+            <span>✍️ הוסף תרגיל מותאם אישית</span>
+          </button>
+
+          {/* ══ Portal: current plan exercises ════════════════════════ */}
+          <PortalDropdown
+            open={planOpen}
+            onClose={() => setPlanOpen(false)}
+            triggerRef={planTriggerRef as RefObject<HTMLElement | null>}
+            panelMaxHeight={480}
+            panelScrollable={false}
+          >
+            <div className="flex flex-col" dir="rtl" style={{ maxHeight: '480px' }}>
+              <div className="px-3 py-2 border-b border-slate-100 shrink-0 flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700">תרגילים בתוכנית</span>
+                {currentExercises.length > 0 && (
+                  <span className="text-xs text-teal-600 font-bold">
+                    {currentExercises.reduce((s, e) => s + e.xpReward, 0)} XP
+                  </span>
+                )}
               </div>
-              <div className="flex gap-1.5 flex-wrap">
-                <Filter className="w-3.5 h-3.5 text-slate-400 mt-1 shrink-0" />
-                {MUSCLE_GROUPS_FILTER.map((g) => (
-                  <button key={g} onClick={() => setActiveGroup(g)}
-                    className="text-xs px-2.5 py-1 rounded-full font-medium transition-all"
-                    style={activeGroup === g
-                      ? { background: 'linear-gradient(135deg,#0d9488,#10b981)', color: 'white' }
-                      : { background: '#f0fffe', color: '#0d9488', border: '1px solid #99f6e4' }}>
-                    {g}
-                  </button>
-                ))}
+              <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
+                {currentExercises.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-8 text-slate-400 text-center">
+                    <ClipboardList className="w-8 h-8 opacity-30" />
+                    <p className="text-sm">התוכנית ריקה</p>
+                    <p className="text-xs">הוסף תרגילים מהספרייה או צור תרגיל מותאם</p>
+                  </div>
+                ) : (
+                  currentExercises.map((ex) => (
+                    <PlanExerciseRow
+                      key={ex.id}
+                      exercise={ex}
+                      onRemove={() => removeExerciseFromPlan(selectedPatient.id, ex.id)}
+                      onUpdate={(updates) => updateExerciseInPlan(selectedPatient.id, ex.id, updates)}
+                    />
+                  ))
+                )}
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {filteredLibrary.length === 0
-                ? <div className="text-center text-slate-400 py-8 text-sm">לא נמצאו תרגילים</div>
-                : filteredLibrary.map((ex) => {
-                    const added = isAddedToLibrary(ex.id);
-                    const planExId = findPlanExerciseIdForLibrary(ex.id);
-                    return (
-                      <LibraryToggleRow
-                        key={ex.id}
-                        exercise={ex}
-                        isAdded={added}
-                        onAdd={(isOptional) =>
-                          addExerciseToPlan(selectedPatient.id, { ...ex, isOptional })
-                        }
-                        onRemove={() => {
-                          if (planExId) removeExerciseFromPlan(selectedPatient.id, planExId);
-                        }}
-                      />
-                    );
-                  })
-              }
+          </PortalDropdown>
+
+          {/* ══ Portal: exercise library ══════════════════════════════ */}
+          <PortalDropdown
+            open={libraryOpen}
+            onClose={() => setLibraryOpen(false)}
+            triggerRef={libraryTriggerRef as RefObject<HTMLElement | null>}
+            panelMaxHeight={480}
+            panelScrollable={false}
+          >
+            <div className="flex flex-col" dir="rtl" style={{ maxHeight: '480px' }}>
+              {/* Search + filters header */}
+              <div className="p-2 border-b border-slate-100 shrink-0 space-y-1.5">
+                <div className="relative">
+                  <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                  <input
+                    type="search"
+                    placeholder="חיפוש לפי שם, קבוצת שריר…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pr-9 pl-3 py-2 text-sm rounded-xl border border-slate-200 focus:outline-none focus:border-teal-400"
+                    style={{ background: 'white' }}
+                  />
+                </div>
+                <div className="flex gap-1 flex-wrap">
+                  <Filter className="w-3.5 h-3.5 text-slate-400 mt-1 shrink-0" />
+                  {MUSCLE_GROUPS_FILTER.map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setActiveGroup(g)}
+                      className="text-xs px-2 py-0.5 rounded-full font-medium transition-all"
+                      style={activeGroup === g
+                        ? { background: 'linear-gradient(135deg,#0d9488,#10b981)', color: 'white' }
+                        : { background: '#f0fffe', color: '#0d9488', border: '1px solid #99f6e4' }}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Library rows */}
+              <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
+                {filteredLibrary.length === 0
+                  ? <div className="text-center text-slate-400 py-8 text-sm">לא נמצאו תרגילים</div>
+                  : filteredLibrary.map((ex) => {
+                      const added = isAddedToLibrary(ex.id);
+                      const planExId = findPlanExerciseIdForLibrary(ex.id);
+                      return (
+                        <LibraryToggleRow
+                          key={ex.id}
+                          exercise={ex}
+                          isAdded={added}
+                          onAdd={(isOptional) => addExerciseToPlan(selectedPatient.id, { ...ex, isOptional })}
+                          onRemove={() => { if (planExId) removeExerciseFromPlan(selectedPatient.id, planExId); }}
+                        />
+                      );
+                    })
+                }
+              </div>
             </div>
-          </div>
+          </PortalDropdown>
+
+          {/* ══ Portal: custom exercise form (centred overlay) ════════ */}
+          <PortalDropdown
+            open={showCustomForm}
+            onClose={() => setShowCustomForm(false)}
+            triggerRef={customTriggerRef as RefObject<HTMLElement | null>}
+            centered
+          >
+            <CustomExerciseForm
+              onAdd={handleAddCustom}
+              onCancel={() => setShowCustomForm(false)}
+            />
+          </PortalDropdown>
+
         </div>
 
         {/* Footer */}

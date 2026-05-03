@@ -3,6 +3,7 @@ import { X, MessageCircleWarning, Mail } from 'lucide-react';
 import type { BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { getTherapistAlertEmail, openClinicalMailto } from '../../utils/clinicalAlertEmail';
+import { PortalSelect } from '../ui/PortalDropdown';
 
 const SYMPTOMS: { id: string; label: string }[] = [
   { id: 'pain_spike', label: 'החמרת כאב חדה' },
@@ -113,17 +114,12 @@ export default function RedFlagEmailNotificationModal({
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">מקטע גוף</label>
-            <select
+            <PortalSelect
               value={segment}
-              onChange={(e) => setSegment(e.target.value as BodyArea)}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              {SEGMENT_OPTIONS.map((a) => (
-                <option key={a} value={a}>
-                  {bodyAreaLabels[a]}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setSegment(v as BodyArea)}
+              options={SEGMENT_OPTIONS.map((a) => ({ value: a, label: bodyAreaLabels[a] }))}
+              className="rounded-xl border border-slate-200 px-3 py-2"
+            />
           </div>
 
           <div>

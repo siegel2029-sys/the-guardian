@@ -105,7 +105,7 @@ export default function SidebarNewPatient({ compact = false }: { compact?: boole
           </button>
         </div>
       ) : (
-        <div className="px-3 pt-3 pb-2 border-b border-teal-50">
+        <div className="px-3 pt-3 pb-2 border-b border-teal-50 shrink-0">
           <button
             type="button"
             onClick={openCredentials}

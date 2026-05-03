@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Shield,
@@ -20,7 +21,9 @@ import {
   Users,
   PanelRightOpen,
   X,
+  ChevronDown,
 } from 'lucide-react';
+import { PortalDropdown } from '../ui/PortalDropdown';
 import RedFlagEmailNotificationModal from './RedFlagEmailNotificationModal';
 import { useAuth } from '../../context/AuthContext';
 import { usePatient } from '../../context/PatientContext';
@@ -74,6 +77,8 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
   const [redFlagEmailOpen, setRedFlagEmailOpen] = useState(false);
   const [hoverOpen, setHoverOpen] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
+  const [patientOpen, setPatientOpen] = useState(false);
+  const patientTriggerRef = useRef<HTMLButtonElement>(null);
 
   // In mobile mode the panel is always fully expanded
   const expanded = mobileMode || hoverOpen || pinnedOpen;
@@ -183,42 +188,89 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
 
       <SidebarNewPatient compact={!expanded} />
 
-      {/* מטופלים */}
+      {/* מטופלים — portal dropdown switcher */}
       {expanded ? (
-        <div className="px-3 py-3 border-b-2 border-slate-100 flex flex-col min-h-0 max-h-[min(42vh,360px)]">
-          <p className="text-[10px] font-black text-slate-950 uppercase tracking-wider mb-2 px-1 shrink-0">
+        <div className="px-3 py-2 border-b-2 border-slate-100 shrink-0">
+          <p className="text-[10px] font-black text-slate-950 uppercase tracking-wider mb-1.5 px-1">
             מטופלים
           </p>
-          <div className="overflow-y-auto min-h-0 flex-1 space-y-1 pr-0.5">
-            {patients.length === 0 ? (
-              <p className="text-xs font-medium text-slate-600 px-2 py-2">אין מטופלים ברשימה</p>
-            ) : (
-              patients.map((patient) => {
-                const unreadCount = getPatientMessages(patient.id).filter(
-                  (m) => !m.isRead && m.fromPatient
-                ).length;
-                const isSelected = patient.id === selectedPatient?.id;
-                const label = getPatientDisplayName(patient);
 
-                return (
-                  <div
-                    key={patient.id}
-                    className={`flex items-stretch rounded-xl border-2 transition-colors ${
-                      isSelected ? 'border-slate-900 bg-slate-100' : 'border-transparent hover:bg-slate-50'
-                    }`}
-                  >
+          {/* Trigger button — shows active patient */}
+          <button
+            ref={patientTriggerRef}
+            type="button"
+            onClick={() => setPatientOpen((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 px-2 py-2 rounded-xl border-2 transition-colors min-h-[44px]"
+            style={patientOpen
+              ? { borderColor: '#0d9488', background: '#f0fffe', color: '#0d9488' }
+              : { borderColor: '#e2e8f0', background: 'white', color: '#1e293b' }}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 rounded-full bg-slate-900 text-white text-xs font-black flex items-center justify-center shrink-0">
+                {selectedPatient ? getPatientDisplayName(selectedPatient).charAt(0) : <User className="w-4 h-4" />}
+              </div>
+              <div className="flex-1 min-w-0 text-start">
+                <p className="text-sm font-black text-slate-950 truncate">
+                  {selectedPatient ? getPatientDisplayName(selectedPatient) : 'בחר מטופל'}
+                </p>
+                {selectedPatient && (
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ background: statusColors[selectedPatient.status] }}
+                    />
+                    <span className="text-[10px] font-bold text-slate-600">
+                      {statusLabels[selectedPatient.status]}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {patients.length > 0 && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                  {patients.length}
+                </span>
+              )}
+              <ChevronDown
+                className={`w-4 h-4 text-slate-500 transition-transform ${patientOpen ? 'rotate-180' : ''}`}
+                strokeWidth={2.5}
+              />
+            </div>
+          </button>
+
+          {/* Portal: patient list */}
+          <PortalDropdown
+            open={patientOpen}
+            onClose={() => setPatientOpen(false)}
+            triggerRef={patientTriggerRef as RefObject<HTMLElement | null>}
+            panelMaxHeight={320}
+          >
+            <div dir="rtl">
+              {patients.length === 0 ? (
+                <p className="text-xs text-slate-500 px-3 py-4 text-center">אין מטופלים ברשימה</p>
+              ) : (
+                patients.map((patient) => {
+                  const isSelected = patient.id === selectedPatient?.id;
+                  const label = getPatientDisplayName(patient);
+                  const unreadCount = getPatientMessages(patient.id).filter(
+                    (m) => !m.isRead && m.fromPatient
+                  ).length;
+                  return (
                     <button
+                      key={patient.id}
                       type="button"
                       onClick={() => {
                         selectPatient(patient.id);
                         setActiveSection('overview');
+                        setPatientOpen(false);
                         if (mobileMode) onClose?.();
                       }}
-                      className="flex-1 flex items-center gap-2 px-2 py-2 text-right min-w-0 min-h-[44px]"
+                      className={`w-full flex items-center gap-2 px-3 py-2.5 text-right transition-colors min-h-[44px] ${
+                        isSelected ? 'bg-slate-100' : 'hover:bg-slate-50'
+                      }`}
                     >
-                      <div
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-black shrink-0 bg-slate-900"
-                      >
+                      <div className="w-8 h-8 rounded-full bg-slate-900 text-white text-xs font-black flex items-center justify-center shrink-0">
                         {label.charAt(0)}
                       </div>
                       <div className="flex-1 min-w-0 text-start">
@@ -228,48 +280,33 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span
-                            className="w-2 h-2 rounded-full shrink-0 border border-slate-900/20"
+                            className="w-1.5 h-1.5 rounded-full shrink-0"
                             style={{ background: statusColors[patient.status] }}
                           />
-                          <span className="text-[10px] font-bold text-slate-800">
+                          <span className="text-[10px] font-bold text-slate-600">
                             {statusLabels[patient.status]}
                           </span>
                         </div>
                       </div>
-                    </button>
-                    <div className="flex flex-col items-center justify-center gap-0.5 px-1 py-1 shrink-0 border-s-2 border-slate-100">
                       {patient.hasRedFlag && (
-                        <span title="דגל אדום">
-                          <AlertTriangle className="w-3.5 h-3.5 text-red-600" strokeWidth={2.5} />
-                        </span>
+                        <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" strokeWidth={2.5} />
                       )}
                       {awaitingForPatient(patient.id) > 0 && (
-                        <span className="min-w-[18px] h-4 px-0.5 rounded-full bg-amber-500 text-white text-[8px] font-black flex items-center justify-center border border-white">
+                        <span className="min-w-[18px] h-4 px-0.5 rounded-full bg-amber-500 text-white text-[8px] font-black flex items-center justify-center border border-white shrink-0">
                           {awaitingForPatient(patient.id)}
                         </span>
                       )}
                       {unreadCount > 0 && (
-                        <button
-                          type="button"
-                          title="צ׳אט"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            selectPatient(patient.id, { openSection: 'messages' });
-                          }}
-                          className="relative p-1 rounded-md text-slate-900 hover:bg-slate-200"
-                        >
-                          <Reply className="w-3.5 h-3.5 stroke-[2.5]" />
-                          <span className="absolute -top-0.5 -end-0.5 min-w-[14px] h-3.5 px-0.5 rounded-full bg-slate-900 text-white text-[8px] font-black flex items-center justify-center">
-                            {unreadCount > 9 ? '!' : unreadCount}
-                          </span>
-                        </button>
+                        <span className="min-w-[18px] h-4 px-0.5 rounded-full bg-slate-900 text-white text-[8px] font-black flex items-center justify-center shrink-0">
+                          {unreadCount > 9 ? '!' : unreadCount}
+                        </span>
                       )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </PortalDropdown>
         </div>
       ) : (
         <div className="px-2 py-2 border-b-2 border-slate-100 shrink-0 flex justify-center">

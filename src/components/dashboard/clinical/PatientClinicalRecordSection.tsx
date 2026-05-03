@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type { RefObject } from 'react';
 import { ChevronDown, Loader2, X } from 'lucide-react';
 import { usePatient } from '../../../context/PatientContext';
 import type { BodyArea, Patient } from '../../../types';
 import { bodyAreaLabels } from '../../../types';
 import { deriveDiagnosisHeadline } from '../../../utils/clinicalNarrative';
+import { PortalDropdown } from '../../ui/PortalDropdown';
 
 const ALL_AREAS_SORTED: BodyArea[] = (Object.keys(bodyAreaLabels) as BodyArea[]).sort((a, b) =>
   bodyAreaLabels[a].localeCompare(bodyAreaLabels[b], 'he')
@@ -19,31 +21,19 @@ function PainAreasMultiSelect({
   onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onDoc);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDoc);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const count = selected.size;
-  const summary =
-    count === 0 ? 'בחרו אזורי כאב' : `${count} אזורים נבחרו`;
+  const summary = count === 0 ? 'בחרו אזורי כאב' : `${count} אזורים נבחרו`;
+
+  // Stable close handler — passed to PortalDropdown which adds its own
+  // scroll / resize / outside-click / Escape listeners.
+  const handleClose = useCallback(() => setOpen(false), []);
 
   return (
-    <div className="relative" ref={rootRef}>
+    <div className="relative">
+      {/* ── Trigger button ── */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center justify-between gap-2 rounded-xl border-2 border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-600/35"
@@ -56,41 +46,44 @@ function PainAreasMultiSelect({
         />
       </button>
 
+      {/* ── Selected-area chips ── */}
       {count > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-2">
-          {[...selected].sort((a, b) => bodyAreaLabels[a].localeCompare(bodyAreaLabels[b], 'he')).map((area) => (
-            <span
-              key={area}
-              className="inline-flex items-center gap-1 rounded-lg bg-teal-900/90 text-white text-xs font-semibold px-2 py-1"
-            >
-              {bodyAreaLabels[area]}
-              <button
-                type="button"
-                onClick={() => onToggle(area)}
-                className="rounded p-0.5 hover:bg-white/20"
-                aria-label={`הסר ${bodyAreaLabels[area]}`}
+          {[...selected]
+            .sort((a, b) => bodyAreaLabels[a].localeCompare(bodyAreaLabels[b], 'he'))
+            .map((area) => (
+              <span
+                key={area}
+                className="inline-flex items-center gap-1 rounded-lg bg-teal-900/90 text-white text-xs font-semibold px-2 py-1"
               >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          ))}
+                {bodyAreaLabels[area]}
+                <button
+                  type="button"
+                  onClick={() => onToggle(area)}
+                  className="rounded p-0.5 hover:bg-white/20"
+                  aria-label={`הסר ${bodyAreaLabels[area]}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
         </div>
       )}
 
-      {open && (
-        <div
-          className="absolute z-30 mt-1 w-full rounded-xl border-2 border-slate-200 bg-white shadow-xl max-h-56 overflow-y-auto py-1"
-          role="listbox"
-          aria-multiselectable
-        >
+      {/* ── Floating panel — PortalDropdown handles portal, positioning, and
+           all dismissal logic (outside click, Escape, scroll reposition). ── */}
+      <PortalDropdown
+        open={open}
+        onClose={handleClose}
+        triggerRef={triggerRef as RefObject<HTMLElement | null>}
+      >
+        <div dir="rtl" role="listbox" aria-multiselectable className="py-1">
           <div className="flex justify-between items-center px-2 py-1.5 border-b border-slate-100">
             <span className="text-[11px] font-bold text-slate-600">אזורי גוף</span>
             {count > 0 && (
               <button
                 type="button"
-                onClick={() => {
-                  onClear();
-                }}
+                onClick={onClear}
                 className="text-[11px] font-bold text-red-700 hover:underline"
               >
                 נקה הכל
@@ -112,7 +105,7 @@ function PainAreasMultiSelect({
             </label>
           ))}
         </div>
-      )}
+      </PortalDropdown>
     </div>
   );
 }
@@ -176,7 +169,7 @@ export default function PatientClinicalRecordSection({ patient }: { patient: Pat
 
   return (
     <div
-      className="rounded-2xl border border-slate-200 bg-white shadow-sm mb-5 overflow-hidden"
+      className="rounded-2xl border border-slate-200 bg-white shadow-sm mb-5"
       dir="rtl"
     >
       <div className="px-5 py-4 border-b border-slate-200 bg-slate-50">
