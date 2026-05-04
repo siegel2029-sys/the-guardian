@@ -92,6 +92,9 @@ import {
   type PatientRewardMeta,
 } from './patientDomainHelpers';
 
+/** sessionStorage: LoginPage sets before routing; PatientProvider clears once to open dashboard hub. */
+export const THERAPIST_LOGIN_HUB_LANDING_SESSION_KEY = 'guardian-therapist-login-hub-landing-v1';
+
 export type {
   GearPurchaseResult,
   PatientRewardFeedback,
@@ -492,6 +495,7 @@ export function PatientProvider({
   }, []);
 
   const [allPatients, setAllPatients] = useState<Patient[]>(() => {
+    if (isSupabaseAuthEnabled()) return [];
     const persisted = readPersistedOnce().patient;
     const base = persisted?.patients ?? [];
     return normalizePatientsTherapistIds(base, {});
@@ -510,6 +514,9 @@ export function PatientProvider({
   }, [allPatients, therapistScopeIds, restrictPatientSessionId]);
 
   const [selectedPatientId, setSelectedPatientId] = useState<string>(() => {
+    if (isSupabaseAuthEnabled()) {
+      return restrictPatientSessionId ?? '';
+    }
     const persisted = readPersistedOnce().patient;
     const listAll = normalizePatientsTherapistIds(persisted?.patients ?? [], {});
     if (restrictPatientSessionId && listAll.some((p) => p.id === restrictPatientSessionId)) {
@@ -521,24 +528,28 @@ export function PatientProvider({
         : listAll;
     const id = persisted?.selectedPatientId;
     if (id && scoped.some((p) => p.id === id)) return id;
-    return scoped[0]?.id ?? listAll[0]?.id ?? '';
+    return '';
   });
   const [activeSection, setActiveSection] = useState<NavSection>('overview');
   const [messages, setMessages] = useState<Message[]>(() => {
+    if (isSupabaseAuthEnabled()) return [];
     const persisted = readPersistedOnce().patient;
     return persisted?.messages ?? [];
   });
   const [exercisePlans, setExercisePlans] = useState<ExercisePlan[]>(() => {
+    if (isSupabaseAuthEnabled()) return [];
     const persisted = readPersistedOnce().patient;
     return persisted?.exercisePlans ?? [];
   });
   const [dailySessions, setDailySessions] = useState<DailySession[]>(() => {
+    if (isSupabaseAuthEnabled()) return [];
     const persisted = readPersistedOnce().patient;
     return persisted?.dailySessions ?? [];
   });
   const [dailyHistoryByPatient, setDailyHistoryByPatient] = useState<
     Record<string, Record<string, DailyHistoryEntry>>
   >(() => {
+    if (isSupabaseAuthEnabled()) return {};
     const persisted = readPersistedOnce().patient;
     return mergeHistoryFromSessions(
       persisted?.dailySessions ?? [],
@@ -547,37 +558,51 @@ export function PatientProvider({
     );
   });
   const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>(() => {
+    if (isSupabaseAuthEnabled()) return [];
     const persisted = readPersistedOnce().patient;
     return persisted?.aiSuggestions ?? [];
   });
   const [safetyAlerts, setSafetyAlerts] = useState<SafetyAlert[]>(() => {
+    if (isSupabaseAuthEnabled()) return [];
     const persisted = readPersistedOnce().patient;
     return persisted?.safetyAlerts ?? [];
   });
   const [exerciseSafetyLockedPatientIds, setExerciseSafetyLockedPatientIds] = useState<
     Record<string, boolean>
   >(() => {
+    if (isSupabaseAuthEnabled()) return {};
     const persisted = readPersistedOnce().patient;
     return persisted?.exerciseSafetyLockedPatientIds ?? {};
   });
   const [emergencyModalPatientId, setEmergencyModalPatientId] = useState<string | null>(null);
   const [selfCareZonesByPatientId, setSelfCareZonesByPatientId] = useState<
     Record<string, BodyArea[]>
-  >(() => readPersistedOnce().patient?.selfCareZonesByPatientId ?? {});
+  >(() => {
+    if (isSupabaseAuthEnabled()) return {};
+    return readPersistedOnce().patient?.selfCareZonesByPatientId ?? {};
+  });
   const [selfCareReportsByPatientId, setSelfCareReportsByPatientId] = useState<
     Record<string, SelfCareSessionReport[]>
-  >(() => readPersistedOnce().patient?.selfCareReportsByPatientId ?? {});
+  >(() => {
+    if (isSupabaseAuthEnabled()) return {};
+    return readPersistedOnce().patient?.selfCareReportsByPatientId ?? {};
+  });
   const [patientExerciseFinishReportsByPatientId, setPatientExerciseFinishReportsByPatientId] =
-    useState<Record<string, PatientExerciseFinishReport[]>>(
-      () => readPersistedOnce().patient?.patientExerciseFinishReportsByPatientId ?? {}
-    );
+    useState<Record<string, PatientExerciseFinishReport[]>>(() => {
+      if (isSupabaseAuthEnabled()) return {};
+      return readPersistedOnce().patient?.patientExerciseFinishReportsByPatientId ?? {};
+    });
   const [selfCareStrengthTierByPatientId, setSelfCareStrengthTierByPatientId] = useState<
     Record<string, Partial<Record<BodyArea, 0 | 1 | 2>>>
-  >(() => readPersistedOnce().patient?.selfCareStrengthTierByPatientId ?? {});
+  >(() => {
+    if (isSupabaseAuthEnabled()) return {};
+    return readPersistedOnce().patient?.selfCareStrengthTierByPatientId ?? {};
+  });
 
   const [patientRewardMetaByPatientId, setPatientRewardMetaByPatientId] = useState<
     Record<string, PatientRewardMeta>
   >(() => {
+    if (isSupabaseAuthEnabled()) return {};
     const raw = readPersistedOnce().patient?.patientRewardMetaByPatientId ?? {};
     const out: Record<string, PatientRewardMeta> = {};
     for (const [pid, v] of Object.entries(raw)) {
@@ -595,6 +620,7 @@ export function PatientProvider({
   const [patientGearByPatientId, setPatientGearByPatientId] = useState<
     Record<string, PatientGearState>
   >(() => {
+    if (isSupabaseAuthEnabled()) return {};
     const raw = readPersistedOnce().patient?.patientGearByPatientId ?? {};
     const out: Record<string, PatientGearState> = {};
     for (const [pid, v] of Object.entries(raw)) {
@@ -604,6 +630,7 @@ export function PatientProvider({
   });
 
   const [knowledgeFacts, setKnowledgeFacts] = useState<KnowledgeFact[]>(() => {
+    if (isSupabaseAuthEnabled()) return [];
     const persisted = readPersistedOnce().patient;
     return normalizeKnowledgeFactsList(persisted?.knowledgeFacts);
   });
@@ -614,9 +641,6 @@ export function PatientProvider({
   const [supabaseSyncError, setSupabaseSyncError] = useState<string | null>(null);
   const [supabaseLastSavedAt, setSupabaseLastSavedAt] = useState<string | null>(null);
 
-  /** דילוג על ריצה ראשונה — מניעת דחיפה מלאה לענן בטעינת דף ללא שינוי */
-  const dailySessionsHydratedRef = useRef(false);
-  const knowledgeFactsHydratedRef = useRef(false);
   /**
    * Mutex: prevents two concurrent savePersistedStateToCloud calls from racing each other
    * and causing a double-insert on exercise_plans (→ unique constraint violation).
@@ -745,6 +769,9 @@ export function PatientProvider({
       const list = res.patients;
 
       if (list.length === 0) {
+        // Server is authoritative: wipe local cache so next reload also starts fresh
+        try { localStorage.removeItem(PATIENT_STATE_STORAGE_KEY); } catch { /* ignore */ }
+
         setAllPatients([]);
         setSelectedPatientId('');
         setMessages([]);
@@ -759,6 +786,7 @@ export function PatientProvider({
         setSelfCareStrengthTierByPatientId({});
         setPatientRewardMetaByPatientId({});
         setPatientGearByPatientId({});
+        setKnowledgeFacts([]);
         setEmergencyModalPatientId(null);
         return;
       }
@@ -778,11 +806,34 @@ export function PatientProvider({
     restrictPatientSessionId,
   ]);
 
+  /** After therapist login/signup — land on dashboard hub, not last-open patient file. */
   useEffect(() => {
-    if (!therapistScopeIds?.length || restrictPatientSessionId) return;
-    const mine = allPatients.filter((p) => patientMatchesTherapistScope(p, therapistScopeIds));
+    if (restrictPatientSessionId) return;
+    if (authLoading || !isAuthenticated || sessionRole !== 'therapist') return;
+    try {
+      if (
+        typeof sessionStorage === 'undefined' ||
+        sessionStorage.getItem(THERAPIST_LOGIN_HUB_LANDING_SESSION_KEY) !== '1'
+      ) {
+        return;
+      }
+      sessionStorage.removeItem(THERAPIST_LOGIN_HUB_LANDING_SESSION_KEY);
+      setSelectedPatientId('');
+      setActiveSection('overview');
+    } catch {
+      /* ignore private mode */
+    }
+  }, [restrictPatientSessionId, authLoading, isAuthenticated, sessionRole]);
+
+  useEffect(() => {
+    if (restrictPatientSessionId) return;
+    const mine =
+      therapistScopeIds && therapistScopeIds.length > 0
+        ? allPatients.filter((p) => patientMatchesTherapistScope(p, therapistScopeIds))
+        : allPatients;
+    if (selectedPatientId === '') return;
     if (!mine.some((p) => p.id === selectedPatientId)) {
-      setSelectedPatientId(mine[0]?.id ?? '');
+      setSelectedPatientId('');
     }
   }, [therapistScopeIds, allPatients, selectedPatientId, restrictPatientSessionId]);
 
@@ -943,31 +994,6 @@ export function PatientProvider({
     [buildPersistSnapshot, supabasePushOptions, isAuthenticated]
   );
 
-  /** אחרי עדכון סשנים יומיים — דחיפה ל־Supabase (מטפל: מלא; מטופל בפורטל: רק שורת patients) */
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    if (!dailySessionsHydratedRef.current) {
-      dailySessionsHydratedRef.current = true;
-      return;
-    }
-    const t = window.setTimeout(() => {
-      void savePersistedStateToCloud();
-    }, 320);
-    return () => window.clearTimeout(t);
-  }, [dailySessions, savePersistedStateToCloud]);
-
-  /** ידע כללי — דחיפה מלאה רק למטפל; למטופל רק שורת ה־payload ב־patients */
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    if (!knowledgeFactsHydratedRef.current) {
-      knowledgeFactsHydratedRef.current = true;
-      return;
-    }
-    const t = window.setTimeout(() => {
-      void savePersistedStateToCloud();
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [knowledgeFacts, savePersistedStateToCloud]);
 
   const applyExternalSnapshot = useCallback(
     (data: PersistedPatientStateV1) => {
@@ -1035,12 +1061,14 @@ export function PatientProvider({
   const selectPatient = useCallback(
     (id: string, options?: { openSection?: NavSection }) => {
       if (restrictPatientSessionId && id !== restrictPatientSessionId) return;
-      if (
-        therapistScopeIds &&
-        therapistScopeIds.length > 0 &&
-        !allPatients.some((p) => p.id === id && patientMatchesTherapistScope(p, therapistScopeIds))
-      ) {
-        return;
+      if (id !== '') {
+        if (
+          therapistScopeIds &&
+          therapistScopeIds.length > 0 &&
+          !allPatients.some((p) => p.id === id && patientMatchesTherapistScope(p, therapistScopeIds))
+        ) {
+          return;
+        }
       }
       setSelectedPatientId(id);
       setActiveSection(options?.openSection ?? 'overview');
@@ -1558,6 +1586,16 @@ export function PatientProvider({
         return next;
       });
       setSelfCareReportsByPatientId((prev) => {
+        const next = { ...prev };
+        delete next[patientId];
+        return next;
+      });
+      setPatientExerciseFinishReportsByPatientId((prev) => {
+        const next = { ...prev };
+        delete next[patientId];
+        return next;
+      });
+      setSelfCareStrengthTierByPatientId((prev) => {
         const next = { ...prev };
         delete next[patientId];
         return next;

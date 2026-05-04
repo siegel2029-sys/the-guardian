@@ -11,6 +11,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { THERAPIST_LOGIN_HUB_LANDING_SESSION_KEY } from '../../context/PatientContext';
 
 type AuthCardMode = 'login' | 'signup';
 
@@ -74,6 +75,11 @@ export default function LoginPage() {
     e.preventDefault();
     const role = await login(email, password);
     if (role === 'therapist') {
+      try {
+        sessionStorage.setItem(THERAPIST_LOGIN_HUB_LANDING_SESSION_KEY, '1');
+      } catch {
+        /* ignore */
+      }
       navigate('/therapist', { replace: true });
     } else if (role === 'patient') {
       navigate('/patient-portal', { replace: true });
@@ -84,6 +90,11 @@ export default function LoginPage() {
     e.preventDefault();
     const result = await signUp(signUpEmail, signUpPassword, fullName);
     if (result === 'session') {
+      try {
+        sessionStorage.setItem(THERAPIST_LOGIN_HUB_LANDING_SESSION_KEY, '1');
+      } catch {
+        /* ignore */
+      }
       navigate('/therapist', { replace: true });
       return;
     }

@@ -28,7 +28,7 @@ type Props = {
 };
 
 export default function Header({ onMenuToggle }: Props) {
-  const { activeSection, setActiveSection } = usePatient();
+  const { activeSection, selectPatient } = usePatient();
   const rawSection = activeSection as string;
   const hubSection = effectiveNavSection(rawSection);
   const showBackToHub = hubSection !== 'overview';
@@ -44,7 +44,7 @@ export default function Header({ onMenuToggle }: Props) {
   };
 
   const goToPatientDashboard = () => {
-    setActiveSection('overview');
+    selectPatient('', { openSection: 'overview' });
     scrollDashboardToTop();
   };
 

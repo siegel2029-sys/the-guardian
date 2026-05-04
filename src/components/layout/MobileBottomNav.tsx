@@ -14,7 +14,7 @@ const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ cla
 ];
 
 export default function MobileBottomNav({ onOpenSidebar }: Props) {
-  const { activeSection, setActiveSection, patients, getPatientMessages } = usePatient();
+  const { activeSection, setActiveSection, patients, getPatientMessages, selectPatient } = usePatient();
 
   const totalUnread = patients.reduce((sum, p) => {
     return (
@@ -37,7 +37,12 @@ export default function MobileBottomNav({ onOpenSidebar }: Props) {
             <button
               key={id}
               type="button"
-              onClick={() => setActiveSection(id)}
+              onClick={() => {
+                if (id === 'overview') {
+                  selectPatient('', { openSection: 'overview' });
+                }
+                setActiveSection(id);
+              }}
               className={`flex-1 flex flex-col items-center justify-center gap-0.5 relative min-h-[44px] transition-colors ${
                 isActive ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700'
               }`}

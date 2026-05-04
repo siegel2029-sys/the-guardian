@@ -88,6 +88,13 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
   const awaitingForPatient = (patientId: string) =>
     aiSuggestions.filter((s) => s.patientId === patientId && s.status === 'awaiting_therapist').length;
 
+  const goTherapistDashboardHome = () => {
+    selectPatient('', { openSection: 'overview' });
+    onClose?.();
+    const main = document.getElementById('therapist-dashboard-main');
+    main?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <aside
       className={`flex flex-col shrink-0 border-l-2 border-slate-900/15 bg-white shadow-[inset_1px_0_0_rgba(15,23,42,0.06)] z-30 ${
@@ -98,17 +105,22 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
       {/* Brand */}
       <div className="px-2 py-3 border-b-2 border-slate-200 bg-slate-50 shrink-0">
         <div className="flex items-center gap-2 justify-between">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={goTherapistDashboardHome}
+            className="flex items-center gap-2 min-w-0 flex-1 text-start rounded-xl p-1 -m-1 border-2 border-transparent hover:border-slate-200 hover:bg-white/80 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
+            aria-label="לוח מטופל — דף הבית"
+          >
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center shadow-md shrink-0 bg-slate-900 text-white"
             >
-              <Shield className="w-5 h-5" />
+              <Shield className="w-5 h-5" aria-hidden />
             </div>
             <div className="flex-1 min-w-0">
               <h1 className="text-sm font-black text-slate-950 leading-tight truncate">PHYSIOSHIELD</h1>
               <p className="text-[11px] font-semibold text-slate-700">פורטל מטפלים</p>
             </div>
-          </div>
+          </button>
           <div className="flex items-center gap-1 shrink-0">
             {pendingApprovals > 0 && (
               <div className="relative" title="אישורי AI ממתינים">
@@ -338,6 +350,9 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
               key={id}
               type="button"
               onClick={() => {
+                if (id === 'overview') {
+                  selectPatient('', { openSection: 'overview' });
+                }
                 setActiveSection(id);
                 if (mobileMode) onClose?.();
               }}
