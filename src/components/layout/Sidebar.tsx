@@ -325,7 +325,6 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
         </div>
       )}
 
-      {/* ניווט — ניגודיות גבוהה */}
       <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto min-h-0">
         <p className="text-[10px] font-black text-slate-950 uppercase tracking-wider mb-2 px-1">
           ניווט

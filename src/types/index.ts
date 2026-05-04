@@ -220,11 +220,21 @@ export interface Patient {
   clinicalTimeline?: ClinicalTimelineEntry[];
 }
 
-/** רשומת ציר זמן קליני — תאריך + טקסט סופי לאחר אישור מטפל */
+/** תובנות AI לסשן טיפול — נשמרות ברשומת התיעוד (payload מטופל → Supabase) */
+export type TreatmentAiInsights = {
+  patientProgress: string;
+  recommendations: string;
+  exerciseModifications: string;
+  generatedAt: string;
+};
+
+/** רשומת ציר זמן קליני / תיעוד טיפול */
 export type ClinicalTimelineEntry = {
   id: string;
   createdAt: string;
   text: string;
+  /** תובנות AI שהופקו לסשן זה — לצפייה חוזרת ללא הפקה מחדש */
+  aiInsights?: TreatmentAiInsights;
 };
 
 /** שדות נוספים לשמירת פרופיל קליני ראשוני (אינטייק AI) */

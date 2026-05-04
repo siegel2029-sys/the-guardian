@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   CalendarDays,
   Stethoscope,
-  FileText,
   ClipboardList,
   AlertTriangle,
   MessageSquare,
@@ -21,7 +20,7 @@ import ManagePlanModal from './ManagePlanModal';
 import ClinicalAiIntakeWizard from './ClinicalAiIntakeWizard';
 import TherapistQuickChat from './clinical/TherapistQuickChat';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
-import SmartClinicalDocumentation from './clinical/SmartClinicalDocumentation';
+import TreatmentDocumentation from './clinical/TreatmentDocumentation';
 import FullIntakeVaultModal from './clinical/FullIntakeVaultModal';
 import ManagePainAreasModal from './clinical/ManagePainAreasModal';
 import TherapistPatientGrid from './TherapistPatientGrid';
@@ -416,10 +415,6 @@ export default function PatientOverview() {
                 )}
               </div>
 
-              {p.diagnosis ? (
-                <p className="text-sm text-slate-600 leading-relaxed">{p.diagnosis}</p>
-              ) : null}
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
                   type="button"
@@ -480,16 +475,9 @@ export default function PatientOverview() {
               )}
             </div>
           </div>
-
-          {p.therapistNotes && (
-            <div className="mt-6 pt-5 border-t border-slate-100 p-4 rounded-xl bg-slate-50/90 flex items-start gap-2">
-              <FileText className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
-              <p className="text-sm text-slate-700 leading-relaxed">{p.therapistNotes}</p>
-            </div>
-          )}
         </div>
 
-        <SmartClinicalDocumentation patient={p} />
+        <TreatmentDocumentation patient={p} />
 
         <div className="mb-5">
           <TherapistQuickChat patientId={p.id} patientName={getPatientDisplayName(p)} />
