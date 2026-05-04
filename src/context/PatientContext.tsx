@@ -64,6 +64,11 @@ import {
 import { computeStreakForPatient } from '../utils/exerciseStreak';
 import { type GearEquipSlot } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import {
+  prunePatientTombstonesIfReappearedOnServer,
+  recordPatientDeletedFromSupabase,
+  tombstonedDeletedPatientIds,
+} from '../lib/supabasePatientTombstones';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
 import {
   fetchPatientPayloadsForTherapist,
@@ -740,12 +745,16 @@ export function PatientProvider({
 
     let cancelled = false;
     void (async () => {
-      const list = await fetchPatientPayloadsForTherapist(supabase);
-      if (cancelled || list.length === 0) return;
+      const res = await fetchPatientPayloadsForTherapist(supabase);
+      if (cancelled || !res.ok) return;
+      const list = res.patients;
+      prunePatientTombstonesIfReappearedOnServer(list.map((p) => p.id));
+      const tomb = tombstonedDeletedPatientIds();
       setAllPatients((prev) => {
         const normalized = normalizePatientsTherapistIds(list, { fallbackTherapistId: therapist.id });
         const byId = new Map<string, Patient>(normalized.map((p) => [p.id, p]));
         for (const p of prev) {
+          if (tomb.has(p.id)) continue;
           if (!byId.has(p.id)) byId.set(p.id, p);
         }
         return normalizePatientsTherapistIds([...byId.values()], { fallbackTherapistId: therapist.id });
@@ -1524,6 +1533,7 @@ export function PatientProvider({
         }
       }
 
+      recordPatientDeletedFromSupabase(patientId);
       removePatientAccountsForPatient(patientId);
       setAllPatients((prev) => prev.filter((p) => p.id !== patientId));
       setExercisePlans((prev) => prev.filter((ep) => ep.patientId !== patientId));

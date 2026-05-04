@@ -234,13 +234,49 @@ export async function deletePatientRowFromSupabase(
   client: SupabaseClient,
   patientId: string
 ): Promise<ClinicalPushResult> {
-  const { data, error } = await client.from('patients').delete().eq('id', patientId).select('id');
+  const {
+    data: { user },
+    error: userErr,
+  } = await client.auth.getUser();
+  if (userErr || !user?.id) {
+    return { ok: false, message: 'patients delete: נדרש מטפל מחובר ל-Supabase' };
+  }
+
+  const { data: row, error: selErr } = await client
+    .from('patients')
+    .select('id, therapist_id')
+    .eq('id', patientId)
+    .maybeSingle();
+  if (selErr) return { ok: false, message: `patients delete: ${selErr.message}` };
+
+  if (!row) {
+    return { ok: true };
+  }
+
+  const therapistIdOnRow =
+    typeof (row as { therapist_id?: unknown }).therapist_id === 'string'
+      ? (row as { therapist_id: string }).therapist_id.trim()
+      : '';
+
+  if (resolveTherapistIdForSupabaseRls(therapistIdOnRow, user) !== user.id) {
+    return {
+      ok: false,
+      message: 'patients delete: אין הרשאה — השורה לא משויכת למטפל המחובר (בדקו therapist_id ב-DB)',
+    };
+  }
+
+  let del = client.from('patients').delete().eq('id', patientId);
+  if (therapistIdOnRow === user.id) {
+    del = del.eq('therapist_id', user.id);
+  }
+
+  const { data, error } = await del.select('id');
   if (error) return { ok: false, message: `patients delete: ${error.message}` };
   if (!data?.length) {
     return {
       ok: false,
       message:
-        'patients delete: לא נמחקה שורה (אין התאמה, אין הרשאה ב-RLS, או אין סשן מטפל)',
+        'patients delete: לא נמחקה שורה (RLS או therapist_id בשרת לא תואם ל-auth.uid; ייתכן שצריך לעדכן therapist_id ל-UUID של המטפל)',
     };
   }
   return { ok: true };
@@ -423,16 +459,24 @@ export async function fetchClinicalAuditLogsForPatient(
   return (data ?? []) as ClinicalAuditLogRow[];
 }
 
+export type FetchPatientPayloadsForTherapistResult =
+  | { ok: true; patients: Patient[] }
+  | { ok: false; message: string };
+
 /**
  * Loads `patients.payload` rows visible to the current JWT (RLS: therapist_id = auth.uid()).
  * Used to hydrate the therapist dashboard from Supabase instead of local mock IDs only.
  */
-export async function fetchPatientPayloadsForTherapist(client: SupabaseClient): Promise<Patient[]> {
+export async function fetchPatientPayloadsForTherapist(
+  client: SupabaseClient
+): Promise<FetchPatientPayloadsForTherapistResult> {
   const {
     data: { user },
     error: userErr,
   } = await client.auth.getUser();
-  if (userErr || !user?.id) return [];
+  if (userErr || !user?.id) {
+    return { ok: false, message: userErr?.message ?? 'אין משתמש מחובר' };
+  }
 
   // Defence-in-depth: filter by therapist_id in addition to relying on RLS,
   // so a misconfigured RLS policy cannot return another therapist's patients.
@@ -446,7 +490,7 @@ export async function fetchPatientPayloadsForTherapist(client: SupabaseClient): 
     if (import.meta.env.DEV) {
       console.warn('[fetchPatientPayloadsForTherapist]', error.message);
     }
-    return [];
+    return { ok: false, message: error.message };
   }
 
   const out: Patient[] = [];
@@ -461,5 +505,5 @@ export async function fetchPatientPayloadsForTherapist(client: SupabaseClient): 
       out.push(payload as Patient);
     }
   }
-  return out;
+  return { ok: true, patients: out };
 }
