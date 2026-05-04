@@ -234,8 +234,15 @@ export async function deletePatientRowFromSupabase(
   client: SupabaseClient,
   patientId: string
 ): Promise<ClinicalPushResult> {
-  const { error } = await client.from('patients').delete().eq('id', patientId);
+  const { data, error } = await client.from('patients').delete().eq('id', patientId).select('id');
   if (error) return { ok: false, message: `patients delete: ${error.message}` };
+  if (!data?.length) {
+    return {
+      ok: false,
+      message:
+        'patients delete: לא נמחקה שורה (אין התאמה, אין הרשאה ב-RLS, או אין סשן מטפל)',
+    };
+  }
   return { ok: true };
 }
 

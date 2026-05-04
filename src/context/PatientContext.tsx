@@ -1512,7 +1512,9 @@ export function PatientProvider({
 
   const deletePatient = useCallback(
     async (patientId: string): Promise<{ ok: true } | { ok: false; message: string }> => {
-      if (isSupabaseConfigured && supabase && isSupabaseAuthEnabled()) {
+      const syncRemote =
+        isSupabaseConfigured && supabase != null && isSupabaseAuthEnabled();
+      if (syncRemote) {
         const remote = await deletePatientRowFromSupabase(supabase, patientId);
         if (!remote.ok) {
           return { ok: false, message: remote.message };
@@ -1555,7 +1557,7 @@ export function PatientProvider({
       });
       return { ok: true };
     },
-    []
+    [isSupabaseConfigured, supabase]
   );
 
 
