@@ -18,6 +18,7 @@ import {
   MessageCircleWarning,
   X,
   ChevronDown,
+  Snowflake,
 } from 'lucide-react';
 import { PortalDropdown } from '../ui/PortalDropdown';
 import RedFlagEmailNotificationModal from './RedFlagEmailNotificationModal';
@@ -241,6 +242,9 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
                           </span>
                         </div>
                       </div>
+                      {patient.accountFrozen && (
+                        <Snowflake className="w-3.5 h-3.5 text-sky-600 shrink-0" strokeWidth={2.5} aria-hidden />
+                      )}
                       {patient.hasRedFlag && (
                         <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" strokeWidth={2.5} />
                       )}

@@ -175,6 +175,11 @@ export interface Patient {
   geminiClinicalNarrative?: string;
   primaryBodyArea: BodyArea;
   status: PatientStatus;
+  /**
+   * חשבון פורטל מוקפא על ידי המטפל — נחסמת גישה לתוכנית האימונים; הנתונים נשמרים.
+   * נשמר ב־payload של patients ב-Supabase.
+   */
+  accountFrozen?: boolean;
   level: ExerciseLevel;
   xp: number;
   xpForNextLevel: number;

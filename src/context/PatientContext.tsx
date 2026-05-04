@@ -65,7 +65,10 @@ import { computeStreakForPatient } from '../utils/exerciseStreak';
 import { type GearEquipSlot } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
-import { fetchPatientPayloadsForTherapist } from '../services/clinicalService';
+import {
+  fetchPatientPayloadsForTherapist,
+  deletePatientRowFromSupabase,
+} from '../services/clinicalService';
 import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
 import { useAuth } from './AuthContext';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
@@ -321,8 +324,11 @@ interface PatientContextValue {
    */
   applyIntakeExercisePlan: (patientId: string, exercises: Exercise[], primaryBodyArea: BodyArea) => void;
 
-  /** מחיקת מטופל מהמערכת (כולל auth פורטל) */
-  deletePatient: (patientId: string) => void;
+  /**
+   * מחיקת מטופל מהמערכת (כולל auth פורטל).
+   * עם Supabase: ממתין למחיקת השורה בשרת לפני ניקוי מצב מקומי — אם נכשל, הנתונים המקומיים נשמרים.
+   */
+  deletePatient: (patientId: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   /**
    * מיזוג חלקי לשדות מטופל — לדיבוג פיתוח בלבד (ב־production אין השפעה).
    */
@@ -1504,42 +1510,53 @@ export function PatientProvider({
     [clinicalToday, exercisePlans]
   );
 
-  const deletePatient = useCallback((patientId: string) => {
-    removePatientAccountsForPatient(patientId);
-    setAllPatients((prev) => prev.filter((p) => p.id !== patientId));
-    setExercisePlans((prev) => prev.filter((ep) => ep.patientId !== patientId));
-    setMessages((prev) => prev.filter((m) => m.patientId !== patientId));
-    setDailySessions((prev) => prev.filter((s) => s.patientId !== patientId));
-    setAiSuggestions((prev) => prev.filter((s) => s.patientId !== patientId));
-    setSafetyAlerts((prev) => prev.filter((a) => a.patientId !== patientId));
-    setExerciseSafetyLockedPatientIds((prev) => {
-      const next = { ...prev };
-      delete next[patientId];
-      return next;
-    });
-    setSelfCareZonesByPatientId((prev) => {
-      const next = { ...prev };
-      delete next[patientId];
-      return next;
-    });
-    setSelfCareReportsByPatientId((prev) => {
-      const next = { ...prev };
-      delete next[patientId];
-      return next;
-    });
-    setSelectedPatientId((cur) => (cur === patientId ? '' : cur));
-    setEmergencyModalPatientId((cur) => (cur === patientId ? null : cur));
-    setPatientRewardMetaByPatientId((prev) => {
-      const next = { ...prev };
-      delete next[patientId];
-      return next;
-    });
-    setPatientGearByPatientId((prev) => {
-      const next = { ...prev };
-      delete next[patientId];
-      return next;
-    });
-  }, []);
+  const deletePatient = useCallback(
+    async (patientId: string): Promise<{ ok: true } | { ok: false; message: string }> => {
+      if (isSupabaseConfigured && supabase && isSupabaseAuthEnabled()) {
+        const remote = await deletePatientRowFromSupabase(supabase, patientId);
+        if (!remote.ok) {
+          return { ok: false, message: remote.message };
+        }
+      }
+
+      removePatientAccountsForPatient(patientId);
+      setAllPatients((prev) => prev.filter((p) => p.id !== patientId));
+      setExercisePlans((prev) => prev.filter((ep) => ep.patientId !== patientId));
+      setMessages((prev) => prev.filter((m) => m.patientId !== patientId));
+      setDailySessions((prev) => prev.filter((s) => s.patientId !== patientId));
+      setAiSuggestions((prev) => prev.filter((s) => s.patientId !== patientId));
+      setSafetyAlerts((prev) => prev.filter((a) => a.patientId !== patientId));
+      setExerciseSafetyLockedPatientIds((prev) => {
+        const next = { ...prev };
+        delete next[patientId];
+        return next;
+      });
+      setSelfCareZonesByPatientId((prev) => {
+        const next = { ...prev };
+        delete next[patientId];
+        return next;
+      });
+      setSelfCareReportsByPatientId((prev) => {
+        const next = { ...prev };
+        delete next[patientId];
+        return next;
+      });
+      setSelectedPatientId((cur) => (cur === patientId ? '' : cur));
+      setEmergencyModalPatientId((cur) => (cur === patientId ? null : cur));
+      setPatientRewardMetaByPatientId((prev) => {
+        const next = { ...prev };
+        delete next[patientId];
+        return next;
+      });
+      setPatientGearByPatientId((prev) => {
+        const next = { ...prev };
+        delete next[patientId];
+        return next;
+      });
+      return { ok: true };
+    },
+    []
+  );
 
 
 

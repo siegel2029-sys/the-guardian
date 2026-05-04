@@ -229,6 +229,16 @@ export async function upsertPatientRecords(
   return { ok: true };
 }
 
+/** מחיקת שורת מטופל ב-Supabase (RLS — מטפל מחובר בלבד). מפעיל CASCADE למסדי תלות (תוכניות, היסטוריית סשנים, יומן ביקורת). חייב להצליח לפני ניקוי המצב המקומי. */
+export async function deletePatientRowFromSupabase(
+  client: SupabaseClient,
+  patientId: string
+): Promise<ClinicalPushResult> {
+  const { error } = await client.from('patients').delete().eq('id', patientId);
+  if (error) return { ok: false, message: `patients delete: ${error.message}` };
+  return { ok: true };
+}
+
 function exercisesJsonEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }

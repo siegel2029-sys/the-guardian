@@ -178,7 +178,7 @@ export default function PainManagement({
 
         <div className="p-4 flex flex-col lg:flex-row gap-4">
           <div className="shrink-0 flex-1 min-w-0 order-1 flex flex-col min-h-0">
-            <div className="flex-1 min-h-[min(64dvh,720px)] rounded-2xl overflow-hidden pointer-events-none select-none border border-slate-200/90 bg-slate-100 flex items-center justify-center lg:justify-end">
+            <div className="flex-1 min-h-[min(64dvh,720px)] rounded-2xl overflow-hidden pointer-events-none select-none border-2 border-slate-900/25 bg-white shadow-inner shadow-slate-400/40 ring-1 ring-slate-900/10 flex items-center justify-center lg:justify-end">
               <BodyMap3D
                 wrapperClassName="w-full h-full min-h-[min(60dvh,680px)] max-w-full"
                 painPickerFlat

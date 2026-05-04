@@ -65,7 +65,7 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
       return;
     }
     if (draftPatientId) {
-      deletePatient(draftPatientId);
+      void deletePatient(draftPatientId);
       setDraftPatientId(null);
       setLockedPortalUsername(null);
       setCreated(null);

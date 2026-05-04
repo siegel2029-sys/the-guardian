@@ -814,8 +814,12 @@ export default function PatientDailyView() {
     setSessionCelebrationBurst(0);
   };
 
+  const portalFrozenUiLock =
+    sessionRole === 'patient' && !!selectedPatient?.accountFrozen && !patientMustChangePassword;
+
   const guardiCompanionEligible =
     (portalTab === 'home' || portalTab === 'activity') &&
+    !portalFrozenUiLock &&
     !patientMustChangePassword &&
     !!selectedPatient &&
     missionListHasAny &&
@@ -1047,6 +1051,8 @@ export default function PatientDailyView() {
     navigate('/patient-portal/activity#today-missions');
   };
 
+  const showPortalFrozenOverlay = portalFrozenUiLock && portalTab !== 'messages';
+
   return (
     <div
       className="min-h-screen flex flex-col max-w-lg mx-auto w-full relative bg-medical-bg font-sans"
@@ -1108,7 +1114,8 @@ export default function PatientDailyView() {
             onClick={() => navigate('/shop')}
             title="מטבעות למידה — חנות"
             aria-label="מטבעות למידה — מעבר לחנות"
-            className={`inline-flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl text-sm font-bold text-slate-800 transition-transform duration-200 border-2 border-slate-200 bg-white hover:bg-amber-50/80 hover:border-amber-200/90 active:scale-[0.98] min-w-[3.25rem] ${
+            disabled={portalFrozenUiLock}
+            className={`inline-flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl text-sm font-bold text-slate-800 transition-transform duration-200 border-2 border-slate-200 bg-white hover:bg-amber-50/80 hover:border-amber-200/90 active:scale-[0.98] min-w-[3.25rem] disabled:opacity-40 disabled:pointer-events-none disabled:grayscale ${
               coinKick ? 'motion-safe:scale-110' : ''
             }`}
           >
@@ -1148,9 +1155,10 @@ export default function PatientDailyView() {
                   )}
                   <button
                     type="button"
+                    disabled={portalFrozenUiLock}
                     onClick={goToClinicalDashboardFromStreak}
                     onKeyDown={(e) => activateOnEnterSpace(e, goToClinicalDashboardFromStreak)}
-                    className="mx-auto text-xs font-black tabular-nums px-2.5 py-1 rounded-xl border w-fit max-w-full shrink-0 cursor-pointer touch-manipulation motion-safe:transition-[transform,box-shadow] motion-safe:duration-150 hover:brightness-[1.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400"
+                    className="mx-auto text-xs font-black tabular-nums px-2.5 py-1 rounded-xl border w-fit max-w-full shrink-0 cursor-pointer touch-manipulation motion-safe:transition-[transform,box-shadow] motion-safe:duration-150 hover:brightness-[1.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 disabled:opacity-40 disabled:pointer-events-none"
                     style={{
                       borderColor: 'rgba(249, 115, 22, 0.45)',
                       background: 'linear-gradient(135deg, rgba(255, 247, 237, 0.95), #fff7ed)',
@@ -1222,9 +1230,10 @@ export default function PatientDailyView() {
               {!patientMustChangePassword && (
                 <button
                   type="button"
+                  disabled={portalFrozenUiLock}
                   onClick={() => setSettingsModalOpen(true)}
                   title="הגדרות"
-                  className="flex shrink-0 items-center justify-center min-h-11 min-w-11 rounded-xl hover:bg-slate-50 border border-slate-200 text-slate-700"
+                  className="flex shrink-0 items-center justify-center min-h-11 min-w-11 rounded-xl hover:bg-slate-50 border border-slate-200 text-slate-700 disabled:opacity-40 disabled:pointer-events-none"
                   aria-label="הגדרות"
                 >
                   <Settings className="w-5 h-5 shrink-0" strokeWidth={2} aria-hidden />
@@ -1664,6 +1673,15 @@ export default function PatientDailyView() {
             unequipGearSlot={unequipGearSlot}
           />
         )}
+
+        <footer className="mt-10 pt-6 border-t border-slate-200/80 flex justify-center shrink-0">
+          <a
+            href="/accessibility"
+            className="text-[11px] text-slate-500 hover:text-teal-600 underline underline-offset-2 transition-colors py-2"
+          >
+            הצהרת נגישות
+          </a>
+        </footer>
       </div>
 
       {import.meta.env.DEV && <PortalPatientDebugPanel />}
@@ -1679,10 +1697,11 @@ export default function PatientDailyView() {
         <div className="flex w-full max-w-lg px-1">
           <button
             type="button"
+            disabled={portalFrozenUiLock}
             onClick={() => {
               navigate('/patient-portal');
             }}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-14 min-w-[3rem] py-2.5 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 touch-manipulation motion-safe:transition-transform motion-safe:active:scale-95 ${
+            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-14 min-w-[3rem] py-2.5 text-sm font-bold transition-colors rounded-xl touch-manipulation motion-safe:transition-transform motion-safe:active:scale-95 disabled:opacity-40 disabled:pointer-events-none ${
               portalTab === 'home'
                 ? 'text-medical-primary'
                 : 'text-slate-500'
@@ -1694,8 +1713,9 @@ export default function PatientDailyView() {
           </button>
           <button
             type="button"
+            disabled={portalFrozenUiLock}
             onClick={() => navigate(portalHrefForTab('activity'))}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-14 min-w-[3rem] py-2.5 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 touch-manipulation motion-safe:transition-transform motion-safe:active:scale-95 ${
+            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-14 min-w-[3rem] py-2.5 text-sm font-bold transition-colors rounded-xl touch-manipulation motion-safe:transition-transform motion-safe:active:scale-95 disabled:opacity-40 disabled:pointer-events-none ${
               portalTab === 'activity' ? 'text-medical-primary' : 'text-slate-500'
             }`}
             aria-label="אימונים ומשימות"
@@ -1708,8 +1728,9 @@ export default function PatientDailyView() {
           </button>
           <button
             type="button"
+            disabled={portalFrozenUiLock}
             onClick={() => navigate(portalHrefForTab('gear'))}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-14 min-w-[3rem] py-2.5 text-sm font-bold transition-colors rounded-xl active:bg-slate-50 touch-manipulation motion-safe:transition-transform motion-safe:active:scale-95 ${
+            className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-14 min-w-[3rem] py-2.5 text-sm font-bold transition-colors rounded-xl touch-manipulation motion-safe:transition-transform motion-safe:active:scale-95 disabled:opacity-40 disabled:pointer-events-none ${
               portalTab === 'gear' ? 'text-medical-primary' : 'text-slate-500'
             }`}
             aria-label="חנות ציוד"
@@ -1810,7 +1831,8 @@ export default function PatientDailyView() {
           exercisesLocked ||
           patientMustChangePassword ||
           sessionCelebrationBurst > 0 ||
-          trainingAiPlanModalOpen
+          trainingAiPlanModalOpen ||
+          portalFrozenUiLock
         }
       />
 
@@ -1970,6 +1992,40 @@ export default function PatientDailyView() {
               style={{ background: 'linear-gradient(135deg, #0d9488, #059669)' }}
             >
               שמירה והמשך
+            </button>
+          </div>
+        </div>
+      )}
+
+      {sessionRole === 'patient' && showPortalFrozenOverlay && (
+        <div
+          className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-[3px]"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="portal-frozen-title"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 p-6 text-center">
+            <h2 id="portal-frozen-title" className="text-lg font-black text-slate-900 mb-3">
+              החשבון הוקפא
+            </h2>
+            <p className="text-sm text-slate-600 leading-relaxed mb-6">
+              החשבון שלך הוקפא זמנית על ידי המטפל. כל הנתונים שלך שמורים במערכת, אך הגישה לתוכנית האימונים חסומה
+              כרגע.
+            </p>
+            <button
+              type="button"
+              className="w-full py-3.5 rounded-xl font-bold text-white mb-3 shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
+              style={{ background: 'linear-gradient(135deg, #0d9488, #059669)' }}
+              onClick={() => navigate(portalHrefForTab('messages'))}
+            >
+              צור קשר עם המטפל
+            </button>
+            <button
+              type="button"
+              className="w-full py-2.5 rounded-xl text-sm font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
+              onClick={() => void logout().then(() => navigate('/login', { replace: true }))}
+            >
+              התנתקות
             </button>
           </div>
         </div>

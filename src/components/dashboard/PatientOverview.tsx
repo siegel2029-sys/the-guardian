@@ -1,7 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  CalendarDays, Stethoscope, FileText, ClipboardList, AlertTriangle,
-  KeyRound, Copy, Eye, EyeOff, MessageSquare, BarChart3, Archive, Pencil,
+  CalendarDays,
+  Stethoscope,
+  FileText,
+  ClipboardList,
+  AlertTriangle,
+  MessageSquare,
+  BarChart3,
+  Archive,
+  Pencil,
+  Trash2,
+  Snowflake,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
@@ -13,13 +22,25 @@ import ClinicalAiIntakeWizard from './ClinicalAiIntakeWizard';
 import TherapistQuickChat from './clinical/TherapistQuickChat';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import SmartClinicalDocumentation from './clinical/SmartClinicalDocumentation';
-import PatientDataManagement from './clinical/PatientDataManagement';
 import FullIntakeVaultModal from './clinical/FullIntakeVaultModal';
 import ManagePainAreasModal from './clinical/ManagePainAreasModal';
 import TherapistPatientGrid from './TherapistPatientGrid';
 import SidebarNewPatient from '../layout/SidebarNewPatient';
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
+
+function AccessibilityFooterLink() {
+  return (
+    <footer className="mt-10 pt-6 pb-8 border-t border-slate-200/80 flex justify-center shrink-0">
+      <a
+        href="/accessibility"
+        className="text-[11px] text-slate-500 hover:text-teal-600 underline underline-offset-2 transition-colors"
+      >
+        הצהרת נגישות
+      </a>
+    </footer>
+  );
+}
 
 const statusLabels: Record<string, string> = {
   active: 'פעיל',
@@ -45,17 +66,25 @@ export default function PatientOverview() {
     patients,
     updatePatient,
     savePersistedStateToCloud,
+    deletePatient,
+    isPatientSessionLocked,
   } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
   const [showClinicalModal, setShowClinicalModal] = useState(false);
   const [showIntakeVault, setShowIntakeVault] = useState(false);
   const [showPainAreasModal, setShowPainAreasModal] = useState(false);
-  const [showPortalPassword, setShowPortalPassword] = useState(false);
+  const [destructiveDeleteOpen, setDestructiveDeleteOpen] = useState(false);
+  const [destructiveDeleteStep, setDestructiveDeleteStep] = useState<1 | 2>(1);
+  const [destructiveDeleteBusy, setDestructiveDeleteBusy] = useState(false);
+  const [destructiveDeleteError, setDestructiveDeleteError] = useState<string | null>(null);
+  const [freezeConfirmOpen, setFreezeConfirmOpen] = useState(false);
+  const [freezeConfirmStep, setFreezeConfirmStep] = useState<1 | 2>(1);
+  /** יעד לאחר אישור כפול: true = הקפאה, false = שחרור הקפאה */
+  const [freezePendingIntent, setFreezePendingIntent] = useState<boolean | null>(null);
   const [editingDemographics, setEditingDemographics] = useState(false);
   const [demoFreeText, setDemoFreeText] = useState(selectedPatient?.demographicsFreeText ?? '');
 
   useEffect(() => {
-    setShowPortalPassword(false);
     setEditingDemographics(false);
     if (selectedPatient) {
       setDemoFreeText(selectedPatient.demographicsFreeText ?? '');
@@ -151,6 +180,8 @@ export default function PatientOverview() {
               </div>
             </section>
           </div>
+
+          <AccessibilityFooterLink />
         </div>
       </div>
     );
@@ -160,17 +191,9 @@ export default function PatientOverview() {
   const style = statusStyles[p.status];
   const plan = getExercisePlan(p.id);
   const exerciseCount = plan?.exercises.length ?? 0;
-  const portalAccess = getPatientCredentialsByPatientId(p.id);
-  const portalUsernameDisplay = p.portalUsername ?? portalAccess?.loginId ?? null;
+  const portalUsernameDisplay =
+    p.portalUsername ?? getPatientCredentialsByPatientId(p.id)?.loginId ?? null;
   const needsClinicalSetup = p.status === 'pending' || exerciseCount === 0;
-
-  const copyField = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      /* ignore */
-    }
-  };
 
   const displayName = getPatientDisplayName(p);
 
@@ -220,10 +243,49 @@ export default function PatientOverview() {
           <div className="flex flex-col gap-6 md:flex-row md:items-start">
             {/* עמודת זהות — ב־RTL ראשון ב־DOM = ימין */}
             <div className="flex flex-col items-center md:items-start shrink-0 w-full md:w-[200px] gap-3">
-              <div className="w-24 h-24 rounded-xl flex items-center justify-center text-white shadow-md px-1.5 py-1 bg-teal-600 ring-1 ring-teal-700/20">
-                <span className="text-center text-2xl md:text-[1.65rem] font-bold leading-tight break-words">
-                  {displayName}
-                </span>
+              <div className="flex flex-row flex-wrap items-center gap-3 w-full justify-center md:justify-start">
+                <div className="w-24 h-24 rounded-xl flex items-center justify-center text-white shadow-md px-1.5 py-1 bg-teal-600 ring-1 ring-teal-700/20 shrink-0">
+                  <span className="text-center text-2xl md:text-[1.65rem] font-bold leading-tight break-words">
+                    {displayName}
+                  </span>
+                </div>
+                {!isPatientSessionLocked && (
+                  <div
+                    className="flex flex-row items-center gap-2 shrink-0"
+                    aria-label="פעולות ניהול מטופל"
+                  >
+                    <button
+                      type="button"
+                      title={
+                        p.accountFrozen ? 'שחרור הקפאה — דורש אישור כפול' : 'הקפאת פורטל — דורש אישור כפול'
+                      }
+                      aria-label={
+                        p.accountFrozen ? 'שחרור הקפאת חשבון פורטל' : 'הקפאת חשבון פורטל'
+                      }
+                      onClick={() => {
+                        setFreezePendingIntent(!p.accountFrozen);
+                        setFreezeConfirmStep(1);
+                        setFreezeConfirmOpen(true);
+                      }}
+                      className="flex items-center justify-center w-11 h-11 rounded-xl border-2 border-sky-500 bg-sky-50 text-sky-700 hover:bg-sky-100 hover:border-sky-600 transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
+                    >
+                      <Snowflake className="w-5 h-5 text-sky-600" strokeWidth={2.25} aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      title="מחיקת מטופל — דורש אישור כפול"
+                      aria-label="מחיקת מטופל"
+                      onClick={() => {
+                        setDestructiveDeleteError(null);
+                        setDestructiveDeleteStep(1);
+                        setDestructiveDeleteOpen(true);
+                      }}
+                      className="flex items-center justify-center w-11 h-11 rounded-xl border-2 border-red-400 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-500 transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
+                    >
+                      <Trash2 className="w-5 h-5 text-red-600" strokeWidth={2.25} aria-hidden />
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="w-full max-w-[260px] space-y-3 text-sm text-slate-700">
                 <div>
@@ -301,7 +363,7 @@ export default function PatientOverview() {
                   )}
                 </div>
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-0.5">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-red-600 mb-0.5">
                     אזור פעיל
                   </div>
                   <div>
@@ -344,6 +406,12 @@ export default function PatientOverview() {
                   >
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     דגל אדום
+                  </span>
+                )}
+                {p.accountFrozen && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border border-sky-300 bg-sky-50 text-sky-900">
+                    <Snowflake className="w-3.5 h-3.5 shrink-0 text-sky-600" strokeWidth={2.25} aria-hidden />
+                    פורטל מוקפא
                   </span>
                 )}
               </div>
@@ -431,79 +499,150 @@ export default function PatientOverview() {
           <ClinicalDeepDiveTabs patient={p} />
         </div>
 
-        <PatientDataManagement patient={p} />
+        <PendingApprovalsPanel />
+        <AiSuggestionsPanel />
 
-        {portalUsernameDisplay || portalAccess ? (
-          <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 mb-5">
-            <div className="flex items-center gap-2 mb-3">
-              <KeyRound className="w-5 h-5 text-teal-600" />
-              <h3 className="text-lg font-bold text-slate-900">גישה לפורטל מטופל</h3>
-            </div>
-            <p className="text-sm text-gray-500 mb-4 leading-relaxed">
-              מזהה הפורטל (רמזים) <strong>קבוע</strong> — אי אפשר לשנותו אחרי היצירה. בכניסה ל־/login יש להזין את
-              המזהה ואת הסיסמה (לא דוא״ל).
-            </p>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2 flex-wrap rounded-xl border border-gray-100 bg-slate-50 px-3 py-2.5">
-                <div>
-                  <p className="text-sm text-gray-500">מזהה פורטל (קבוע)</p>
-                  <code className="text-sm font-mono font-bold text-slate-900">{portalUsernameDisplay ?? '—'}</code>
-                </div>
-                {portalUsernameDisplay && (
+        <AccessibilityFooterLink />
+
+        {freezeConfirmOpen && freezePendingIntent !== null && (
+          <div
+            className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[2px]"
+            dir="rtl"
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="freeze-confirm-title"
+              className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl p-6"
+            >
+              <h2 id="freeze-confirm-title" className="text-lg font-black text-slate-900 mb-2">
+                {freezeConfirmStep === 1
+                  ? freezePendingIntent
+                    ? 'לאשר הקפאת פורטל?'
+                    : 'לאשר שחרור הקפאה?'
+                  : freezePendingIntent
+                    ? 'אישור סופי — הקפאה'
+                    : 'אישור סופי — שחרור'}
+              </h2>
+              <p className="text-sm text-slate-600 leading-relaxed mb-5">
+                {freezeConfirmStep === 1
+                  ? freezePendingIntent
+                    ? 'לאחר האישור המטופל יראה במסך הקפאה בפורטל ולא יוכל להשתמש בתוכנית האימונים עד לשחרור ידני.'
+                    : 'לאחר האישור המטופל יקבל שוב גישה מלאה לפורטל ולתוכנית האימונים.'
+                  : freezePendingIntent
+                    ? 'הגישה לתוכנית האימונים בפורטל תיחסם. הנתונים במערכת נשמרים. להמשיך?'
+                    : 'המגבלות יוסרו מהפורטל. להמשיך?'}
+              </p>
+              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={() => {
+                    setFreezeConfirmOpen(false);
+                    setFreezeConfirmStep(1);
+                    setFreezePendingIntent(null);
+                  }}
+                >
+                  ביטול
+                </button>
+                {freezeConfirmStep === 1 ? (
                   <button
                     type="button"
-                    onClick={() => copyField(portalUsernameDisplay)}
-                    className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
-                    title="העתקה"
+                    className="rounded-xl bg-sky-600 text-white px-4 py-2.5 text-sm font-bold hover:bg-sky-700"
+                    onClick={() => setFreezeConfirmStep(2)}
                   >
-                    <Copy className="w-4 h-4" />
+                    המשך לאישור שני
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded-xl bg-sky-700 text-white px-4 py-2.5 text-sm font-black hover:bg-sky-800"
+                    onClick={() => {
+                      updatePatient(p.id, { accountFrozen: freezePendingIntent });
+                      void savePersistedStateToCloud();
+                      setFreezeConfirmOpen(false);
+                      setFreezeConfirmStep(1);
+                      setFreezePendingIntent(null);
+                    }}
+                  >
+                    {freezePendingIntent ? 'אשר הקפאה' : 'אשר שחרור'}
                   </button>
                 )}
               </div>
-              {portalAccess ? (
-                <div className="flex items-center justify-between gap-2 flex-wrap rounded-xl border border-gray-100 bg-slate-50 px-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="text-sm text-gray-500">סיסמה (דמו)</p>
-                    <code className="text-sm font-mono font-bold text-slate-900 break-all">
-                      {showPortalPassword ? portalAccess.password : '••••••••'}
-                    </code>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setShowPortalPassword((v) => !v)}
-                      className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
-                      title={showPortalPassword ? 'הסתר' : 'הצג'}
-                      aria-label={showPortalPassword ? 'הסתר סיסמה' : 'הצג סיסמה'}
-                    >
-                      {showPortalPassword ? <EyeOff className="w-4 h-4" aria-hidden /> : <Eye className="w-4 h-4" aria-hidden />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => copyField(portalAccess.password)}
-                      className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
-                      title="העתקה"
-                    >
-                      <Copy className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-gray-500 leading-relaxed">
-                  סיסמה הוצגה פעם אחת בעת היצירה (Supabase Auth). איפוס סיסמה: דרך הגדרות המטופל בפורטל או ממשק
-                  Supabase.
-                </p>
-              )}
             </div>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 text-sm text-gray-600 mb-5">
-            אין חשבון פורטל למטופל זה. צרו גישת פורטל דרך התפריט הראשי או פנו לתמיכה טכנית.
           </div>
         )}
 
-        <PendingApprovalsPanel />
-        <AiSuggestionsPanel />
+        {destructiveDeleteOpen && (
+          <div
+            className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[2px]"
+            dir="rtl"
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="destructive-delete-title"
+              className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl p-6"
+            >
+              <h2 id="destructive-delete-title" className="text-lg font-black text-slate-900 mb-2">
+                {destructiveDeleteStep === 1 ? 'לאשר מחיקה?' : 'אישור סופי — מחיקה לצמיתות'}
+              </h2>
+              <p className="text-sm text-slate-600 leading-relaxed mb-5">
+                {destructiveDeleteStep === 1
+                  ? 'המטופל יוסר מהרשימה יחד עם תוכנית התרגילים, ההודעות והיסטוריית הדיווחים המקושרים לכרטיס זה.'
+                  : 'לא ניתן לשחזר את הנתונים לאחר המחיקה (כולל מסד נתונים כשמופעלת התחברות Supabase). להמשיך?'}
+              </p>
+              {destructiveDeleteError ? (
+                <p className="text-sm text-red-600 mb-4 whitespace-pre-wrap">{destructiveDeleteError}</p>
+              ) : null}
+              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  disabled={destructiveDeleteBusy}
+                  onClick={() => {
+                    setDestructiveDeleteOpen(false);
+                    setDestructiveDeleteStep(1);
+                    setDestructiveDeleteError(null);
+                  }}
+                >
+                  ביטול
+                </button>
+                {destructiveDeleteStep === 1 ? (
+                  <button
+                    type="button"
+                    className="rounded-xl bg-amber-600 text-white px-4 py-2.5 text-sm font-bold hover:bg-amber-700"
+                    disabled={destructiveDeleteBusy}
+                    onClick={() => setDestructiveDeleteStep(2)}
+                  >
+                    המשך לאישור שני
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded-xl bg-red-700 text-white px-4 py-2.5 text-sm font-black hover:bg-red-800 disabled:opacity-60 disabled:cursor-not-allowed"
+                    disabled={destructiveDeleteBusy}
+                    onClick={() => {
+                      setDestructiveDeleteBusy(true);
+                      setDestructiveDeleteError(null);
+                      void deletePatient(p.id).then((r) => {
+                        setDestructiveDeleteBusy(false);
+                        if (!r.ok) {
+                          setDestructiveDeleteError(r.message);
+                          return;
+                        }
+                        setDestructiveDeleteOpen(false);
+                        setDestructiveDeleteStep(1);
+                      });
+                    }}
+                  >
+                    {destructiveDeleteBusy ? 'מוחק…' : 'מחק לצמיתות'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {showIntakeVault && (
           <FullIntakeVaultModal patient={p} onClose={() => setShowIntakeVault(false)} />

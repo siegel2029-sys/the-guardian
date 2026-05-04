@@ -82,16 +82,6 @@ export default function DashboardLayout() {
           </div>
         </main>
 
-        {/* Accessibility footer — desktop only */}
-        <footer className="hidden md:flex items-center justify-center py-1.5 border-t border-slate-200/60 bg-transparent shrink-0">
-          <a
-            href="/accessibility"
-            className="text-[11px] text-slate-400 hover:text-teal-600 underline underline-offset-2 transition-colors"
-          >
-            הצהרת נגישות
-          </a>
-        </footer>
-
         {/* Mobile bottom navigation */}
         <MobileBottomNav onOpenSidebar={openMobileDrawer} />
       </div>
