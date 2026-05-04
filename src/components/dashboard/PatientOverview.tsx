@@ -19,6 +19,7 @@ import PendingApprovalsPanel from './PendingApprovalsPanel';
 import ManagePlanModal from './ManagePlanModal';
 import ClinicalAiIntakeWizard from './ClinicalAiIntakeWizard';
 import TherapistQuickChat from './clinical/TherapistQuickChat';
+import TherapistClinicalConsultantFAB from './clinical/TherapistClinicalConsultantFAB';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import TreatmentDocumentation from './clinical/TreatmentDocumentation';
 import FullIntakeVaultModal from './clinical/FullIntakeVaultModal';
@@ -66,6 +67,7 @@ export default function PatientOverview() {
     savePersistedStateToCloud,
     deletePatient,
     isPatientSessionLocked,
+    safetyAlerts,
   } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
   const [showClinicalModal, setShowClinicalModal] = useState(false);
@@ -96,6 +98,11 @@ export default function PatientOverview() {
       (m) => m.fromPatient && !m.aiClinicalAlert && !m.isRead
     ).length;
   }, [selectedPatient, getPatientMessages, messages]);
+
+  const safetyAlertsForSelected = useMemo(() => {
+    if (!selectedPatient) return [];
+    return safetyAlerts.filter((a) => a.patientId === selectedPatient.id);
+  }, [selectedPatient, safetyAlerts]);
 
   const rosterStats = useMemo(() => {
     return {
@@ -655,6 +662,13 @@ export default function PatientOverview() {
             }
           />
         )}
+
+        <TherapistClinicalConsultantFAB
+          key={p.id}
+          patient={p}
+          safetyAlertsForPatient={safetyAlertsForSelected}
+          exerciseSafetyLocked={isPatientExerciseSafetyLocked(p.id)}
+        />
       </div>
     </div>
   );
