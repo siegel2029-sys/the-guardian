@@ -38,7 +38,7 @@ import {
   computeStreakAfterFirstDailyCompletion,
 } from '../utils/gamification-utils';
 import { xpRequiredToReachNextLevel } from '../body/patientLevelXp';
-import { loadAuthSnapshot, addPatientAccount } from '../context/authPersistence';
+import { addPatientAccount } from '../context/authPersistence';
 import {
   isSupabaseAuthEnabled,
   signUpPortalPatientOnCreate,
@@ -908,13 +908,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           message: 'נא מזהה פורטל: 2–32 תווים (אנגלית ומספרים), לדוגמה JD.',
         };
       }
-      if (allPatients.some((p) => normalizePortalUsername(p.portalUsername ?? '') === normalized)) {
-        return { ok: false, message: 'מזהה הפורטל כבר בשימוש. בחרו רמז אחר (למשל JD2).' };
-      }
-      const snap = loadAuthSnapshot();
-      if (snap.patientAccounts[normalized]) {
-        return { ok: false, message: 'מזהה הפורטל תפוס בחשבון קיים.' };
-      }
+      // Local-state and localStorage duplicate checks removed — the server (Supabase Auth) is the
+      // authoritative source of truth. Local caches may be stale after deleting patients.
 
       let ownerTid = '';
       if (supabaseClient && isSupabaseAuthEnabled()) {

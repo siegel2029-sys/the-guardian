@@ -355,6 +355,12 @@ export function removePatientAccountsForPatient(patientId: string): void {
   saveAuthSnapshot({ ...snap, patientAccounts });
 }
 
+/** Wipe all local patient accounts (called when the server reports 0 patients — stale cache). */
+export function clearAllPatientAccountsFromStorage(): void {
+  const snap = loadAuthSnapshot();
+  saveAuthSnapshot({ ...snap, patientAccounts: {} });
+}
+
 export function addPatientAccount(
   loginId: string,
   patientId: string,

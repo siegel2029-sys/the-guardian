@@ -85,10 +85,28 @@ export async function signUpPortalPatientOnCreate(params: {
     },
   });
   if (error) {
-    if (/already registered|already been registered|User already registered/i.test(error.message)) {
+    // Always log the raw Supabase response so the developer can see exactly which Auth instance responded.
+    console.error('[signUpPortalPatientOnCreate] Supabase Auth error:', {
+      message: error.message,
+      status: (error as { status?: number }).status,
+      code: (error as { code?: string }).code,
+      email,
+      patientId: params.patientId,
+      supabaseUrl: params.url,
+      fullError: JSON.stringify(error),
+    });
+
+    const isAlreadyRegistered =
+      /already registered|already been registered|User already registered|email.*already/i.test(
+        error.message
+      );
+    if (isAlreadyRegistered) {
       return {
         ok: false,
-        message: 'מזהה הפורטל כבר קיים במערכת. בחרו רמז אחר (למשל JD2).',
+        message:
+          'מזהה הפורטל כבר קיים ב-Supabase Auth (גם אם השורה ב-patients נמחקה). ' +
+          'מחקו את משתמש ה-Auth ידנית בלוח הבקרה של Supabase (Authentication → Users) ואז נסו שוב, ' +
+          `או בחרו מזהה אחר (למשל ${normalized}2).`,
       };
     }
     return {

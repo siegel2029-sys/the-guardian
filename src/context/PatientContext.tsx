@@ -52,7 +52,11 @@ import {
   type PersistedPatientStateV1,
   type PatientGearPersistedV1,
 } from './patientPersistence';
-import { ensurePatientAccountsForPatients, removePatientAccountsForPatient } from './authPersistence';
+import {
+  ensurePatientAccountsForPatients,
+  removePatientAccountsForPatient,
+  clearAllPatientAccountsFromStorage,
+} from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 import {
   xpRequiredToReachNextLevel,
@@ -769,8 +773,9 @@ export function PatientProvider({
       const list = res.patients;
 
       if (list.length === 0) {
-        // Server is authoritative: wipe local cache so next reload also starts fresh
+        // Server is authoritative: wipe ALL local patient caches so stale data can't block re-creation
         try { localStorage.removeItem(PATIENT_STATE_STORAGE_KEY); } catch { /* ignore */ }
+        try { clearAllPatientAccountsFromStorage(); } catch { /* ignore */ }
 
         setAllPatients([]);
         setSelectedPatientId('');
