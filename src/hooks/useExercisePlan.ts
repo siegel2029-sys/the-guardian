@@ -45,6 +45,7 @@ import {
   normalizePortalUsername,
   isValidPortalUsername,
 } from '../lib/patientPortalAuth';
+import { upsertPatientRecords } from '../services/clinicalService';
 import { defaultPatientGear, type PatientGearState } from '../context/patientGearUtils';
 import { buildEmptySession, clampPain, clampEffort } from '../context/patientDomainHelpers';
 import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
@@ -975,6 +976,18 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           sessionHistory: [],
         },
       };
+      if (isSupabaseAuthEnabled() && supabaseClient) {
+        const upsertResult = await upsertPatientRecords(
+          supabaseClient,
+          [newPatient],
+          new Date().toISOString()
+        );
+        if (!upsertResult.ok) {
+          console.error('[createPatientWithAccess] Failed to insert patient into DB:', upsertResult.message);
+          return { ok: false, message: `שגיאה בשמירת המטופל: ${upsertResult.message}` };
+        }
+      }
+
       setAllPatients((prev) => [...prev, newPatient]);
       setExercisePlans((prev) => [...prev, { patientId, exercises: [] }]);
       if (!isSupabaseAuthEnabled()) {
@@ -984,7 +997,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       setActiveSection('overview');
       return { ok: true, loginId: normalized, password, patientId };
     },
-    [allPatients, therapistScopeIds]
+    [allPatients, therapistScopeIds, supabaseClient]
   );
 
   const applyIntakeExercisePlan = useCallback(

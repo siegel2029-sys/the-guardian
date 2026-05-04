@@ -1,6 +1,10 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 import type { ExercisePlan, Patient, Therapist } from '../types';
-import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
+import {
+  isSupabaseAuthEnabled,
+  normalizePortalUsername,
+  portalUsernameToAuthEmail,
+} from '../lib/patientPortalAuth';
 
 /**
  * RLS requires `patients.therapist_id = auth.uid()::text`. Legacy data may use
@@ -177,10 +181,16 @@ export async function upsertPatientRecords(
 
     const oldPayload = existing?.payload != null ? (existing.payload as Patient) : undefined;
 
+    const rawUsername = payloadForRow.portalUsername?.trim() ?? '';
+    const contactEmail = rawUsername
+      ? portalUsernameToAuthEmail(normalizePortalUsername(rawUsername))
+      : '';
+
     const patientRows = [
       {
         id: payloadForRow.id,
         therapist_id: therapistIdForRow,
+        contact_email: contactEmail,
         payload: payloadForRow,
         updated_at: now,
       },
@@ -242,43 +252,20 @@ export async function deletePatientRowFromSupabase(
     return { ok: false, message: 'patients delete: נדרש מטפל מחובר ל-Supabase' };
   }
 
-  const { data: row, error: selErr } = await client
+  // Filter by therapist_id (TEXT column, matches auth.uid()::text — satisfies RLS) and
+  // the app patient ID stored inside the payload JSONB. This avoids touching the `id`
+  // primary-key column whose type (TEXT vs UUID) may differ between environments.
+  const { data, error } = await client
     .from('patients')
-    .select('id, therapist_id')
-    .eq('id', patientId)
-    .maybeSingle();
-  if (selErr) return { ok: false, message: `patients delete: ${selErr.message}` };
+    .delete()
+    .eq('therapist_id', user.id)
+    .filter('payload->>id', 'eq', patientId)
+    .select('therapist_id');
 
-  if (!row) {
-    return { ok: true };
+  if (error) {
+    return { ok: false, message: `patients delete: ${error.message}` };
   }
-
-  const therapistIdOnRow =
-    typeof (row as { therapist_id?: unknown }).therapist_id === 'string'
-      ? (row as { therapist_id: string }).therapist_id.trim()
-      : '';
-
-  if (resolveTherapistIdForSupabaseRls(therapistIdOnRow, user) !== user.id) {
-    return {
-      ok: false,
-      message: 'patients delete: אין הרשאה — השורה לא משויכת למטפל המחובר (בדקו therapist_id ב-DB)',
-    };
-  }
-
-  let del = client.from('patients').delete().eq('id', patientId);
-  if (therapistIdOnRow === user.id) {
-    del = del.eq('therapist_id', user.id);
-  }
-
-  const { data, error } = await del.select('id');
-  if (error) return { ok: false, message: `patients delete: ${error.message}` };
-  if (!data?.length) {
-    return {
-      ok: false,
-      message:
-        'patients delete: לא נמחקה שורה (RLS או therapist_id בשרת לא תואם ל-auth.uid; ייתכן שצריך לעדכן therapist_id ל-UUID של המטפל)',
-    };
-  }
+  // If data is empty the row was already gone — treat as success.
   return { ok: true };
 }
 

@@ -1569,6 +1569,7 @@ export function PatientProvider({
         }
         const remote = await deletePatientRowFromSupabase(supabase, patientId);
         if (!remote.ok) {
+          console.error('[deletePatient] Remote delete failed:', remote.message, { patientId });
           return { ok: false, message: remote.message };
         }
       }
