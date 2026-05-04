@@ -360,6 +360,8 @@ interface PatientContextValue {
    * מפת מטפל: מחזור מוקד ראשי (אדום) / משני (כתום) / כבוי לפי מקטע.
    */
   cycleTherapistBodyMapClinical: (patientId: string, area: BodyArea) => void;
+  /** מוקד פעיל (אזור ראשי) — מעדכן primary ומסנכרן סינון פרהאב */
+  setTherapistPrimaryBodyArea: (patientId: string, area: BodyArea) => void;
 
   /** אזורי פרהאב/כוח שנבחרו על ידי המטופל (לא כולל אזור קליני ראשי) */
   getSelfCareZones: (patientId: string) => BodyArea[];
@@ -1624,6 +1626,7 @@ export function PatientProvider({
         togglePatientInjuryHighlight: clinical.togglePatientInjuryHighlight,
         clearPatientInjuryHighlights: clinical.clearPatientInjuryHighlights,
         cycleTherapistBodyMapClinical: clinical.cycleTherapistBodyMapClinical,
+        setTherapistPrimaryBodyArea: clinical.setTherapistPrimaryBodyArea,
         getSelfCareZones: exercise.getSelfCareZones,
         toggleSelfCareZone: exercise.toggleSelfCareZone,
         logSelfCareSession: exercise.logSelfCareSession,

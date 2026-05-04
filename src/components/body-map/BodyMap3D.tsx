@@ -74,6 +74,12 @@ export interface BodyMap3DProps {
   /** מחלקות נוספות לעטיפת הקנבס — למשל גובה קבוע בפורטל מובייל */
   wrapperClassName?: string;
   /**
+   * בוחר כאב מטפל: מבט חזית קבוע, ללא סיבוב/זום (נוח למובייל — «מישורי»).
+   */
+  painPickerFlat?: boolean;
+  /** רוחב מקסימלי לפריים הפנימי של האווטאר (ברירת מחדל 300px) */
+  innerFrameMaxWidthPx?: number;
+  /**
    * כבה SSAO + SMAA (פוסט-פרימיום) במכשירים חלשים.
    * ברירת מחדל: מופעל. Bloom לסטריק נשאר כשהוא רלוונטי.
    */
@@ -302,7 +308,11 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     disablePremiumPostProcessing: _disablePremiumPostProcessing = false,
     dailyScenicBackgroundDayKey,
     totalActiveDaysForScenery = 1,
+    painPickerFlat = false,
+    innerFrameMaxWidthPx = 300,
   } = props;
+
+  const flatTherapistPicker = painPickerFlat && !patientPortalInteractive;
 
   const useScenicBackdrop =
     patientPortalInteractive &&
@@ -357,7 +367,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       style={{
         width: '100%',
         height: '100%',
-        minHeight: 0,
+        minHeight: flatTherapistPicker ? 'min(280px, 52dvh)' : 0,
         position: 'relative',
         margin: '0 auto',
         display: 'block',
@@ -385,8 +395,8 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         style={{
           width: '100%',
           height: '100%',
-          minHeight: 'clamp(320px, 52dvh, 680px)',
-          maxWidth: '300px',
+          minHeight: 'clamp(280px, 48dvh, 560px)',
+          maxWidth: flatTherapistPicker ? `min(100%, ${innerFrameMaxWidthPx}px)` : '300px',
           margin: '0 auto',
           position: 'relative',
           overflow: 'hidden',
@@ -559,6 +569,17 @@ export default function BodyMap3D(props: BodyMap3DProps) {
             zoomSpeed={0.72}
             screenSpacePanning={false}
           />
+        ) : flatTherapistPicker ? (
+          <OrbitControls
+            makeDefault
+            enablePan={false}
+            enableRotate={false}
+            enableZoom={false}
+            minDistance={5.5}
+            maxDistance={24}
+            target={[0, 0.3, 0]}
+            enableDamping={false}
+          />
         ) : (
           <>
             <CameraAnimator
@@ -599,14 +620,16 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           pointerEvents: 'none', direction: 'rtl', whiteSpace: 'nowrap',
           boxShadow: '0 1px 6px rgba(0,0,0,0.08)',
         }}>
-          {scrollFriendlyPortal
+          {flatTherapistPicker
+            ? 'מבט חזית קבוע — לחצו על האווטאר לפי המצב שנבחר למעלה'
+            : scrollFriendlyPortal
             ? 'גלילה מחוץ למפה — גללו מטה לתרגילים · זווית: כפתורים למטה'
             : 'גרור לסיבוב · אדום = מוקד ראשי · כתום = משני · ירוק = פרהאב (לחיצה)'}
         </div>
       )}
 
       {/* Level badge (מוסתר כשהתג מוצג ב־3D — פורטל מטופל) */}
-      {showLevelChrome && !floatingLevelBadge && !patientPortalInteractive && (
+      {showLevelChrome && !floatingLevelBadge && !patientPortalInteractive && !flatTherapistPicker && (
         <div style={{
           position: 'absolute', top: 9, insetInlineEnd: 10,
           background: 'linear-gradient(135deg,#2563eb,#1d4ed8)',
@@ -619,12 +642,12 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       )}
 
       {/* View toggle — לא בפורטל מטופל (מפה ללא פקדים) */}
-      {!patientPortalInteractive && (
+      {!patientPortalInteractive && !flatTherapistPicker && (
         <ViewToggle activeView={activeView} onSelect={handleView} />
       )}
 
       {/* מקרא צבעים — דשבורד מטפל בלבד */}
-      {!patientPortalInteractive && (
+      {!patientPortalInteractive && !flatTherapistPicker && (
         <div
           style={{
             position: 'absolute',

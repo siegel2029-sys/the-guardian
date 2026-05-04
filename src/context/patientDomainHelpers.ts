@@ -21,6 +21,12 @@ export function defaultPatientRewardMeta(): PatientRewardMeta {
 
 export const NEUTRAL_PRIMARY_BODY_AREA: BodyArea = 'neck';
 
+/** מוקד פעיל חדש — מסיר את האזור מרשימת המשני ומעדכן primary */
+export function applyTherapistPrimaryFocus(p: Patient, area: BodyArea): Patient {
+  const sec = [...(p.secondaryClinicalBodyAreas ?? [])].filter((a) => a !== area);
+  return { ...p, primaryBodyArea: area, secondaryClinicalBodyAreas: sec };
+}
+
 export function applyTherapistClinicalCycle(p: Patient, area: BodyArea): Patient {
   const sec = [...(p.secondaryClinicalBodyAreas ?? [])];
   if (sec.includes(area)) {

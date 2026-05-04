@@ -9,6 +9,7 @@ import {
 import { supabase } from '../lib/supabase';
 import {
   applyTherapistClinicalCycle,
+  applyTherapistPrimaryFocus,
 } from '../context/patientDomainHelpers';
 import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
 
@@ -227,6 +228,27 @@ export function useClinicalData({
     [setAllPatients, setSelfCareZonesByPatientId]
   );
 
+  const setTherapistPrimaryBodyArea = useCallback(
+    (patientId: string, area: BodyArea) => {
+      setAllPatients((prev) => {
+        const idx = prev.findIndex((p) => p.id === patientId);
+        if (idx < 0) return prev;
+        const nextPatient = applyTherapistPrimaryFocus(prev[idx], area);
+        setSelfCareZonesByPatientId((zp) => {
+          const cur = zp[patientId] ?? [];
+          const s = nextPatient.secondaryClinicalBodyAreas ?? [];
+          const filtered = cur.filter(
+            (a) => !bodyAreaBlocksSelfCare(a, nextPatient.primaryBodyArea, s)
+          );
+          if (filtered.length === cur.length) return zp;
+          return { ...zp, [patientId]: filtered };
+        });
+        return prev.map((p, i) => (i === idx ? nextPatient : p));
+      });
+    },
+    [setAllPatients, setSelfCareZonesByPatientId]
+  );
+
   /**
    * דחיפה נקודתית של שורות קליניות (profiles מטפל + payload מטופל) — משמש לסנכרון ייעודי;
    * השמירה המלאה נשארת ב־savePersistedStateToCloud דרך supabaseSync.
@@ -253,6 +275,7 @@ export function useClinicalData({
     togglePatientInjuryHighlight,
     clearPatientInjuryHighlights,
     cycleTherapistBodyMapClinical,
+    setTherapistPrimaryBodyArea,
     syncClinicalPatientsToSupabase,
   };
 }

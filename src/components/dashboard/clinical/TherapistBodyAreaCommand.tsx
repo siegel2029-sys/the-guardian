@@ -20,13 +20,24 @@ function lockFromPatient(
   return 'auto';
 }
 
-export default function TherapistBodyAreaCommand({ patient }: { patient: Patient }) {
+export default function TherapistBodyAreaCommand({
+  patient,
+  omitMap = false,
+  hideChrome = false,
+}: {
+  patient: Patient;
+  /** רק לוח בקרה (ללא מפת 3D) — למשל מתחת למפה במודאל */
+  omitMap?: boolean;
+  /** הסתרת כותרת והסבר עליון — כשהמודאל מספק כותרת */
+  hideChrome?: boolean;
+}) {
   const {
     getExercisePlan,
     updatePatient,
     savePersistedStateToCloud,
     togglePatientInjuryHighlight,
     cycleTherapistBodyMapClinical,
+    setTherapistPrimaryBodyArea,
   } = usePatient();
 
   const plan = getExercisePlan(patient.id);
@@ -93,37 +104,57 @@ export default function TherapistBodyAreaCommand({ patient }: { patient: Patient
 
   return (
     <div
-      className="rounded-2xl border border-slate-200 bg-white shadow-sm mb-5 overflow-hidden"
+      className={
+        omitMap
+          ? 'overflow-hidden'
+          : 'rounded-2xl border border-slate-200 bg-white shadow-sm mb-5 overflow-hidden'
+      }
       dir="rtl"
     >
-      <div className="px-5 py-4 border-b border-slate-200 bg-slate-50">
-        <h2 className="text-base font-bold text-slate-950">ניהול אזורי גוף</h2>
-        <p className="text-xs text-slate-600 mt-1">
-          שינויים נשמרים בפרופיל המטופל ומסונכרנים ל־Supabase. לחיצה על המודל מחזירה מוקד ראשי/משני
-          כמו קודם.
-        </p>
-      </div>
-
-      <div className="p-5 grid grid-cols-1 lg:grid-cols-[minmax(280px,340px)_1fr] gap-5">
+      {hideChrome ? null : (
         <div
-          className="rounded-xl border border-teal-100 overflow-hidden min-h-[420px]"
-          style={{ background: '#f8fafc' }}
+          className={
+            omitMap
+              ? 'px-0 py-0 border-b-0 bg-transparent'
+              : 'px-5 py-4 border-b border-slate-200 bg-slate-50'
+          }
         >
-          <BodyMap3D
-            wrapperClassName="h-full min-h-[420px]"
-            activeAreas={activeAreas}
-            primaryArea={patient.primaryBodyArea}
-            clinicalArea={patient.primaryBodyArea}
-            painByArea={patient.analytics.painByArea}
-            level={patient.level}
-            injuryHighlightSegments={patient.injuryHighlightSegments}
-            secondaryClinicalBodyAreas={patient.secondaryClinicalBodyAreas}
-            manualClinicalSegmentLockOverrides={patient.manualClinicalSegmentLockOverrides}
-            stableInteraction
-            selectedArea={null}
-            onAreaClick={onMapClick}
-          />
+          <h2 className="text-base font-bold text-slate-950">ניהול אזורי גוף</h2>
+          <p className="text-xs text-slate-600 mt-1">
+            שינויים נשמרים בפרופיל המטופל ומסונכרנים ל־Supabase. לחיצה על המודל מחזירה מוקד ראשי/משני
+            כמו קודם.
+          </p>
         </div>
+      )}
+
+      <div
+        className={
+          omitMap
+            ? 'p-0 grid grid-cols-1 gap-5'
+            : 'p-5 grid grid-cols-1 lg:grid-cols-[minmax(280px,340px)_1fr] gap-5'
+        }
+      >
+        {!omitMap && (
+          <div
+            className="rounded-xl border border-teal-100 overflow-hidden min-h-[420px]"
+            style={{ background: '#f8fafc' }}
+          >
+            <BodyMap3D
+              wrapperClassName="h-full min-h-[420px]"
+              activeAreas={activeAreas}
+              primaryArea={patient.primaryBodyArea}
+              clinicalArea={patient.primaryBodyArea}
+              painByArea={patient.analytics.painByArea}
+              level={patient.level}
+              injuryHighlightSegments={patient.injuryHighlightSegments}
+              secondaryClinicalBodyAreas={patient.secondaryClinicalBodyAreas}
+              manualClinicalSegmentLockOverrides={patient.manualClinicalSegmentLockOverrides}
+              stableInteraction
+              selectedArea={null}
+              onAreaClick={onMapClick}
+            />
+          </div>
+        )}
 
         <div className="min-w-0 space-y-4">
           <div className="flex flex-col gap-2">
@@ -133,7 +164,10 @@ export default function TherapistBodyAreaCommand({ patient }: { patient: Patient
             <select
               id="primary-body-select"
               value={patient.primaryBodyArea}
-              onChange={(e) => persistPatch({ primaryBodyArea: e.target.value as BodyArea })}
+              onChange={(e) => {
+                setTherapistPrimaryBodyArea(patient.id, e.target.value as BodyArea);
+                void savePersistedStateToCloud();
+              }}
               className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900"
             >
               {sortedAreas.map((a) => (

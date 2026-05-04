@@ -159,6 +159,10 @@ export interface Patient {
   displayAlias?: string;
   name: string;
   age: number;
+  /**
+   * מין לתצוגה קלינית (אופציונלי) — נשמר ב־payload; כשחסר מוצג גיל בלבד.
+   */
+  clinicalSex?: 'male' | 'female';
   diagnosis: string;
   /**
    * סיכום AI (אבחנה/תוכנית) — טקסט מלא מ-Gemini או עריכה ידנית; מוצג בדף המטופל ובפורטל.
