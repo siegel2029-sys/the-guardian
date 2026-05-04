@@ -77,6 +77,10 @@ export interface BodyMap3DProps {
    * בוחר כאב מטפל: מבט חזית קבוע, ללא סיבוב/זום (נוח למובייל — «מישורי»).
    */
   painPickerFlat?: boolean;
+  /**
+   * בוחר כאב מטפל: רקע שקוף/נייטרלי, ללא רצפת צל — לצד תצוגה גדולה במודאל.
+   */
+  painPickerCleanBackground?: boolean;
   /** רוחב מקסימלי לפריים הפנימי של האווטאר (ברירת מחדל 300px) */
   innerFrameMaxWidthPx?: number;
   /**
@@ -309,10 +313,12 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     dailyScenicBackgroundDayKey,
     totalActiveDaysForScenery = 1,
     painPickerFlat = false,
+    painPickerCleanBackground = false,
     innerFrameMaxWidthPx = 300,
   } = props;
 
   const flatTherapistPicker = painPickerFlat && !patientPortalInteractive;
+  const painCleanStudio = flatTherapistPicker && painPickerCleanBackground;
 
   const useScenicBackdrop =
     patientPortalInteractive &&
@@ -371,8 +377,14 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         position: 'relative',
         margin: '0 auto',
         display: 'block',
-        background: useScenicBackdrop ? 'transparent' : flatTherapistPicker ? '#fafafa' : '#f0f0f0',
-        borderRadius: '16px',
+        background: useScenicBackdrop
+          ? 'transparent'
+          : painCleanStudio
+            ? 'transparent'
+            : flatTherapistPicker
+              ? '#fafafa'
+              : '#f0f0f0',
+        borderRadius: painCleanStudio ? 0 : '16px',
         overflow: 'hidden',
         flexShrink: 0,
         alignSelf: 'center',
@@ -396,11 +408,13 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           width: '100%',
           height: '100%',
           minHeight: 'clamp(280px, 48dvh, 560px)',
-          maxWidth: flatTherapistPicker ? `min(100%, ${innerFrameMaxWidthPx}px)` : '300px',
+          maxWidth: flatTherapistPicker
+            ? `min(100%, ${innerFrameMaxWidthPx}px)`
+            : '300px',
           margin: '0 auto',
           position: 'relative',
           overflow: 'hidden',
-          background: flatTherapistPicker ? '#fafafa' : undefined,
+          background: painCleanStudio ? 'transparent' : flatTherapistPicker ? '#fafafa' : undefined,
         }}
       >
       {useScenicBackdrop && (
@@ -432,19 +446,26 @@ export default function BodyMap3D(props: BodyMap3DProps) {
               ? 'pan-y'
               : undefined,
         }}
-        camera={{ position: [0, 0.36, 7.65], fov: 46, near: 0.08, far: 120 }}
-        shadows="soft"
+        camera={{
+          position: painCleanStudio ? [0, 0, 5] : [0, 0.36, 7.65],
+          fov: painCleanStudio ? 48 : 46,
+          near: 0.08,
+          far: 120,
+        }}
+        shadows={painCleanStudio ? false : 'soft'}
         gl={{
           antialias: true,
-          alpha: useScenicBackdrop,
+          alpha: useScenicBackdrop || painCleanStudio,
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.35,
+          toneMappingExposure: painCleanStudio ? 1.52 : 1.35,
           outputColorSpace: THREE.SRGBColorSpace,
         }}
         onCreated={({ gl, scene }) => {
-          gl.shadowMap.enabled = true;
-          gl.shadowMap.type = THREE.PCFSoftShadowMap;
-          if (useScenicBackdrop) {
+          gl.shadowMap.enabled = !painCleanStudio;
+          if (!painCleanStudio) {
+            gl.shadowMap.type = THREE.PCFSoftShadowMap;
+          }
+          if (useScenicBackdrop || painCleanStudio) {
             gl.setClearColor(0x000000, 0);
             scene.background = null;
           } else if (flatTherapistPicker) {
@@ -458,9 +479,9 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         <ambientLight intensity={1.5} />
         <directionalLight
           position={[5, 5, 5]}
-          intensity={1.15}
+          intensity={painCleanStudio ? 1.28 : 1.15}
           color="#ffffff"
-          castShadow
+          castShadow={!painCleanStudio}
           shadow-mapSize={[1024, 1024]}
           shadow-camera-near={0.5}
           shadow-camera-far={28}
@@ -473,11 +494,23 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         <Environment
           preset="studio"
           environmentIntensity={
-            useScenicBackdrop ? 0.48 : flatTherapistPicker ? 0.38 : 0.65
+            useScenicBackdrop
+              ? 0.48
+              : painCleanStudio
+                ? 0.55
+                : flatTherapistPicker
+                  ? 0.38
+                  : 0.65
           }
         />
 
-        <group position={[0, 0.1 + patientMountainElevation, 0]}>
+        <group
+          position={[
+            painCleanStudio ? 0.14 : 0,
+            0.1 + patientMountainElevation,
+            0,
+          ]}
+        >
           <Suspense fallback={null}>
             <group scale={avatarScale}>
               <StreakEnergyFloat enabled={streakEnergy && !stableInteraction}>
@@ -506,6 +539,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                   segmentGrowthMul={segmentGrowthMul}
                   hideContactGroundShadow={useScenicBackdrop || flatTherapistPicker}
                   cssLayerVisualsForPortal={useScenicBackdrop && patientPortalInteractive}
+                  straightClinicalFrontView={painCleanStudio}
                 />
 
                 {floatingLevelBadge && showLevelChrome && !patientPortalInteractive && (
@@ -582,7 +616,9 @@ export default function BodyMap3D(props: BodyMap3DProps) {
             enableZoom={false}
             minDistance={5.5}
             maxDistance={24}
-            target={[0, 0.3, 0]}
+            target={
+              painCleanStudio ? ([0, 0, 0] as [number, number, number]) : [0, 0.3, 0]
+            }
             enableDamping={false}
           />
         ) : (

@@ -66,6 +66,49 @@ export const TRUNK_LOWER_AREAS: BodyArea[] = ['abdomen', 'back_lower'];
 /** כל מקטעי הגו (ללא צוואר) — לדילוג על השלמת שכנים אוטומטית במסך כאב */
 export const TRUNK_BODY_AREAS: BodyArea[] = [...TRUNK_UPPER_AREAS, ...TRUNK_LOWER_AREAS];
 
+/** שורה בטבלת ניהול כאב — רצף קליני; גו = קבוצה אחת ללא כפילות תווית */
+export type PainManagementTableRow =
+  | { kind: 'single'; area: BodyArea }
+  | { kind: 'group'; label: string; areas: readonly BodyArea[] };
+
+/**
+ * סדר אנטומי (צוואר → גפיים עליונות → גו → אגן/ירך → גף תחתון).
+ * גו עליון/תחתון כוללים חזה+גב עליון / בטן+מותן בשורה אחת.
+ */
+export const PAIN_MANAGEMENT_TABLE_ROWS: PainManagementTableRow[] = [
+  { kind: 'single', area: 'neck' },
+  { kind: 'single', area: 'shoulder_right' },
+  { kind: 'single', area: 'shoulder_left' },
+  { kind: 'single', area: 'upper_arm_right' },
+  { kind: 'single', area: 'upper_arm_left' },
+  { kind: 'single', area: 'elbow_right' },
+  { kind: 'single', area: 'elbow_left' },
+  { kind: 'single', area: 'forearm_right' },
+  { kind: 'single', area: 'forearm_left' },
+  { kind: 'single', area: 'wrist_right' },
+  { kind: 'single', area: 'wrist_left' },
+  { kind: 'single', area: 'hand_right' },
+  { kind: 'single', area: 'hand_left' },
+  { kind: 'group', label: bodyAreaLabels.chest, areas: TRUNK_UPPER_AREAS },
+  { kind: 'group', label: bodyAreaLabels.abdomen, areas: TRUNK_LOWER_AREAS },
+  { kind: 'single', area: 'hip_right' },
+  { kind: 'single', area: 'hip_left' },
+  { kind: 'single', area: 'thigh_right' },
+  { kind: 'single', area: 'thigh_left' },
+  { kind: 'single', area: 'knee_right' },
+  { kind: 'single', area: 'knee_left' },
+  { kind: 'single', area: 'shin_right' },
+  { kind: 'single', area: 'shin_left' },
+  { kind: 'single', area: 'ankle_right' },
+  { kind: 'single', area: 'ankle_left' },
+  { kind: 'single', area: 'foot_right' },
+  { kind: 'single', area: 'foot_left' },
+];
+
+export function painManagementRowAreas(row: PainManagementTableRow): BodyArea[] {
+  return row.kind === 'single' ? [row.area] : [...row.areas];
+}
+
 /**
  * ללא השלמת שכנים אוטומטיים: צוואר, גו (חזה/גב עליון/בטן/מותן), אגן/עכוז, כתף,
  * מקטעים שלא מוגדרים בשרשרת המפרקים (ירך/כף/זרוע עליונה וכו').

@@ -233,17 +233,17 @@ function computeMatProps(
     }
     if (reduceMotion) {
       return basePhysical({
-        color: '#ff0505',
-        emissive: '#5c0000',
-        emissiveIntensity: 3.05 + hv * 1.25,
+        color: '#ff0303',
+        emissive: '#500000',
+        emissiveIntensity: 3.42 + hv * 1.32,
         targetScale: 1.065 + (isHovered ? 0.038 : 0),
         metalness: 0.12,
-        roughness: 0.22,
-        clearcoat: 0.36,
-        clearcoatRoughness: 0.2,
+        roughness: 0.2,
+        clearcoat: 0.4,
+        clearcoatRoughness: 0.18,
         transmission: 0,
         thickness: 0,
-        envMapIntensity: Math.max(envAccent, 2.35),
+        envMapIntensity: Math.max(envAccent, 2.72),
         iridescence: 0,
         iridescenceIOR: 1,
         iridescenceThicknessRange: [0, 0],
@@ -270,17 +270,17 @@ function computeMatProps(
   if (clinicalSecondary) {
     if (reduceMotion && !patientPortalInteractive) {
       return basePhysical({
-        color: '#ff6a00',
-        emissive: '#7c2d12',
-        emissiveIntensity: 2.65 + hv * 1.15,
+        color: '#ff7400',
+        emissive: '#71320d',
+        emissiveIntensity: 3.05 + hv * 1.22,
         targetScale: 1.055 + (isHovered ? 0.032 : 0) + volBoost,
         metalness: 0.11,
-        roughness: 0.26,
-        clearcoat: 0.34,
-        clearcoatRoughness: 0.24,
+        roughness: 0.22,
+        clearcoat: 0.38,
+        clearcoatRoughness: 0.2,
         transmission: 0,
         thickness: 0,
-        envMapIntensity: Math.max(envAccent, 2.15),
+        envMapIntensity: Math.max(envAccent, 2.45),
         iridescence: 0,
         iridescenceIOR: 1,
         iridescenceThicknessRange: [0, 0],
@@ -714,7 +714,7 @@ export default function MuscleSegment({
         <pointLight
           color="#ff2200"
           intensity={
-            patientPortalInteractive ? 1.42 : reduceMotion ? 1.72 : 1.15
+            patientPortalInteractive ? 1.42 : reduceMotion ? 2.08 : 1.15
           }
           distance={reduceMotion ? 0.62 : 0.52}
           decay={2}

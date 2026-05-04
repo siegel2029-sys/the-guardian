@@ -1022,6 +1022,10 @@ interface AnatomyModelProps {
   pauseWalkAnimation?: boolean;
   /** מכפילי נפח צמיחה לפי מקטע (שכבת «פתרון»), ברירת מחדל 1 */
   segmentGrowthMul?: Partial<Record<BodyArea, number>>;
+  /**
+   * מבט קדמי קליני: ללא תיקון הטיה מ־mesh (מטפל — מודאל ניהול כאב).
+   */
+  straightClinicalFrontView?: boolean;
   /** רקע הרפתקאות — ללא ContactShadows (אליפסה לבנה מתחת לאווטאר) */
   hideContactGroundShadow?: boolean;
   /**
@@ -1052,6 +1056,7 @@ export default function AnatomyModel({
   segmentGrowthMul,
   hideContactGroundShadow = false,
   cssLayerVisualsForPortal = false,
+  straightClinicalFrontView = false,
 }: AnatomyModelProps) {
   const gearGoldSkin = equippedGear.skin === 'gold_skin';
   const geos = useGeometries();
@@ -1321,7 +1326,7 @@ export default function AnatomyModel({
       <IdleSwayRoot>
         <group scale={physiqueScale}>
         <group ref={walkRootRef}>
-        <group rotation={avatarMeshCounterRotation}>
+        <group rotation={straightClinicalFrontView ? ([0, 0, 0] as const) : avatarMeshCounterRotation}>
       {/* Pulsing injury spotlight */}
       {glowAnchorArea && (
         <pointLight
