@@ -1515,6 +1515,9 @@ export function PatientProvider({
       const syncRemote =
         isSupabaseConfigured && supabase != null && isSupabaseAuthEnabled();
       if (syncRemote) {
+        if (!supabase) {
+          return { ok: false, message: 'Supabase client לא זמין למחיקה מרחוק.' };
+        }
         const remote = await deletePatientRowFromSupabase(supabase, patientId);
         if (!remote.ok) {
           return { ok: false, message: remote.message };
