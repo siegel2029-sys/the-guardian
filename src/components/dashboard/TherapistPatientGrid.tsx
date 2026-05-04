@@ -4,6 +4,8 @@ import { usePatient } from '../../context/PatientContext';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import type { Patient } from '../../types';
 
+export type RosterFilterKey = 'total' | 'active' | 'pending' | 'redFlags' | 'paused';
+
 type BadgeKind = 'active_today' | 'needs_plan' | 'high_pain';
 
 const statusLabels: Record<string, string> = {
@@ -45,7 +47,27 @@ function badgesForPatient(
   return out;
 }
 
-export default function TherapistPatientGrid() {
+function selectValueFromFilterKey(key: RosterFilterKey): string {
+  if (key === 'total') return 'all';
+  if (key === 'redFlags') return 'red_flags';
+  return key;
+}
+
+function filterKeyFromSelect(v: string): RosterFilterKey {
+  if (v === 'all') return 'total';
+  if (v === 'red_flags') return 'redFlags';
+  return v as RosterFilterKey;
+}
+
+export type TherapistPatientGridProps = {
+  rosterFilterKey: RosterFilterKey;
+  onRosterFilterKeyChange: (key: RosterFilterKey) => void;
+};
+
+export default function TherapistPatientGrid({
+  rosterFilterKey,
+  onRosterFilterKeyChange,
+}: TherapistPatientGridProps) {
   const {
     patients,
     selectedPatient,
@@ -56,25 +78,38 @@ export default function TherapistPatientGrid() {
   } = usePatient();
 
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | Patient['status']>('all');
 
   const filteredPatients = useMemo(() => {
     const q = search.trim().toLowerCase();
     return patients.filter((p) => {
-      if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+      switch (rosterFilterKey) {
+        case 'active':
+          if (p.status !== 'active') return false;
+          break;
+        case 'pending':
+          if (p.status !== 'pending') return false;
+          break;
+        case 'paused':
+          if (p.status !== 'paused') return false;
+          break;
+        case 'redFlags':
+          if (!p.hasRedFlag) return false;
+          break;
+        default:
+          break;
+      }
       if (!q) return true;
       const name = getPatientDisplayName(p).toLowerCase();
       const dx = (p.diagnosis ?? '').toLowerCase();
       return name.includes(q) || dx.includes(q);
     });
-  }, [patients, search, statusFilter]);
+  }, [patients, search, rosterFilterKey]);
 
   return (
     <section className="rounded-xl border border-gray-100 bg-white shadow-sm p-5" dir="rtl">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-4">
         <div>
           <h2 className="text-lg font-bold text-slate-900">מטופלים</h2>
-          <p className="text-sm text-gray-500 mt-0.5">בחירה מהירה וסטטוס קליני תמציתי</p>
         </div>
         <span className="text-sm text-gray-500 tabular-nums shrink-0">
           {filteredPatients.length}/{patients.length} ברשימה
@@ -95,21 +130,22 @@ export default function TherapistPatientGrid() {
             />
           </label>
           <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-            className="w-full md:w-44 rounded-xl border border-gray-200 bg-white py-2.5 px-3 text-sm text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+            value={selectValueFromFilterKey(rosterFilterKey)}
+            onChange={(e) => onRosterFilterKeyChange(filterKeyFromSelect(e.target.value))}
+            className="w-full md:w-auto md:min-w-[11rem] rounded-xl border border-gray-200 bg-white py-2.5 px-3 text-sm text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
             aria-label="סינון לפי סטטוס"
           >
             <option value="all">כל הסטטוסים</option>
             <option value="active">פעיל</option>
             <option value="pending">ממתין</option>
             <option value="paused">מושהה</option>
+            <option value="red_flags">דגלים אדומים</option>
           </select>
         </div>
       )}
 
       {patients.length === 0 ? (
-        <p className="text-sm text-gray-500 text-center py-8">אין מטופלים ברשימה — הוסיפו מטופל חדש מהכפתור למעלה.</p>
+        <p className="text-sm text-gray-500 text-center py-8">אין מטופלים ברשימה — הוסיפו מטופל חדש מסרגל הצד.</p>
       ) : filteredPatients.length === 0 ? (
         <p className="text-sm text-gray-500 text-center py-8">אין תוצאות לחיפוש או לסינון הנוכחי.</p>
       ) : (

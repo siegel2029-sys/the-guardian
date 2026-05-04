@@ -255,7 +255,7 @@ export async function deletePatientRowFromSupabase(
   // Filter by therapist_id (TEXT column, matches auth.uid()::text — satisfies RLS) and
   // the app patient ID stored inside the payload JSONB. This avoids touching the `id`
   // primary-key column whose type (TEXT vs UUID) may differ between environments.
-  const { data, error } = await client
+  const { error } = await client
     .from('patients')
     .delete()
     .eq('therapist_id', user.id)

@@ -23,8 +23,7 @@ import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import TreatmentDocumentation from './clinical/TreatmentDocumentation';
 import FullIntakeVaultModal from './clinical/FullIntakeVaultModal';
 import ManagePainAreasModal from './clinical/ManagePainAreasModal';
-import TherapistPatientGrid from './TherapistPatientGrid';
-import SidebarNewPatient from '../layout/SidebarNewPatient';
+import TherapistPatientGrid, { type RosterFilterKey } from './TherapistPatientGrid';
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
@@ -82,6 +81,7 @@ export default function PatientOverview() {
   const [freezePendingIntent, setFreezePendingIntent] = useState<boolean | null>(null);
   const [editingDemographics, setEditingDemographics] = useState(false);
   const [demoFreeText, setDemoFreeText] = useState(selectedPatient?.demographicsFreeText ?? '');
+  const [rosterFilterKey, setRosterFilterKey] = useState<RosterFilterKey>('total');
 
   useEffect(() => {
     setEditingDemographics(false);
@@ -107,77 +107,79 @@ export default function PatientOverview() {
   }, [patients]);
 
   if (!selectedPatient) {
+    const statCardBtn = (
+      selected: boolean
+    ) =>
+      `w-full rounded-lg px-3 py-2 text-start transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 ${
+        selected
+          ? 'border-2 border-teal-500 bg-teal-50/70 shadow-md ring-2 ring-teal-200/70'
+          : 'border border-gray-100 bg-slate-50 hover:bg-slate-100/90 hover:border-gray-200 active:scale-[0.99]'
+      }`;
+
     return (
       <div className="h-full overflow-y-auto bg-slate-50" dir="rtl">
         <div className="p-4 md:p-8 max-w-7xl mx-auto">
-          <header className="flex flex-col gap-4 mb-6 md:flex-row md:justify-between md:items-center">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">ברוכים השבים</h1>
-              <p className="text-sm text-gray-500 mt-1">
-                בחרו מטופל להצגת הנתונים או הוסיפו מטופל חדש
-              </p>
-            </div>
-            <SidebarNewPatient layout="dashboard" />
+          <header className="mb-6">
+            <h1 className="text-2xl font-bold text-slate-900">ברוכים השבים</h1>
           </header>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             <section className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 md:col-span-1 lg:col-span-1">
-              <h2 className="text-lg font-bold text-slate-900">סטטיסטיקה</h2>
-              <p className="text-sm text-gray-500 mt-0.5 mb-4">תמונת מצב מהירה מהרשימה</p>
-              <dl className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-slate-50 px-3 py-2 border border-gray-100">
-                  <dt className="text-sm text-gray-500">סה״כ</dt>
-                  <dd className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.total}</dd>
-                </div>
-                <div className="rounded-lg bg-slate-50 px-3 py-2 border border-gray-100">
-                  <dt className="text-sm text-gray-500">פעילים</dt>
-                  <dd className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.active}</dd>
-                </div>
-                <div className="rounded-lg bg-slate-50 px-3 py-2 border border-gray-100">
-                  <dt className="text-sm text-gray-500">ממתינים</dt>
-                  <dd className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.pending}</dd>
-                </div>
-                <div className="rounded-lg bg-slate-50 px-3 py-2 border border-gray-100">
-                  <dt className="text-sm text-gray-500">דגלים אדומים</dt>
-                  <dd className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.redFlags}</dd>
-                </div>
-              </dl>
-            </section>
-
-            <div className="md:col-span-2 lg:col-span-2 min-w-0">
-              <TherapistPatientGrid />
-            </div>
-
-            <section className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 md:col-span-2 lg:col-span-3">
-              <h2 className="text-lg font-bold text-slate-900">כלי קליניים</h2>
-              <p className="text-sm text-gray-500 mt-0.5 mb-4">קיצורי דרך — לאחר בחירת מטופל</p>
-              <div className="flex flex-col sm:flex-row flex-wrap gap-2">
+              <h2 className="text-lg font-bold text-slate-900 mb-4">סטטיסטיקה</h2>
+              <div
+                className="grid grid-cols-2 gap-3"
+                role="group"
+                aria-label="סינון רשימת מטופלים לפי סיכום"
+              >
                 <button
                   type="button"
-                  onClick={() => setActiveSection('clinical')}
-                  className="w-full sm:w-auto inline-flex justify-center items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 min-h-[44px]"
+                  onClick={() => setRosterFilterKey('total')}
+                  aria-pressed={rosterFilterKey === 'total'}
+                  aria-label={`סינון כל המטופלים, סה״כ ${rosterStats.total}`}
+                  className={statCardBtn(rosterFilterKey === 'total')}
                 >
-                  <Stethoscope className="w-4 h-4 shrink-0" />
-                  דוחות קליניים
+                  <span className="block text-sm text-gray-500">סה״כ</span>
+                  <span className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.total}</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveSection('analytics')}
-                  className="w-full sm:w-auto inline-flex justify-center items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 min-h-[44px]"
+                  onClick={() => setRosterFilterKey('active')}
+                  aria-pressed={rosterFilterKey === 'active'}
+                  aria-label={`סינון פעילים בלבד, ${rosterStats.active}`}
+                  className={statCardBtn(rosterFilterKey === 'active')}
                 >
-                  <BarChart3 className="w-4 h-4 shrink-0" />
-                  היסטוריה ואנליטיקה
+                  <span className="block text-sm text-gray-500">פעילים</span>
+                  <span className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.active}</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveSection('messages')}
-                  className="w-full sm:w-auto inline-flex justify-center items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 min-h-[44px]"
+                  onClick={() => setRosterFilterKey('pending')}
+                  aria-pressed={rosterFilterKey === 'pending'}
+                  aria-label={`סינון ממתינים בלבד, ${rosterStats.pending}`}
+                  className={statCardBtn(rosterFilterKey === 'pending')}
                 >
-                  <MessageSquare className="w-4 h-4 shrink-0" />
-                  הודעות וצ׳אט
+                  <span className="block text-sm text-gray-500">ממתינים</span>
+                  <span className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.pending}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRosterFilterKey('redFlags')}
+                  aria-pressed={rosterFilterKey === 'redFlags'}
+                  aria-label={`סינון דגלים אדומים בלבד, ${rosterStats.redFlags}`}
+                  className={statCardBtn(rosterFilterKey === 'redFlags')}
+                >
+                  <span className="block text-sm text-gray-500">דגלים אדומים</span>
+                  <span className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.redFlags}</span>
                 </button>
               </div>
             </section>
+
+            <div className="md:col-span-2 lg:col-span-2 min-w-0">
+              <TherapistPatientGrid
+                rosterFilterKey={rosterFilterKey}
+                onRosterFilterKeyChange={setRosterFilterKey}
+              />
+            </div>
           </div>
 
           <AccessibilityFooterLink />
