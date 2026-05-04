@@ -489,9 +489,8 @@ export default function PatientDailyView() {
   const clinicalRehabExercises = useMemo(() => {
     if (!selectedPatient) return [];
     const sec = selectedPatient.secondaryClinicalBodyAreas ?? [];
-    const list = exercises.filter((e) =>
-      bodyAreaBlocksSelfCare(e.targetArea, selectedPatient.primaryBodyArea, sec)
-    );
+    const inj = selectedPatient.injuryHighlightSegments ?? [];
+    const list = exercises.filter((e) => bodyAreaBlocksSelfCare(e.targetArea, inj, sec));
     const mandatory = list.filter((e) => !e.isOptional).sort((a, b) => a.name.localeCompare(b.name, 'he'));
     const optional = list.filter((e) => e.isOptional).sort((a, b) => a.name.localeCompare(b.name, 'he'));
     return [...mandatory, ...optional];
@@ -943,13 +942,9 @@ export default function PatientDailyView() {
 
   const handleAvatarZoneClick = (area: BodyArea) => {
     if (!selectedPatient) return;
-    if (
-      bodyAreaBlocksSelfCare(
-        area,
-        selectedPatient.primaryBodyArea,
-        selectedPatient.secondaryClinicalBodyAreas ?? []
-      )
-    ) {
+    const inj = selectedPatient.injuryHighlightSegments ?? [];
+    const sec = selectedPatient.secondaryClinicalBodyAreas ?? [];
+    if (bodyAreaBlocksSelfCare(area, inj, sec)) {
       return;
     }
     toggleSelfCareZone(selectedPatient.id, area);

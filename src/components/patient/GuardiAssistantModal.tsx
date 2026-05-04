@@ -136,7 +136,7 @@ export function resolveGuardiPresentation(params: {
       const c = GUARDI_CANONICAL[transient.semantic];
       return {
         imageSrc: c.imageSrc,
-        bubbleTitle: 'גארדי',
+        bubbleTitle: 'האווטאר',
         bubbleProtective: false,
         bubbleText: c.text,
         contentKey: `sem-${transient.semantic}-${transient.key}`,
@@ -144,7 +144,7 @@ export function resolveGuardiPresentation(params: {
     }
     return {
       imageSrc: moodFallbackImage(transient.mood),
-      bubbleTitle: 'גארדי',
+      bubbleTitle: 'האווטאר',
       bubbleProtective: false,
       bubbleText: transient.bubble,
       contentKey: `tr-${transient.key}-${transient.mood}`,
@@ -156,7 +156,7 @@ export function resolveGuardiPresentation(params: {
     const c = GUARDI_CANONICAL.success;
     return {
       imageSrc: c.imageSrc,
-      bubbleTitle: 'גארדי',
+      bubbleTitle: 'האווטאר',
       bubbleProtective: false,
       bubbleText: c.text,
       contentKey: 'burst-success',
@@ -166,7 +166,7 @@ export function resolveGuardiPresentation(params: {
   if (hasAmbient) {
     return {
       imageSrc: portalTab === 'home' ? imgRelaxYoga : imgFront,
-      bubbleTitle: 'גארדי',
+      bubbleTitle: 'האווטאר',
       bubbleProtective: false,
       bubbleText: ambientTrimmed,
       contentKey: `amb-${portalTab}-${ambientTrimmed.slice(0, 24)}`,
@@ -177,7 +177,7 @@ export function resolveGuardiPresentation(params: {
     const c = GUARDI_CANONICAL.strength;
     return {
       imageSrc: c.imageSrc,
-      bubbleTitle: 'גארדי',
+      bubbleTitle: 'האווטאר',
       bubbleProtective: false,
       bubbleText: c.text,
       contentKey: 'ctx-exercise-strength',
@@ -188,7 +188,7 @@ export function resolveGuardiPresentation(params: {
     const c = GUARDI_CANONICAL.welcome;
     return {
       imageSrc: c.imageSrc,
-      bubbleTitle: 'גארדי',
+      bubbleTitle: 'האווטאר',
       bubbleProtective: false,
       bubbleText: c.text,
       contentKey: 'ctx-wave-welcome',
@@ -199,7 +199,7 @@ export function resolveGuardiPresentation(params: {
     const c = GUARDI_CANONICAL.learning;
     return {
       imageSrc: c.imageSrc,
-      bubbleTitle: 'גארדי',
+      bubbleTitle: 'האווטאר',
       bubbleProtective: false,
       bubbleText: c.text,
       contentKey: 'fallback-activity-learning',
@@ -209,7 +209,7 @@ export function resolveGuardiPresentation(params: {
   const c = GUARDI_CANONICAL.welcome;
   return {
     imageSrc: c.imageSrc,
-    bubbleTitle: 'גארדי',
+    bubbleTitle: 'האווטאר',
     bubbleProtective: false,
     bubbleText: c.text,
     contentKey: 'fallback-home-welcome',
@@ -249,7 +249,7 @@ function useAnchorRect(anchorRef: RefObject<HTMLElement | null> | undefined, ena
 }
 
 /**
- * גארדי כאווטאר 2D — בועה מעל מפת הגוף (או בפינה באימונים), נסגר בלחיצה על X או על הבועה.
+ * האווטאר (בועת עזר) מעל מפת הגוף (או בפינה באימונים), נסגר בלחיצה על X או על הבועה.
  */
 export default function GuardiAssistantModal({
   eligible,
@@ -399,7 +399,7 @@ export default function GuardiAssistantModal({
             }
           }}
           tabIndex={0}
-          aria-label="סגירת גארדי"
+          aria-label="סגירת האווטאר"
         >
           <button
             type="button"

@@ -362,6 +362,15 @@ interface PatientContextValue {
   cycleTherapistBodyMapClinical: (patientId: string, area: BodyArea) => void;
   /** מוקד פעיל (אזור ראשי) — מעדכן primary ומסנכרן סינון פרהאב */
   setTherapistPrimaryBodyArea: (patientId: string, area: BodyArea) => void;
+  /** רשימת מוקדי כאב ראשיים/משניים + primaryBodyArea — מנקה נעילות מקטע */
+  applyTherapistPainFields: (
+    patientId: string,
+    fields: {
+      injuryHighlightSegments: BodyArea[];
+      secondaryClinicalBodyAreas: BodyArea[];
+      primaryBodyArea: BodyArea;
+    }
+  ) => void;
 
   /** אזורי פרהאב/כוח שנבחרו על ידי המטופל (לא כולל אזור קליני ראשי) */
   getSelfCareZones: (patientId: string) => BodyArea[];
@@ -1627,6 +1636,7 @@ export function PatientProvider({
         clearPatientInjuryHighlights: clinical.clearPatientInjuryHighlights,
         cycleTherapistBodyMapClinical: clinical.cycleTherapistBodyMapClinical,
         setTherapistPrimaryBodyArea: clinical.setTherapistPrimaryBodyArea,
+        applyTherapistPainFields: clinical.applyTherapistPainFields,
         getSelfCareZones: exercise.getSelfCareZones,
         toggleSelfCareZone: exercise.toggleSelfCareZone,
         logSelfCareSession: exercise.logSelfCareSession,

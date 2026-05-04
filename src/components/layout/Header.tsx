@@ -29,6 +29,13 @@ export default function Header({ onMenuToggle }: Props) {
     legacySectionTitle[activeSection] ??
     sectionTitles.overview;
 
+  const scrollDashboardToTop = () => {
+    document.getElementById('therapist-dashboard-main')?.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    });
+  };
+
   return (
     <header
       className="relative h-14 border-b border-teal-100 flex items-center justify-center shrink-0 px-11 md:px-6"
@@ -44,9 +51,14 @@ export default function Header({ onMenuToggle }: Props) {
         <Menu className="w-5 h-5" strokeWidth={2.5} />
       </button>
 
-      <h2 className="text-sm md:text-base font-semibold text-slate-800 text-center truncate max-w-[min(100%,28rem)]">
+      <button
+        type="button"
+        onClick={scrollDashboardToTop}
+        className="text-sm md:text-base font-semibold text-slate-800 text-center truncate max-w-[min(100%,28rem)] px-3 rounded-lg hover:bg-slate-100 active:bg-slate-200 transition-colors"
+        aria-label={`${title} — גלילה לראש העמוד`}
+      >
         {title}
-      </h2>
+      </button>
     </header>
   );
 }

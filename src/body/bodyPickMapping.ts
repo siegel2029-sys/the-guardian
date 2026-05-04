@@ -1,4 +1,5 @@
 import type { BodyArea, ManualClinicalSegmentLockOverride } from '../types';
+import { bodyAreaLabels } from '../types';
 
 /**
  * Granular picks from Mixamo-style bones (Soldier.glb).
@@ -61,6 +62,56 @@ export const GRANULAR_PICK_LABELS: Record<GranularPickKey, string> = {
 export const TRUNK_UPPER_AREAS: BodyArea[] = ['chest', 'back_upper'];
 /** גזרת גו תחתון: בטן + מותן (נפרדת מגזרת הגו העליון) */
 export const TRUNK_LOWER_AREAS: BodyArea[] = ['abdomen', 'back_lower'];
+
+/** כל מקטעי הגו (ללא צוואר) — לדילוג על השלמת שכנים אוטומטית במסך כאב */
+export const TRUNK_BODY_AREAS: BodyArea[] = [...TRUNK_UPPER_AREAS, ...TRUNK_LOWER_AREAS];
+
+/**
+ * ללא השלמת שכנים אוטומטיים: צוואר, גו (חזה/גב עליון/בטן/מותן), אגן/עכוז, כתף,
+ * מקטעים שלא מוגדרים בשרשרת המפרקים (ירך/כף/זרוע עליונה וכו').
+ */
+export function primaryPainAutoNeighborDisabled(area: BodyArea): boolean {
+  return (
+    area === 'neck' ||
+    TRUNK_BODY_AREAS.includes(area) ||
+    area === 'hip_left' ||
+    area === 'hip_right' ||
+    area === 'shoulder_left' ||
+    area === 'shoulder_right' ||
+    area === 'upper_arm_left' ||
+    area === 'upper_arm_right' ||
+    area === 'hand_left' ||
+    area === 'hand_right' ||
+    area === 'foot_left' ||
+    area === 'foot_right' ||
+    area === 'thigh_left' ||
+    area === 'thigh_right'
+  );
+}
+
+/**
+ * משנה אוטומטי כשנבחר ראשי — רק שרשראות מפרקים בגפיים (לא גו/צוואר).
+ * קרסול→כף+שוק · ברך→שוק+ירך · שוק→קרסול+ברך · פרק כף→כף+אמה וכו׳
+ */
+const PAIN_PRIMARY_AUTO_SECONDARY: Partial<Record<BodyArea, BodyArea[]>> = {
+  ankle_left: ['foot_left', 'shin_left'],
+  ankle_right: ['foot_right', 'shin_right'],
+  knee_left: ['shin_left', 'thigh_left'],
+  knee_right: ['shin_right', 'thigh_right'],
+  shin_left: ['ankle_left', 'knee_left'],
+  shin_right: ['ankle_right', 'knee_right'],
+  wrist_left: ['hand_left', 'forearm_left'],
+  wrist_right: ['hand_right', 'forearm_right'],
+  elbow_left: ['forearm_left', 'upper_arm_left'],
+  elbow_right: ['forearm_right', 'upper_arm_right'],
+  forearm_left: ['wrist_left', 'elbow_left'],
+  forearm_right: ['wrist_right', 'elbow_right'],
+};
+
+export function painPrimaryAutoSecondaryNeighbors(area: BodyArea): BodyArea[] {
+  if (primaryPainAutoNeighborDisabled(area)) return [];
+  return PAIN_PRIMARY_AUTO_SECONDARY[area] ?? [];
+}
 
 const LEG_LEFT_CHAIN: BodyArea[] = [
   'hip_left',
@@ -133,17 +184,15 @@ export function bodyAreaIsClinicalFocus(
 }
 
 /**
- * אזור שחוסם בחירת פרהאב/כוח ירוק — מוקד ראשי (שרשרת) או מוקד משני מפורש.
+ * אזור שחוסם בחירת פרהאב בפורטל — רק מקטעים שסומנו מפורשות כראשי (אדום) או משני (כתום).
  */
 export function bodyAreaBlocksSelfCare(
   zone: BodyArea,
-  primaryBodyArea: BodyArea,
+  injuryHighlightSegments: readonly BodyArea[],
   secondaryClinicalBodyAreas: readonly BodyArea[] = []
 ): boolean {
-  return (
-    bodyAreaIsClinicalFocus(zone, primaryBodyArea) ||
-    secondaryClinicalBodyAreas.includes(zone)
-  );
+  if (secondaryClinicalBodyAreas.includes(zone)) return true;
+  return injuryHighlightSegments.includes(zone);
 }
 
 /** נעילה ויזואלית במודל — כולל עקיפת מטפל (כפה נעול / כפה פתוח / אוטומטי). */
@@ -286,4 +335,20 @@ export function aggregatePickKeysForBodyAreas(areas: BodyArea[]): GranularPickKe
     for (const k of pickKeysForBodyArea(a)) s.add(k);
   }
   return [...s];
+}
+
+/** סדר יציב לבחירת primaryBodyArea כאשר יש מספר מוקדים ראשיים */
+export const BODY_AREA_CANONICAL_ORDER: BodyArea[] = (
+  Object.keys(bodyAreaLabels) as BodyArea[]
+).sort((a, b) => a.localeCompare(b, 'en'));
+
+export function canonicalPrimaryBodyAreaFromPrimaries(
+  primaries: ReadonlySet<BodyArea>,
+  fallbackWhenEmpty: BodyArea
+): BodyArea {
+  if (primaries.size === 0) return fallbackWhenEmpty;
+  for (const a of BODY_AREA_CANONICAL_ORDER) {
+    if (primaries.has(a)) return a;
+  }
+  return fallbackWhenEmpty;
 }

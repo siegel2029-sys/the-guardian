@@ -1028,9 +1028,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       const raw = selfCareZonesByPatientId[patientId] ?? [];
       if (!patient) return raw.filter(Boolean);
       const sec = patient.secondaryClinicalBodyAreas ?? [];
-      return raw.filter(
-        (a) => a && !bodyAreaBlocksSelfCare(a, patient.primaryBodyArea, sec)
-      );
+      const inj = patient.injuryHighlightSegments ?? [];
+      return raw.filter((a) => a && !bodyAreaBlocksSelfCare(a, inj, sec));
     },
     [allPatients, selfCareZonesByPatientId]
   );
@@ -1038,10 +1037,9 @@ export function useExercisePlan(params: UseExercisePlanParams) {
   const toggleSelfCareZone = useCallback(
     (patientId: string, area: BodyArea) => {
       const patient = allPatients.find((p) => p.id === patientId);
-      if (
-        !patient ||
-        bodyAreaBlocksSelfCare(area, patient.primaryBodyArea, patient.secondaryClinicalBodyAreas ?? [])
-      ) {
+      if (!patient) return;
+      const inj = patient.injuryHighlightSegments ?? [];
+      if (bodyAreaBlocksSelfCare(area, inj, patient.secondaryClinicalBodyAreas ?? [])) {
         return;
       }
       setSelfCareZonesByPatientId((prev) => {

@@ -50,7 +50,7 @@ export default function GuardiHero({
           role="status"
         >
           <p className="text-xs font-bold text-amber-950 text-center leading-snug">
-            ברוך הבא! אני גארדי, המלווה שלך.
+            ברוך הבא! אני האווטאר שלך — כאן ללוות אותך.
           </p>
           <button
             type="button"

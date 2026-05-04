@@ -161,7 +161,9 @@ function computeMatProps(
   level: number,
   stage: MuscleEvolutionStage,
   injuryHighlight: boolean,
-  patientPortalInteractive = false
+  patientPortalInteractive = false,
+  /** תצוגת מטפל יציבה (תצוגה מקדימה של כאב) — זוהר עז יותר */
+  reduceMotion = false
 ): MatProps {
   const tier = getLevelTier(level);
   const lf = Math.min(Math.max(level, 1), 100) / 100;
@@ -211,6 +213,42 @@ function computeMatProps(
   }
 
   if (injuryHighlight) {
+    if (patientPortalInteractive) {
+      return basePhysical({
+        color: '#ff0505',
+        emissive: '#380000',
+        emissiveIntensity: 3.25 + hv * 1.35,
+        targetScale: 1.09 + (isHovered ? 0.04 : 0),
+        metalness: 0.14,
+        roughness: 0.2,
+        clearcoat: 0.4,
+        clearcoatRoughness: 0.16,
+        transmission: 0,
+        thickness: 0,
+        envMapIntensity: Math.max(envAccent, 2.55),
+        iridescence: 0,
+        iridescenceIOR: 1,
+        iridescenceThicknessRange: [0, 0],
+      });
+    }
+    if (reduceMotion) {
+      return basePhysical({
+        color: '#ff0505',
+        emissive: '#5c0000',
+        emissiveIntensity: 3.05 + hv * 1.25,
+        targetScale: 1.065 + (isHovered ? 0.038 : 0),
+        metalness: 0.12,
+        roughness: 0.22,
+        clearcoat: 0.36,
+        clearcoatRoughness: 0.2,
+        transmission: 0,
+        thickness: 0,
+        envMapIntensity: Math.max(envAccent, 2.35),
+        iridescence: 0,
+        iridescenceIOR: 1,
+        iridescenceThicknessRange: [0, 0],
+      });
+    }
     return basePhysical({
       color: '#fecaca',
       emissive: '#dc2626',
@@ -230,10 +268,28 @@ function computeMatProps(
   }
 
   if (clinicalSecondary) {
+    if (reduceMotion && !patientPortalInteractive) {
+      return basePhysical({
+        color: '#ff6a00',
+        emissive: '#7c2d12',
+        emissiveIntensity: 2.65 + hv * 1.15,
+        targetScale: 1.055 + (isHovered ? 0.032 : 0) + volBoost,
+        metalness: 0.11,
+        roughness: 0.26,
+        clearcoat: 0.34,
+        clearcoatRoughness: 0.24,
+        transmission: 0,
+        thickness: 0,
+        envMapIntensity: Math.max(envAccent, 2.15),
+        iridescence: 0,
+        iridescenceIOR: 1,
+        iridescenceThicknessRange: [0, 0],
+      });
+    }
     return basePhysical({
-      color: '#ea580c',
+      color: '#ff6a00',
       emissive: '#9a3412',
-      emissiveIntensity: 1.18 + hv * 0.82,
+      emissiveIntensity: 1.42 + hv * 0.82,
       targetScale: 1.045 + (isHovered ? 0.028 : 0) + volBoost,
       metalness: 0.1,
       roughness: 0.35,
@@ -530,7 +586,8 @@ export default function MuscleSegment({
         level,
         muscleStage,
         injuryHighlight,
-        patientPortalInteractive
+        patientPortalInteractive,
+        reduceMotion
       ),
     [
       area,
@@ -547,6 +604,7 @@ export default function MuscleSegment({
       muscleStage,
       injuryHighlight,
       patientPortalInteractive,
+      reduceMotion,
     ]
   );
 
@@ -655,8 +713,10 @@ export default function MuscleSegment({
       {injuryHighlight && area && (
         <pointLight
           color="#ff2200"
-          intensity={1.15}
-          distance={0.52}
+          intensity={
+            patientPortalInteractive ? 1.42 : reduceMotion ? 1.72 : 1.15
+          }
+          distance={reduceMotion ? 0.62 : 0.52}
           decay={2}
           position={[0, 0, 0.06]}
         />

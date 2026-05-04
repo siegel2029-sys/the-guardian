@@ -367,11 +367,11 @@ export default function BodyMap3D(props: BodyMap3DProps) {
       style={{
         width: '100%',
         height: '100%',
-        minHeight: flatTherapistPicker ? 'min(280px, 52dvh)' : 0,
+        minHeight: flatTherapistPicker ? 'min(420px, 58dvh)' : 0,
         position: 'relative',
         margin: '0 auto',
         display: 'block',
-        background: useScenicBackdrop ? 'transparent' : '#f0f0f0',
+        background: useScenicBackdrop ? 'transparent' : flatTherapistPicker ? '#fafafa' : '#f0f0f0',
         borderRadius: '16px',
         overflow: 'hidden',
         flexShrink: 0,
@@ -400,6 +400,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           margin: '0 auto',
           position: 'relative',
           overflow: 'hidden',
+          background: flatTherapistPicker ? '#fafafa' : undefined,
         }}
       >
       {useScenicBackdrop && (
@@ -446,11 +447,13 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           if (useScenicBackdrop) {
             gl.setClearColor(0x000000, 0);
             scene.background = null;
+          } else if (flatTherapistPicker) {
+            scene.background = new THREE.Color('#fafafa');
           }
         }}
         dpr={[1, 2]}
       >
-        {!useScenicBackdrop && <StudioGradientBackground />}
+        {!useScenicBackdrop && !flatTherapistPicker && <StudioGradientBackground />}
 
         <ambientLight intensity={1.5} />
         <directionalLight
@@ -469,7 +472,9 @@ export default function BodyMap3D(props: BodyMap3DProps) {
 
         <Environment
           preset="studio"
-          environmentIntensity={useScenicBackdrop ? 0.48 : 0.65}
+          environmentIntensity={
+            useScenicBackdrop ? 0.48 : flatTherapistPicker ? 0.38 : 0.65
+          }
         />
 
         <group position={[0, 0.1 + patientMountainElevation, 0]}>
@@ -499,7 +504,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
                     patientPortalInteractive && walkPausedByPointerOver
                   }
                   segmentGrowthMul={segmentGrowthMul}
-                  hideContactGroundShadow={useScenicBackdrop}
+                  hideContactGroundShadow={useScenicBackdrop || flatTherapistPicker}
                   cssLayerVisualsForPortal={useScenicBackdrop && patientPortalInteractive}
                 />
 

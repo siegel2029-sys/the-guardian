@@ -163,6 +163,10 @@ export interface Patient {
    * מין לתצוגה קלינית (אופציונלי) — נשמר ב־payload; כשחסר מוצג גיל בלבד.
    */
   clinicalSex?: 'male' | 'female';
+  /**
+   * תיאור דמוגרפי חופשי (מגדר, גיל, עבודה…) — מחרוזת אחת לתצוגה ולמסד.
+   */
+  demographicsFreeText?: string;
   diagnosis: string;
   /**
    * סיכום AI (אבחנה/תוכנית) — טקסט מלא מ-Gemini או עריכה ידנית; מוצג בדף המטופל ובפורטל.

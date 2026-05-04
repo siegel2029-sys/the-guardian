@@ -211,7 +211,7 @@ export default function Pilot11GamificationDebugPanel() {
 
             <div>
               <p className="text-[9px] font-bold text-slate-500 mb-1">
-                גארדי — הקשר (תמונה + טקסט מסונכרנים)
+                האווטאר — הקשר (תמונה + טקסט מסונכרנים)
               </p>
               <div className="flex flex-wrap gap-1">
                 <button

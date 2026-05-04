@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   CalendarDays, Stethoscope, FileText, ClipboardList, AlertTriangle,
-  KeyRound, Copy, Eye, EyeOff, MessageSquare, BarChart3, Archive,
+  KeyRound, Copy, Eye, EyeOff, MessageSquare, BarChart3, Archive, Pencil,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
@@ -32,12 +32,6 @@ const statusStyles: Record<string, { bg: string; text: string; dot: string }> = 
   paused: { bg: '#f1f5f9', text: '#475569', dot: '#94a3b8' },
 };
 
-function formatClinicalDemographics(p: { age: number; clinicalSex?: 'male' | 'female' }): string {
-  if (p.clinicalSex === 'male') return `זכר, בן ${p.age}`;
-  if (p.clinicalSex === 'female') return `נקבה, בת ${p.age}`;
-  return `גיל ${p.age}`;
-}
-
 export default function PatientOverview() {
   const {
     selectedPatient,
@@ -49,15 +43,23 @@ export default function PatientOverview() {
     applyInitialClinicalProfile,
     setActiveSection,
     patients,
+    updatePatient,
+    savePersistedStateToCloud,
   } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
   const [showClinicalModal, setShowClinicalModal] = useState(false);
   const [showIntakeVault, setShowIntakeVault] = useState(false);
   const [showPainAreasModal, setShowPainAreasModal] = useState(false);
-  const [revealPortalPassword, setRevealPortalPassword] = useState(false);
+  const [showPortalPassword, setShowPortalPassword] = useState(false);
+  const [editingDemographics, setEditingDemographics] = useState(false);
+  const [demoFreeText, setDemoFreeText] = useState(selectedPatient?.demographicsFreeText ?? '');
 
   useEffect(() => {
-    setRevealPortalPassword(false);
+    setShowPortalPassword(false);
+    setEditingDemographics(false);
+    if (selectedPatient) {
+      setDemoFreeText(selectedPatient.demographicsFreeText ?? '');
+    }
   }, [selectedPatient?.id]);
 
   const unreadFromPatient = useMemo(() => {
@@ -172,14 +174,21 @@ export default function PatientOverview() {
 
   const displayName = getPatientDisplayName(p);
 
+  const saveDemographics = () => {
+    updatePatient(p.id, { demographicsFreeText: demoFreeText.trim() || undefined });
+    void savePersistedStateToCloud();
+    setEditingDemographics(false);
+  };
+
+  const injuryPrimaries = p.injuryHighlightSegments ?? [];
+  const activeAreaSummary =
+    injuryPrimaries.length === 0
+      ? 'לא נבחר אזור כאב — לחץ לעריכה'
+      : injuryPrimaries.map((a) => bodyAreaLabels[a]).join(' · ');
+
   return (
     <div className="h-full overflow-y-auto bg-slate-50" dir="rtl">
       <div className="p-4 md:p-8 max-w-6xl mx-auto">
-        <header className="flex flex-col gap-3 mb-6 sm:flex-row sm:justify-between sm:items-center">
-          <p className="text-sm text-slate-500">סקירה קלינית ופעולות מהירות</p>
-          <SidebarNewPatient layout="dashboard" />
-        </header>
-
         {p.hasRedFlag && <RedFlagAlert patient={p} />}
 
         {isPatientExerciseSafetyLocked(p.id) && (
@@ -210,34 +219,100 @@ export default function PatientOverview() {
         <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm p-5 md:p-6 mb-6">
           <div className="flex flex-col gap-6 md:flex-row md:items-start">
             {/* עמודת זהות — ב־RTL ראשון ב־DOM = ימין */}
-            <div className="flex flex-col items-center md:items-start shrink-0 w-full md:w-[220px] gap-4">
-              <div
-                className="w-full max-w-[220px] aspect-square md:aspect-auto md:h-44 md:w-full rounded-2xl flex items-center justify-center text-white shadow-md px-4 py-4 bg-teal-600 ring-1 ring-teal-700/20"
-              >
-                <span className="text-center text-[15px] md:text-base font-bold leading-snug break-words">
+            <div className="flex flex-col items-center md:items-start shrink-0 w-full md:w-[200px] gap-3">
+              <div className="w-24 h-24 rounded-xl flex items-center justify-center text-white shadow-md px-1.5 py-1 bg-teal-600 ring-1 ring-teal-700/20">
+                <span className="text-center text-2xl md:text-[1.65rem] font-bold leading-tight break-words">
                   {displayName}
                 </span>
               </div>
-              <dl className="w-full max-w-[220px] space-y-3 text-sm text-slate-700">
+              <div className="w-full max-w-[260px] space-y-3 text-sm text-slate-700">
                 <div>
-                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-0.5">
-                    פרטים דמוגרפיים
-                  </dt>
-                  <dd className="font-medium text-slate-900">{formatClinicalDemographics(p)}</dd>
+                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDemoFreeText(p.demographicsFreeText ?? '');
+                        setEditingDemographics((v) => !v);
+                      }}
+                      className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-600 text-start"
+                    >
+                      נתונים דמוגרפיים
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDemoFreeText(p.demographicsFreeText ?? '');
+                        setEditingDemographics((v) => !v);
+                      }}
+                      className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"
+                      aria-label={editingDemographics ? 'סגור עריכה' : 'ערוך נתונים דמוגרפיים'}
+                    >
+                      <Pencil className="w-3.5 h-3.5" aria-hidden />
+                    </button>
+                  </div>
+                  {!editingDemographics ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDemoFreeText(p.demographicsFreeText ?? '');
+                        setEditingDemographics(true);
+                      }}
+                      className={`w-full text-start rounded-lg py-1.5 px-2 font-medium hover:bg-slate-50 min-h-[2.25rem] ${
+                        (p.demographicsFreeText ?? '').trim()
+                          ? 'text-slate-900'
+                          : 'text-slate-400'
+                      }`}
+                    >
+                      {(p.demographicsFreeText ?? '').trim() || 'מגדר, גיל, עבודה…'}
+                    </button>
+                  ) : (
+                    <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <label className="sr-only" htmlFor={`demo-free-${p.id}`}>
+                        נתונים דמוגרפיים
+                      </label>
+                      <input
+                        id={`demo-free-${p.id}`}
+                        type="text"
+                        value={demoFreeText}
+                        onChange={(e) => setDemoFreeText(e.target.value)}
+                        placeholder="מגדר, גיל, עבודה…"
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold placeholder:text-slate-400"
+                      />
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={saveDemographics}
+                          className="flex-1 rounded-lg bg-teal-600 text-white text-xs font-bold py-2"
+                        >
+                          שמירה
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingDemographics(false);
+                            setDemoFreeText(p.demographicsFreeText ?? '');
+                          }}
+                          className="rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700"
+                        >
+                          ביטול
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div>
-                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-0.5">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-0.5">
                     אזור פעיל
-                  </dt>
-                  <dd>
+                  </div>
+                  <div>
                     <button
                       type="button"
                       onClick={() => setShowPainAreasModal(true)}
-                      className="text-start font-semibold text-teal-700 underline-offset-2 hover:underline decoration-teal-400/80"
+                      className="text-start font-semibold text-red-600 underline-offset-2 hover:underline decoration-red-400/80"
                     >
-                      {bodyAreaLabels[p.primaryBodyArea]}
+                      {activeAreaSummary}
                     </button>
-                  </dd>
+                  </div>
                 </div>
                 <div className="flex items-start gap-2 text-slate-600">
                   <CalendarDays className="w-4 h-4 shrink-0 mt-0.5 text-slate-400" />
@@ -246,7 +321,7 @@ export default function PatientOverview() {
                     <div className="tabular-nums mt-1">אימון אחרון: {new Date(p.lastSessionDate).toLocaleDateString('he-IL')}</div>
                   </div>
                 </div>
-              </dl>
+              </div>
             </div>
 
             <div className="flex-1 min-w-0 flex flex-col gap-5">
@@ -390,17 +465,18 @@ export default function PatientOverview() {
                   <div className="min-w-0">
                     <p className="text-sm text-gray-500">סיסמה (דמו)</p>
                     <code className="text-sm font-mono font-bold text-slate-900 break-all">
-                      {revealPortalPassword ? portalAccess.password : '••••••••'}
+                      {showPortalPassword ? portalAccess.password : '••••••••'}
                     </code>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setRevealPortalPassword((v) => !v)}
+                      onClick={() => setShowPortalPassword((v) => !v)}
                       className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
-                      title={revealPortalPassword ? 'הסתר' : 'הצג'}
+                      title={showPortalPassword ? 'הסתר' : 'הצג'}
+                      aria-label={showPortalPassword ? 'הסתר סיסמה' : 'הצג סיסמה'}
                     >
-                      {revealPortalPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showPortalPassword ? <EyeOff className="w-4 h-4" aria-hidden /> : <Eye className="w-4 h-4" aria-hidden />}
                     </button>
                     <button
                       type="button"
@@ -422,7 +498,7 @@ export default function PatientOverview() {
           </div>
         ) : (
           <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 text-sm text-gray-600 mb-5">
-            אין חשבון פורטל למטופל זה. השתמשו ב־«מטופל חדש + גישה» כדי ליצור מזהה פורטל וסיסמה.
+            אין חשבון פורטל למטופל זה. צרו גישת פורטל דרך התפריט הראשי או פנו לתמיכה טכנית.
           </div>
         )}
 

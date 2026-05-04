@@ -216,9 +216,10 @@ export function useClinicalData({
         setSelfCareZonesByPatientId((zp) => {
           const cur = zp[patientId] ?? [];
           const s = nextPatient.secondaryClinicalBodyAreas ?? [];
-          const filtered = cur.filter(
-            (a) => !bodyAreaBlocksSelfCare(a, nextPatient.primaryBodyArea, s)
-          );
+          const filtered = cur.filter((a) => {
+            const inj = nextPatient.injuryHighlightSegments ?? [];
+            return !bodyAreaBlocksSelfCare(a, inj, s);
+          });
           if (filtered.length === cur.length) return zp;
           return { ...zp, [patientId]: filtered };
         });
@@ -237,13 +238,51 @@ export function useClinicalData({
         setSelfCareZonesByPatientId((zp) => {
           const cur = zp[patientId] ?? [];
           const s = nextPatient.secondaryClinicalBodyAreas ?? [];
-          const filtered = cur.filter(
-            (a) => !bodyAreaBlocksSelfCare(a, nextPatient.primaryBodyArea, s)
-          );
+          const filtered = cur.filter((a) => {
+            const inj = nextPatient.injuryHighlightSegments ?? [];
+            return !bodyAreaBlocksSelfCare(a, inj, s);
+          });
           if (filtered.length === cur.length) return zp;
           return { ...zp, [patientId]: filtered };
         });
         return prev.map((p, i) => (i === idx ? nextPatient : p));
+      });
+    },
+    [setAllPatients, setSelfCareZonesByPatientId]
+  );
+
+  /** מפת כאב מטפל — עדכון שלושת השדות + ניקוי נעילות מקטע + סינון פרהאב */
+  const applyTherapistPainFields = useCallback(
+    (
+      patientId: string,
+      fields: {
+        injuryHighlightSegments: BodyArea[];
+        secondaryClinicalBodyAreas: BodyArea[];
+        primaryBodyArea: BodyArea;
+      }
+    ) => {
+      setAllPatients((prev) => {
+        const idx = prev.findIndex((p) => p.id === patientId);
+        if (idx < 0) return prev;
+        const p = prev[idx];
+        const nextPatient: Patient = {
+          ...p,
+          injuryHighlightSegments: [...fields.injuryHighlightSegments],
+          secondaryClinicalBodyAreas: [...fields.secondaryClinicalBodyAreas],
+          primaryBodyArea: fields.primaryBodyArea,
+          manualClinicalSegmentLockOverrides: undefined,
+        };
+        setSelfCareZonesByPatientId((zp) => {
+          const cur = zp[patientId] ?? [];
+          const s = nextPatient.secondaryClinicalBodyAreas ?? [];
+          const filtered = cur.filter((a) => {
+            const inj = nextPatient.injuryHighlightSegments ?? [];
+            return !bodyAreaBlocksSelfCare(a, inj, s);
+          });
+          if (filtered.length === cur.length) return zp;
+          return { ...zp, [patientId]: filtered };
+        });
+        return prev.map((x, i) => (i === idx ? nextPatient : x));
       });
     },
     [setAllPatients, setSelfCareZonesByPatientId]
@@ -276,6 +315,7 @@ export function useClinicalData({
     clearPatientInjuryHighlights,
     cycleTherapistBodyMapClinical,
     setTherapistPrimaryBodyArea,
+    applyTherapistPainFields,
     syncClinicalPatientsToSupabase,
   };
 }

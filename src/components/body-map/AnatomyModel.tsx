@@ -215,7 +215,8 @@ function limbPickOverlayKind(
 function limbPickPhysicalTint(
   kind: LimbPickOverlay,
   goldSkin: boolean,
-  levelTier: LevelTier
+  levelTier: LevelTier,
+  portalInjuryBoost = false
 ): {
   color: string;
   emissive: string;
@@ -235,18 +236,36 @@ function limbPickPhysicalTint(
   if (goldSkin || kind === 'none') return null;
   const inj = levelTier === 'injured';
   if (kind === 'injury') {
+    if (portalInjuryBoost) {
+      return {
+        color: '#ff0505',
+        emissive: '#4a0000',
+        emissiveIntensity: 2.85,
+        metalness: 0.12,
+        roughness: 0.22,
+        clearcoat: 0.38,
+        clearcoatRoughness: 0.18,
+        transmission: 0,
+        thickness: 0,
+        ior: 1.5,
+        envMapIntensity: 2.05,
+        iridescence: 0,
+        iridescenceIOR: 1,
+        iridescenceThicknessRange: [0, 0],
+      };
+    }
     return {
-      color: '#fecaca',
-      emissive: '#dc2626',
-      emissiveIntensity: 1.22,
-      metalness: 0.1,
-      roughness: 0.35,
-      clearcoat: 0.24,
-      clearcoatRoughness: 0.32,
+      color: '#ff1414',
+      emissive: '#6b0303',
+      emissiveIntensity: 2.35,
+      metalness: 0.11,
+      roughness: 0.26,
+      clearcoat: 0.32,
+      clearcoatRoughness: 0.22,
       transmission: 0,
       thickness: 0,
       ior: 1.5,
-      envMapIntensity: 1.48,
+      envMapIntensity: 1.88,
       iridescence: 0,
       iridescenceIOR: 1,
       iridescenceThicknessRange: [0, 0],
@@ -290,17 +309,17 @@ function limbPickPhysicalTint(
   }
   if (kind === 'orange') {
     return {
-      color: '#ea580c',
-      emissive: '#9a3412',
-      emissiveIntensity: 1.18,
+      color: '#ff6a00',
+      emissive: '#7c2d12',
+      emissiveIntensity: 1.65,
       metalness: 0.1,
-      roughness: 0.35,
-      clearcoat: 0.24,
-      clearcoatRoughness: 0.3,
+      roughness: 0.32,
+      clearcoat: 0.28,
+      clearcoatRoughness: 0.26,
       transmission: 0,
       thickness: 0,
       ior: 1.5,
-      envMapIntensity: 1.55,
+      envMapIntensity: 1.72,
       iridescence: 0,
       iridescenceIOR: 1,
       iridescenceThicknessRange: [0, 0],
@@ -412,7 +431,13 @@ function BaseSegment({
 
   const injuryLight =
     injuryHighlight && pickArea ? (
-      <pointLight color="#ff2200" intensity={1.05} distance={0.48} decay={2} position={[0, 0, 0.05]} />
+      <pointLight
+        color={patientPortalInteractive ? '#ff0a0a' : '#ff2200'}
+        intensity={patientPortalInteractive ? 2.45 : 1.05}
+        distance={patientPortalInteractive ? 0.65 : 0.48}
+        decay={2}
+        position={[0, 0, 0.05]}
+      />
     ) : null;
 
   const pointerProps = pickable
@@ -439,7 +464,12 @@ function BaseSegment({
     selfCareSelected
   );
   const tier = getLevelTier(level);
-  const limbTint = limbPickPhysicalTint(limbKind, goldSkin ?? false, tier);
+  const limbTint = limbPickPhysicalTint(
+    limbKind,
+    goldSkin ?? false,
+    tier,
+    patientPortalInteractive && injuryHighlight
+  );
   const hasLimbVisualOverlay = limbTint != null && !goldSkin;
   const transSkin =
     Boolean(translucentWhenHealthy) && !goldSkin && limbTint == null;
@@ -665,7 +695,15 @@ function BaseSegment({
           ref={matRef}
           color={
             limbTint?.color ??
-            (injuryHighlight ? '#fecaca' : useFrostTranslucent ? '#ffffff' : transSkin ? '#eef8fa' : baseColor)
+            (injuryHighlight
+              ? patientPortalInteractive
+                ? '#ef4444'
+                : '#fecaca'
+              : useFrostTranslucent
+                ? '#ffffff'
+                : transSkin
+                  ? '#eef8fa'
+                  : baseColor)
           }
           roughness={
             limbTint ? limbTint.roughness : goldSkin ? 0.28 : useFrostTranslucent ? 0.5 : transSkin ? 0.26 : 0.32
@@ -938,6 +976,10 @@ function useGeometries() {
     handR:        createNormalHandGeometry(true),
     elbowL:       new THREE.SphereGeometry(0.118, 18, 14),
     elbowR:       new THREE.SphereGeometry(0.118, 18, 14),
+    wristL:       new THREE.SphereGeometry(0.074, 16, 12),
+    wristR:       new THREE.SphereGeometry(0.074, 16, 12),
+    ankleL:       new THREE.SphereGeometry(0.082, 16, 12),
+    ankleR:       new THREE.SphereGeometry(0.082, 16, 12),
     footL:        createDetailedFootGeometry(false),
     footR:        createDetailedFootGeometry(true),
     shinL:        new THREE.CapsuleGeometry(0.068, 0.32, 4, 14),
@@ -991,7 +1033,6 @@ interface AnatomyModelProps {
 export default function AnatomyModel({
   activeAreas,
   primaryArea,
-  clinicalArea: clinicalAreaProp,
   selfCareSelectedAreas = [],
   painByArea,
   level,
@@ -1015,7 +1056,6 @@ export default function AnatomyModel({
   const gearGoldSkin = equippedGear.skin === 'gold_skin';
   const geos = useGeometries();
   const primaryLightRef = useRef<THREE.PointLight>(null);
-  const clinicalArea = clinicalAreaProp ?? primaryArea;
   const injurySet = useMemo(() => new Set(injuryHighlightSegments), [injuryHighlightSegments]);
   const secondarySet = useMemo(
     () => new Set(secondaryClinicalBodyAreas),
@@ -1023,17 +1063,21 @@ export default function AnatomyModel({
   );
   const growthOf = (a: BodyArea) =>
     Math.max(0, Math.min(1, segmentGrowthMul?.[a] ?? 1));
+  /** נעילה ויזואלית לפי מוקד שרשרת ישנה הוסרה — אדום/כתום רק לפי רשימות המטפל המפורשות */
   const clinicalLockResolved = (a: BodyArea) =>
-    resolveClinicalLockedVisual(a, clinicalArea, secondarySet, manualClinicalSegmentLockOverrides);
-  const clinicalRefForBlock = clinicalArea ?? primaryArea ?? ('neck' as BodyArea);
+    resolveClinicalLockedVisual(a, undefined, secondarySet, manualClinicalSegmentLockOverrides);
   const limbPickProps = (a: BodyArea) => ({
     injuryHighlight: injurySet.has(a),
     clinicalLocked: clinicalLockResolved(a),
     clinicalSecondary: secondarySet.has(a),
     selfCareSelected:
       selfCareSelectedAreas.includes(a) &&
-      !bodyAreaBlocksSelfCare(a, clinicalRefForBlock, secondaryClinicalBodyAreas),
-    clinicalBlockSelfCare: bodyAreaBlocksSelfCare(a, clinicalRefForBlock, secondaryClinicalBodyAreas),
+      !bodyAreaBlocksSelfCare(a, injuryHighlightSegments, secondaryClinicalBodyAreas),
+    clinicalBlockSelfCare: bodyAreaBlocksSelfCare(
+      a,
+      injuryHighlightSegments,
+      secondaryClinicalBodyAreas
+    ),
     patientPortalInteractive,
   });
   const strengthenedSet = useMemo(
@@ -1068,9 +1112,12 @@ export default function AnatomyModel({
     };
   }, [muscleMaps]);
 
+  const glowAnchorArea =
+    injuryHighlightSegments.length > 0 ? injuryHighlightSegments[0] : null;
   const glowPos = useMemo<[number, number, number]>(
-    () => primaryArea ? (AREA_GLOW[primaryArea] ?? [0, 0.4, 0.4]) : [0, 0.4, 0.4],
-    [primaryArea]
+    () =>
+      glowAnchorArea ? AREA_GLOW[glowAnchorArea] ?? [0, 0.4, 0.4] : [0, 0.4, 0.4],
+    [glowAnchorArea]
   );
 
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
@@ -1229,18 +1276,14 @@ export default function AnatomyModel({
       area != null
         ? resolveClinicalLockedVisual(
             area,
-            clinicalArea,
+            undefined,
             secondarySet,
             manualClinicalSegmentLockOverrides
           )
         : false;
     const blockSelfCare =
       area != null &&
-      bodyAreaBlocksSelfCare(
-        area,
-        clinicalArea ?? primaryArea ?? ('neck' as BodyArea),
-        secondaryClinicalBodyAreas
-      );
+      bodyAreaBlocksSelfCare(area, injuryHighlightSegments, secondaryClinicalBodyAreas);
     const selfCareSelected =
       area != null && selfCareSelectedAreas.includes(area) && !blockSelfCare;
     const inj = area != null && injurySet.has(area);
@@ -1280,13 +1323,13 @@ export default function AnatomyModel({
         <group ref={walkRootRef}>
         <group rotation={avatarMeshCounterRotation}>
       {/* Pulsing injury spotlight */}
-      {primaryArea && (
+      {glowAnchorArea && (
         <pointLight
           ref={primaryLightRef}
           position={glowPos}
-          color="#fecaca"
-          intensity={1.15}
-          distance={1.15}
+          color="#ff2222"
+          intensity={patientPortalInteractive ? 1.85 : 1.35}
+          distance={1.25}
           decay={2}
         />
       )}
@@ -1396,6 +1439,7 @@ export default function AnatomyModel({
               motionSteady={stableInteraction}
               onAreaClick={onAreaClick}
             />
+            <MuscleSegment {...S('wrist_left')} geometry={geos.wristL} position={[0, HAND_ATTACH_Y + 0.052, 0]} />
             <BaseSegment
               geometry={geos.handL}
               position={[-0.012, HAND_ATTACH_Y, 0.005]}
@@ -1446,6 +1490,7 @@ export default function AnatomyModel({
               motionSteady={stableInteraction}
               onAreaClick={onAreaClick}
             />
+            <MuscleSegment {...S('wrist_right')} geometry={geos.wristR} position={[0, HAND_ATTACH_Y + 0.052, 0]} />
             <BaseSegment
               geometry={geos.handR}
               position={[0.012, HAND_ATTACH_Y, 0.005]}
@@ -1508,6 +1553,11 @@ export default function AnatomyModel({
               vertexInflationWeight={0}
               disableRaycast
             />
+            <MuscleSegment
+              {...S('ankle_left')}
+              geometry={geos.ankleL}
+              position={[0.01, FOOT_ATTACH_Y + 0.088, 0.018]}
+            />
             <group ref={leftFootRef}>
               <BaseSegment
                 geometry={geos.footL}
@@ -1568,6 +1618,11 @@ export default function AnatomyModel({
               muscleStage={muscleStage}
               vertexInflationWeight={0}
               disableRaycast
+            />
+            <MuscleSegment
+              {...S('ankle_right')}
+              geometry={geos.ankleR}
+              position={[-0.01, FOOT_ATTACH_Y + 0.088, 0.018]}
             />
             <group ref={rightFootRef}>
               <BaseSegment
