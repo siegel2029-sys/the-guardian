@@ -165,9 +165,6 @@ export default function PainManagement({
             <h2 id="pain-management-title" className="text-lg font-bold text-slate-900">
               ניהול אזורי כאב
             </h2>
-            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              ראשי = אדום בפורטל; משני = כתום. בגפיים בלבד נוספים שכנים אוטומטית כמשנים — לא בגו/צוואר.
-            </p>
           </div>
           <button
             type="button"
@@ -181,10 +178,7 @@ export default function PainManagement({
 
         <div className="p-4 flex flex-col lg:flex-row gap-4">
           <div className="shrink-0 flex-1 min-w-0 order-1 flex flex-col min-h-0">
-            <p className="text-[11px] font-bold text-slate-500 mb-2 text-center lg:text-end">
-              תצוגה מקדימה (ללא לחיצה)
-            </p>
-            <div className="flex-1 min-h-[min(64dvh,720px)] rounded-2xl overflow-hidden pointer-events-none select-none border border-slate-100/80 bg-slate-50/40 flex items-center justify-center lg:justify-end">
+            <div className="flex-1 min-h-[min(64dvh,720px)] rounded-2xl overflow-hidden pointer-events-none select-none border border-slate-200/90 bg-slate-100 flex items-center justify-center lg:justify-end">
               <BodyMap3D
                 wrapperClassName="w-full h-full min-h-[min(60dvh,680px)] max-w-full"
                 painPickerFlat
@@ -202,9 +196,6 @@ export default function PainManagement({
                 selectedArea={null}
               />
             </div>
-            <p className="text-[10px] text-slate-400 mt-2 text-center lg:text-end leading-relaxed">
-              ביטול ראשי מסיר רק את הסימון האדום של אותו מקטע; משנים נשארים עד שמבטלים ידנית.
-            </p>
           </div>
 
           <div className="w-full lg:w-[340px] shrink-0 order-2 max-h-[min(56dvh,720px)] overflow-y-auto rounded-xl border border-slate-200 bg-white">

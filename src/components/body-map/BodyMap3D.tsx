@@ -505,11 +505,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         />
 
         <group
-          position={[
-            painCleanStudio ? 0.14 : 0,
-            0.1 + patientMountainElevation,
-            0,
-          ]}
+          position={[0, 0.1 + patientMountainElevation, 0]}
         >
           <Suspense fallback={null}>
             <group scale={avatarScale}>
@@ -651,8 +647,8 @@ export default function BodyMap3D(props: BodyMap3DProps) {
 
       {/* ── HTML overlays ───────────────────────────────────────── */}
 
-      {/* Orbit hint — לא בפורטל מטופל (מפה ויזואלית בלבד) */}
-      {!patientPortalInteractive && (
+      {/* Orbit hint — לא בפורטל מטופל; לא בבוחר כאב שטוח (מודאל מטפל — ללא טקסט הדרכה) */}
+      {!patientPortalInteractive && !flatTherapistPicker && (
         <div style={{
           position: 'absolute', top: 9, left: '50%', transform: 'translateX(-50%)',
           background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(6px)',
@@ -661,9 +657,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           pointerEvents: 'none', direction: 'rtl', whiteSpace: 'nowrap',
           boxShadow: '0 1px 6px rgba(0,0,0,0.08)',
         }}>
-          {flatTherapistPicker
-            ? 'מבט חזית קבוע — לחצו על האווטאר לפי המצב שנבחר למעלה'
-            : scrollFriendlyPortal
+          {scrollFriendlyPortal
             ? 'גלילה מחוץ למפה — גללו מטה לתרגילים · זווית: כפתורים למטה'
             : 'גרור לסיבוב · אדום = מוקד ראשי · כתום = משני · ירוק = פרהאב (לחיצה)'}
         </div>

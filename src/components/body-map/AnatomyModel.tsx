@@ -1166,6 +1166,7 @@ export default function AnatomyModel({
 
   /** הליכה במקום — מחזור קליני (keyframes + lerpAngle), רגל ימין ב־t+0.5, bob/מותן מסונכרנים */
   useFrame(({ clock }) => {
+    const torsoPitch = straightClinicalFrontView ? 0 : postureTorsoPitch;
     const resetArmPivots = () => {
       for (const r of [
         leftShoulderPivotRef,
@@ -1188,7 +1189,7 @@ export default function AnatomyModel({
     if (!walkInPlace) {
       if (walkRootRef.current) walkRootRef.current.position.y = 0;
       if (torsoSwayRef.current) {
-        torsoSwayRef.current.rotation.x = postureTorsoPitch;
+        torsoSwayRef.current.rotation.x = torsoPitch;
         torsoSwayRef.current.rotation.y = 0;
         torsoSwayRef.current.rotation.z = 0;
       }
@@ -1204,7 +1205,7 @@ export default function AnatomyModel({
       resetArmPivots();
       resetFeet();
       if (torsoSwayRef.current) {
-        torsoSwayRef.current.rotation.x = postureTorsoPitch;
+        torsoSwayRef.current.rotation.x = torsoPitch;
         torsoSwayRef.current.rotation.y = 0;
         torsoSwayRef.current.rotation.z = 0;
       }
@@ -1219,7 +1220,7 @@ export default function AnatomyModel({
     if (walkRootRef.current) walkRootRef.current.position.y = bob;
     if (torsoSwayRef.current) {
       torsoSwayRef.current.rotation.x =
-        lerpAngle(t, GAIT_TORSO_PITCH_KEYFRAMES) + postureTorsoPitch;
+        lerpAngle(t, GAIT_TORSO_PITCH_KEYFRAMES) + torsoPitch;
       /** Roll (Z) must stay 0 — gait roll was tilting the whole torso sideways. */
       torsoSwayRef.current.rotation.z = 0;
       torsoSwayRef.current.rotation.y =
