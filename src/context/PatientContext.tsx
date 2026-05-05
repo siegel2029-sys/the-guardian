@@ -734,19 +734,35 @@ export function PatientProvider({
     if (!restrictPatientSessionId) return;
     if (authLoading || !isAuthenticated) return;
 
+    console.log('[PatientPortal] מתחיל טעינת נתוני מטופל מ-Supabase', {
+      patientId: restrictPatientSessionId,
+      isAuthenticated,
+      authLoading,
+    });
+
     let cancelled = false;
     void (async () => {
       const res = await getPatientById(supabase, restrictPatientSessionId);
 
       if (cancelled) return;
       if (!res.ok) {
-        if (import.meta.env.DEV) {
-          console.warn('[PatientContext] patient self-fetch', res.message);
-        }
+        console.warn('[PatientPortal] טעינת נתוני מטופל נכשלה', {
+          patientId: restrictPatientSessionId,
+          reason: res.message,
+          hint: 'ייתכן שמדיניות ה-RLS חוסמת קריאת שורת patients — ודא שיש פוליסה המאפשרת contact_email = auth.jwt()->>"email"',
+        });
         return;
       }
 
       const { patient: fetched, exercisePlan } = res;
+      console.log('[PatientPortal] נתוני מטופל התקבלו', {
+        patientId: fetched.id,
+        patientName: fetched.name,
+        exercisePlanFound: !!exercisePlan,
+        exerciseCount: exercisePlan?.exercises.length ?? 0,
+        fromCache: !!(exercisePlan && !res.exercisePlan),
+      });
+
       setAllPatients((prev) => {
         const ix = prev.findIndex((p) => p.id === fetched.id);
         if (ix < 0) return [...prev, fetched];
@@ -1137,6 +1153,25 @@ export function PatientProvider({
           return false;
         }
         console.log('[Exercise cloud save] נשמר בהצלחה ל־exercise_plans', { patientId });
+
+        // Mirror the exercises into patients.payload._exercisePlanCache.
+        // This lets the patient portal read exercises even when the patient's JWT
+        // is blocked by RLS on exercise_plans (therapist-only policies are common).
+        const patientForCache = allPatientsRef.current.find((p) => p.id === patientId);
+        if (patientForCache) {
+          const now = new Date().toISOString();
+          const patientWithCache = { ...patientForCache, _exercisePlanCache: exercises };
+          // Update in-memory state so subsequent upsertPatientRecords calls preserve the cache.
+          setAllPatients((prev) =>
+            prev.map((p) => (p.id === patientId ? patientWithCache : p))
+          );
+          const cacheResult = await upsertPatientRecords(supabase, [patientWithCache], now);
+          if (!cacheResult.ok) {
+            console.warn('[Exercise cloud save] עדכון _exercisePlanCache ב-patients נכשל (לא קריטי):', cacheResult.message, { patientId });
+          } else {
+            console.log('[Exercise cloud save] _exercisePlanCache עודכן ב-patients.payload', { patientId, exerciseCount: exercises.length });
+          }
+        }
 
         const fresh = await fetchActiveExercisePlanForPatient(supabase, patientId);
         if (!fresh.ok) {

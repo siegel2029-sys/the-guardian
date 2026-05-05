@@ -160,6 +160,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /** Row from `public.profiles` when fetched (for debugging / UI). */
   const [profile, setProfile] = useState<ProfileRow | null>(null);
 
+  /**
+   * True while `login()` is executing a `signInWithPassword` call.
+   * Prevents the `SIGNED_OUT` event (fired by Supabase for the old session during sign-in)
+   * from calling `setIsLoading(false)` prematurely — which would make ProtectedRoute
+   * redirect to /login for a brief window before the SIGNED_IN event arrives.
+   */
+  const signingInRef = useRef(false);
+
   const supabaseAuth = isSupabaseAuthEnabled();
 
   /** Minimal columns only — avoids 400 when optional columns are missing from remote schema. DB uses `name` for display (not `full_name`). */
@@ -377,9 +385,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               '[Auth] SIGNED_OUT — cleared app auth (no sb-*-auth-token in localStorage)'
             );
           }
-          clearSupabaseAuthStateRef.current();
+          // During an active login() call, Supabase fires SIGNED_OUT for the
+          // previous session before firing SIGNED_IN for the new one. Clearing
+          // auth state here is correct, but setting isLoading=false must be
+          // deferred — ProtectedRoute would otherwise redirect to /login for
+          // the brief window before SIGNED_IN arrives.
+          if (!signingInRef.current) {
+            clearSupabaseAuthStateRef.current();
+          }
         }
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled && !signingInRef.current) setIsLoading(false);
         return;
       }
       if (!sess) {
@@ -534,11 +549,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return null;
           }
 
+          // Signal that a sign-in is in progress. The onAuthStateChange SIGNED_OUT
+          // handler checks this flag and skips setIsLoading(false) so ProtectedRoute
+          // does not redirect to /login during the brief SIGNED_OUT → SIGNED_IN window.
+          signingInRef.current = true;
+
           if (isEmailLike(id)) {
-            const { data, error } = await supabase.auth.signInWithPassword({
-              email: id.toLowerCase(),
-              password: pw,
-            });
+            let data: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['data'];
+            let error: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['error'];
+            try {
+              ({ data, error } = await supabase.auth.signInWithPassword({
+                email: id.toLowerCase(),
+                password: pw,
+              }));
+            } finally {
+              signingInRef.current = false;
+            }
             if (error || !data.user) {
               setLoginError(
                 supabaseAuthErrorMessageHe(
@@ -563,12 +589,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           const normalized = normalizePortalUsername(id);
           if (!isValidPortalUsername(normalized)) {
+            signingInRef.current = false;
             setLoginError('מזהה פורטל לא תקין (2–32 תווים, אנגלית ומספרים).');
             setIsLoading(false);
             return null;
           }
           const email = portalUsernameToAuthEmail(normalized);
-          const { data, error } = await supabase.auth.signInWithPassword({ email, password: pw });
+          let data: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['data'];
+          let error: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['error'];
+          try {
+            ({ data, error } = await supabase.auth.signInWithPassword({ email, password: pw }));
+          } finally {
+            signingInRef.current = false;
+          }
           if (error || !data.user) {
             setLoginError(
               supabaseAuthErrorMessageHe(error ?? undefined, 'מזהה פורטל או סיסמה שגויים.')

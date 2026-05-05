@@ -490,9 +490,34 @@ export default function PatientDailyView() {
     if (!selectedPatient) return [];
     const sec = selectedPatient.secondaryClinicalBodyAreas ?? [];
     const inj = selectedPatient.injuryHighlightSegments ?? [];
-    const list = exercises.filter((e) => bodyAreaBlocksSelfCare(e.targetArea, inj, sec));
-    const mandatory = list.filter((e) => !e.isOptional).sort((a, b) => a.name.localeCompare(b.name, 'he'));
-    const optional = list.filter((e) => e.isOptional).sort((a, b) => a.name.localeCompare(b.name, 'he'));
+
+    // bodyAreaBlocksSelfCare was designed to block patient self-care zone picks on
+    // clinical areas — it is NOT the right gate for deciding which therapist-assigned
+    // exercises appear in the portal. Applying it as a filter here meant that any
+    // exercise whose targetArea didn't match the patient's injury highlights was
+    // silently dropped, making the list appear empty even though exercises exist.
+    //
+    // Policy: ALL exercises assigned by the therapist are rehabilitation exercises
+    // and must always be shown. Only fall back to the area-based filter when it
+    // produces a non-empty result AND clinical areas are actually defined, so that
+    // the patient body-map interaction (red/orange locked zones) still works as
+    // intended for clinically configured patients.
+    const areaFiltered =
+      (inj.length > 0 || sec.length > 0)
+        ? exercises.filter((e) => bodyAreaBlocksSelfCare(e.targetArea, inj, sec))
+        : [];
+    const effectiveList = areaFiltered.length > 0 ? areaFiltered : exercises;
+
+    console.log('[PatientDailyView] clinicalRehabExercises', {
+      total: exercises.length,
+      areaFilteredCount: areaFiltered.length,
+      effectiveCount: effectiveList.length,
+      hasInjuryAreas: inj.length > 0,
+      hasSecondaryAreas: sec.length > 0,
+    });
+
+    const mandatory = effectiveList.filter((e) => !e.isOptional).sort((a, b) => a.name.localeCompare(b.name, 'he'));
+    const optional = effectiveList.filter((e) => e.isOptional).sort((a, b) => a.name.localeCompare(b.name, 'he'));
     return [...mandatory, ...optional];
   }, [exercises, selectedPatient]);
 
@@ -1014,25 +1039,36 @@ export default function PatientDailyView() {
   };
 
   if (!selectedPatient) {
+    // In patient-portal mode show a loading spinner while the data-fetch effect
+    // runs (allPatients starts empty; getPatientById populates it asynchronously).
+    // Returning null / a skeleton here instead of a "not found" screen prevents
+    // the BodyMap3D canvas from being destroyed before patient data arrives.
+    if (sessionRole === 'patient') {
+      return (
+        <div
+          className="min-h-screen flex flex-col items-center justify-center gap-4 bg-medical-bg font-sans"
+          dir="rtl"
+        >
+          <div className="w-10 h-10 rounded-full border-4 border-teal-400 border-t-transparent animate-spin" aria-label="טוען נתוני מטופל" />
+          <p className="text-sm text-slate-500">טוען נתוני מטופל…</p>
+          <button
+            type="button"
+            onClick={() => {
+              void logout().then(() => navigate('/login', { replace: true }));
+            }}
+            className="mt-4 px-4 py-2 rounded-xl border border-slate-200 text-slate-500 text-sm"
+          >
+            התנתקות
+          </button>
+        </div>
+      );
+    }
     return (
       <div
         className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-medical-bg font-sans"
         dir="rtl"
       >
         <p className="text-slate-800 font-semibold text-base mb-4">לא נבחר מטופל או שהחשבון אינו מקושר.</p>
-        <div className="flex flex-wrap gap-2 justify-center">
-          {sessionRole === 'patient' && (
-            <button
-              type="button"
-              onClick={() => {
-                void logout().then(() => navigate('/login', { replace: true }));
-              }}
-              className="px-5 py-3 rounded-2xl border-2 border-slate-300 text-slate-800 font-semibold text-base"
-            >
-              התנתקות
-            </button>
-          )}
-        </div>
       </div>
     );
   }

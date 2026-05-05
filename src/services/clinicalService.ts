@@ -273,6 +273,78 @@ function exercisesJsonEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/**
+ * Upserts a single exercise plan for a patient using the UNIQUE constraint on `patient_id`.
+ * Authenticates the therapist via `auth.getUser()` (required for RLS) and writes an audit log
+ * entry when the exercises content changes.
+ *
+ * This replaces the versioning-based {@link upsertExercisePlans} for tables where
+ * `exercise_plans.patient_id` carries a UNIQUE constraint (one row per patient).
+ */
+export async function upsertExercisePlan(
+  client: SupabaseClient,
+  patientId: string,
+  exercises: PatientExercise[],
+  options?: { changeSummary?: string | null; now?: string }
+): Promise<ClinicalPushResult> {
+  const now = options?.now ?? new Date().toISOString();
+  const changeSummary = options?.changeSummary?.trim() ?? null;
+
+  const {
+    data: { user },
+    error: userErr,
+  } = await client.auth.getUser();
+  if (userErr || !user?.id) {
+    return { ok: false, message: 'exercise_plans: נדרש מטפל מחובר ל-Supabase לכתיבה' };
+  }
+  const therapistId = user.id;
+
+  const { data: existing, error: fetchErr } = await client
+    .from('exercise_plans')
+    .select('exercises')
+    .eq('patient_id', patientId)
+    .maybeSingle();
+
+  if (fetchErr) {
+    return { ok: false, message: `exercise_plans: ${fetchErr.message}` };
+  }
+
+  const oldExercises = (existing as { exercises?: unknown } | null)?.exercises ?? null;
+
+  const { error: upsertErr } = await client
+    .from('exercise_plans')
+    .upsert(
+      {
+        patient_id: patientId,
+        exercises,
+        is_active: true,
+        updated_at: now,
+        change_summary: changeSummary,
+      },
+      { onConflict: 'patient_id' }
+    );
+
+  if (upsertErr) {
+    return { ok: false, message: `exercise_plans: ${upsertErr.message}` };
+  }
+
+  if (exercisesJsonEqual(oldExercises, exercises)) {
+    return { ok: true };
+  }
+
+  const audit = await insertClinicalAuditLog(client, {
+    therapistId,
+    patientId,
+    entityType: 'plan',
+    action: oldExercises === null ? 'create' : 'update',
+    oldValue: oldExercises !== null ? { exercises: oldExercises } : null,
+    newValue: { exercises },
+  });
+  if (!audit.ok) return audit;
+
+  return { ok: true };
+}
+
 export type UpsertExercisePlansOptions = {
   /** Optional per-patient note stored on the new version row when content changes. */
   changeSummaryByPatientId?: Record<string, string>;
@@ -584,8 +656,10 @@ export type FetchActiveExercisePlansResult =
   | { ok: false; message: string };
 
 /**
- * Active תוכניות תרגול מ־`exercise_plans` (גרסאות עם `is_active = true`).
- * שימו לב: אין עמודת `patients.exercises` בסכמת Guardian — הרשימה נשמרת ב־`exercise_plans.exercises` (JSONB).
+ * Fetches exercise plans for the given patient IDs from `exercise_plans`.
+ * With a UNIQUE constraint on `patient_id` there is exactly one row per patient,
+ * so the `is_active` filter is omitted to avoid hiding rows where the column was
+ * never set or defaulted to false.
  */
 export async function fetchActiveExercisePlansForPatientIds(
   client: SupabaseClient,
@@ -599,8 +673,14 @@ export async function fetchActiveExercisePlansForPatientIds(
   const { data, error } = await client
     .from('exercise_plans')
     .select('patient_id, exercises')
-    .in('patient_id', ids)
-    .eq('is_active', true);
+    .in('patient_id', ids);
+
+  console.log('[fetchActiveExercisePlansForPatientIds] raw Supabase response', {
+    patientIds: ids,
+    rowCount: data?.length ?? 0,
+    data,
+    error,
+  });
 
   if (error) {
     return { ok: false, message: `exercise_plans: ${error.message}` };
@@ -628,12 +708,20 @@ export async function fetchActiveExercisePlanForPatient(
     return { ok: true, exercisePlan: null };
   }
 
+  // With a UNIQUE constraint on patient_id there is at most one row per patient.
+  // The is_active filter is intentionally omitted: if the column was never set
+  // (defaulted to false/null) the filter would hide the row even though data exists.
   const { data, error } = await client
     .from('exercise_plans')
     .select('patient_id, exercises')
     .eq('patient_id', id)
-    .eq('is_active', true)
     .maybeSingle();
+
+  console.log('[fetchActiveExercisePlanForPatient] raw Supabase response', {
+    patientId: id,
+    data,
+    error,
+  });
 
   if (error) {
     return { ok: false, message: `exercise_plans: ${error.message}` };
@@ -682,8 +770,12 @@ export type GetPatientByIdResult =
   | { ok: false; message: string };
 
 /**
- * משיג שורת `patients` (payload מלא) + תוכנית תרגול פעילה לפי `patient_id` (עמודות `patient_id`,`exercises` בטבלה `exercise_plans`).
- * RLS מהמגדיר הגישה.
+ * משיג שורת `patients` (payload מלא) + תוכנית תרגול פעילה לפי `patient_id`.
+ *
+ * כאשר ה-JWT של המטופל אינו מכוסה על-ידי מדיניות ה-RLS של `exercise_plans`
+ * (מדיניות ברירת מחדל מגבילה לגישת מטפל בלבד), השאילתה מחזירה null.
+ * במקרה זה משתמשים ב-`_exercisePlanCache` מתוך `patients.payload` —
+ * שדה שהמטפל מעדכן בכל שמירה ושהמטופל תמיד רשאי לקרוא.
  */
 export async function getPatientById(
   client: SupabaseClient,
@@ -700,6 +792,13 @@ export async function getPatientById(
   ]);
 
   const { data, error } = rowResult;
+
+  console.log('[getPatientById] patients row result', {
+    patientId: id,
+    hasData: !!data,
+    error: error ?? null,
+  });
+
   if (error) {
     return { ok: false, message: `patients: ${error.message}` };
   }
@@ -710,6 +809,11 @@ export async function getPatientById(
     !('id' in payload) ||
     typeof (payload as Patient).id !== 'string'
   ) {
+    console.warn('[getPatientById] patients payload חסר או לא תקין', {
+      patientId: id,
+      hasData: !!data,
+      payloadKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [],
+    });
     return { ok: false, message: 'patients: missing or invalid payload' };
   }
 
@@ -717,18 +821,35 @@ export async function getPatientById(
     return { ok: false, message: activePlanResult.message };
   }
 
+  let exercisePlan = activePlanResult.exercisePlan;
+
+  // Fallback: if exercise_plans returned nothing (RLS blocks patient JWT),
+  // use the cached copy stored inside patients.payload by the therapist on last save.
+  if (!exercisePlan) {
+    const cached = (payload as Patient)._exercisePlanCache;
+    if (Array.isArray(cached) && cached.length > 0) {
+      console.log('[getPatientById] exercise_plans ריק — משתמש ב-_exercisePlanCache מ-patients.payload', {
+        patientId: id,
+        cachedCount: cached.length,
+      });
+      exercisePlan = { patientId: id, exercises: cached as PatientExercise[] };
+    } else {
+      console.warn('[getPatientById] exercise_plans ריק וגם אין _exercisePlanCache — ייתכן שה-RLS חוסם את המטופל מטבלת exercise_plans', {
+        patientId: id,
+      });
+    }
+  }
+
   return {
     ok: true,
     patient: payload as Patient,
-    exercisePlan: activePlanResult.exercisePlan,
+    exercisePlan,
   };
 }
 
 /**
  * מעלה לענן את רשימת התרגילים הפעילה של מטופל.
- *
- * ההערה ההיסטורית של המשתמש על `patients.exercises`: בפרויקט זה אין כזו עמודה — ההתאמה היא **`exercise_plans.exercises`**
- * דרך {@link upsertExercisePlans} (גרסאות עם `is_active`).
+ * מאציל ל-{@link upsertExercisePlan} שמטפל באימות מטפל ו-upsert על-פי `patient_id`.
  */
 export async function updatePatientExercises(
   client: SupabaseClient,
@@ -737,15 +858,8 @@ export async function updatePatientExercises(
   now?: string,
   options?: { changeSummary?: string | null }
 ): Promise<ClinicalPushResult> {
-  const ts = now ?? new Date().toISOString();
-  const note = options?.changeSummary?.trim();
-  const changeSummaryByPatientId =
-    note && note.length > 0 ? { [patientId]: note } : undefined;
-
-  return upsertExercisePlans(
-    client,
-    [{ patientId, exercises: updatedExercises }],
-    ts,
-    changeSummaryByPatientId ? { changeSummaryByPatientId } : undefined
-  );
+  return upsertExercisePlan(client, patientId, updatedExercises, {
+    changeSummary: options?.changeSummary,
+    now,
+  });
 }

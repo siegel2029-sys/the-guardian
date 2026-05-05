@@ -218,6 +218,13 @@ export interface Patient {
    * רשומות תיעוד קליני מאושרות (ציר זמן) — נשמר ב־payload מטופל ומסונכרן ל־Supabase.
    */
   clinicalTimeline?: ClinicalTimelineEntry[];
+  /**
+   * עותק מטמון של תוכנית התרגילים האחרונה — נכתב על-ידי המטפל בכל שמירה.
+   * משמש כ-fallback לפורטל המטופל כאשר ה-JWT של המטופל אינו מכוסה על-ידי מדיניות ה-RLS
+   * של טבלת `exercise_plans` (שנכתבת לגישת מטפל בלבד כברירת מחדל).
+   * מאוחסן בתוך `patients.payload` שהמטופל תמיד רשאי לקרוא.
+   */
+  _exercisePlanCache?: PatientExercise[];
 }
 
 /** תובנות AI לסשן טיפול — נשמרות ברשומת התיעוד (payload מטופל → Supabase) */

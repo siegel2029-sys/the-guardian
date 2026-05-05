@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { hasPersistedSupabaseAuthSession } from '../lib/supabase';
 import LoginPage from './auth/LoginPage';
@@ -18,15 +19,51 @@ function AuthLoadingFallback() {
 /**
  * Gate access to a route: `allow` means a credential exists; `waitForBootstrap` means
  * auth is still resolving and we should show a spinner rather than redirect.
- * Always waits for the Supabase bootstrap to finish so sessionRole is known before routing.
+ *
+ * A 300 ms grace period is applied when `allow` transitions from true → false.
+ * This covers the brief SIGNED_OUT → SIGNED_IN window that Supabase fires during
+ * every `signInWithPassword` call (old session is evicted before the new one arrives).
+ * Without this, ProtectedRoute would redirect to /login for ~50–200 ms mid-login.
  */
 function useRouteAccess() {
   const { isAuthenticated, hasSupabaseSession, isLoading } = useAuth();
   const persistedJwt = hasPersistedSupabaseAuthSession();
   const allow = isAuthenticated || hasSupabaseSession || persistedJwt;
-  // Always wait while Supabase is bootstrapping — this prevents routing before sessionRole is known.
-  const waitForBootstrap = isLoading;
-  return { allow, waitForBootstrap, isAuthenticated, hasSupabaseSession, persistedJwt };
+
+  // Debounced "stable allow" — only acts on allow=false after a 300 ms cooldown.
+  const [stableAllow, setStableAllow] = useState(allow);
+  const [gracePending, setGracePending] = useState(false);
+  const graceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (allow) {
+      // Immediately propagate allow=true and cancel any pending grace timer.
+      if (graceTimerRef.current) {
+        clearTimeout(graceTimerRef.current);
+        graceTimerRef.current = null;
+      }
+      setStableAllow(true);
+      setGracePending(false);
+    } else {
+      // Don't propagate allow=false immediately — give auth a chance to stabilise.
+      setGracePending(true);
+      graceTimerRef.current = setTimeout(() => {
+        setStableAllow(false);
+        setGracePending(false);
+        graceTimerRef.current = null;
+      }, 300);
+    }
+    return () => {
+      if (graceTimerRef.current) {
+        clearTimeout(graceTimerRef.current);
+        graceTimerRef.current = null;
+      }
+    };
+  }, [allow]);
+
+  // Always wait while Supabase is bootstrapping OR during the grace period.
+  const waitForBootstrap = isLoading || gracePending;
+  return { allow: stableAllow, waitForBootstrap, isAuthenticated, hasSupabaseSession, persistedJwt };
 }
 
 function RedirectToLogin({ reason }: { reason: string }) {

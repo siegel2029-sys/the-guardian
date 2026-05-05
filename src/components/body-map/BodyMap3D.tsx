@@ -471,6 +471,22 @@ export default function BodyMap3D(props: BodyMap3DProps) {
           } else if (flatTherapistPicker) {
             scene.background = new THREE.Color('#fafafa');
           }
+
+          // Prevent permanent context loss on mobile / low-memory devices.
+          // Calling e.preventDefault() in 'webglcontextlost' allows the browser
+          // to attempt context restoration instead of discarding it.
+          const canvas = gl.domElement;
+          const onContextLost = (e: Event) => {
+            e.preventDefault();
+            console.warn('[BodyMap3D] WebGL context lost — waiting for browser restore');
+          };
+          const onContextRestored = () => {
+            console.log('[BodyMap3D] WebGL context restored');
+            // Force Three.js to reinitialise its internal state after restore.
+            gl.setSize(canvas.clientWidth, canvas.clientHeight, false);
+          };
+          canvas.addEventListener('webglcontextlost', onContextLost, false);
+          canvas.addEventListener('webglcontextrestored', onContextRestored, false);
         }}
         dpr={[1, 2]}
       >
