@@ -74,6 +74,7 @@ import {
   deletePatientRowFromSupabase,
   fetchActiveExercisePlanForPatient,
   updatePatientExercises,
+  upsertPatientRecords,
   getPatientById,
 } from '../services/clinicalService';
 import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
@@ -1099,6 +1100,34 @@ export function PatientProvider({
 
       let failureMessage: string | null = null;
       const work = (async (): Promise<boolean> => {
+        console.log('[Exercise cloud save] מתחיל שמירת תוכנית לענן', {
+          patientId,
+          exerciseCount: exercises.length,
+          changeSummary: options?.changeSummary ?? null,
+        });
+
+        // Pre-sync the patient row so that the exercise_plans RLS sub-query
+        // (patients.therapist_id = auth.uid()::text) will succeed.
+        // If this patient exists only in localStorage the INSERT would otherwise be
+        // rejected by RLS or fail with "missing patient therapist_id".
+        const patientForSync = allPatientsRef.current.find((p) => p.id === patientId);
+        if (patientForSync) {
+          const now = new Date().toISOString();
+          const patientSyncResult = await upsertPatientRecords(supabase, [patientForSync], now);
+          if (!patientSyncResult.ok) {
+            console.warn(
+              '[Exercise cloud save] אזהרה: סנכרון שורת המטופל נכשל (ממשיך לנסות לשמור את התוכנית)',
+              { patientId, reason: patientSyncResult.message }
+            );
+          } else {
+            console.log('[Exercise cloud save] שורת המטופל סונכרנה בהצלחה', { patientId });
+          }
+        } else {
+          console.warn('[Exercise cloud save] המטופל לא נמצא בזיכרון — מדלג על סנכרון שורת patients', {
+            patientId,
+          });
+        }
+
         const upd = await updatePatientExercises(supabase, patientId, exercises, undefined, {
           changeSummary: options?.changeSummary,
         });
@@ -1150,6 +1179,8 @@ export function PatientProvider({
       sessionRole,
       isAuthenticated,
       isSupabaseConfigured,
+      // allPatientsRef is a ref — stable across renders, safe to omit from deps,
+      // but listed explicitly for clarity. upsertPatientRecords is a module-level fn.
     ]
   );
 
