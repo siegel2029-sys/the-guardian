@@ -70,8 +70,11 @@ import { type GearEquipSlot } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
 import {
-  fetchPatientPayloadsForTherapist,
+  fetchPatients,
   deletePatientRowFromSupabase,
+  fetchActiveExercisePlanForPatient,
+  updatePatientExercises,
+  getPatientById,
 } from '../services/clinicalService';
 import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
 import { useAuth } from './AuthContext';
@@ -421,6 +424,12 @@ interface PatientContextValue {
   savePersistedStateToCloud: (options?: {
     exercisePlanChangeSummaryByPatientId?: Record<string, string>;
   }) => Promise<boolean>;
+  /** שמירת תוכנית תרגילים לטבלה `exercise_plans` (+ רענון מהשרת בעת הצלחה). למטפל בלבד. */
+  saveExercisePlanForPatientToCloud: (
+    patientId: string,
+    exercises: PatientExercise[],
+    options?: { changeSummary?: string }
+  ) => Promise<{ ok: true } | { ok: false; message: string }>;
 
   /** בסיס ידע "הידעת?" — אישור מטפל וסנכרון */
   knowledgeFacts: KnowledgeFact[];
@@ -717,42 +726,40 @@ export function PatientProvider({
   }, [therapist?.id, therapist?.email]);
 
   /**
-   * Hydrate own patient record from Supabase when a patient is logged in on a fresh device.
-   * RLS `patients_select_patient` (auth_user_id = auth.uid()) returns only their own row.
-   * This is required because allPatients initialises from localStorage/mockPatients which
-   * won't contain the real patient on a brand-new device.
+   * סנכרון מלא מ־Supabase לפורטל מטופל: `payload` + תוכנית פעילה מ־`exercise_plans`.
    */
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
     if (!restrictPatientSessionId) return;
     if (authLoading || !isAuthenticated) return;
-    if (allPatientsRef.current.some((p) => p.id === restrictPatientSessionId)) return;
 
     let cancelled = false;
     void (async () => {
-      const { data, error } = await supabase
-        .from('patients')
-        .select('payload')
-        .eq('id', restrictPatientSessionId)
-        .maybeSingle();
+      const res = await getPatientById(supabase, restrictPatientSessionId);
 
       if (cancelled) return;
-      if (error) {
-        if (import.meta.env.DEV) console.warn('[PatientContext] patient self-fetch', error.message);
+      if (!res.ok) {
+        if (import.meta.env.DEV) {
+          console.warn('[PatientContext] patient self-fetch', res.message);
+        }
         return;
       }
-      const payload = (data as { payload?: unknown } | null)?.payload;
-      if (
-        !payload ||
-        typeof payload !== 'object' ||
-        !('id' in payload) ||
-        typeof (payload as { id?: unknown }).id !== 'string'
-      ) return;
 
-      const fetched = payload as Patient;
+      const { patient: fetched, exercisePlan } = res;
       setAllPatients((prev) => {
-        if (prev.some((p) => p.id === fetched.id)) return prev;
-        return [...prev, fetched];
+        const ix = prev.findIndex((p) => p.id === fetched.id);
+        if (ix < 0) return [...prev, fetched];
+        const next = [...prev];
+        next[ix] = fetched;
+        return next;
+      });
+
+      const pid = fetched.id;
+      setExercisePlans((prev) => {
+        const rest = prev.filter((ep) => ep.patientId !== pid);
+        const planSlice: ExercisePlan =
+          exercisePlan ?? { patientId: pid, exercises: [] };
+        return [...rest, planSlice];
       });
     })();
     return () => { cancelled = true; };
@@ -768,8 +775,14 @@ export function PatientProvider({
 
     let cancelled = false;
     void (async () => {
-      const res = await fetchPatientPayloadsForTherapist(supabase);
-      if (cancelled || !res.ok) return;
+      const res = await fetchPatients(supabase);
+      if (cancelled) return;
+      if (!res.ok) {
+        if (import.meta.env.DEV) {
+          console.warn('[PatientContext] fetchPatients (patients + exercise_plans)', res.message);
+        }
+        return;
+      }
       const list = res.patients;
 
       if (list.length === 0) {
@@ -799,6 +812,7 @@ export function PatientProvider({
       setAllPatients(
         normalizePatientsTherapistIds(list, { fallbackTherapistId: therapist.id })
       );
+      setExercisePlans(res.exercisePlans);
     })();
     return () => {
       cancelled = true;
@@ -808,6 +822,48 @@ export function PatientProvider({
     sessionRole,
     isAuthenticated,
     therapist?.id,
+    restrictPatientSessionId,
+  ]);
+
+  /**
+   * רענון תוכנית התרגול הפעילה מהענן בכל בחירת מטופל (דשבורד מטפל) — מאותר עד כניסה מהמכשיר השני.
+   */
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    if (restrictPatientSessionId) return;
+    if (authLoading || !isAuthenticated) return;
+    if (sessionRole !== 'therapist') return;
+
+    const pid = selectedPatientId.trim();
+    if (!pid) return;
+
+    let cancelled = false;
+    void (async () => {
+      const planRes = await fetchActiveExercisePlanForPatient(supabase, pid);
+      if (cancelled) return;
+      if (!planRes.ok) {
+        console.warn('[PatientContext] exercise plan refresh on patient select:', planRes.message);
+        return;
+      }
+      setExercisePlans((prev) => {
+        const rest = prev.filter((ep) => ep.patientId !== pid);
+        if (planRes.exercisePlan) {
+          return [...rest, planRes.exercisePlan];
+        }
+        const hadLocal = prev.some((ep) => ep.patientId === pid);
+        if (hadLocal) return prev;
+        return [...rest, { patientId: pid, exercises: [] }];
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    supabase,
+    selectedPatientId,
+    authLoading,
+    isAuthenticated,
+    sessionRole,
     restrictPatientSessionId,
   ]);
 
@@ -999,6 +1055,103 @@ export function PatientProvider({
     [buildPersistSnapshot, supabasePushOptions, isAuthenticated]
   );
 
+  const saveExercisePlanForPatientToCloud = useCallback(
+    async (
+      patientId: string,
+      exercises: PatientExercise[],
+      options?: { changeSummary?: string }
+    ): Promise<{ ok: true } | { ok: false; message: string }> => {
+      const fail = (msg: string): { ok: false; message: string } => ({ ok: false, message: msg });
+
+      if (!supabase) {
+        const msg =
+          'Supabase לא מוגדר: הוסיפו VITE_SUPABASE_URL ו־VITE_SUPABASE_ANON_KEY לקובץ .env והפעילו מחדש את השרת.';
+        setSupabaseSyncError(msg);
+        console.error('[Exercise cloud save]', msg);
+        setSupabaseSyncStatus('idle');
+        return fail(msg);
+      }
+      if (!isSupabaseConfigured || !isAuthenticated) {
+        setSupabaseSyncStatus('idle');
+        const msg =
+          'שמירת תוכנית לענן דורשת חיבור: התחברות מטפל ל-Supabase ולעיתים רענון הדף.';
+        setSupabaseSyncError(msg);
+        console.warn('[Exercise cloud save]', msg);
+        return fail(msg);
+      }
+      if (restrictPatientSessionId || sessionRole !== 'therapist') {
+        const msg = 'שמירת תוכנית לענן זמינה רק מדשבורד מטפל.';
+        setSupabaseSyncError(msg);
+        console.warn('[Exercise cloud save]', msg);
+        return fail(msg);
+      }
+
+      if (cloudSaveMutexRef.current) {
+        try {
+          await cloudSaveMutexRef.current;
+        } catch {
+          /* ignore */
+        }
+      }
+
+      setSupabaseSyncStatus('saving');
+      setSupabaseSyncError(null);
+
+      let failureMessage: string | null = null;
+      const work = (async (): Promise<boolean> => {
+        const upd = await updatePatientExercises(supabase, patientId, exercises, undefined, {
+          changeSummary: options?.changeSummary,
+        });
+        if (!upd.ok) {
+          failureMessage = upd.message;
+          console.error('[Exercise cloud save] נכשל:', upd.message, { patientId });
+          return false;
+        }
+        console.log('[Exercise cloud save] נשמר בהצלחה ל־exercise_plans', { patientId });
+
+        const fresh = await fetchActiveExercisePlanForPatient(supabase, patientId);
+        if (!fresh.ok) {
+          console.warn('[Exercise cloud save] עדכון הצליח אך רענון נכשל:', fresh.message, {
+            patientId,
+          });
+          return true;
+        }
+        setExercisePlans((prev) => {
+          const rest = prev.filter((ep) => ep.patientId !== patientId);
+          const slice: ExercisePlan =
+            fresh.exercisePlan ?? { patientId, exercises };
+          return [...rest, slice];
+        });
+        return true;
+      })();
+
+      cloudSaveMutexRef.current = work;
+      let ok = false;
+      try {
+        ok = await work;
+      } finally {
+        cloudSaveMutexRef.current = null;
+      }
+
+      if (ok) {
+        setSupabaseSyncStatus('saved');
+        setSupabaseLastSavedAt(new Date().toISOString());
+        return { ok: true };
+      }
+      const finalMsg =
+        failureMessage ?? 'שמירת תוכנית תרגילים לענן נכשלה';
+      setSupabaseSyncStatus('error');
+      setSupabaseSyncError(finalMsg);
+      return fail(finalMsg);
+    },
+    [
+      supabase,
+      restrictPatientSessionId,
+      sessionRole,
+      isAuthenticated,
+      isSupabaseConfigured,
+    ]
+  );
 
   const applyExternalSnapshot = useCallback(
     (data: PersistedPatientStateV1) => {
@@ -1734,6 +1887,7 @@ export function PatientProvider({
         supabaseSyncError,
         supabaseLastSavedAt,
         savePersistedStateToCloud,
+        saveExercisePlanForPatientToCloud,
         knowledgeFacts: gamification.knowledgeFacts,
         addManualKnowledgeFact: gamification.addManualKnowledgeFact,
         removeKnowledgeFact: gamification.removeKnowledgeFact,

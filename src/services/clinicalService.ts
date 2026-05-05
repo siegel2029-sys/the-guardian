@@ -1,5 +1,5 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
-import type { ExercisePlan, Patient, Therapist } from '../types';
+import type { ExercisePlan, Patient, PatientExercise, Therapist } from '../types';
 import {
   isSupabaseAuthEnabled,
   normalizePortalUsername,
@@ -452,7 +452,8 @@ export type FetchPatientPayloadsForTherapistResult =
 
 /**
  * Loads `patients.payload` rows visible to the current JWT (RLS: therapist_id = auth.uid()).
- * Used to hydrate the therapist dashboard from Supabase instead of local mock IDs only.
+ * תרגילי תוכנית פעילה אינם ב־payload — משיגים באמצעות {@link fetchActiveExercisePlansForPatientIds}
+ * או {@link fetchPatients}.
  */
 export async function fetchPatientPayloadsForTherapist(
   client: SupabaseClient
@@ -493,4 +494,175 @@ export async function fetchPatientPayloadsForTherapist(
     }
   }
   return { ok: true, patients: out };
+}
+
+export type FetchActiveExercisePlansResult =
+  | { ok: true; exercisePlans: ExercisePlan[] }
+  | { ok: false; message: string };
+
+/**
+ * Active תוכניות תרגול מ־`exercise_plans` (גרסאות עם `is_active = true`).
+ * שימו לב: אין עמודת `patients.exercises` בסכמת Guardian — הרשימה נשמרת ב־`exercise_plans.exercises` (JSONB).
+ */
+export async function fetchActiveExercisePlansForPatientIds(
+  client: SupabaseClient,
+  patientIds: string[]
+): Promise<FetchActiveExercisePlansResult> {
+  const ids = [...new Set(patientIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) {
+    return { ok: true, exercisePlans: [] };
+  }
+
+  const { data, error } = await client
+    .from('exercise_plans')
+    .select('patient_id, exercises')
+    .in('patient_id', ids)
+    .eq('is_active', true);
+
+  if (error) {
+    return { ok: false, message: `exercise_plans: ${error.message}` };
+  }
+
+  const exercisePlans: ExercisePlan[] = (data ?? []).map((row) => ({
+    patientId: row.patient_id as string,
+    exercises: Array.isArray(row.exercises)
+      ? (row.exercises as PatientExercise[])
+      : ([] as PatientExercise[]),
+  }));
+  return { ok: true, exercisePlans };
+}
+
+export type FetchActiveExercisePlanForPatientResult =
+  | { ok: true; exercisePlan: ExercisePlan | null }
+  | { ok: false; message: string };
+
+export async function fetchActiveExercisePlanForPatient(
+  client: SupabaseClient,
+  patientId: string
+): Promise<FetchActiveExercisePlanForPatientResult> {
+  const id = patientId.trim();
+  if (!id) {
+    return { ok: true, exercisePlan: null };
+  }
+
+  const { data, error } = await client
+    .from('exercise_plans')
+    .select('patient_id, exercises')
+    .eq('patient_id', id)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false, message: `exercise_plans: ${error.message}` };
+  }
+  if (!data) {
+    return { ok: true, exercisePlan: null };
+  }
+
+  const exercises = Array.isArray(data.exercises)
+    ? (data.exercises as PatientExercise[])
+    : ([] as PatientExercise[]);
+
+  return {
+    ok: true,
+    exercisePlan: { patientId: data.patient_id as string, exercises },
+  };
+}
+
+export type FetchPatientsResult =
+  | { ok: true; patients: Patient[]; exercisePlans: ExercisePlan[] }
+  | { ok: false; message: string };
+
+/**
+ * טעינת מטופלים + התוכנית הפעילה לכל אחד (מ־`exercise_plans`), לסנכרון מלא בעת כניסה.
+ * מתאים לגרסת API שנקראית `fetchPatients` — לעומת `fetchPatientPayloadsForTherapist` שמטעינה את ה־payload בלבד.
+ */
+export async function fetchPatients(client: SupabaseClient): Promise<FetchPatientsResult> {
+  const base = await fetchPatientPayloadsForTherapist(client);
+  if (!base.ok) return base;
+
+  const plans = await fetchActiveExercisePlansForPatientIds(
+    client,
+    base.patients.map((p) => p.id)
+  );
+  if (!plans.ok) return plans;
+
+  return {
+    ok: true,
+    patients: base.patients,
+    exercisePlans: plans.exercisePlans,
+  };
+}
+
+export type GetPatientByIdResult =
+  | { ok: true; patient: Patient; exercisePlan: ExercisePlan | null }
+  | { ok: false; message: string };
+
+/**
+ * משיג שורת `patients` (payload מלא) + תוכנית תרגול פעילה לפי `patient_id` (עמודות `patient_id`,`exercises` בטבלה `exercise_plans`).
+ * RLS מהמגדיר הגישה.
+ */
+export async function getPatientById(
+  client: SupabaseClient,
+  patientId: string
+): Promise<GetPatientByIdResult> {
+  const id = patientId.trim();
+  if (!id) {
+    return { ok: false, message: 'getPatientById: missing patient id' };
+  }
+
+  const [rowResult, activePlanResult] = await Promise.all([
+    client.from('patients').select('payload').eq('id', id).maybeSingle(),
+    fetchActiveExercisePlanForPatient(client, id),
+  ]);
+
+  const { data, error } = rowResult;
+  if (error) {
+    return { ok: false, message: `patients: ${error.message}` };
+  }
+  const payload = (data as { payload?: unknown } | null)?.payload;
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    !('id' in payload) ||
+    typeof (payload as Patient).id !== 'string'
+  ) {
+    return { ok: false, message: 'patients: missing or invalid payload' };
+  }
+
+  if (!activePlanResult.ok) {
+    return { ok: false, message: activePlanResult.message };
+  }
+
+  return {
+    ok: true,
+    patient: payload as Patient,
+    exercisePlan: activePlanResult.exercisePlan,
+  };
+}
+
+/**
+ * מעלה לענן את רשימת התרגילים הפעילה של מטופל.
+ *
+ * ההערה ההיסטורית של המשתמש על `patients.exercises`: בפרויקט זה אין כזו עמודה — ההתאמה היא **`exercise_plans.exercises`**
+ * דרך {@link upsertExercisePlans} (גרסאות עם `is_active`).
+ */
+export async function updatePatientExercises(
+  client: SupabaseClient,
+  patientId: string,
+  updatedExercises: PatientExercise[],
+  now?: string,
+  options?: { changeSummary?: string | null }
+): Promise<ClinicalPushResult> {
+  const ts = now ?? new Date().toISOString();
+  const note = options?.changeSummary?.trim();
+  const changeSummaryByPatientId =
+    note && note.length > 0 ? { [patientId]: note } : undefined;
+
+  return upsertExercisePlans(
+    client,
+    [{ patientId, exercises: updatedExercises }],
+    ts,
+    changeSummaryByPatientId ? { changeSummaryByPatientId } : undefined
+  );
 }

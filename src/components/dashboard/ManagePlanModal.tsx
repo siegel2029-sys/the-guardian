@@ -607,7 +607,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     addExerciseToPlan,
     removeExerciseFromPlan,
     updateExerciseInPlan,
-    savePersistedStateToCloud,
+    saveExercisePlanForPatientToCloud,
     supabaseConfigured,
     supabaseSyncStatus,
     supabaseSyncError,
@@ -717,7 +717,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
               {getPatientDisplayName(selectedPatient)} — {selectedPatient.diagnosis}
             </p>
             <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-              עריכה נשמרת מקומית; לסנכרון לענן — «שמירה» בתחתית.
+              עריכה במסך מתעדכנת ברשימה; לחץ «שמירה» לעדכון exercise_plans ב-Supabase.
             </p>
           </div>
           <button onClick={onClose}
@@ -976,17 +976,24 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                 disabled={supabaseSyncStatus === 'saving'}
                 onClick={async () => {
                   setSuccessMsg(null);
-                  const ok = await savePersistedStateToCloud({
-                    exercisePlanChangeSummaryByPatientId: {
-                      [selectedPatient.id]: changeSummary.trim(),
-                    },
-                  });
-                  if (ok) {
-                    setSuccessMsg('נשמר לענן בהצלחה.');
+                  const res = await saveExercisePlanForPatientToCloud(
+                    selectedPatient.id,
+                    currentExercises,
+                    { changeSummary: changeSummary.trim() }
+                  );
+                  if (res.ok) {
+                    setSuccessMsg('נשמר לענן בהצלחה (exercise_plans).');
                     window.setTimeout(() => setSuccessMsg(null), 2800);
+                    console.log('[ManagePlanModal] תוכנית תרגילים נשמרה לענן', {
+                      patientId: selectedPatient.id,
+                    });
                   } else if (!supabaseConfigured) {
-                    setSuccessMsg('התוכנית נשמרת מקומית; לענן נדרש Supabase.');
+                    setSuccessMsg('Supabase לא מוגדר — עודכנה רק המצב המקומי.');
                     window.setTimeout(() => setSuccessMsg(null), 4000);
+                  } else {
+                    console.error('[ManagePlanModal] שמירת תוכנית לענן נכשלה', res.message);
+                    setSuccessMsg(`שמירה לענן נכשלה: ${res.message}`);
+                    window.setTimeout(() => setSuccessMsg(null), 5000);
                   }
                 }}
                 className="inline-flex items-center justify-center gap-2 min-h-11 px-5 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-55 disabled:cursor-not-allowed transition-all hover:brightness-105"

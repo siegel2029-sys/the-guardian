@@ -5,7 +5,7 @@ import type { ClinicalPushResult } from './clinicalService';
 
 export type ExercisePushResult = ClinicalPushResult;
 
-export { upsertExercisePlans } from './clinicalService';
+export { upsertExercisePlans, updatePatientExercises } from './clinicalService';
 
 export type DayCompliancePoint = {
   clinicalDate: string;
