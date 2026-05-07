@@ -37,7 +37,7 @@ import type { StrengthExerciseLevelDef } from '../../data/strengthExerciseDataba
 import { getStrengthChainForArea } from '../../data/strengthExerciseDatabase';
 import { bodyAreaBlocksSelfCare } from '../../body/bodyPickMapping';
 import EmergencyStopModal from './EmergencyStopModal';
-import DidYouKnowBubble from './DidYouKnowBubble';
+import KnowledgeCloud from './KnowledgeCloud';
 import PatientAiPlanSuggestionModal from './PatientAiPlanSuggestionModal';
 import PainAnalyticsModal from './PainAnalyticsModal';
 import ClinicalMonthCalendar from './ClinicalMonthCalendar';
@@ -107,6 +107,53 @@ function activateOnEnterSpace(e: KeyboardEvent, fn: () => void) {
 /** מניעת כפילות חגיגת סיום תחת React StrictMode (אותו מפתח ביום) */
 const guardiSessionCompleteDedupe = new Set<string>();
 
+const PATIENT_LOAD_TIMEOUT_MS = 18_000;
+
+/**
+ * Spinner shown while patient data loads from Supabase.
+ * After PATIENT_LOAD_TIMEOUT_MS a fallback message + logout button appear so
+ * the user can never be permanently frozen on a blank screen.
+ */
+function PatientLoadingGate({ onLogout }: { onLogout: () => void }) {
+  const [timedOut, setTimedOut] = useState(false);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setTimedOut(true), PATIENT_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <div
+      className="min-h-screen flex flex-col items-center justify-center gap-4 bg-medical-bg font-sans"
+      dir="rtl"
+    >
+      {!timedOut ? (
+        <>
+          <div
+            className="w-10 h-10 rounded-full border-4 border-teal-400 border-t-transparent animate-spin"
+            aria-label="טוען נתוני מטופל"
+          />
+          <p className="text-sm text-slate-500">טוען נתוני מטופל…</p>
+        </>
+      ) : (
+        <>
+          <p className="text-sm font-semibold text-slate-700">הטעינה נמשכת יותר מהצפוי.</p>
+          <p className="text-xs text-slate-500 text-center max-w-xs">
+            ייתכן שיש בעיית חיבור לשרת. נסו להתנתק ולהתחבר מחדש.
+          </p>
+        </>
+      )}
+      <button
+        type="button"
+        onClick={onLogout}
+        className="mt-4 px-5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-600 text-sm font-semibold shadow-sm hover:bg-slate-50 active:scale-95 transition-transform"
+      >
+        התנתקות
+      </button>
+    </div>
+  );
+}
+
 function portalTrainingAiPlanModalAckKey(patientId: string, clinicalDay: string): string {
   return `portal_training_ai_adjustment_ack_${patientId}_${clinicalDay}`;
 }
@@ -135,7 +182,6 @@ export default function PatientDailyView() {
     submitPatientAiPlanAdjustmentRequest,
     markArticleAsRead,
     hasReadArticle,
-    getDidYouKnowRewardClaimedLocalYmd,
     getDidYouKnowTipOpenedLocalYmd,
     recordDidYouKnowTipOpened,
     hasDailyLoginBonusPending,
@@ -403,15 +449,17 @@ export default function PatientDailyView() {
   );
 
   const dykLocalCalendarDayKey = useLocalCalendarDayKey();
-  const dykBubbleHiddenAfterRewardToday = Boolean(
-    selectedPatient &&
-      getDidYouKnowRewardClaimedLocalYmd(selectedPatient.id) === dykLocalCalendarDayKey
-  );
-
   const dykTipAlreadyOpenedToday = Boolean(
     selectedPatient &&
       getDidYouKnowTipOpenedLocalYmd(selectedPatient.id) === dykLocalCalendarDayKey
   );
+
+  const factsForKnowledgeCloud = useMemo(() => approvedKnowledgeFacts, [approvedKnowledgeFacts]);
+
+  const showKnowledgeCloud =
+    !!selectedPatient &&
+    !patientMustChangePassword &&
+    approvedKnowledgeFacts.length > 0;
 
   const exerciseSafetyLocked = selectedPatient
     ? isPatientExerciseSafetyLocked(selectedPatient.id)
@@ -451,16 +499,7 @@ export default function PatientDailyView() {
 
   useEffect(() => {
     if (!selectedPatient) return;
-    const granted = claimDailyLoginBonusIfNeeded(selectedPatient.id);
-    if (granted) {
-      setGuardiTransient({
-        key: `daily_${clinicalToday}_${Date.now()}`,
-        mood: 'joy',
-        bubble: '',
-        semantic: 'welcome',
-        until: Date.now() + 6000,
-      });
-    }
+    claimDailyLoginBonusIfNeeded(selectedPatient.id);
   }, [selectedPatient, clinicalToday, claimDailyLoginBonusIfNeeded]);
 
   useEffect(() => {
@@ -852,12 +891,19 @@ export default function PatientDailyView() {
     !exerciseVideoModal &&
     !trainingAiPlanModalOpen;
 
+  /** מסך אימונים: הקשר מוזן כ־undefined כדי להציג ענף «הידעת?» עם תמונת למידה (ללא תנועות GLB Exercise1). */
   const guardiCompanionContextAnimation: string | undefined =
-    portalTab === 'activity'
-      ? 'Exercise1'
-      : portalTab === 'home'
-        ? 'Wave'
-        : undefined;
+    portalTab === 'home' ? 'Wave' : undefined;
+
+  const dismissGuardiAndFocusTrainingList = useCallback(() => {
+    if (portalTab !== 'activity') return;
+    window.requestAnimationFrame(() => {
+      document.getElementById('today-missions')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+  }, [portalTab]);
 
   const pushExerciseCompleteMilestone = (painLevel?: number) => {
     const semantic: GuardiSemanticKind =
@@ -1044,24 +1090,7 @@ export default function PatientDailyView() {
     // Returning null / a skeleton here instead of a "not found" screen prevents
     // the BodyMap3D canvas from being destroyed before patient data arrives.
     if (sessionRole === 'patient') {
-      return (
-        <div
-          className="min-h-screen flex flex-col items-center justify-center gap-4 bg-medical-bg font-sans"
-          dir="rtl"
-        >
-          <div className="w-10 h-10 rounded-full border-4 border-teal-400 border-t-transparent animate-spin" aria-label="טוען נתוני מטופל" />
-          <p className="text-sm text-slate-500">טוען נתוני מטופל…</p>
-          <button
-            type="button"
-            onClick={() => {
-              void logout().then(() => navigate('/login', { replace: true }));
-            }}
-            className="mt-4 px-4 py-2 rounded-xl border border-slate-200 text-slate-500 text-sm"
-          >
-            התנתקות
-          </button>
-        </div>
-      );
+      return <PatientLoadingGate onLogout={() => void logout().then(() => navigate('/login', { replace: true }))} />;
     }
     return (
       <div
@@ -1540,6 +1569,24 @@ export default function PatientDailyView() {
         >
           תכנית השיקום (חובה)
         </h1>
+        {showKnowledgeCloud && portalTab === 'activity' && selectedPatient && (
+          <KnowledgeCloud
+            variant="inline"
+            patient={selectedPatient}
+            approvedFacts={factsForKnowledgeCloud}
+            tipAlreadyOpenedToday={dykTipAlreadyOpenedToday}
+            onDidYouKnowTriggerOpen={() =>
+              recordDidYouKnowTipOpened(selectedPatient.id, dykLocalCalendarDayKey)
+            }
+            onCollectReward={(articleId, opts) =>
+              markArticleAsRead(selectedPatient.id, articleId, {
+                ...opts,
+                didYouKnowLocalCalendarYmd: dykLocalCalendarDayKey,
+              })
+            }
+            hasReadArticle={hasReadArticle}
+          />
+        )}
         {aiProgramLongitudinalGate?.showSteadyProgress &&
           !patientMustChangePassword &&
           !exercisesLocked &&
@@ -1795,27 +1842,24 @@ export default function PatientDailyView() {
         </div>
       </nav>
 
-      {(portalTab === 'home' || portalTab === 'activity') &&
-        selectedPatient &&
-        !patientMustChangePassword &&
-        approvedKnowledgeFacts.length > 0 &&
-        !dykBubbleHiddenAfterRewardToday && (
-          <DidYouKnowBubble
-            patient={selectedPatient}
-            approvedFacts={approvedKnowledgeFacts}
-            tipAlreadyOpenedToday={dykTipAlreadyOpenedToday}
-            onDidYouKnowTriggerOpen={() =>
-              recordDidYouKnowTipOpened(selectedPatient.id, dykLocalCalendarDayKey)
-            }
-            onCollectReward={(articleId, opts) =>
-              markArticleAsRead(selectedPatient.id, articleId, {
-                ...opts,
-                didYouKnowLocalCalendarYmd: dykLocalCalendarDayKey,
-              })
-            }
-            hasReadArticle={hasReadArticle}
-          />
-        )}
+      {showKnowledgeCloud && portalTab !== 'activity' && selectedPatient && (
+        <KnowledgeCloud
+          variant="floating"
+          patient={selectedPatient}
+          approvedFacts={factsForKnowledgeCloud}
+          tipAlreadyOpenedToday={dykTipAlreadyOpenedToday}
+          onDidYouKnowTriggerOpen={() =>
+            recordDidYouKnowTipOpened(selectedPatient.id, dykLocalCalendarDayKey)
+          }
+          onCollectReward={(articleId, opts) =>
+            markArticleAsRead(selectedPatient.id, articleId, {
+              ...opts,
+              didYouKnowLocalCalendarYmd: dykLocalCalendarDayKey,
+            })
+          }
+          hasReadArticle={hasReadArticle}
+        />
+      )}
 
       <GuardiCompanion
         eligible={guardiCompanionEligible}
@@ -1825,9 +1869,9 @@ export default function PatientDailyView() {
         celebrateBurstKey={guardiVictoryBurst}
         contextAnimationName={guardiCompanionContextAnimation}
         ambientEnvironmentBubble={guardiAmbientBubble}
-        placement={portalTab === 'home' ? 'bodyMap' : 'corner'}
-        bodyMapAnchorRef={bodyMapSectionRef}
+        placement="corner"
         portalTab={portalTab === 'activity' ? 'activity' : 'home'}
+        onDismissRequest={dismissGuardiAndFocusTrainingList}
       />
 
       {sessionCelebrationBurst > 0 && (

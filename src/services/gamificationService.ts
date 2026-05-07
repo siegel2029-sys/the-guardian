@@ -9,6 +9,11 @@ export type AppKnowledgeBaseRow = {
   deletedSeedIds: string[];
 };
 
+/** `approvedOnly` — פורטל מטופל: רק פריטים עם `is_approved` / `isApproved` === true אחרי הנירמול. */
+export type FetchAppKnowledgeBaseOptions = {
+  approvedOnly?: boolean;
+};
+
 function parseDeletedSeedIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((x): x is string => typeof x === 'string' && x.length > 0);
@@ -47,7 +52,8 @@ export async function upsertGlobalAppKnowledgeBase(
 }
 
 export async function fetchAppKnowledgeBaseFromSupabase(
-  client: SupabaseClient
+  client: SupabaseClient,
+  options?: FetchAppKnowledgeBaseOptions
 ): Promise<AppKnowledgeBaseRow | null> {
   const { data, error } = await client
     .from('app_knowledge_base')
@@ -70,8 +76,12 @@ export async function fetchAppKnowledgeBaseFromSupabase(
   if (!data) return null;
   const rawItems = data.items;
   if (!Array.isArray(rawItems)) return null;
+  let items = normalizeKnowledgeFactsList(rawItems);
+  if (options?.approvedOnly) {
+    items = items.filter((f) => f.isApproved);
+  }
   return {
-    items: normalizeKnowledgeFactsList(rawItems),
+    items,
     deletedSeedIds: parseDeletedSeedIds(data.deleted_seed_ids),
   };
 }

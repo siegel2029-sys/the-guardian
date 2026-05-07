@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import GuardiMascotIcon from './GordyMascotIcon';
+import imgCelebration from '../../assets/guardi/guardi_excited.jpg';
 
 const CONFETTI_COLORS = ['#fbbf24', '#f472b6', '#34d399', '#60a5fa', '#a78bfa', '#fb923c', '#facc15'];
 
@@ -19,7 +19,7 @@ type Props = {
   onClose?: () => void;
 };
 
-/** חגיגת סיום סשן — קונפטי ומטבעות במסך מלא + סיבוב 360° לגארדי */
+/** חגיגת סיום סשן — קונפטי במסך מלא + תמונת האווטאר (2D) */
 export default function GuardiFullScreenCelebration({ burstKey, onClose }: Props) {
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [visible, setVisible] = useState(false);
@@ -84,12 +84,13 @@ export default function GuardiFullScreenCelebration({ burstKey, onClose }: Props
       </div>
 
       <div className="relative z-[1] flex flex-col items-center pointer-events-none">
-        <div className="flex items-center justify-center w-28 h-28 sm:w-36 sm:h-36 drop-shadow-2xl">
-          <GuardiMascotIcon
-            mood="joy"
-            animationName="Celebrate"
-            className="w-28 h-28 sm:w-36 sm:h-36"
-            celebrateBurstKey={burstKey}
+        <div className="flex items-center justify-center w-28 h-28 sm:w-36 sm:h-36 rounded-3xl overflow-hidden border-2 border-teal-200/90 bg-white shadow-2xl">
+          <img
+            src={imgCelebration}
+            alt=""
+            className="h-full w-full object-contain object-bottom drop-shadow-xl animate-guardi-assistant-image-fade-in"
+            decoding="async"
+            draggable={false}
           />
         </div>
         <p

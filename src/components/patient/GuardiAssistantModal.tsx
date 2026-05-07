@@ -36,6 +36,8 @@ type Props = {
   placement: GuardiAssistantPlacement;
   bodyMapAnchorRef?: RefObject<HTMLElement | null>;
   portalTab: 'home' | 'activity';
+  /** After closing (X, panel, or tapping outside) — e.g. scroll to exercise list */
+  onDismissRequest?: () => void;
 };
 
 /**
@@ -173,17 +175,6 @@ export function resolveGuardiPresentation(params: {
     };
   }
 
-  if (contextAnimationName === 'Exercise1') {
-    const c = GUARDI_CANONICAL.strength;
-    return {
-      imageSrc: c.imageSrc,
-      bubbleTitle: 'האווטאר',
-      bubbleProtective: false,
-      bubbleText: c.text,
-      contentKey: 'ctx-exercise-strength',
-    };
-  }
-
   if (contextAnimationName === 'Wave' || contextAnimationName === 'Like') {
     const c = GUARDI_CANONICAL.welcome;
     return {
@@ -262,6 +253,7 @@ export default function GuardiAssistantModal({
   placement,
   bodyMapAnchorRef,
   portalTab,
+  onDismissRequest,
 }: Props) {
   const protectiveSafety = exerciseSafetyLocked;
   const protectiveRed = redFlagPortalLock && !exerciseSafetyLocked;
@@ -324,7 +316,17 @@ export default function GuardiAssistantModal({
 
   const handleDismiss = useCallback(() => {
     setDismissedKey(animKey);
-  }, [animKey]);
+    onDismissRequest?.();
+  }, [animKey, onDismissRequest]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleDismiss();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, handleDismiss]);
 
   if (!visible) return null;
 
@@ -431,7 +433,7 @@ export default function GuardiAssistantModal({
   if (overlayBodyMap && rect) {
     return (
       <div
-        className="fixed z-[60] flex flex-col items-center justify-center p-2 animate-guardi-companion-enter pointer-events-auto"
+        className="fixed z-[60] flex flex-col items-center justify-center p-2 animate-guardi-companion-enter pointer-events-none"
         style={{
           top: rect.top,
           left: rect.left,
@@ -440,24 +442,41 @@ export default function GuardiAssistantModal({
         }}
         aria-live="polite"
       >
-        <div className="absolute inset-0 rounded-[inherit] bg-slate-900/25 backdrop-blur-[1px]" aria-hidden />
-        {panel}
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden
+          className="absolute inset-0 z-0 cursor-default rounded-[inherit] bg-transparent p-0 border-0 pointer-events-auto"
+          onClick={handleDismiss}
+        />
+        <div className="relative z-[1] pointer-events-auto max-h-full overflow-y-auto overscroll-contain">
+          {panel}
+        </div>
       </div>
     );
   }
 
   return (
-    <div
-      className="fixed z-[62] flex flex-col items-end gap-2 pointer-events-none max-w-[min(300px,calc(100vw-2rem))] animate-guardi-companion-enter"
-      style={{
-        bottom: 'calc(5.75rem + env(safe-area-inset-bottom, 0px))',
-        right: 'max(12px, env(safe-area-inset-right, 0px))',
-        left: 'auto',
-      }}
-      key={animKey}
-      aria-live="polite"
-    >
-      <div className="pointer-events-auto">{panel}</div>
-    </div>
+    <>
+      <div
+        role="presentation"
+        tabIndex={-1}
+        className="fixed inset-0 z-[61] cursor-default bg-slate-900/10"
+        aria-hidden
+        onClick={handleDismiss}
+      />
+      <div
+        className="fixed z-[62] flex flex-col items-end gap-2 pointer-events-none max-w-[min(300px,calc(100vw-2rem))] animate-guardi-companion-enter"
+        style={{
+          bottom: 'calc(5.75rem + env(safe-area-inset-bottom, 0px))',
+          right: 'max(12px, env(safe-area-inset-right, 0px))',
+          left: 'auto',
+        }}
+        key={animKey}
+        aria-live="polite"
+      >
+        <div className="pointer-events-auto">{panel}</div>
+      </div>
+    </>
   );
 }

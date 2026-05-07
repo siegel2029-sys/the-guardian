@@ -15,7 +15,7 @@ type Props = {
   /** Increment when XP / rewards fire so the assistant can react in-frame. */
   celebrateBurstKey?: number;
   /**
-   * Tab / screen context for default clips (e.g. `Exercise1` on workouts). Overridden by transient
+   * Tab / screen context hints for bubble copy (home: Wave). Overridden by transient
    * bubble moods when those are active.
    */
   contextAnimationName?: string;
@@ -25,6 +25,7 @@ type Props = {
   placement: 'bodyMap' | 'corner';
   bodyMapAnchorRef?: RefObject<HTMLElement | null>;
   portalTab: 'home' | 'activity';
+  onDismissRequest?: () => void;
 };
 
 /**

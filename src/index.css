@@ -7,8 +7,7 @@
   --font-sans:
     "Inter", ui-sans-serif, system-ui, sans-serif, "Segoe UI", "Arial Hebrew", Arial;
   --font-dyk-bubble:
-    "Heebo", "Assistant", "Inter", ui-sans-serif, system-ui, sans-serif, "Segoe UI", "Arial Hebrew",
-    Arial;
+    "Inter", ui-sans-serif, system-ui, sans-serif, "Segoe UI", "Arial Hebrew", Arial;
 }
 
 @layer base {
@@ -632,20 +631,6 @@
 
   .guardi-victory-hop {
     animation: guardi-victory-hop 1.35s cubic-bezier(0.34, 1.3, 0.52, 1) forwards;
-  }
-
-  @keyframes guardi-victory-fist {
-    0%,
-    100% {
-      transform: translateY(0) rotate(-8deg);
-    }
-    40% {
-      transform: translateY(-120%) rotate(12deg) scale(1.15);
-    }
-  }
-
-  .guardi-victory-fist {
-    animation: guardi-victory-fist 1.2s ease-out forwards;
   }
 
   @keyframes guardi-victory-aura {

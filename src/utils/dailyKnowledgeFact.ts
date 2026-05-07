@@ -22,8 +22,22 @@ export function getLocalDayOfYearForYmd(ymd: string): number {
 }
 
 /**
- * One approved fact per calendar day, same for every user on that local date.
- * Facts are sorted by `id` so cloud/API order does not change the daily index.
+ * Fingerprints catalog id order — when the KB set stays the same but the calendar advances,
+ * the daily index mixes day + catalog so neighboring days rarely stick to only adjacent facts.
+ */
+function catalogFingerprint(sortedIds: string[]): number {
+  let h = 2166136261;
+  const joined = sortedIds.join('\x1e');
+  for (let i = 0; i < joined.length; i++) {
+    h ^= joined.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/**
+ * One approved fact per calendar day: stable for all users on that local date (not random per visit).
+ * With multiple facts, cycles through the catalog in a well-mixed order as the date changes.
  */
 export function selectDailyApprovedKnowledgeFact(
   approvedFacts: KnowledgeFact[],
@@ -31,8 +45,19 @@ export function selectDailyApprovedKnowledgeFact(
 ): KnowledgeFact | null {
   if (approvedFacts.length === 0) return null;
   const sorted = [...approvedFacts].sort((a, b) => a.id.localeCompare(b.id));
+  if (sorted.length === 1) return sorted[0];
+
   const dayOfYear = getLocalDayOfYearForYmd(calendarDayYmd);
-  const index = dayOfYear % sorted.length;
+  const fp = catalogFingerprint(sorted.map((f) => f.id));
+
+  let h = 2166136261;
+  for (let i = 0; i < calendarDayYmd.length; i++) {
+    h ^= calendarDayYmd.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const dayHash = h >>> 0;
+
+  const index = (dayHash + dayOfYear * 1103515245 + fp) % sorted.length;
   return sorted[index] ?? null;
 }
 

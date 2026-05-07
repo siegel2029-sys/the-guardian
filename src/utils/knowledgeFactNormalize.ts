@@ -8,23 +8,70 @@ function clampTeaser(s: string): string {
   return t.slice(0, KNOWLEDGE_TEASER_MAX_CHARS);
 }
 
-/** ממיר רשומה מ־JSON / גרסאות ישנות לפורמט אחיד (כולל teaser). */
+function pickFirstTrimmed(...values: unknown[]): string {
+  for (const v of values) {
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
+}
+
+/**
+ * ממיר רשומה מ־JSON / גרסאות ישנות לפורמט אחיד (כולל teaser).
+ * מקבל במפתחות חלופיים מ-Supabase/ייצוא ישן: `content`, `fact_text`, `body`, `headline`, `url`…
+ */
 export function normalizeKnowledgeFact(raw: unknown): KnowledgeFact | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
-  const id = typeof o.id === 'string' && o.id.length > 0 ? o.id : null;
-  const title = typeof o.title === 'string' ? o.title.trim() : '';
-  if (!id || !title) return null;
+  const idRaw = o.id;
+  const id =
+    typeof idRaw === 'string' && idRaw.length > 0
+      ? idRaw
+      : typeof idRaw === 'number' && Number.isFinite(idRaw)
+        ? String(idRaw)
+        : null;
+  if (!id) return null;
 
-  let teaser = typeof o.teaser === 'string' ? o.teaser.trim() : '';
-  if (!teaser) teaser = clampTeaser(title);
+  let title = pickFirstTrimmed(
+    o.title,
+    o.headline,
+    o.name,
+    o.subject,
+    o.summary
+  );
+  const teaserRaw = typeof o.teaser === 'string' ? o.teaser.trim() : '';
+  if (!title && teaserRaw) title = clampTeaser(teaserRaw);
+  if (!title) {
+    const fromBody = pickFirstTrimmed(o.content, o.fact_text, o.explanation, o.body, o.text);
+    if (fromBody) title = clampTeaser(fromBody);
+  }
+  if (!title) return null;
 
-  const explanation = typeof o.explanation === 'string' ? o.explanation.trim() : '';
-  const sourceUrl = typeof o.sourceUrl === 'string' ? o.sourceUrl.trim() : '';
-  if (!explanation || !sourceUrl) return null;
+  let teaser = teaserRaw || clampTeaser(title);
 
-  /** ברירת מחדל: מוצג בפורטל אלא אם סומן במפורש false (תאימות ל-JSON ישן) */
-  const isApproved = o.isApproved !== false;
+  let explanation = pickFirstTrimmed(
+    o.explanation,
+    o.content,
+    o.fact_text,
+    o.body,
+    o.details,
+    o.description,
+    o.text,
+    ''
+  );
+
+  /** קישור — כולל שמות עמודות נפוצים ב־CSV/לייטאבייס */
+  const sourceUrl = pickFirstTrimmed(o.sourceUrl, o.source_url, o.url, o.link, o.href);
+
+  /** טקסט מפורש מהמאגר; אם חסר גוף אבל יש כותרת/טיזר — משתמשים בהם */
+  if (!explanation) explanation = teaser || title;
+  if (!explanation.trim()) return null;
+
+  /** מקור חיצוני חייב להופיע בפריט ב־`items` ב־Supabase */
+  if (!sourceUrl.trim()) return null;
+
+  /** פורטל מטופל: מאושר רק כש־`isApproved` / `is_approved` === true במפורש */
+  const isApproved =
+    o.isApproved === true || (o.is_approved as unknown) === true;
   const createdAt = typeof o.createdAt === 'string' ? o.createdAt : undefined;
 
   return {

@@ -80,6 +80,7 @@ import {
 import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
 import { useAuth } from './AuthContext';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
+import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
 import type {
   GearPurchaseResult,
   PatientRewardFeedback,
@@ -778,6 +779,14 @@ export function PatientProvider({
           exercisePlan ?? { patientId: pid, exercises: [] };
         return [...rest, planSlice];
       });
+
+      // Fetch the global knowledge base so the 💡 "Did you know?" bubble is visible
+      // in the patient portal. Supabase-auth sessions start with knowledgeFacts = []
+      // because the therapist-scoped localStorage snapshot is not available.
+      const kbRes = await fetchAppKnowledgeBaseFromSupabase(supabase, { approvedOnly: true });
+      if (!cancelled) {
+        setKnowledgeFacts(kbRes?.items ?? []);
+      }
     })();
     return () => { cancelled = true; };
   }, [restrictPatientSessionId, authLoading, isAuthenticated]);

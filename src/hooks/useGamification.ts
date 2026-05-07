@@ -16,7 +16,6 @@ import { supabase } from '../lib/supabase';
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
 import {
   KNOWLEDGE_TEASER_MAX_CHARS,
-  normalizeKnowledgeFactsList,
 } from '../utils/knowledgeFactNormalize';
 import type { DailyHistoryEntry, Patient } from '../types';
 import { clinicalDateToLocalMidnight } from '../utils/clinicalCalendar';
@@ -791,7 +790,7 @@ export function useGamification({
     if (!supabase) return;
     const kbRow = await fetchAppKnowledgeBaseFromSupabase(supabase);
     if (kbRow) {
-      setKnowledgeFacts(normalizeKnowledgeFactsList(kbRow.items));
+      setKnowledgeFacts(kbRow.items);
     }
   }, [setKnowledgeFacts]);
 

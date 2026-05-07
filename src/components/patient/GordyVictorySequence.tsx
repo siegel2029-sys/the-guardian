@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import GuardiMascotIcon from './GordyMascotIcon';
+import imgCelebration from '../../assets/guardi/guardi_excited.jpg';
 
 const CONFETTI_COLORS = ['#fbbf24', '#facc15', '#34d399', '#60a5fa', '#f472b6', '#fb923c'];
 
@@ -22,7 +22,7 @@ type Props = {
 };
 
 /**
- * רצף ניצחון — סיבוב 360°, קפיצה + אגרוף, הילה זהובה, קונפטי/מטבעות ממוקד ממורד גארדי.
+ * רצף ניצחון — אנימציית טרום + קונפטי ממוקד (דמות 2D, ללא ריג GLB או תנועות «אגרוף»).
  */
 export default function GuardiVictorySequence({
   burstKey,
@@ -83,20 +83,15 @@ export default function GuardiVictorySequence({
         style={{ top: 'min(34vh, 280px)' }}
       >
         <div className="relative guardi-victory-hop guardi-victory-aura">
-          <div className="mx-auto flex items-center justify-center w-[5.5rem] h-[5.5rem] sm:w-28 sm:h-28">
-            <GuardiMascotIcon
-              mood="joy"
-              animationName="Celebrate"
-              className="w-full h-full"
-              celebrateBurstKey={burstKey}
+          <div className="mx-auto flex items-center justify-center w-[5.5rem] h-[5.5rem] sm:w-28 sm:h-28 rounded-2xl overflow-hidden border-2 border-amber-200/90 shadow-lg bg-white">
+            <img
+              src={imgCelebration}
+              alt=""
+              className="h-full w-full object-contain object-bottom animate-guardi-assistant-image-fade-in"
+              decoding="async"
+              draggable={false}
             />
           </div>
-          <span
-            className="absolute -end-1 top-0 text-2xl sm:text-3xl guardi-victory-fist select-none"
-            aria-hidden
-          >
-            👊
-          </span>
         </div>
         <p className="mt-3 text-sm sm:text-base font-black text-amber-950 drop-shadow-sm tracking-tight text-center px-4">
           {label}

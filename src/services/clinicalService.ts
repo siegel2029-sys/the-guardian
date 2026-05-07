@@ -7,6 +7,14 @@ import {
 } from '../lib/patientPortalAuth';
 
 /**
+ * בסיס ידע גלובלי («הידעת?») — לא נמשך כאן בשאילתות קליניות.
+ *
+ * המאגר ב־Supabase: טבלה `app_knowledge_base`, שורת `id='global'`, עמודת `items` (JSONB של אובייקטי עובדות).
+ * אין פילטר SQL ל־`is_approved` על כל איבר בתוך ה־JSON; הפילטר לפורטל המטופל מיושם ב־`fetchAppKnowledgeBaseFromSupabase`
+ * (ב־`gamificationService.ts`) עם `{ approvedOnly: true }` — לאחר הנירמול ב־`knowledgeFactNormalize.ts`.
+ */
+
+/**
  * RLS requires `patients.therapist_id = auth.uid()::text`. Legacy data may use
  * `therapist-001` / `therapist-002`; map those to the signed-in user's real id.
  */

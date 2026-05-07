@@ -463,7 +463,7 @@ export default function BodyMap3D(props: BodyMap3DProps) {
         onCreated={({ gl, scene }) => {
           gl.shadowMap.enabled = !painCleanStudio;
           if (!painCleanStudio) {
-            gl.shadowMap.type = THREE.PCFSoftShadowMap;
+            gl.shadowMap.type = THREE.PCFShadowMap;
           }
           if (useScenicBackdrop || painCleanStudio) {
             gl.setClearColor(0x000000, 0);
