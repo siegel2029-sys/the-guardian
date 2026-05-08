@@ -30,7 +30,9 @@ async function therapistIdByPatientIdForClinicalSync(
   return out;
 }
 
-export type SupabasePushResult = { ok: true } | { ok: false; message: string };
+export type SupabasePushResult =
+  | { ok: true }
+  | { ok: false; message: string; httpStatus?: number };
 
 /** Who is performing the push — patients must not write `profiles` or other therapist-scoped tables. */
 export type PushPersistedStateOptions = {

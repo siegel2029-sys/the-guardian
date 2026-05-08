@@ -28,7 +28,28 @@ export function resolveTherapistIdForSupabaseRls(patientTherapistId: string, use
 
 const THERAPISTS_BY_ID: Record<string, Therapist> = {};
 
-export type ClinicalPushResult = { ok: true } | { ok: false; message: string };
+/** HTTP status when PostgREST / Auth returns one (helps surface 400/401 to the UI). */
+export function postgrestHttpStatus(err: unknown): number | undefined {
+  if (err && typeof err === 'object') {
+    const o = err as Record<string, unknown>;
+    const s = o.status ?? o.statusCode;
+    if (typeof s === 'number' && Number.isFinite(s)) return s;
+  }
+  return undefined;
+}
+
+export function clinicalPushFail(message: string, err?: unknown): {
+  ok: false;
+  message: string;
+  httpStatus?: number;
+} {
+  const httpStatus = err !== undefined ? postgrestHttpStatus(err) : undefined;
+  return httpStatus !== undefined ? { ok: false, message, httpStatus } : { ok: false, message };
+}
+
+export type ClinicalPushResult =
+  | { ok: true }
+  | { ok: false; message: string; httpStatus?: number };
 
 export type ClinicalAuditLogRow = {
   id: string;
@@ -106,7 +127,7 @@ export async function upsertTherapistProfilesForPatients(
 
   if (profileRows.length > 0) {
     const { error } = await client.from('profiles').upsert(profileRows, { onConflict: 'id' });
-    if (error) return { ok: false, message: `profiles: ${error.message}` };
+    if (error) return clinicalPushFail(`profiles: ${error.message}`, error);
   }
 
   return { ok: true };
@@ -131,7 +152,7 @@ async function insertClinicalAuditLog(
     old_value: row.oldValue,
     new_value: row.newValue,
   });
-  if (error) return { ok: false, message: `clinical_audit_logs: ${error.message}` };
+  if (error) return clinicalPushFail(`clinical_audit_logs: ${error.message}`, error);
   return { ok: true };
 }
 
@@ -202,7 +223,7 @@ export async function upsertPatientRecords(
       .eq('id', p.id)
       .maybeSingle();
 
-    if (fetchErr) return { ok: false, message: `patients: ${fetchErr.message}` };
+    if (fetchErr) return clinicalPushFail(`patients: ${fetchErr.message}`, fetchErr);
 
     const oldPayload = existing?.payload != null ? (existing.payload as Patient) : undefined;
 
@@ -227,6 +248,10 @@ export async function upsertPatientRecords(
       typeof payloadForRow.demographicsFreeText === 'string'
         ? payloadForRow.demographicsFreeText.trim()
         : '';
+    const activeArea =
+      payloadForRow.primaryBodyArea != null && `${payloadForRow.primaryBodyArea}`.trim() !== ''
+        ? String(payloadForRow.primaryBodyArea)
+        : null;
     const baseRow: Record<string, unknown> = {
       id: payloadForRow.id,
       therapist_id: therapistIdForRow,
@@ -236,7 +261,8 @@ export async function upsertPatientRecords(
       gender: payloadForRow.clinicalSex ?? null,
       birth_date: birthDateSql,
       occupation: occupationSql,
-      demographics_free_text: demoFree || null,
+      demographics_free_text: demoFree.length > 0 ? demoFree : null,
+      active_area: activeArea,
       payload: payloadForRow,
       updated_at: now,
     };
@@ -264,6 +290,7 @@ export async function upsertPatientRecords(
         : 0,
       demographicsFreeText_len: (payloadForRow.demographicsFreeText ?? '').length,
       demographics_free_text_sql: demoFree ? `${demoFree.slice(0, 120)}${demoFree.length > 120 ? '…' : ''}` : null,
+      active_area_sql: activeArea,
     });
 
     // Full row as sent to PostgREST (large — includes entire `payload` JSON).
@@ -277,7 +304,7 @@ export async function upsertPatientRecords(
       .from('patients')
       .upsert([baseRow], { onConflict: 'id' })
       .select(
-        'id, therapist_id, updated_at, first_name, age, gender, occupation, birth_date, demographics_free_text'
+        'id, therapist_id, updated_at, first_name, age, gender, occupation, birth_date, demographics_free_text, active_area'
       );
     if (error) {
       console.error('[upsertPatientRecords] upsert failed', {
@@ -287,7 +314,7 @@ export async function upsertPatientRecords(
         error_code: (error as { code?: string }).code,
         error_details: (error as { details?: string }).details,
       });
-      return { ok: false, message: `patients: ${error.message}` };
+      return clinicalPushFail(`patients: ${error.message}`, error);
     }
     console.log('[upsertPatientRecords] upsert select() response', { upserted, error: null });
 
@@ -430,15 +457,6 @@ function canonicalise(v: unknown): unknown {
   return sort(parsed);
 }
 
-function exercisesJsonEqual(a: unknown, b: unknown): boolean {
-  try {
-    return JSON.stringify(canonicalise(a)) === JSON.stringify(canonicalise(b));
-  } catch {
-    // On any serialisation error treat as not-equal so a new version is written.
-    return false;
-  }
-}
-
 function patientPayloadJsonEqual(a: unknown, b: unknown): boolean {
   try {
     return JSON.stringify(canonicalise(a)) === JSON.stringify(canonicalise(b));
@@ -524,9 +542,8 @@ export type UpsertExercisePlansOptions = {
 };
 
 /**
- * Syncs exercise plans to Supabase with versioning: updates create a new row, increment
- * version_number, link parent_plan_id, and set the previous active row to is_active = false.
- * Unchanged exercises vs the current active row only refresh updated_at.
+ * Syncs exercise plans to Supabase with versioning: each push deactivates the active row and inserts
+ * a new version (even when the exercise JSON is unchanged), so every explicit save sends a full write.
  * Writes {@link clinical_audit_logs} when the plan body changes or a plan is first created.
  */
 export async function upsertExercisePlans(
@@ -588,7 +605,7 @@ export async function upsertExercisePlans(
           patientId,
           auth_uid: authUid,
         });
-        return { ok: false, message: `patients: ${pErr.message}` };
+        return clinicalPushFail(`patients: ${pErr.message}`, pErr);
       }
 
       // The therapist_id value we'll use for the audit log.
@@ -637,7 +654,7 @@ export async function upsertExercisePlans(
           patientId,
           auth_uid: authUid,
         });
-        return { ok: false, message: `exercise_plans: ${selErr.message}` };
+        return clinicalPushFail(`exercise_plans: ${selErr.message}`, selErr);
       }
 
       if (!active) {
@@ -652,37 +669,6 @@ export async function upsertExercisePlans(
         if (recheck) {
           // A concurrent save already created the active row — treat as an update path.
           const recheckRow = recheck as { id: string; version_number: number; exercises: unknown };
-          if (exercisesJsonEqual(recheckRow.exercises, exercises)) {
-            const touchPayload = { updated_at: now };
-            console.log('[upsertExercisePlans] ✓ no content change (recheck) — touching updated_at only', {
-              row_id: recheckRow.id,
-              patient_id: patientId,
-              auth_uid: authUid,
-              db_exercise_count: Array.isArray(recheckRow.exercises) ? (recheckRow.exercises as unknown[]).length : '?',
-              incoming_exercise_count: exercises.length,
-              db_canonical_sample: JSON.stringify(canonicalise(
-                Array.isArray(recheckRow.exercises) ? (recheckRow.exercises as unknown[])[0] : null
-              )),
-              incoming_canonical_sample: JSON.stringify(canonicalise(exercises[0] ?? null)),
-            });
-            const { data: touchData, error: touchErr } = await client
-              .from('exercise_plans')
-              .update(touchPayload)
-              .eq('id', recheckRow.id)
-              .select('id');
-            console.log('[upsertExercisePlans] touch updated_at response', {
-              data: touchData,
-              error: touchErr ?? null,
-            });
-            if (touchErr) {
-              logExercisePlansSupabaseError('שגיאה בעדכון updated_at (recheck)', touchErr, {
-                patientId,
-                rowId: recheckRow.id,
-              });
-              return { ok: false, message: `exercise_plans: ${touchErr.message}` };
-            }
-            continue;
-          }
           console.log('[upsertExercisePlans] deactivating recheck row', {
             row_id: recheckRow.id,
             patient_id: patientId,
@@ -702,7 +688,7 @@ export async function upsertExercisePlans(
               patientId,
               rowId: recheckRow.id,
             });
-            return { ok: false, message: `exercise_plans: ${deactRecheck.message}` };
+            return clinicalPushFail(`exercise_plans: ${deactRecheck.message}`, deactRecheck);
           }
         }
 
@@ -757,7 +743,7 @@ export async function upsertExercisePlans(
                 ? `patients.therapist_id (${rowTherapistId ?? 'null'}) ≠ auth.uid() (${authUid})`
                 : 'therapist_id תואם',
           });
-          return { ok: false, message: `exercise_plans: ${insErr.message}` };
+          return clinicalPushFail(`exercise_plans: ${insErr.message}`, insErr);
         }
 
         const audit = await insertClinicalAuditLog(client, {
@@ -772,40 +758,8 @@ export async function upsertExercisePlans(
         continue;
       }
 
-      // ── Active row exists — check for content change ─────────────────────
+      // ── Active row exists: always write a new version row (no updated_at-only shortcut) ──
       const row = active as { id: string; version_number: number; exercises: unknown };
-
-      if (exercisesJsonEqual(row.exercises, exercises)) {
-        const touchPayload = { updated_at: now };
-        console.log('[upsertExercisePlans] ✓ no content change — touching updated_at only', {
-          row_id: row.id,
-          patient_id: patientId,
-          auth_uid: authUid,
-          db_exercise_count: Array.isArray(row.exercises) ? (row.exercises as unknown[]).length : '?',
-          incoming_exercise_count: exercises.length,
-          db_canonical_sample: JSON.stringify(canonicalise(
-            Array.isArray(row.exercises) ? (row.exercises as unknown[])[0] : null
-          )),
-          incoming_canonical_sample: JSON.stringify(canonicalise(exercises[0] ?? null)),
-        });
-        const { data: touchData, error: touchErr } = await client
-          .from('exercise_plans')
-          .update(touchPayload)
-          .eq('id', row.id)
-          .select('id');
-        console.log('[upsertExercisePlans] touch updated_at response', {
-          data: touchData,
-          error: touchErr ?? null,
-        });
-        if (touchErr) {
-          logExercisePlansSupabaseError('שגיאה בעדכון updated_at', touchErr, {
-            patientId,
-            rowId: row.id,
-          });
-          return { ok: false, message: `exercise_plans: ${touchErr.message}` };
-        }
-        continue;
-      }
 
       // ── Deactivate old row ────────────────────────────────────────────────
       console.log('[upsertExercisePlans] deactivating active row', {
@@ -827,7 +781,7 @@ export async function upsertExercisePlans(
           patientId,
           rowId: row.id,
         });
-        return { ok: false, message: `exercise_plans: ${deactErr.message}` };
+        return clinicalPushFail(`exercise_plans: ${deactErr.message}`, deactErr);
       }
 
       const nextVersion = (row.version_number ?? 1) + 1;
@@ -886,7 +840,7 @@ export async function upsertExercisePlans(
               ? `patients.therapist_id (${rowTherapistId ?? 'null'}) ≠ auth.uid() (${authUid})`
               : 'therapist_id תואם',
         });
-        return { ok: false, message: `exercise_plans: ${insErr.message}` };
+        return clinicalPushFail(`exercise_plans: ${insErr.message}`, insErr);
       }
 
       const audit = await insertClinicalAuditLog(client, {

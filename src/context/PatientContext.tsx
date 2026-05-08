@@ -77,6 +77,7 @@ import {
   upsertPatientRecords,
   getPatientById,
   fetchUnlinkedPortalPatientIds,
+  postgrestHttpStatus,
 } from '../services/clinicalService';
 import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
 import { useAuth } from './AuthContext';
@@ -144,6 +145,17 @@ function normalizePatientGear(v: Partial<PatientGearState> | undefined): Patient
     equippedPassiveId: v?.equippedPassiveId ?? null,
     streakShieldCharges: Math.max(0, v?.streakShieldCharges ?? 0),
   };
+}
+
+/** Immediate feedback for PostgREST auth / validation failures during cloud save. */
+function alertIfSupabaseClientFailure(message: string, httpStatus?: number, cause?: unknown) {
+  const st =
+    httpStatus ??
+    postgrestHttpStatus(cause) ??
+    (/\b401\b/.test(message) ? 401 : /\b400\b/.test(message) ? 400 : undefined);
+  if (st === 400 || st === 401) {
+    window.alert(`שמירה לענן נכשלה (HTTP ${st})\n\n${message}`);
+  }
 }
 
 // ── Context shape ────────────────────────────────────────────────
@@ -1039,27 +1051,10 @@ export function PatientProvider({
     return { sessionRole: 'therapist' };
   }, [restrictPatientSessionId]);
 
-  const buildPersistSnapshot = useCallback((): PersistedPatientStateV1 => {
-    return {
-      version: 1,
-      patients: allPatients,
-      messages,
-      exercisePlans,
-      dailySessions,
-      aiSuggestions,
-      selectedPatientId,
-      safetyAlerts,
-      exerciseSafetyLockedPatientIds,
-      selfCareZonesByPatientId,
-      selfCareReportsByPatientId,
-      patientExerciseFinishReportsByPatientId,
-      selfCareStrengthTierByPatientId,
-      patientRewardMetaByPatientId,
-      patientGearByPatientId,
-      knowledgeFacts,
-    };
-  }, [
-    allPatients,
+  const latestCloudPersistRef = useRef<PersistedPatientStateV1 | null>(null);
+  latestCloudPersistRef.current = {
+    version: 1,
+    patients: allPatients,
     messages,
     exercisePlans,
     dailySessions,
@@ -1074,11 +1069,7 @@ export function PatientProvider({
     patientRewardMetaByPatientId,
     patientGearByPatientId,
     knowledgeFacts,
-  ]);
-
-  /** Latest snapshot builder — read from ref inside debounced timers so cloud push always sees post–setState data. */
-  const buildPersistSnapshotRef = useRef(buildPersistSnapshot);
-  buildPersistSnapshotRef.current = buildPersistSnapshot;
+  };
 
   const savePersistedStateToCloud = useCallback(
     async (options?: {
@@ -1142,9 +1133,19 @@ export function PatientProvider({
             setSupabaseSyncError(null);
 
             const summaryMap = mergedExtra?.exercisePlanChangeSummaryByPatientId;
+            const snap = latestCloudPersistRef.current;
+            if (!snap) {
+              cloudSaveMutexRef.current = null;
+              cloudSaveInFlightRef.current = false;
+              setSupabaseSyncStatus('error');
+              setSupabaseSyncError('מצב שמירה פנימי לא מוכן — רעננו את הדף.');
+              for (const r of resolvers) r(false);
+              return;
+            }
+
             const savePromise = pushPersistedStateToSupabase(
               supabaseClient,
-              buildPersistSnapshotRef.current(),
+              snap,
               {
                 ...supabasePushOptions,
                 ...(summaryMap && Object.keys(summaryMap).length > 0
@@ -1165,6 +1166,7 @@ export function PatientProvider({
               } else {
                 setSupabaseSyncStatus('error');
                 setSupabaseSyncError(result.message);
+                alertIfSupabaseClientFailure(result.message, result.httpStatus);
               }
             } catch (e) {
               cloudSaveMutexRef.current = null;
@@ -1172,6 +1174,7 @@ export function PatientProvider({
               console.error('[savePersistedStateToCloud] שגיאה לא צפויה', msg, e);
               setSupabaseSyncStatus('error');
               setSupabaseSyncError(msg);
+              alertIfSupabaseClientFailure(msg, undefined, e);
               outcome = false;
             } finally {
               cloudSaveInFlightRef.current = false;
@@ -1259,6 +1262,10 @@ export function PatientProvider({
               '[Exercise cloud save] אזהרה: סנכרון שורת המטופל נכשל (ממשיך לנסות לשמור את התוכנית)',
               { patientId, reason: patientSyncResult.message }
             );
+            alertIfSupabaseClientFailure(
+              patientSyncResult.message,
+              patientSyncResult.httpStatus
+            );
           } else {
             console.log('[Exercise cloud save] שורת המטופל סונכרנה בהצלחה', { patientId });
           }
@@ -1273,6 +1280,7 @@ export function PatientProvider({
         });
         if (upd.ok === false) {
           failureMessage = upd.message;
+          alertIfSupabaseClientFailure(upd.message, upd.httpStatus);
           console.error('[Exercise cloud save] נכשל:', upd.message, { patientId });
           return false;
         }

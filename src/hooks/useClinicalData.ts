@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import type { AiSuggestion, BodyArea, ExercisePlan, Message, Patient } from '../types';
 import { bodyAreaBlocksSelfCare } from '../body/bodyPickMapping';
 import { computeClinicalProgressInsight } from '../ai/clinicalCommandInsight';
@@ -12,6 +12,23 @@ import {
   applyTherapistPrimaryFocus,
 } from '../context/patientDomainHelpers';
 import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
+
+function applySelfCareZonesForPatientUpdate(
+  setSelfCareZonesByPatientId: Dispatch<SetStateAction<Record<string, BodyArea[]>>>,
+  patientId: string,
+  nextPatient: Patient
+) {
+  setSelfCareZonesByPatientId((zp) => {
+    const cur = zp[patientId] ?? [];
+    const s = nextPatient.secondaryClinicalBodyAreas ?? [];
+    const filtered = cur.filter((a) => {
+      const inj = nextPatient.injuryHighlightSegments ?? [];
+      return !bodyAreaBlocksSelfCare(a, inj, s);
+    });
+    if (filtered.length === cur.length) return zp;
+    return { ...zp, [patientId]: filtered };
+  });
+}
 
 /**
  * אווטאר/מפת גוף, VAS/אנליטיקת כאב, רשומות רפואיות/הערות מטפל, וסנכרון שורות patients/profiles ל-Supabase.
@@ -209,44 +226,32 @@ export function useClinicalData({
 
   const cycleTherapistBodyMapClinical = useCallback(
     (patientId: string, area: BodyArea) => {
+      let nextPatient: Patient | null = null;
       setAllPatients((prev) => {
         const idx = prev.findIndex((p) => p.id === patientId);
         if (idx < 0) return prev;
-        const nextPatient = applyTherapistClinicalCycle(prev[idx], area);
-        setSelfCareZonesByPatientId((zp) => {
-          const cur = zp[patientId] ?? [];
-          const s = nextPatient.secondaryClinicalBodyAreas ?? [];
-          const filtered = cur.filter((a) => {
-            const inj = nextPatient.injuryHighlightSegments ?? [];
-            return !bodyAreaBlocksSelfCare(a, inj, s);
-          });
-          if (filtered.length === cur.length) return zp;
-          return { ...zp, [patientId]: filtered };
-        });
-        return prev.map((p, i) => (i === idx ? nextPatient : p));
+        nextPatient = applyTherapistClinicalCycle(prev[idx], area);
+        return prev.map((p, i) => (i === idx ? nextPatient! : p));
       });
+      if (nextPatient) {
+        applySelfCareZonesForPatientUpdate(setSelfCareZonesByPatientId, patientId, nextPatient);
+      }
     },
     [setAllPatients, setSelfCareZonesByPatientId]
   );
 
   const setTherapistPrimaryBodyArea = useCallback(
     (patientId: string, area: BodyArea) => {
+      let nextPatient: Patient | null = null;
       setAllPatients((prev) => {
         const idx = prev.findIndex((p) => p.id === patientId);
         if (idx < 0) return prev;
-        const nextPatient = applyTherapistPrimaryFocus(prev[idx], area);
-        setSelfCareZonesByPatientId((zp) => {
-          const cur = zp[patientId] ?? [];
-          const s = nextPatient.secondaryClinicalBodyAreas ?? [];
-          const filtered = cur.filter((a) => {
-            const inj = nextPatient.injuryHighlightSegments ?? [];
-            return !bodyAreaBlocksSelfCare(a, inj, s);
-          });
-          if (filtered.length === cur.length) return zp;
-          return { ...zp, [patientId]: filtered };
-        });
-        return prev.map((p, i) => (i === idx ? nextPatient : p));
+        nextPatient = applyTherapistPrimaryFocus(prev[idx], area);
+        return prev.map((p, i) => (i === idx ? nextPatient! : p));
       });
+      if (nextPatient) {
+        applySelfCareZonesForPatientUpdate(setSelfCareZonesByPatientId, patientId, nextPatient);
+      }
     },
     [setAllPatients, setSelfCareZonesByPatientId]
   );
@@ -261,29 +266,23 @@ export function useClinicalData({
         primaryBodyArea: BodyArea;
       }
     ) => {
+      let nextPatient: Patient | null = null;
       setAllPatients((prev) => {
         const idx = prev.findIndex((p) => p.id === patientId);
         if (idx < 0) return prev;
         const p = prev[idx];
-        const nextPatient: Patient = {
+        nextPatient = {
           ...p,
           injuryHighlightSegments: [...fields.injuryHighlightSegments],
           secondaryClinicalBodyAreas: [...fields.secondaryClinicalBodyAreas],
           primaryBodyArea: fields.primaryBodyArea,
           manualClinicalSegmentLockOverrides: undefined,
         };
-        setSelfCareZonesByPatientId((zp) => {
-          const cur = zp[patientId] ?? [];
-          const s = nextPatient.secondaryClinicalBodyAreas ?? [];
-          const filtered = cur.filter((a) => {
-            const inj = nextPatient.injuryHighlightSegments ?? [];
-            return !bodyAreaBlocksSelfCare(a, inj, s);
-          });
-          if (filtered.length === cur.length) return zp;
-          return { ...zp, [patientId]: filtered };
-        });
-        return prev.map((x, i) => (i === idx ? nextPatient : x));
+        return prev.map((x, i) => (i === idx ? nextPatient! : x));
       });
+      if (nextPatient) {
+        applySelfCareZonesForPatientUpdate(setSelfCareZonesByPatientId, patientId, nextPatient);
+      }
     },
     [setAllPatients, setSelfCareZonesByPatientId]
   );
