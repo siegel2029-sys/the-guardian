@@ -25,7 +25,7 @@ async function therapistIdByPatientIdForClinicalSync(
   const out: Record<string, string> = {};
   for (const p of patients) {
     const resolved = resolveTherapistIdForSupabaseRls(p.therapistId, user);
-    out[p.id] = resolved ?? p.therapistId;
+    out[p.id] = resolved ?? user.id;
   }
   return out;
 }

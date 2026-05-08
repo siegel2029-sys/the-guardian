@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DailySession, ExercisePlanHistoryEntry, PatientExercise } from '../types';
 import { addClinicalDays } from '../utils/clinicalCalendar';
-import type { ClinicalPushResult } from './clinicalService';
+import { clinicalPushFail, type ClinicalPushResult } from './clinicalService';
 
 export type ExercisePushResult = ClinicalPushResult;
 
@@ -126,17 +126,26 @@ export async function upsertSessionHistory(
   now: string,
   options?: UpsertSessionHistoryOptions
 ): Promise<ExercisePushResult> {
+  const {
+    data: { user: authUser },
+  } = await client.auth.getUser();
+  const authTherapistId = authUser?.id?.trim() ?? '';
+
   const therapistMap = options?.therapistIdByPatientId ?? {};
   // Map camelCase React state → snake_case DB column names.
   // session_history columns: patient_id, session_date, payload (JSONB), updated_at, therapist_id (optional).
   const missingTherapistFor: string[] = [];
   const sessionRows = dailySessions.map((s) => {
-    const tid = therapistMap[s.patientId]?.trim();
+    const tid = (therapistMap[s.patientId]?.trim() || authTherapistId) || '';
     if (!tid) missingTherapistFor.push(s.patientId);
+    const payloadOut: DailySession = {
+      ...s,
+      patientId: s.patientId,
+    };
     return {
       patient_id: s.patientId,
       session_date: s.date,
-      payload: s,
+      payload: payloadOut,
       updated_at: now,
       ...(tid ? { therapist_id: tid } : {}),
     };
@@ -147,23 +156,25 @@ export async function upsertSessionHistory(
   const uniqMissing = [...new Set(missingTherapistFor)];
   if (uniqMissing.length > 0) {
     console.warn(
-      '[upsertSessionHistory] חסר therapist_id במפת המטפל — השורות יישלחו בלי עמודת therapist_id',
+      '[upsertSessionHistory] אין therapist_id — נדרש מטפל מחובר ל-Supabase לשורות session_history',
       { patientIds: uniqMissing }
     );
   }
 
-  // ── Pre-upsert payload log ────────────────────────────────────────────────
-  console.group('[upsertSessionHistory] ▶ session_history UPSERT');
-  console.log('EXACT PAYLOAD KEYS:', Object.keys(sessionRows[0] ?? {}).join(', '));
-  console.log('ROW COUNT:', sessionRows.length);
-  console.log('ROWS (payload abbreviated):', sessionRows.map((r) => ({
-    patient_id: r.patient_id,
-    therapist_id: 'therapist_id' in r ? (r as { therapist_id?: string }).therapist_id : '(omit)',
-    session_date: r.session_date,
-    updated_at: r.updated_at,
-    payload_keys: Object.keys(r.payload as object).join(', '),
-  })));
-  console.groupEnd();
+  const tablePreview = sessionRows.map((r) => {
+    const pl = r.payload as DailySession;
+    return {
+      patient_id: r.patient_id,
+      therapist_id:
+        'therapist_id' in r ? (r as { therapist_id?: string }).therapist_id ?? '(omit)' : '(omit)',
+      session_date: r.session_date,
+      updated_at: r.updated_at,
+      payload_patientId: pl?.patientId,
+      completed_ids_n: Array.isArray(pl?.completedIds) ? pl.completedIds.length : 0,
+    };
+  });
+  console.log('[upsertSessionHistory] ▶ session_history UPSERT (console.table)');
+  console.table(tablePreview);
 
   const { data, error } = await client
     .from('session_history')
@@ -172,7 +183,7 @@ export async function upsertSessionHistory(
 
   console.log('[upsertSessionHistory] response', { data, error: error ?? null });
 
-  if (error) return { ok: false, message: `session_history: ${error.message}` };
+  if (error) return clinicalPushFail(`session_history: ${error.message}`, error);
   return { ok: true };
 }
 
