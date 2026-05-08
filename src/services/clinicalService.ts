@@ -277,8 +277,36 @@ export async function deletePatientRowFromSupabase(
   return { ok: true };
 }
 
+/**
+ * Recursively sorts all object keys so that field-insertion-order differences
+ * (e.g. React state vs Supabase JSONB round-trip) are invisible to the comparison.
+ * Array order is preserved — exercise sequence is meaningful.
+ */
+function canonicalise(v: unknown): unknown {
+  // Round-trip strips `undefined` values and aligns numeric representations,
+  // matching what Supabase does when it serialises JSONB back to JS.
+  const parsed: unknown = JSON.parse(JSON.stringify(v));
+  const sort = (x: unknown): unknown => {
+    if (Array.isArray(x)) return (x as unknown[]).map(sort);
+    if (x !== null && typeof x === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(x as object).sort()) {
+        out[k] = sort((x as Record<string, unknown>)[k]);
+      }
+      return out;
+    }
+    return x;
+  };
+  return sort(parsed);
+}
+
 function exercisesJsonEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  try {
+    return JSON.stringify(canonicalise(a)) === JSON.stringify(canonicalise(b));
+  } catch {
+    // On any serialisation error treat as not-equal so a new version is written.
+    return false;
+  }
 }
 
 function logExercisePlansSupabaseError(
@@ -488,11 +516,16 @@ export async function upsertExercisePlans(
           const recheckRow = recheck as { id: string; version_number: number; exercises: unknown };
           if (exercisesJsonEqual(recheckRow.exercises, exercises)) {
             const touchPayload = { updated_at: now };
-            console.log('[upsertExercisePlans] touch updated_at (recheck equal)', {
-              payload: touchPayload,
+            console.log('[upsertExercisePlans] ✓ no content change (recheck) — touching updated_at only', {
               row_id: recheckRow.id,
               patient_id: patientId,
               auth_uid: authUid,
+              db_exercise_count: Array.isArray(recheckRow.exercises) ? (recheckRow.exercises as unknown[]).length : '?',
+              incoming_exercise_count: exercises.length,
+              db_canonical_sample: JSON.stringify(canonicalise(
+                Array.isArray(recheckRow.exercises) ? (recheckRow.exercises as unknown[])[0] : null
+              )),
+              incoming_canonical_sample: JSON.stringify(canonicalise(exercises[0] ?? null)),
             });
             const { data: touchData, error: touchErr } = await client
               .from('exercise_plans')
