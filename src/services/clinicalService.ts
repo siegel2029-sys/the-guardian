@@ -341,13 +341,35 @@ export async function upsertExercisePlans(
   options?: UpsertExercisePlansOptions
 ): Promise<ClinicalPushResult> {
   try {
+    // ── Resolve auth user once for the entire batch ──────────────────────────
+    // The exercise_plans RLS INSERT/UPDATE policy checks:
+    //   patients.therapist_id = auth.uid()::text
+    // so we must know auth.uid() upfront to detect mismatches before writing.
+    const {
+      data: { user: authUser },
+      error: authErr,
+    } = await client.auth.getUser();
+
+    if (authErr || !authUser?.id) {
+      console.error('[upsertExercisePlans] אין משתמש מחובר — לא ניתן לכתוב ל-exercise_plans', {
+        authErr,
+      });
+      return {
+        ok: false,
+        message: 'exercise_plans: נדרש מטפל מחובר ל-Supabase לכתיבה (auth.uid() חסר)',
+      };
+    }
+    const authUid = authUser.id;
+
     const changeSummaryByPatientId = options?.changeSummaryByPatientId ?? {};
 
     for (const plan of exercisePlans) {
       const { patientId: rawPatientId, exercises } = plan;
+
+      // ── Validate patient_id ──────────────────────────────────────────────
       if (typeof rawPatientId !== 'string' || !rawPatientId.trim()) {
-        console.error('[upsertExercisePlans] patientId חסר או לא תקין', { rawPatientId });
-        return { ok: false, message: 'exercise_plans: patientId חסר או לא תקין' };
+        console.error('[upsertExercisePlans] patient_id חסר או לא תקין', { rawPatientId });
+        return { ok: false, message: 'exercise_plans: patient_id חסר או לא תקין' };
       }
       const patientId = rawPatientId.trim();
       const changeSummary =
@@ -355,14 +377,11 @@ export async function upsertExercisePlans(
         changeSummaryByPatientId[rawPatientId] ??
         null;
 
-      console.log('[upsertExercisePlans] שולח תוכנית לענן', {
-        patientId,
-        exerciseCount: exercises.length,
-        is_active: true,
-        changeSummary,
-        now,
-      });
-
+      // ── Resolve therapist_id from patients row ───────────────────────────
+      // exercise_plans has no therapist_id column; RLS enforces access through
+      // the FK: patients.therapist_id = auth.uid()::text.  We fetch it here so
+      // we can (a) verify it matches auth.uid() — if not, the INSERT will be
+      // silently blocked by RLS, and (b) populate the audit log.
       const { data: prow, error: pErr } = await client
         .from('patients')
         .select('therapist_id')
@@ -370,50 +389,47 @@ export async function upsertExercisePlans(
         .maybeSingle();
 
       if (pErr) {
-        logExercisePlansSupabaseError('שגיאה בשליפת therapist_id מ-patients', pErr, { patientId });
+        logExercisePlansSupabaseError('שגיאה בשליפת therapist_id מ-patients', pErr, {
+          patientId,
+          auth_uid: authUid,
+        });
         return { ok: false, message: `patients: ${pErr.message}` };
       }
 
-      let therapistId = prow?.therapist_id as string | undefined;
+      // The therapist_id value we'll use for the audit log.
+      // Always prefer auth.uid() — it's what RLS actually checks against.
+      const rowTherapistId = (prow?.therapist_id as string | null | undefined) ?? null;
+      const therapistId = authUid;
 
-      if (!therapistId) {
-        // Patient row not visible — either it doesn't exist in Supabase yet or RLS blocked it
-        // (e.g. patients.therapist_id still holds a legacy demo ID instead of auth.uid()).
-        // Fall back to the current authenticated user so the audit log is still populated,
-        // and still attempt the exercise_plans INSERT — RLS will accept it if the patient
-        // row exists with the correct therapist_id on the DB side.
-        console.warn('[upsertExercisePlans] שורת patients לא נמצאה עבור patientId — בודק auth.uid()', {
-          patientId,
-        });
-        const { data: { user } } = await client.auth.getUser();
-        if (user?.id) {
-          console.warn('[upsertExercisePlans] משתמש ב-auth.uid() כ-therapist_id של יומן הביקורת', {
-            patientId,
-            therapistId: user.id,
-          });
-          therapistId = user.id;
-        } else {
-          console.error('[upsertExercisePlans] patients שורה לא נמצאה ואין משתמש מחובר', { patientId });
-          return {
-            ok: false,
-            message:
-              'exercise_plans: שורת המטופל אינה קיימת ב-Supabase — סנכרן את המטופל לענן תחילה (therapist_id חסר)',
-          };
-        }
+      if (!rowTherapistId) {
+        // Patient row not visible via RLS (may not exist yet, or therapist_id is stale).
+        // We'll still try the exercise_plans write; it will succeed only if the patients
+        // row on the DB side already has therapist_id = auth.uid().
+        console.warn(
+          '[upsertExercisePlans] patients.therapist_id לא נמצא — ייתכן שה-RLS יחסום את ה-INSERT',
+          { patientId, auth_uid: authUid }
+        );
+      } else if (rowTherapistId !== authUid) {
+        // Mismatch: the stored therapist_id is different from the current JWT.
+        // The RLS policy will block the INSERT with a silent 0-rows result or 403.
+        console.warn(
+          '[upsertExercisePlans] patients.therapist_id אינו תואם ל-auth.uid() — RLS ייחסום את הכתיבה',
+          { patientId, row_therapist_id: rowTherapistId, auth_uid: authUid }
+        );
       }
 
-      if (typeof therapistId !== 'string' || !therapistId.trim()) {
-        console.error('[upsertExercisePlans] therapistId חסר לפני כתיבה ל-exercise_plans', {
-          patientId,
-        });
-        return {
-          ok: false,
-          message:
-            'exercise_plans: therapistId חסר — התחברו כמטפל תקף או סנכרנו את המטופל ל-Supabase',
-        };
-      }
-      therapistId = therapistId.trim();
+      console.log('[upsertExercisePlans] שולח תוכנית לענן', {
+        patient_id: patientId,
+        therapist_id_auth_uid: authUid,
+        row_therapist_id: rowTherapistId,
+        rls_will_pass: rowTherapistId === authUid,
+        exerciseCount: exercises.length,
+        is_active: true,
+        changeSummary,
+        now,
+      });
 
+      // ── Fetch current active row ─────────────────────────────────────────
       const { data: active, error: selErr } = await client
         .from('exercise_plans')
         .select('id, version_number, exercises')
@@ -422,76 +438,199 @@ export async function upsertExercisePlans(
         .maybeSingle();
 
       if (selErr) {
-        logExercisePlansSupabaseError('שגיאה בשליפת תוכנית פעילה', selErr, { patientId });
+        logExercisePlansSupabaseError('שגיאה בשליפת תוכנית פעילה', selErr, {
+          patientId,
+          auth_uid: authUid,
+        });
         return { ok: false, message: `exercise_plans: ${selErr.message}` };
       }
 
       if (!active) {
-      // Guard against a concurrent insert that beat us here (unique constraint: one active per patient).
-      // Re-check before inserting so we don't violate the constraint in a race.
-      const { data: recheck } = await client
-        .from('exercise_plans')
-        .select('id, version_number, exercises')
-        .eq('patient_id', patientId)
-        .eq('is_active', true)
-        .maybeSingle();
-
-      if (recheck) {
-        // A concurrent save already created the active row — treat as an update path.
-        const recheckRow = recheck as { id: string; version_number: number; exercises: unknown };
-        if (exercisesJsonEqual(recheckRow.exercises, exercises)) {
-          const { error: touchErr } = await client
-            .from('exercise_plans')
-            .update({ updated_at: now })
-            .eq('id', recheckRow.id);
-          if (touchErr) {
-            console.error('[upsertExercisePlans] שגיאה בעדכון updated_at', touchErr, { patientId });
-            return { ok: false, message: `exercise_plans: ${touchErr.message}` };
-          }
-          continue;
-        }
-        // Fall through to update the newly-created active row.
-        const { error: deactRecheck } = await client
+        // Guard against a concurrent insert that beat us here (unique constraint: one active per patient).
+        const { data: recheck } = await client
           .from('exercise_plans')
-          .update({ is_active: false })
-          .eq('id', recheckRow.id);
-        if (deactRecheck) {
-          console.error('[upsertExercisePlans] שגיאה בביטול is_active של שורה ישנה', deactRecheck, {
-            patientId,
-          });
-          return { ok: false, message: `exercise_plans: ${deactRecheck.message}` };
+          .select('id, version_number, exercises')
+          .eq('patient_id', patientId)
+          .eq('is_active', true)
+          .maybeSingle();
+
+        if (recheck) {
+          // A concurrent save already created the active row — treat as an update path.
+          const recheckRow = recheck as { id: string; version_number: number; exercises: unknown };
+          if (exercisesJsonEqual(recheckRow.exercises, exercises)) {
+            const { error: touchErr } = await client
+              .from('exercise_plans')
+              .update({ updated_at: now })
+              .eq('id', recheckRow.id);
+            if (touchErr) {
+              logExercisePlansSupabaseError('שגיאה בעדכון updated_at (recheck)', touchErr, {
+                patientId,
+                rowId: recheckRow.id,
+              });
+              return { ok: false, message: `exercise_plans: ${touchErr.message}` };
+            }
+            continue;
+          }
+          const { error: deactRecheck } = await client
+            .from('exercise_plans')
+            .update({ is_active: false })
+            .eq('id', recheckRow.id);
+          if (deactRecheck) {
+            logExercisePlansSupabaseError('שגיאה בביטול is_active של שורה ישנה', deactRecheck, {
+              patientId,
+              rowId: recheckRow.id,
+            });
+            return { ok: false, message: `exercise_plans: ${deactRecheck.message}` };
+          }
         }
+
+        const newId = crypto.randomUUID();
+        const newVersionNumber = (recheck as { version_number?: number } | null)?.version_number
+          ? ((recheck as { version_number: number }).version_number + 1)
+          : 1;
+
+        // ── Pre-upsert guard (new plan) ──────────────────────────────────
+        if (!patientId || !authUid) {
+          console.warn('[upsertExercisePlans] שדה חובה חסר לפני upsert (גרסה ראשונה)', {
+            patient_id: patientId || '⚠ MISSING',
+            auth_uid: authUid || '⚠ MISSING',
+            new_row_id: newId,
+          });
+        }
+
+        const insertPayload = {
+          id: newId,
+          patient_id: patientId,
+          exercises,
+          updated_at: now,
+          version_number: newVersionNumber,
+          is_active: true,
+          parent_plan_id: (recheck as { id?: string } | null)?.id ?? null,
+          change_summary: changeSummary,
+        };
+
+        console.log('[upsertExercisePlans] מכניס שורת exercise_plans חדשה (גרסה ראשונה)', {
+          id: insertPayload.id,
+          patient_id: insertPayload.patient_id,
+          auth_uid: authUid,
+          version_number: insertPayload.version_number,
+          is_active: insertPayload.is_active,
+          exerciseCount: exercises.length,
+        });
+
+        const { error: insErr } = await client
+          .from('exercise_plans')
+          .upsert(insertPayload, { onConflict: 'id' });
+        if (insErr) {
+          if (insErr.code === '23505') continue; // concurrent write won; non-fatal
+          logExercisePlansSupabaseError('שגיאת upsert ל-exercise_plans (גרסה ראשונה)', insErr, {
+            patient_id: patientId,
+            auth_uid: authUid,
+            new_row_id: newId,
+            rls_note:
+              rowTherapistId !== authUid
+                ? `patients.therapist_id (${rowTherapistId ?? 'null'}) ≠ auth.uid() (${authUid})`
+                : 'therapist_id תואם',
+          });
+          return { ok: false, message: `exercise_plans: ${insErr.message}` };
+        }
+
+        const audit = await insertClinicalAuditLog(client, {
+          therapistId,
+          patientId,
+          entityType: 'plan',
+          action: 'create',
+          oldValue: null,
+          newValue: { exercises },
+        });
+        if (!audit.ok) return audit;
+        continue;
       }
 
-      const insertPayload = {
-        id: crypto.randomUUID(),
+      // ── Active row exists — check for content change ─────────────────────
+      const row = active as { id: string; version_number: number; exercises: unknown };
+
+      if (exercisesJsonEqual(row.exercises, exercises)) {
+        const { error: touchErr } = await client
+          .from('exercise_plans')
+          .update({ updated_at: now })
+          .eq('id', row.id);
+        if (touchErr) {
+          logExercisePlansSupabaseError('שגיאה בעדכון updated_at', touchErr, {
+            patientId,
+            rowId: row.id,
+          });
+          return { ok: false, message: `exercise_plans: ${touchErr.message}` };
+        }
+        continue;
+      }
+
+      // ── Deactivate old row and insert new version ────────────────────────
+      const { error: deactErr } = await client
+        .from('exercise_plans')
+        .update({ is_active: false })
+        .eq('id', row.id);
+      if (deactErr) {
+        logExercisePlansSupabaseError('שגיאה בביטול is_active של תוכנית קיימת', deactErr, {
+          patientId,
+          rowId: row.id,
+        });
+        return { ok: false, message: `exercise_plans: ${deactErr.message}` };
+      }
+
+      const nextVersion = (row.version_number ?? 1) + 1;
+      const newId = crypto.randomUUID();
+
+      // ── Pre-upsert guard (new version) ───────────────────────────────────
+      if (!patientId || !authUid) {
+        console.warn('[upsertExercisePlans] שדה חובה חסר לפני upsert (גרסה חדשה)', {
+          patient_id: patientId || '⚠ MISSING',
+          auth_uid: authUid || '⚠ MISSING',
+          new_row_id: newId,
+        });
+      }
+
+      const updateInsertPayload = {
+        id: newId,
         patient_id: patientId,
         exercises,
         updated_at: now,
-        version_number: (recheck as { version_number?: number } | null)?.version_number
-          ? ((recheck as { version_number: number }).version_number + 1)
-          : 1,
+        version_number: nextVersion,
         is_active: true,
-        parent_plan_id: (recheck as { id?: string } | null)?.id ?? null,
+        parent_plan_id: row.id,
         change_summary: changeSummary,
       };
 
-      console.log('[upsertExercisePlans] מכניס שורת exercise_plans חדשה (גרסה ראשונה)', {
-        patientId,
-        version_number: insertPayload.version_number,
-        is_active: insertPayload.is_active,
+      console.log('[upsertExercisePlans] מכניס גרסת exercise_plans חדשה (עדכון)', {
+        id: updateInsertPayload.id,
+        patient_id: updateInsertPayload.patient_id,
+        auth_uid: authUid,
+        version_number: nextVersion,
+        is_active: true,
         exerciseCount: exercises.length,
+        parent_plan_id: row.id,
       });
 
       const { error: insErr } = await client
         .from('exercise_plans')
-        .upsert(insertPayload, { onConflict: 'id' });
+        .upsert(updateInsertPayload, { onConflict: 'id' });
       if (insErr) {
-        // 23505 = unique_violation — another concurrent write won the race; treat as non-fatal.
-        if (insErr.code === '23505') continue;
-        logExercisePlansSupabaseError('שגיאת upsert ל-exercise_plans (גרסה ראשונה)', insErr, {
-          patientId,
-          payload: { patient_id: patientId, is_active: true, exerciseCount: exercises.length },
+        if (insErr.code === '23505') {
+          // Concurrent save also inserted an active row; reactivate the old one.
+          await client
+            .from('exercise_plans')
+            .update({ is_active: true })
+            .eq('id', row.id);
+          continue;
+        }
+        logExercisePlansSupabaseError('שגיאת upsert גרסה חדשה ל-exercise_plans', insErr, {
+          patient_id: patientId,
+          auth_uid: authUid,
+          new_row_id: newId,
+          rls_note:
+            rowTherapistId !== authUid
+              ? `patients.therapist_id (${rowTherapistId ?? 'null'}) ≠ auth.uid() (${authUid})`
+              : 'therapist_id תואם',
         });
         return { ok: false, message: `exercise_plans: ${insErr.message}` };
       }
@@ -500,89 +639,11 @@ export async function upsertExercisePlans(
         therapistId,
         patientId,
         entityType: 'plan',
-        action: 'create',
-        oldValue: null,
+        action: 'update',
+        oldValue: { exercises: row.exercises },
         newValue: { exercises },
       });
       if (!audit.ok) return audit;
-      continue;
-    }
-
-    const row = active as { id: string; version_number: number; exercises: unknown };
-
-    if (exercisesJsonEqual(row.exercises, exercises)) {
-      const { error: touchErr } = await client
-        .from('exercise_plans')
-        .update({ updated_at: now })
-        .eq('id', row.id);
-      if (touchErr) {
-        console.error('[upsertExercisePlans] שגיאה בעדכון updated_at', touchErr, { patientId });
-        return { ok: false, message: `exercise_plans: ${touchErr.message}` };
-      }
-      continue;
-    }
-
-    const { error: deactErr } = await client
-      .from('exercise_plans')
-      .update({ is_active: false })
-      .eq('id', row.id);
-    if (deactErr) {
-      console.error('[upsertExercisePlans] שגיאה בביטול is_active של תוכנית קיימת', deactErr, {
-        patientId,
-        rowId: row.id,
-      });
-      return { ok: false, message: `exercise_plans: ${deactErr.message}` };
-    }
-
-    const nextVersion = (row.version_number ?? 1) + 1;
-    const updateInsertPayload = {
-      id: crypto.randomUUID(),
-      patient_id: patientId,
-      exercises,
-      updated_at: now,
-      version_number: nextVersion,
-      is_active: true,
-      parent_plan_id: row.id,
-      change_summary: changeSummary,
-    };
-
-    console.log('[upsertExercisePlans] מכניס גרסת exercise_plans חדשה (עדכון)', {
-      patientId,
-      version_number: nextVersion,
-      is_active: true,
-      exerciseCount: exercises.length,
-      parent_plan_id: row.id,
-    });
-
-    const { error: insErr } = await client
-      .from('exercise_plans')
-      .upsert(updateInsertPayload, { onConflict: 'id' });
-    if (insErr) {
-      // 23505 = unique_violation — a concurrent save also inserted an active row.
-      // The other writer won; our deactivation already ran so we need to reactivate their row.
-      if (insErr.code === '23505') {
-        await client
-          .from('exercise_plans')
-          .update({ is_active: true })
-          .eq('id', row.id);
-        continue;
-      }
-      logExercisePlansSupabaseError('שגיאת upsert גרסה חדשה ל-exercise_plans', insErr, {
-        patientId,
-        payload: { patient_id: patientId, is_active: true, version_number: nextVersion },
-      });
-      return { ok: false, message: `exercise_plans: ${insErr.message}` };
-    }
-
-    const audit = await insertClinicalAuditLog(client, {
-      therapistId,
-      patientId,
-      entityType: 'plan',
-      action: 'update',
-      oldValue: { exercises: row.exercises },
-      newValue: { exercises },
-    });
-    if (!audit.ok) return audit;
     }
 
     return { ok: true };
