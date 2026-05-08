@@ -7,6 +7,7 @@ import {
   useMemo,
   useEffect,
   useRef,
+  startTransition,
   type ReactNode,
 } from 'react';
 import type {
@@ -1163,6 +1164,18 @@ export function PatientProvider({
               if (result.ok === true) {
                 setSupabaseSyncStatus('saved');
                 setSupabaseLastSavedAt(new Date().toISOString());
+                const synced = result.syncedPatients;
+                if (synced && synced.length > 0) {
+                  startTransition(() => {
+                    setAllPatients((prev) => {
+                      const byId = new Map(synced.map((s) => [s.id, s]));
+                      return prev.map((p) => {
+                        const server = byId.get(p.id);
+                        return server ? { ...p, ...server } : p;
+                      });
+                    });
+                  });
+                }
               } else {
                 setSupabaseSyncStatus('error');
                 setSupabaseSyncError(result.message);

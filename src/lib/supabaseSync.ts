@@ -3,6 +3,7 @@ import type { PersistedPatientStateV1 } from '../context/patientPersistence';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
 import {
   resolveTherapistIdForSupabaseRls,
+  type ClinicalPushResult,
   upsertPatientRecords,
   upsertTherapistProfilesForPatients,
 } from '../services/clinicalService';
@@ -30,9 +31,7 @@ async function therapistIdByPatientIdForClinicalSync(
   return out;
 }
 
-export type SupabasePushResult =
-  | { ok: true }
-  | { ok: false; message: string; httpStatus?: number };
+export type SupabasePushResult = ClinicalPushResult;
 
 /** Who is performing the push — patients must not write `profiles` or other therapist-scoped tables. */
 export type PushPersistedStateOptions = {
@@ -71,7 +70,7 @@ export async function pushPersistedStateToSupabase(
       if (!ownPatientId) {
         return { ok: false, message: 'patient sync: missing patientSessionId' };
       }
-      return upsertPatientRecords(client, state.patients, now, { onlyPatientId: ownPatientId });
+      return await upsertPatientRecords(client, state.patients, now, { onlyPatientId: ownPatientId });
     }
 
     let result: SupabasePushResult = await upsertTherapistProfilesForPatients(
@@ -83,6 +82,7 @@ export async function pushPersistedStateToSupabase(
 
     result = await upsertPatientRecords(client, state.patients, now);
     if (!result.ok) return result;
+    const syncedPatients = result.syncedPatients;
 
     const changeMap = options?.exercisePlanChangeSummaryByPatientId;
     const changeSummaryByPatientId: Record<string, string> | undefined =
@@ -115,7 +115,7 @@ export async function pushPersistedStateToSupabase(
     result = await upsertGlobalAppKnowledgeBase(client, state.knowledgeFacts ?? [], now);
     if (!result.ok) return result;
 
-    return { ok: true };
+    return syncedPatients && syncedPatients.length > 0 ? { ok: true, syncedPatients } : { ok: true };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) };
   }

@@ -6,6 +6,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  memo,
   type ReactNode,
 } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
@@ -281,7 +282,7 @@ function usePreferCoarsePointer(): boolean {
 }
 
 // ── Main exported component ───────────────────────────────────────
-export default function BodyMap3D(props: BodyMap3DProps) {
+function BodyMap3D(props: BodyMap3DProps) {
   const {
     activeAreas,
     primaryArea,
@@ -750,3 +751,6 @@ export default function BodyMap3D(props: BodyMap3DProps) {
     </div>
   );
 }
+
+BodyMap3D.displayName = 'BodyMap3D';
+export default memo(BodyMap3D);
