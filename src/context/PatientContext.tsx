@@ -76,6 +76,7 @@ import {
   updatePatientExercises,
   upsertPatientRecords,
   getPatientById,
+  fetchUnlinkedPortalPatientIds,
 } from '../services/clinicalService';
 import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
 import { useAuth } from './AuthContext';
@@ -423,6 +424,13 @@ interface PatientContextValue {
   supabaseSyncStatus: 'idle' | 'saving' | 'saved' | 'error';
   supabaseSyncError: string | null;
   supabaseLastSavedAt: string | null;
+  /**
+   * IDs of patients whose portal account was created but `auth_user_id` is still
+   * NULL (patient has never signed into the portal).  Populated after the therapist
+   * patient list loads.  Does NOT affect therapist saves — only blocks patient
+   * portal access until the patient signs in for the first time.
+   */
+  unlinkedPortalPatientIds: string[];
   savePersistedStateToCloud: (options?: {
     exercisePlanChangeSummaryByPatientId?: Record<string, string>;
   }) => Promise<boolean>;
@@ -655,6 +663,7 @@ export function PatientProvider({
   >('idle');
   const [supabaseSyncError, setSupabaseSyncError] = useState<string | null>(null);
   const [supabaseLastSavedAt, setSupabaseLastSavedAt] = useState<string | null>(null);
+  const [unlinkedPortalPatientIds, setUnlinkedPortalPatientIds] = useState<string[]>([]);
 
   /**
    * Mutex: prevents two concurrent savePersistedStateToCloud calls from racing each other
@@ -863,6 +872,13 @@ export function PatientProvider({
         normalizePatientsTherapistIds(list, { fallbackTherapistId: therapist.id })
       );
       setExercisePlans(res.exercisePlans);
+
+      // After loading patients, check which portal accounts are still unlinked
+      // (auth_user_id = NULL). This doesn't affect therapist saves but does block
+      // patient portal access until each patient signs in for the first time.
+      void fetchUnlinkedPortalPatientIds(supabaseClient).then(({ patientIds }) => {
+        if (!cancelled) setUnlinkedPortalPatientIds(patientIds);
+      });
     })();
     return () => {
       cancelled = true;
@@ -2062,6 +2078,7 @@ export function PatientProvider({
         supabaseSyncStatus,
         supabaseSyncError,
         supabaseLastSavedAt,
+        unlinkedPortalPatientIds,
         savePersistedStateToCloud,
         saveExercisePlanForPatientToCloud,
         knowledgeFacts: gamification.knowledgeFacts,

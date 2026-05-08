@@ -10,6 +10,8 @@ import {
   Pencil,
   Trash2,
   Snowflake,
+  Link2Off,
+  X,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
@@ -53,6 +55,7 @@ const statusStyles: Record<string, { bg: string; text: string; dot: string }> = 
 };
 
 export default function PatientOverview() {
+  const [portalBannerDismissed, setPortalBannerDismissed] = useState(false);
   const {
     selectedPatient,
     getExercisePlan,
@@ -68,6 +71,7 @@ export default function PatientOverview() {
     deletePatient,
     isPatientSessionLocked,
     safetyAlerts,
+    unlinkedPortalPatientIds,
   } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
   const [showClinicalModal, setShowClinicalModal] = useState(false);
@@ -87,6 +91,7 @@ export default function PatientOverview() {
 
   useEffect(() => {
     setEditingDemographics(false);
+    setPortalBannerDismissed(false);
     if (selectedPatient) {
       setDemoFreeText(selectedPatient.demographicsFreeText ?? '');
     }
@@ -202,6 +207,10 @@ export default function PatientOverview() {
   const portalUsernameDisplay =
     p.portalUsername ?? getPatientCredentialsByPatientId(p.id)?.loginId ?? null;
   const needsClinicalSetup = p.status === 'pending' || exerciseCount === 0;
+  const isPortalUnlinked =
+    !portalBannerDismissed &&
+    !!p.portalUsername?.trim() &&
+    unlinkedPortalPatientIds.includes(p.id);
 
   const displayName = getPatientDisplayName(p);
 
@@ -243,6 +252,30 @@ export default function PatientOverview() {
               }}
             >
               שחרור נעילת תרגול
+            </button>
+          </div>
+        )}
+
+        {isPortalUnlinked && (
+          <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <Link2Off className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" strokeWidth={2} aria-hidden />
+              <div>
+                <p className="text-sm font-bold text-amber-900">פורטל המטופל טרם חובר</p>
+                <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                  נוצר חשבון פורטל עבור{' '}
+                  <span className="font-bold">{p.portalUsername}</span>, אך המטופל טרם התחבר אליו בפעם הראשונה.
+                  שמירת נתוני המטפל פועלת רגיל — הגישה של המטופל לפורטל תופעל אוטומטית עם כניסתו הראשונה.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPortalBannerDismissed(true)}
+              className="shrink-0 rounded-lg p-1 text-amber-600 hover:bg-amber-100 transition-colors"
+              aria-label="סגור התראה"
+            >
+              <X className="w-4 h-4" />
             </button>
           </div>
         )}

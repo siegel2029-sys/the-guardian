@@ -928,6 +928,10 @@ export function useExercisePlan(params: UseExercisePlanParams) {
 
       const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? '';
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
+      // authUserId is the Supabase Auth UUID for the new portal account.
+      // It is written to patients.auth_user_id immediately so the patient can
+      // access their data without waiting for their first login.
+      let newAuthUserId = '';
       if (isSupabaseAuthEnabled() && url && anonKey) {
         const su = await signUpPortalPatientOnCreate({
           url,
@@ -939,6 +943,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         if (!su.ok) {
           return { ok: false, message: su.message };
         }
+        newAuthUserId = su.authUserId;
       }
 
       const joinDate = new Date().toISOString().slice(0, 10);
@@ -980,12 +985,19 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         const upsertResult = await upsertPatientRecords(
           supabaseClient,
           [newPatient],
-          new Date().toISOString()
+          new Date().toISOString(),
+          // Pass the new Auth user's UUID so patients.auth_user_id is set right
+          // away, without requiring the patient to log in first.
+          newAuthUserId ? { authUserId: newAuthUserId } : undefined
         );
         if (!upsertResult.ok) {
           console.error('[createPatientWithAccess] Failed to insert patient into DB:', upsertResult.message);
           return { ok: false, message: `שגיאה בשמירת המטופל: ${upsertResult.message}` };
         }
+        console.log('[createPatientWithAccess] Patient row created', {
+          patientId,
+          auth_user_id: newAuthUserId || '(will be linked on first portal login)',
+        });
       }
 
       setAllPatients((prev) => [...prev, newPatient]);

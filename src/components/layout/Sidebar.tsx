@@ -19,6 +19,7 @@ import {
   X,
   ChevronDown,
   Snowflake,
+  Link2Off,
 } from 'lucide-react';
 import { PortalDropdown } from '../ui/PortalDropdown';
 import RedFlagEmailNotificationModal from './RedFlagEmailNotificationModal';
@@ -70,6 +71,7 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
     aiSuggestions,
     safetyAlerts,
     dismissSafetyAlert,
+    unlinkedPortalPatientIds,
   } = usePatient();
   const [redFlagEmailOpen, setRedFlagEmailOpen] = useState(false);
   const [patientOpen, setPatientOpen] = useState(false);
@@ -222,6 +224,10 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
                   const unreadCount = getPatientMessages(patient.id).filter(
                     (m) => !m.isRead && m.fromPatient
                   ).length;
+                  const isPortalUnlinked =
+                    patient.portalUsername?.trim()
+                      ? unlinkedPortalPatientIds.includes(patient.id)
+                      : false;
                   return (
                     <button
                       key={patient.id}
@@ -252,8 +258,20 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
                           <span className="text-[10px] font-bold text-slate-600">
                             {statusLabels[patient.status]}
                           </span>
+                          {isPortalUnlinked && (
+                            <span className="text-[9px] font-bold text-amber-700 bg-amber-100 rounded px-1 leading-tight">
+                              פורטל לא מחובר
+                            </span>
+                          )}
                         </div>
                       </div>
+                      {isPortalUnlinked && (
+                        <Link2Off
+                          className="w-3.5 h-3.5 text-amber-500 shrink-0"
+                          strokeWidth={2.5}
+                          aria-label="פורטל המטופל טרם חובר"
+                        />
+                      )}
                       {patient.accountFrozen && (
                         <Snowflake className="w-3.5 h-3.5 text-sky-600 shrink-0" strokeWidth={2.5} aria-hidden />
                       )}

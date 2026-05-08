@@ -138,6 +138,19 @@ async function insertClinicalAuditLog(
 export type UpsertPatientRecordsOptions = {
   /** When set (portal patient / RLS patient role), only this row is written to `patients`. */
   onlyPatientId?: string;
+  /**
+   * Supabase Auth UUID for the portal patient account just created by
+   * {@link signUpPortalPatientOnCreate}.  When provided, it is written into
+   * `patients.auth_user_id` immediately so the patient can access their data
+   * via the portal without waiting for their first login to trigger
+   * `link_patient_auth_user`.
+   *
+   * Only include a value here when the patients being upserted correspond to
+   * this specific newly-created Auth user.  On subsequent saves (autosave,
+   * full-sync) omit this option so existing `auth_user_id` values are never
+   * accidentally overwritten.
+   */
+  authUserId?: string;
 };
 
 export async function upsertPatientRecords(
@@ -147,6 +160,10 @@ export async function upsertPatientRecords(
   options?: UpsertPatientRecordsOptions
 ): Promise<ClinicalPushResult> {
   const onlyId = options?.onlyPatientId?.trim();
+  // auth_user_id to set at creation time (from signUpPortalPatientOnCreate).
+  // Empty string means "not provided" — we won't include the column so we don't
+  // accidentally clear an existing link.
+  const newAuthUserId = options?.authUserId?.trim() || null;
   const source =
     onlyId && onlyId.length > 0 ? patients.filter((p) => p.id === onlyId) : patients;
   const skipAudit = Boolean(onlyId && onlyId.length > 0);
@@ -194,18 +211,44 @@ export async function upsertPatientRecords(
       ? portalUsernameToAuthEmail(normalizePortalUsername(rawUsername))
       : '';
 
-    const patientRows = [
-      {
-        id: payloadForRow.id,
-        therapist_id: therapistIdForRow,
-        contact_email: contactEmail,
-        payload: payloadForRow,
-        updated_at: now,
-      },
-    ];
+    const baseRow: Record<string, unknown> = {
+      id: payloadForRow.id,
+      therapist_id: therapistIdForRow,
+      contact_email: contactEmail,
+      payload: payloadForRow,
+      updated_at: now,
+    };
 
-    const { error } = await client.from('patients').upsert(patientRows, { onConflict: 'id' });
-    if (error) return { ok: false, message: `patients: ${error.message}` };
+    // Only include auth_user_id when a valid UUID was provided by the caller.
+    // Omitting it on subsequent saves leaves any existing link intact.
+    if (newAuthUserId) {
+      baseRow.auth_user_id = newAuthUserId;
+    }
+
+    // ── Pre-upsert diagnostic log ────────────────────────────────────────────
+    // Confirms therapist_id mapping and auth_user_id status for every patient row.
+    console.log('[upsertPatientRecords] upsert patients row', {
+      id: baseRow.id,
+      therapist_id: baseRow.therapist_id,
+      original_therapistId: p.therapistId,
+      therapist_id_remapped: p.therapistId !== therapistIdForRow,
+      auth_user_id: newAuthUserId || '(not set — preserving existing or will link on first portal login)',
+      contact_email: baseRow.contact_email || '(no portal username)',
+    });
+
+    const { error } = await client
+      .from('patients')
+      .upsert([baseRow], { onConflict: 'id' });
+    if (error) {
+      console.error('[upsertPatientRecords] upsert failed', {
+        patientId: payloadForRow.id,
+        therapist_id: therapistIdForRow,
+        error_message: error.message,
+        error_code: (error as { code?: string }).code,
+        error_details: (error as { details?: string }).details,
+      });
+      return { ok: false, message: `patients: ${error.message}` };
+    }
 
     wroteAny = true;
 
@@ -245,6 +288,52 @@ export async function upsertPatientRecords(
   }
 
   return { ok: true };
+}
+
+/**
+ * Returns the IDs of patient rows that have a `portalUsername` in their payload
+ * but no `auth_user_id` set — i.e. the portal account was created but the patient
+ * has never signed in (or the Auth link was lost).
+ *
+ * The therapist dashboard can call this after loading patients and warn the user
+ * that these patients cannot yet access the patient portal.
+ *
+ * NOTE: `auth_user_id` is only used for *patient* RLS (portal access).
+ * Therapist saves (exercise plans, patient records) use `therapist_id` and are
+ * NOT affected by null `auth_user_id`.
+ */
+export async function fetchUnlinkedPortalPatientIds(
+  client: SupabaseClient
+): Promise<{ patientIds: string[]; error?: string }> {
+  const { data, error } = await client
+    .from('patients')
+    .select('id, payload, auth_user_id')
+    .is('auth_user_id', null);
+
+  if (error) {
+    return { patientIds: [], error: error.message };
+  }
+
+  const unlinked: string[] = [];
+  for (const row of data ?? []) {
+    const payload = row.payload as { portalUsername?: string } | null;
+    if (payload?.portalUsername?.trim()) {
+      unlinked.push(row.id as string);
+    }
+  }
+
+  if (unlinked.length > 0) {
+    console.warn(
+      '[fetchUnlinkedPortalPatientIds] מטופלים עם חשבון פורטל שלא התחברו מעולם (auth_user_id = NULL)',
+      {
+        count: unlinked.length,
+        patientIds: unlinked,
+        note: 'שמירות מטפל (exercise_plans, patients) אינן מושפעות. הגישה לפורטל המטופל תופעל רק לאחר כניסה ראשונה.',
+      }
+    );
+  }
+
+  return { patientIds: unlinked };
 }
 
 /** מחיקת שורת מטופל ב-Supabase (RLS — מטפל מחובר בלבד). מפעיל CASCADE למסדי תלות (תוכניות, היסטוריית סשנים, יומן ביקורת). חייב להצליח לפני ניקוי המצב המקומי. */

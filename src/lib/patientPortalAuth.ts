@@ -58,7 +58,12 @@ export function createEphemeralSupabaseClient(url: string, anonKey: string): Sup
 }
 
 export type SignUpPortalPatientResult =
-  | { ok: true }
+  /**
+   * `authUserId` is the Supabase Auth `users.id` (UUID) of the new account.
+   * Pass this to `upsertPatientRecords` so `patients.auth_user_id` is set
+   * immediately, without waiting for the patient's first portal login.
+   */
+  | { ok: true; authUserId: string }
   | { ok: false; message: string };
 
 export async function signUpPortalPatientOnCreate(params: {
@@ -74,7 +79,7 @@ export async function signUpPortalPatientOnCreate(params: {
   }
   const email = portalUsernameToAuthEmail(normalized);
   const ephemeral = createEphemeralSupabaseClient(params.url, params.anonKey);
-  const { error } = await ephemeral.auth.signUp({
+  const { data, error } = await ephemeral.auth.signUp({
     email,
     password: params.password,
     options: {
@@ -114,7 +119,24 @@ export async function signUpPortalPatientOnCreate(params: {
       message: supabaseAuthErrorMessageHe(error, 'לא ניתן ליצור חשבון פורטל. נסו שוב או בחרו מזהה אחר.'),
     };
   }
-  return { ok: true };
+
+  const authUserId = data.user?.id ?? '';
+  if (!authUserId) {
+    // Auth user was created but UUID not returned (e.g. email-confirm flow).
+    // The patient row will get auth_user_id linked on first portal login instead.
+    console.warn('[signUpPortalPatientOnCreate] Auth user created but UUID not returned — auth_user_id will be set on first patient login.', {
+      email,
+      patientId: params.patientId,
+    });
+  } else {
+    console.log('[signUpPortalPatientOnCreate] Auth user created', {
+      authUserId,
+      email,
+      patientId: params.patientId,
+    });
+  }
+
+  return { ok: true, authUserId };
 }
 
 export async function linkPatientAuthUserRow(
