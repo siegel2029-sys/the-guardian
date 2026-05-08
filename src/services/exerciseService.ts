@@ -129,8 +129,10 @@ export async function upsertSessionHistory(
   const therapistMap = options?.therapistIdByPatientId ?? {};
   // Map camelCase React state → snake_case DB column names.
   // session_history columns: patient_id, session_date, payload (JSONB), updated_at, therapist_id (optional).
+  const missingTherapistFor: string[] = [];
   const sessionRows = dailySessions.map((s) => {
     const tid = therapistMap[s.patientId]?.trim();
+    if (!tid) missingTherapistFor.push(s.patientId);
     return {
       patient_id: s.patientId,
       session_date: s.date,
@@ -141,6 +143,14 @@ export async function upsertSessionHistory(
   });
 
   if (sessionRows.length === 0) return { ok: true };
+
+  const uniqMissing = [...new Set(missingTherapistFor)];
+  if (uniqMissing.length > 0) {
+    console.warn(
+      '[upsertSessionHistory] חסר therapist_id במפת המטפל — השורות יישלחו בלי עמודת therapist_id',
+      { patientIds: uniqMissing }
+    );
+  }
 
   // ── Pre-upsert payload log ────────────────────────────────────────────────
   console.group('[upsertSessionHistory] ▶ session_history UPSERT');

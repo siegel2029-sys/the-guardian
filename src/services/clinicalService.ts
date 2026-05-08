@@ -223,6 +223,10 @@ export async function upsertPatientRecords(
     const occupationSql = payloadForRow.occupation?.trim()
       ? payloadForRow.occupation.trim()
       : null;
+    const demoFree =
+      typeof payloadForRow.demographicsFreeText === 'string'
+        ? payloadForRow.demographicsFreeText.trim()
+        : '';
     const baseRow: Record<string, unknown> = {
       id: payloadForRow.id,
       therapist_id: therapistIdForRow,
@@ -232,6 +236,7 @@ export async function upsertPatientRecords(
       gender: payloadForRow.clinicalSex ?? null,
       birth_date: birthDateSql,
       occupation: occupationSql,
+      demographics_free_text: demoFree || null,
       payload: payloadForRow,
       updated_at: now,
     };
@@ -258,6 +263,7 @@ export async function upsertPatientRecords(
         ? payloadForRow.clinicalTimeline.length
         : 0,
       demographicsFreeText_len: (payloadForRow.demographicsFreeText ?? '').length,
+      demographics_free_text_sql: demoFree ? `${demoFree.slice(0, 120)}${demoFree.length > 120 ? '…' : ''}` : null,
     });
 
     // Full row as sent to PostgREST (large — includes entire `payload` JSON).
@@ -270,7 +276,9 @@ export async function upsertPatientRecords(
     const { data: upserted, error } = await client
       .from('patients')
       .upsert([baseRow], { onConflict: 'id' })
-      .select('id, therapist_id, updated_at, first_name, age, gender, occupation, birth_date');
+      .select(
+        'id, therapist_id, updated_at, first_name, age, gender, occupation, birth_date, demographics_free_text'
+      );
     if (error) {
       console.error('[upsertPatientRecords] upsert failed', {
         patientId: payloadForRow.id,
