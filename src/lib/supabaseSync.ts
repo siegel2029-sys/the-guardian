@@ -73,7 +73,10 @@ export async function pushPersistedStateToSupabase(
           ? changeSummaryByPatientId
           : undefined,
     });
-    if (!result.ok) return result;
+    if (!result.ok) {
+      console.error('[pushPersistedStateToSupabase] upsertExercisePlans נכשל', result.message);
+      return result;
+    }
 
     result = await upsertSessionHistory(client, state.dailySessions, now);
     if (!result.ok) return result;

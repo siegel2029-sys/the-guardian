@@ -663,6 +663,27 @@ export function PatientProvider({
    */
   const cloudSaveMutexRef = useRef<Promise<boolean> | null>(null);
 
+  /** Trailing debounce for full-cloud pushes (coalesces bursts e.g. after Gemini). */
+  const CLOUD_SAVE_DEBOUNCE_MS = 400;
+  const cloudSaveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const accumulatedCloudSaveOptionsRef = useRef<{
+    exercisePlanChangeSummaryByPatientId?: Record<string, string>;
+  } | null>(null);
+  const cloudSaveDebouncedResolversRef = useRef<Array<(ok: boolean) => void>>([]);
+  /** True while a cloud push is actively in flight after acquiring the mutex (full or plan save). */
+  const cloudSaveInFlightRef = useRef(false);
+  /** Blocks a second explicit exercise-plan cloud save before the previous one finishes. */
+  const exercisePlanCloudSaveBusyRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (cloudSaveDebounceTimerRef.current) {
+        clearTimeout(cloudSaveDebounceTimerRef.current);
+        cloudSaveDebounceTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const isPatientSessionLocked = restrictPatientSessionId != null && restrictPatientSessionId !== '';
 
   useEffect(() => {
@@ -1050,35 +1071,88 @@ export function PatientProvider({
         return false;
       }
 
-      // Wait for any in-flight save to finish before starting a new one.
-      // This prevents two concurrent calls from racing on exercise_plans inserts.
-      if (cloudSaveMutexRef.current) {
-        try {
-          await cloudSaveMutexRef.current;
-        } catch {
-          /* ignore errors from the previous save — we'll attempt again below */
-        }
+      const incoming = options?.exercisePlanChangeSummaryByPatientId;
+      if (incoming && Object.keys(incoming).length > 0) {
+        const acc = accumulatedCloudSaveOptionsRef.current ?? {};
+        accumulatedCloudSaveOptionsRef.current = {
+          exercisePlanChangeSummaryByPatientId: {
+            ...(acc.exercisePlanChangeSummaryByPatientId ?? {}),
+            ...incoming,
+          },
+        };
       }
 
-      setSupabaseSyncStatus('saving');
-      setSupabaseSyncError(null);
-      const savePromise = pushPersistedStateToSupabase(supabase, buildPersistSnapshot(), {
-        ...supabasePushOptions,
-        ...options,
+      return new Promise<boolean>((resolve) => {
+        cloudSaveDebouncedResolversRef.current.push(resolve);
+
+        if (cloudSaveDebounceTimerRef.current) {
+          clearTimeout(cloudSaveDebounceTimerRef.current);
+        }
+
+        cloudSaveDebounceTimerRef.current = setTimeout(() => {
+          void (async () => {
+            cloudSaveDebounceTimerRef.current = null;
+
+            const resolvers = cloudSaveDebouncedResolversRef.current;
+            cloudSaveDebouncedResolversRef.current = [];
+
+            const mergedExtra = accumulatedCloudSaveOptionsRef.current;
+            accumulatedCloudSaveOptionsRef.current = null;
+
+            if (cloudSaveMutexRef.current) {
+              try {
+                await cloudSaveMutexRef.current;
+              } catch {
+                /* ignore errors from the previous save — we'll attempt again below */
+              }
+            }
+
+            cloudSaveInFlightRef.current = true;
+            setSupabaseSyncStatus('saving');
+            setSupabaseSyncError(null);
+
+            const summaryMap = mergedExtra?.exercisePlanChangeSummaryByPatientId;
+            const savePromise = pushPersistedStateToSupabase(
+              supabase,
+              buildPersistSnapshot(),
+              {
+                ...supabasePushOptions,
+                ...(summaryMap && Object.keys(summaryMap).length > 0
+                  ? { exercisePlanChangeSummaryByPatientId: summaryMap }
+                  : {}),
+              }
+            );
+            cloudSaveMutexRef.current = savePromise.then((r) => r.ok);
+
+            let outcome: boolean;
+            try {
+              const result = await savePromise;
+              cloudSaveMutexRef.current = null;
+              outcome = result.ok;
+              if (result.ok) {
+                setSupabaseSyncStatus('saved');
+                setSupabaseLastSavedAt(new Date().toISOString());
+              } else {
+                setSupabaseSyncStatus('error');
+                setSupabaseSyncError(result.message);
+              }
+            } catch (e) {
+              cloudSaveMutexRef.current = null;
+              const msg = e instanceof Error ? e.message : String(e);
+              console.error('[savePersistedStateToCloud] שגיאה לא צפויה', msg, e);
+              setSupabaseSyncStatus('error');
+              setSupabaseSyncError(msg);
+              outcome = false;
+            } finally {
+              cloudSaveInFlightRef.current = false;
+            }
+
+            for (const r of resolvers) r(outcome);
+          })();
+        }, CLOUD_SAVE_DEBOUNCE_MS);
       });
-      cloudSaveMutexRef.current = savePromise.then((r) => r.ok);
-      const result = await savePromise;
-      cloudSaveMutexRef.current = null;
-      if (result.ok) {
-        setSupabaseSyncStatus('saved');
-        setSupabaseLastSavedAt(new Date().toISOString());
-        return true;
-      }
-      setSupabaseSyncStatus('error');
-      setSupabaseSyncError(result.message);
-      return false;
     },
-    [buildPersistSnapshot, supabasePushOptions, isAuthenticated]
+    [buildPersistSnapshot, supabasePushOptions, isAuthenticated, supabase, isSupabaseConfigured]
   );
 
   const saveExercisePlanForPatientToCloud = useCallback(
@@ -1112,19 +1186,29 @@ export function PatientProvider({
         return fail(msg);
       }
 
-      if (cloudSaveMutexRef.current) {
-        try {
-          await cloudSaveMutexRef.current;
-        } catch {
-          /* ignore */
-        }
+      if (exercisePlanCloudSaveBusyRef.current) {
+        const msg =
+          'שמירת תוכנית לענן כבר רצה — המתינו לסיום או נסו שוב בעוד רגע.';
+        console.warn('[Exercise cloud save]', msg);
+        return fail(msg);
       }
 
-      setSupabaseSyncStatus('saving');
-      setSupabaseSyncError(null);
+      exercisePlanCloudSaveBusyRef.current = true;
+      try {
+        if (cloudSaveMutexRef.current) {
+          try {
+            await cloudSaveMutexRef.current;
+          } catch {
+            /* ignore */
+          }
+        }
 
-      let failureMessage: string | null = null;
-      const work = (async (): Promise<boolean> => {
+        cloudSaveInFlightRef.current = true;
+        setSupabaseSyncStatus('saving');
+        setSupabaseSyncError(null);
+
+        let failureMessage: string | null = null;
+        const work = (async (): Promise<boolean> => {
         console.log('[Exercise cloud save] מתחיל שמירת תוכנית לענן', {
           patientId,
           exerciseCount: exercises.length,
@@ -1196,26 +1280,30 @@ export function PatientProvider({
           return [...rest, slice];
         });
         return true;
-      })();
+        })();
 
-      cloudSaveMutexRef.current = work;
-      let ok = false;
-      try {
-        ok = await work;
+        cloudSaveMutexRef.current = work;
+        let ok = false;
+        try {
+          ok = await work;
+        } finally {
+          cloudSaveMutexRef.current = null;
+        }
+
+        if (ok) {
+          setSupabaseSyncStatus('saved');
+          setSupabaseLastSavedAt(new Date().toISOString());
+          return { ok: true };
+        }
+        const finalMsg =
+          failureMessage ?? 'שמירת תוכנית תרגילים לענן נכשלה';
+        setSupabaseSyncStatus('error');
+        setSupabaseSyncError(finalMsg);
+        return fail(finalMsg);
       } finally {
-        cloudSaveMutexRef.current = null;
+        cloudSaveInFlightRef.current = false;
+        exercisePlanCloudSaveBusyRef.current = false;
       }
-
-      if (ok) {
-        setSupabaseSyncStatus('saved');
-        setSupabaseLastSavedAt(new Date().toISOString());
-        return { ok: true };
-      }
-      const finalMsg =
-        failureMessage ?? 'שמירת תוכנית תרגילים לענן נכשלה';
-      setSupabaseSyncStatus('error');
-      setSupabaseSyncError(finalMsg);
-      return fail(finalMsg);
     },
     [
       supabase,
