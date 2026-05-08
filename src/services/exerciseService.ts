@@ -120,20 +120,37 @@ export async function upsertSessionHistory(
   dailySessions: DailySession[],
   now: string
 ): Promise<ExercisePushResult> {
+  // Map camelCase React state → snake_case DB column names.
+  // session_history columns: patient_id, session_date, payload (JSONB), updated_at.
   const sessionRows = dailySessions.map((s) => ({
-    patient_id: s.patientId,
-    session_date: s.date,
-    payload: s,
-    updated_at: now,
+    patient_id: s.patientId,   // snake_case ✓ (React state: s.patientId)
+    session_date: s.date,      // snake_case ✓ (React state: s.date)
+    payload: s,                // full DailySession stored as JSONB — camelCase inside is fine
+    updated_at: now,           // snake_case ✓
   }));
 
-  if (sessionRows.length > 0) {
-    const { error } = await client.from('session_history').upsert(sessionRows, {
-      onConflict: 'patient_id,session_date',
-    });
-    if (error) return { ok: false, message: `session_history: ${error.message}` };
-  }
+  if (sessionRows.length === 0) return { ok: true };
 
+  // ── Pre-upsert payload log ────────────────────────────────────────────────
+  console.group('[upsertSessionHistory] ▶ session_history UPSERT');
+  console.log('EXACT PAYLOAD KEYS:', Object.keys(sessionRows[0] ?? {}).join(', '));
+  console.log('ROW COUNT:', sessionRows.length);
+  console.log('ROWS (payload abbreviated):', sessionRows.map((r) => ({
+    patient_id: r.patient_id,
+    session_date: r.session_date,
+    updated_at: r.updated_at,
+    payload_keys: Object.keys(r.payload as object).join(', '),
+  })));
+  console.groupEnd();
+
+  const { data, error } = await client
+    .from('session_history')
+    .upsert(sessionRows, { onConflict: 'patient_id,session_date' })
+    .select('patient_id, session_date');
+
+  console.log('[upsertSessionHistory] response', { data, error: error ?? null });
+
+  if (error) return { ok: false, message: `session_history: ${error.message}` };
   return { ok: true };
 }
 
