@@ -115,19 +115,30 @@ export async function fetchExercisePlanVersionsForPatient(
   });
 }
 
+export type UpsertSessionHistoryOptions = {
+  /** Resolved `therapist_id` per patient (must match RLS / patients.therapist_id). */
+  therapistIdByPatientId?: Record<string, string>;
+};
+
 export async function upsertSessionHistory(
   client: SupabaseClient,
   dailySessions: DailySession[],
-  now: string
+  now: string,
+  options?: UpsertSessionHistoryOptions
 ): Promise<ExercisePushResult> {
+  const therapistMap = options?.therapistIdByPatientId ?? {};
   // Map camelCase React state → snake_case DB column names.
-  // session_history columns: patient_id, session_date, payload (JSONB), updated_at.
-  const sessionRows = dailySessions.map((s) => ({
-    patient_id: s.patientId,   // snake_case ✓ (React state: s.patientId)
-    session_date: s.date,      // snake_case ✓ (React state: s.date)
-    payload: s,                // full DailySession stored as JSONB — camelCase inside is fine
-    updated_at: now,           // snake_case ✓
-  }));
+  // session_history columns: patient_id, session_date, payload (JSONB), updated_at, therapist_id (optional).
+  const sessionRows = dailySessions.map((s) => {
+    const tid = therapistMap[s.patientId]?.trim();
+    return {
+      patient_id: s.patientId,
+      session_date: s.date,
+      payload: s,
+      updated_at: now,
+      ...(tid ? { therapist_id: tid } : {}),
+    };
+  });
 
   if (sessionRows.length === 0) return { ok: true };
 
@@ -137,6 +148,7 @@ export async function upsertSessionHistory(
   console.log('ROW COUNT:', sessionRows.length);
   console.log('ROWS (payload abbreviated):', sessionRows.map((r) => ({
     patient_id: r.patient_id,
+    therapist_id: 'therapist_id' in r ? (r as { therapist_id?: string }).therapist_id : '(omit)',
     session_date: r.session_date,
     updated_at: r.updated_at,
     payload_keys: Object.keys(r.payload as object).join(', '),
@@ -146,7 +158,7 @@ export async function upsertSessionHistory(
   const { data, error } = await client
     .from('session_history')
     .upsert(sessionRows, { onConflict: 'patient_id,session_date' })
-    .select('patient_id, session_date');
+    .select('patient_id, session_date, therapist_id');
 
   console.log('[upsertSessionHistory] response', { data, error: error ?? null });
 

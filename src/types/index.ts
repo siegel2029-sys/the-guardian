@@ -167,6 +167,10 @@ export interface Patient {
    * תיאור דמוגרפי חופשי (מגדר, גיל, עבודה…) — מחרוזת אחת לתצוגה ולמסד.
    */
   demographicsFreeText?: string;
+  /** מקצוע / עיסוק — משוכפל לעמודת SQL `patients.occupation` בעת סנכרון */
+  occupation?: string;
+  /** תאריך לידה אופציונלי (YYYY-MM-DD) — משוכפל ל־`patients.birth_date` */
+  birthDate?: string;
   diagnosis: string;
   /**
    * סיכום AI (אבחנה/תוכנית) — טקסט מלא מ-Gemini או עריכה ידנית; מוצג בדף המטופל ובפורטל.

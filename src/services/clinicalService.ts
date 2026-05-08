@@ -18,7 +18,7 @@ import {
  * RLS requires `patients.therapist_id = auth.uid()::text`. Legacy data may use
  * `therapist-001` / `therapist-002`; map those to the signed-in user's real id.
  */
-function resolveTherapistIdForSupabaseRls(patientTherapistId: string, user: User): string | null {
+export function resolveTherapistIdForSupabaseRls(patientTherapistId: string, user: User): string | null {
   if (patientTherapistId === user.id) return user.id;
   if (patientTherapistId === 'therapist-001' || patientTherapistId === 'therapist-002') {
     return user.id;
@@ -211,10 +211,27 @@ export async function upsertPatientRecords(
       ? portalUsernameToAuthEmail(normalizePortalUsername(rawUsername))
       : '';
 
+    // Denormalised SQL columns (snake_case) — mirrored from `payload` for reporting / Table Editor.
+    // Canonical clinical document stays in `payload` (Patient JSON).
+    const ageVal =
+      typeof payloadForRow.age === 'number' && Number.isFinite(payloadForRow.age)
+        ? Math.round(payloadForRow.age)
+        : null;
+    const birthRaw = payloadForRow.birthDate?.trim();
+    const birthDateSql =
+      birthRaw && /^\d{4}-\d{2}-\d{2}$/.test(birthRaw) ? birthRaw : null;
+    const occupationSql = payloadForRow.occupation?.trim()
+      ? payloadForRow.occupation.trim()
+      : null;
     const baseRow: Record<string, unknown> = {
       id: payloadForRow.id,
       therapist_id: therapistIdForRow,
       contact_email: contactEmail,
+      first_name: payloadForRow.name ?? '',
+      age: ageVal,
+      gender: payloadForRow.clinicalSex ?? null,
+      birth_date: birthDateSql,
+      occupation: occupationSql,
       payload: payloadForRow,
       updated_at: now,
     };
@@ -234,11 +251,26 @@ export async function upsertPatientRecords(
       therapist_id_remapped: p.therapistId !== therapistIdForRow,
       auth_user_id: newAuthUserId || '(not set — preserving existing or will link on first portal login)',
       contact_email: baseRow.contact_email || '(no portal username)',
+      first_name: baseRow.first_name,
+      age: baseRow.age,
+      gender: baseRow.gender,
+      clinicalTimeline_len: Array.isArray(payloadForRow.clinicalTimeline)
+        ? payloadForRow.clinicalTimeline.length
+        : 0,
+      demographicsFreeText_len: (payloadForRow.demographicsFreeText ?? '').length,
     });
 
-    const { error } = await client
+    // Full row as sent to PostgREST (large — includes entire `payload` JSON).
+    try {
+      console.log('[upsertPatientRecords] FULL_ROW_JSON', JSON.stringify(baseRow));
+    } catch (e) {
+      console.warn('[upsertPatientRecords] FULL_ROW_JSON stringify failed', e);
+    }
+
+    const { data: upserted, error } = await client
       .from('patients')
-      .upsert([baseRow], { onConflict: 'id' });
+      .upsert([baseRow], { onConflict: 'id' })
+      .select('id, therapist_id, updated_at, first_name, age, gender, occupation, birth_date');
     if (error) {
       console.error('[upsertPatientRecords] upsert failed', {
         patientId: payloadForRow.id,
@@ -249,13 +281,14 @@ export async function upsertPatientRecords(
       });
       return { ok: false, message: `patients: ${error.message}` };
     }
+    console.log('[upsertPatientRecords] upsert select() response', { upserted, error: null });
 
     wroteAny = true;
 
     if (skipAudit) continue;
 
     const unchanged =
-      oldPayload !== undefined && JSON.stringify(oldPayload) === JSON.stringify(payloadForRow);
+      oldPayload !== undefined && patientPayloadJsonEqual(oldPayload, payloadForRow);
     if (unchanged) continue;
 
     const audit =
@@ -394,6 +427,14 @@ function exercisesJsonEqual(a: unknown, b: unknown): boolean {
     return JSON.stringify(canonicalise(a)) === JSON.stringify(canonicalise(b));
   } catch {
     // On any serialisation error treat as not-equal so a new version is written.
+    return false;
+  }
+}
+
+function patientPayloadJsonEqual(a: unknown, b: unknown): boolean {
+  try {
+    return JSON.stringify(canonicalise(a)) === JSON.stringify(canonicalise(b));
+  } catch {
     return false;
   }
 }

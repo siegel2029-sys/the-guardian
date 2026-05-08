@@ -1,11 +1,34 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { PersistedPatientStateV1 } from '../context/patientPersistence';
+import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
 import {
+  resolveTherapistIdForSupabaseRls,
   upsertPatientRecords,
   upsertTherapistProfilesForPatients,
 } from '../services/clinicalService';
 import { upsertExercisePlans, upsertSessionHistory } from '../services/exerciseService';
 import { upsertGlobalAppKnowledgeBase } from '../services/gamificationService';
+
+async function therapistIdByPatientIdForClinicalSync(
+  client: SupabaseClient,
+  patients: PersistedPatientStateV1['patients']
+): Promise<Record<string, string>> {
+  if (!isSupabaseAuthEnabled()) {
+    return Object.fromEntries(patients.map((p) => [p.id, p.therapistId]));
+  }
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+  if (!user?.id) {
+    return Object.fromEntries(patients.map((p) => [p.id, p.therapistId]));
+  }
+  const out: Record<string, string> = {};
+  for (const p of patients) {
+    const resolved = resolveTherapistIdForSupabaseRls(p.therapistId, user);
+    out[p.id] = resolved ?? p.therapistId;
+  }
+  return out;
+}
 
 export type SupabasePushResult = { ok: true } | { ok: false; message: string };
 
@@ -78,7 +101,13 @@ export async function pushPersistedStateToSupabase(
       return result;
     }
 
-    result = await upsertSessionHistory(client, state.dailySessions, now);
+    const therapistIdByPatientId = await therapistIdByPatientIdForClinicalSync(
+      client,
+      state.patients
+    );
+    result = await upsertSessionHistory(client, state.dailySessions, now, {
+      therapistIdByPatientId,
+    });
     if (!result.ok) return result;
 
     result = await upsertGlobalAppKnowledgeBase(client, state.knowledgeFacts ?? [], now);

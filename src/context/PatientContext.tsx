@@ -1076,6 +1076,10 @@ export function PatientProvider({
     knowledgeFacts,
   ]);
 
+  /** Latest snapshot builder — read from ref inside debounced timers so cloud push always sees post–setState data. */
+  const buildPersistSnapshotRef = useRef(buildPersistSnapshot);
+  buildPersistSnapshotRef.current = buildPersistSnapshot;
+
   const savePersistedStateToCloud = useCallback(
     async (options?: {
       exercisePlanChangeSummaryByPatientId?: Record<string, string>;
@@ -1140,7 +1144,7 @@ export function PatientProvider({
             const summaryMap = mergedExtra?.exercisePlanChangeSummaryByPatientId;
             const savePromise = pushPersistedStateToSupabase(
               supabaseClient,
-              buildPersistSnapshot(),
+              buildPersistSnapshotRef.current(),
               {
                 ...supabasePushOptions,
                 ...(summaryMap && Object.keys(summaryMap).length > 0
@@ -1178,7 +1182,7 @@ export function PatientProvider({
         }, CLOUD_SAVE_DEBOUNCE_MS);
       });
     },
-    [buildPersistSnapshot, supabasePushOptions, isAuthenticated, supabase, isSupabaseConfigured]
+    [supabasePushOptions, isAuthenticated, supabase, isSupabaseConfigured]
   );
 
   const saveExercisePlanForPatientToCloud = useCallback(
