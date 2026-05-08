@@ -76,6 +76,7 @@ import {
   fetchActiveExercisePlanForPatient,
   updatePatientExercises,
   upsertPatientRecords,
+  upsertTreatmentReport,
   getPatientById,
   fetchUnlinkedPortalPatientIds,
   postgrestHttpStatus,
@@ -355,9 +356,7 @@ interface PatientContextValue {
    * עם Supabase: ממתין למחיקת השורה בשרת לפני ניקוי מצב מקומי — אם נכשל, הנתונים המקומיים נשמרים.
    */
   deletePatient: (patientId: string) => Promise<{ ok: true } | { ok: false; message: string }>;
-  /**
-   * מיזוג חלקי לשדות מטופל — לדיבוג פיתוח בלבד (ב־production אין השפעה).
-   */
+  /** מיזוג חלקי לשדות מטופל — מצב מקומי (localStorage) + אפשרות לדחיפה ל-Supabase בנפרד */
   updatePatient: (
     patientId: string,
     patch: Partial<Omit<Patient, 'id' | 'therapistId'>>
@@ -447,6 +446,11 @@ interface PatientContextValue {
   savePersistedStateToCloud: (options?: {
     exercisePlanChangeSummaryByPatientId?: Record<string, string>;
   }) => Promise<boolean>;
+  /**
+   * שורת `patients` אחת ל-Supabase (כולל `payload` / תיעוד טיפולים) + מיזוג מיידי של התגובה ל-state.
+   * עדיף על סנכרון מלא מדורג כשחייבים לשמור את אותו snapshot שהמשתמש ראה בלחיצה.
+   */
+  saveSinglePatientPayloadToCloud: (patient: Patient) => Promise<boolean>;
   /** שמירת תוכנית תרגילים לטבלה `exercise_plans` (+ רענון מהשרת בעת הצלחה). למטפל בלבד. */
   saveExercisePlanForPatientToCloud: (
     patientId: string,
@@ -1072,6 +1076,19 @@ export function PatientProvider({
     knowledgeFacts,
   };
 
+  const mergeServerPatientsIntoState = useCallback((synced: Patient[]) => {
+    if (synced.length === 0) return;
+    startTransition(() => {
+      setAllPatients((prev) => {
+        const byId = new Map(synced.map((s) => [s.id, s]));
+        return prev.map((p) => {
+          const server = byId.get(p.id);
+          return server ? { ...p, ...server } : p;
+        });
+      });
+    });
+  }, []);
+
   const savePersistedStateToCloud = useCallback(
     async (options?: {
       exercisePlanChangeSummaryByPatientId?: Record<string, string>;
@@ -1164,17 +1181,8 @@ export function PatientProvider({
               if (result.ok === true) {
                 setSupabaseSyncStatus('saved');
                 setSupabaseLastSavedAt(new Date().toISOString());
-                const synced = result.syncedPatients;
-                if (synced && synced.length > 0) {
-                  startTransition(() => {
-                    setAllPatients((prev) => {
-                      const byId = new Map(synced.map((s) => [s.id, s]));
-                      return prev.map((p) => {
-                        const server = byId.get(p.id);
-                        return server ? { ...p, ...server } : p;
-                      });
-                    });
-                  });
+                if (result.syncedPatients?.length) {
+                  mergeServerPatientsIntoState(result.syncedPatients);
                 }
               } else {
                 setSupabaseSyncStatus('error');
@@ -1198,7 +1206,61 @@ export function PatientProvider({
         }, CLOUD_SAVE_DEBOUNCE_MS);
       });
     },
-    [supabasePushOptions, isAuthenticated, supabase, isSupabaseConfigured]
+    [supabasePushOptions, isAuthenticated, supabase, isSupabaseConfigured, mergeServerPatientsIntoState]
+  );
+
+  const saveSinglePatientPayloadToCloud = useCallback(
+    async (patient: Patient): Promise<boolean> => {
+      if (!supabase) {
+        console.error(
+          '[saveSinglePatientPayloadToCloud] Supabase client is null — בדקו VITE_SUPABASE_URL ו־VITE_SUPABASE_ANON_KEY.'
+        );
+        return false;
+      }
+      if (isSupabaseConfigured && !isAuthenticated) {
+        return false;
+      }
+      const supabaseClient = supabase;
+      const now = new Date().toISOString();
+      try {
+        if (restrictPatientSessionId && patient.id !== restrictPatientSessionId) {
+          console.warn('[saveSinglePatientPayloadToCloud] ניתן לשמור רק את מטופל הפורטל הנוכחי', {
+            expectedId: restrictPatientSessionId,
+            patientId: patient.id,
+          });
+          return false;
+        }
+
+        const result = restrictPatientSessionId
+          ? await upsertTreatmentReport(supabaseClient, patient, {
+              now,
+              onlyPatientId: restrictPatientSessionId,
+            })
+          : await upsertTreatmentReport(supabaseClient, patient, { now });
+
+        if (result.ok === false) {
+          if (import.meta.env.DEV) {
+            console.warn('[saveSinglePatientPayloadToCloud] נכשל', result.message);
+          }
+          return false;
+        }
+        if (result.syncedPatients?.length) {
+          mergeServerPatientsIntoState(result.syncedPatients);
+        }
+        return true;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[saveSinglePatientPayloadToCloud] שגיאה לא צפויה', msg, e);
+        return false;
+      }
+    },
+    [
+      isAuthenticated,
+      isSupabaseConfigured,
+      mergeServerPatientsIntoState,
+      restrictPatientSessionId,
+      supabase,
+    ]
   );
 
   const saveExercisePlanForPatientToCloud = useCallback(
@@ -1686,7 +1748,6 @@ export function PatientProvider({
   const updatePatient = useCallback(
     (patientId: string, patch: Partial<Omit<Patient, 'id' | 'therapistId'>>) => {
       setAllPatients((prev) => {
-        if (!canPilot11DebugMutatePatient(prev, patientId)) return prev;
         return prev.map((p) => {
           if (p.id !== patientId) return p;
           const next = { ...p, ...patch } as Patient;
@@ -2105,6 +2166,7 @@ export function PatientProvider({
         supabaseLastSavedAt,
         unlinkedPortalPatientIds,
         savePersistedStateToCloud,
+        saveSinglePatientPayloadToCloud,
         saveExercisePlanForPatientToCloud,
         knowledgeFacts: gamification.knowledgeFacts,
         addManualKnowledgeFact: gamification.addManualKnowledgeFact,

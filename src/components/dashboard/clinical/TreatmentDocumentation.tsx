@@ -61,7 +61,7 @@ function InsightsSections({ insights }: { insights: TreatmentAiInsights }) {
 }
 
 export default function TreatmentDocumentation({ patient }: Props) {
-  const { updatePatient, savePersistedStateToCloud } = usePatient();
+  const { updatePatient, saveSinglePatientPayloadToCloud } = usePatient();
 
   const [draftNote, setDraftNote] = useState('');
   const [saveBusy, setSaveBusy] = useState(false);
@@ -98,17 +98,19 @@ export default function TreatmentDocumentation({ patient }: Props) {
         createdAt: new Date().toISOString(),
         text,
       };
-      updatePatient(patient.id, {
+      const patch = {
         clinicalTimeline: [...timeline, entry],
         geminiClinicalNarrative: text,
         diagnosis: deriveDiagnosisHeadline(text) || patient.diagnosis,
-      });
-      await savePersistedStateToCloud();
-      setDraftNote('');
+      };
+      updatePatient(patient.id, patch);
+      const mergedPatient = { ...patient, ...patch };
+      const ok = await saveSinglePatientPayloadToCloud(mergedPatient);
+      if (ok) setDraftNote('');
     } finally {
       setSaveBusy(false);
     }
-  }, [draftNote, patient.id, patient.diagnosis, timeline, updatePatient, savePersistedStateToCloud]);
+  }, [draftNote, patient, timeline, updatePatient, saveSinglePatientPayloadToCloud]);
 
   const runAi = useCallback(async () => {
     if (!getGeminiApiKey()) {
@@ -147,11 +149,14 @@ export default function TreatmentDocumentation({ patient }: Props) {
           text: d,
           aiInsights: aiPending,
         };
-        updatePatient(patient.id, {
+        const patch = {
           clinicalTimeline: [...timeline, entry],
           geminiClinicalNarrative: d,
           diagnosis: deriveDiagnosisHeadline(d) || patient.diagnosis,
-        });
+        };
+        updatePatient(patient.id, patch);
+        const mergedPatient = { ...patient, ...patch };
+        if (!(await saveSinglePatientPayloadToCloud(mergedPatient))) return;
         setDraftNote('');
       } else {
         const next = patchLatestEntryInsights(timeline, aiPending);
@@ -160,8 +165,9 @@ export default function TreatmentDocumentation({ patient }: Props) {
           return;
         }
         updatePatient(patient.id, { clinicalTimeline: next });
+        const mergedPatient = { ...patient, clinicalTimeline: next };
+        if (!(await saveSinglePatientPayloadToCloud(mergedPatient))) return;
       }
-      await savePersistedStateToCloud();
       setAiPending(null);
       setAiModalOpen(false);
     } finally {
@@ -170,11 +176,10 @@ export default function TreatmentDocumentation({ patient }: Props) {
   }, [
     aiPending,
     draftNote,
-    patient.id,
-    patient.diagnosis,
+    patient,
     timeline,
     updatePatient,
-    savePersistedStateToCloud,
+    saveSinglePatientPayloadToCloud,
   ]);
 
   const openAiModal = () => {

@@ -68,6 +68,7 @@ export default function PatientOverview() {
     patients,
     updatePatient,
     savePersistedStateToCloud,
+    saveSinglePatientPayloadToCloud,
     deletePatient,
     isPatientSessionLocked,
     safetyAlerts,
@@ -215,8 +216,10 @@ export default function PatientOverview() {
   const displayName = getPatientDisplayName(p);
 
   const saveDemographics = () => {
-    updatePatient(p.id, { demographicsFreeText: demoFreeText.trim() || undefined });
-    void savePersistedStateToCloud();
+    const trimmed = demoFreeText.trim();
+    const demographicsFreeText = trimmed.length > 0 ? trimmed : undefined;
+    updatePatient(p.id, { demographicsFreeText });
+    void saveSinglePatientPayloadToCloud({ ...p, demographicsFreeText });
     setEditingDemographics(false);
   };
 
@@ -377,7 +380,12 @@ export default function PatientOverview() {
                         id={`demo-free-${p.id}`}
                         type="text"
                         value={demoFreeText}
-                        onChange={(e) => setDemoFreeText(e.target.value)}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDemoFreeText(v);
+                          const next = v.trim().length > 0 ? v : undefined;
+                          updatePatient(p.id, { demographicsFreeText: next });
+                        }}
                         placeholder="מגדר, גיל, עבודה…"
                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold placeholder:text-slate-400"
                       />

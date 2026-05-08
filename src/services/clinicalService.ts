@@ -416,6 +416,30 @@ export async function upsertPatientRecords(
   return { ok: true, syncedPatients };
 }
 
+export type UpsertTreatmentReportOptions = Pick<UpsertPatientRecordsOptions, 'onlyPatientId'> & {
+  now?: string;
+};
+
+/**
+ * Persists treatment documentation and related clinical narrative fields on the patient row
+ * (`patients.payload`, including `clinicalTimeline`). Prefer this after merging new timeline
+ * entries into a {@link Patient} snapshot so the payload matches what the user just saved.
+ */
+export async function upsertTreatmentReport(
+  client: SupabaseClient,
+  patient: Patient,
+  options?: UpsertTreatmentReportOptions
+): Promise<ClinicalPushResult> {
+  const now = options?.now ?? new Date().toISOString();
+  const onlyPatientId = options?.onlyPatientId?.trim();
+  return upsertPatientRecords(
+    client,
+    [patient],
+    now,
+    onlyPatientId ? { onlyPatientId } : undefined
+  );
+}
+
 /**
  * Returns the IDs of patient rows that have a `portalUsername` in their payload
  * but no `auth_user_id` set — i.e. the portal account was created but the patient
@@ -571,8 +595,9 @@ type InsertActivePlanVersionArgs = {
 };
 
 /**
- * Inserts a new active plan row. Clears **all** active rows for the patient first so the
- * partial unique index `exercise_plans_one_active_per_patient` cannot 409; retries on races.
+ * Inserts a new exercise plan row with a **fresh** {@link crypto.randomUUID} on each attempt.
+ * Clears active rows for the patient first so at most one `is_active=true` plan remains app-wide;
+ * retries on primary-key / unique violations (e.g. duplicate `id`) or transient conflicts.
  */
 async function insertNewActiveExercisePlanVersion(
   client: SupabaseClient,
