@@ -639,11 +639,16 @@ export async function upsertExercisePlans(
 
       if (exercisesJsonEqual(row.exercises, exercises)) {
         const touchPayload = { updated_at: now };
-        console.log('[upsertExercisePlans] touch updated_at (no content change)', {
-          payload: touchPayload,
+        console.log('[upsertExercisePlans] ✓ no content change — touching updated_at only', {
           row_id: row.id,
           patient_id: patientId,
           auth_uid: authUid,
+          db_exercise_count: Array.isArray(row.exercises) ? (row.exercises as unknown[]).length : '?',
+          incoming_exercise_count: exercises.length,
+          db_canonical_sample: JSON.stringify(canonicalise(
+            Array.isArray(row.exercises) ? (row.exercises as unknown[])[0] : null
+          )),
+          incoming_canonical_sample: JSON.stringify(canonicalise(exercises[0] ?? null)),
         });
         const { data: touchData, error: touchErr } = await client
           .from('exercise_plans')
