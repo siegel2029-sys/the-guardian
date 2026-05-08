@@ -756,6 +756,8 @@ export function PatientProvider({
     if (!restrictPatientSessionId) return;
     if (authLoading || !isAuthenticated) return;
 
+    const supabaseClient = supabase;
+
     console.log('[PatientPortal] מתחיל טעינת נתוני מטופל מ-Supabase', {
       patientId: restrictPatientSessionId,
       isAuthenticated,
@@ -764,10 +766,10 @@ export function PatientProvider({
 
     let cancelled = false;
     void (async () => {
-      const res = await getPatientById(supabase, restrictPatientSessionId);
+      const res = await getPatientById(supabaseClient, restrictPatientSessionId);
 
       if (cancelled) return;
-      if (!res.ok) {
+      if (res.ok === false) {
         console.warn('[PatientPortal] טעינת נתוני מטופל נכשלה', {
           patientId: restrictPatientSessionId,
           reason: res.message,
@@ -782,7 +784,6 @@ export function PatientProvider({
         patientName: fetched.name,
         exercisePlanFound: !!exercisePlan,
         exerciseCount: exercisePlan?.exercises.length ?? 0,
-        fromCache: !!(exercisePlan && !res.exercisePlan),
       });
 
       setAllPatients((prev) => {
@@ -804,13 +805,13 @@ export function PatientProvider({
       // Fetch the global knowledge base so the 💡 "Did you know?" bubble is visible
       // in the patient portal. Supabase-auth sessions start with knowledgeFacts = []
       // because the therapist-scoped localStorage snapshot is not available.
-      const kbRes = await fetchAppKnowledgeBaseFromSupabase(supabase, { approvedOnly: true });
+      const kbRes = await fetchAppKnowledgeBaseFromSupabase(supabaseClient, { approvedOnly: true });
       if (!cancelled) {
         setKnowledgeFacts(kbRes?.items ?? []);
       }
     })();
     return () => { cancelled = true; };
-  }, [restrictPatientSessionId, authLoading, isAuthenticated]);
+  }, [restrictPatientSessionId, authLoading, isAuthenticated, supabase]);
 
   /** Hydrate patient list from Supabase (RLS returns only rows for the signed-in therapist). */
   useEffect(() => {
@@ -820,11 +821,13 @@ export function PatientProvider({
     if (sessionRole !== 'therapist') return;
     if (!isAuthenticated || !therapist?.id) return;
 
+    const supabaseClient = supabase;
+
     let cancelled = false;
     void (async () => {
-      const res = await fetchPatients(supabase);
+      const res = await fetchPatients(supabaseClient);
       if (cancelled) return;
-      if (!res.ok) {
+      if (res.ok === false) {
         if (import.meta.env.DEV) {
           console.warn('[PatientContext] fetchPatients (patients + exercise_plans)', res.message);
         }
@@ -870,6 +873,7 @@ export function PatientProvider({
     isAuthenticated,
     therapist?.id,
     restrictPatientSessionId,
+    supabase,
   ]);
 
   /**
@@ -884,11 +888,13 @@ export function PatientProvider({
     const pid = selectedPatientId.trim();
     if (!pid) return;
 
+    const supabaseClient = supabase;
+
     let cancelled = false;
     void (async () => {
-      const planRes = await fetchActiveExercisePlanForPatient(supabase, pid);
+      const planRes = await fetchActiveExercisePlanForPatient(supabaseClient, pid);
       if (cancelled) return;
-      if (!planRes.ok) {
+      if (planRes.ok === false) {
         console.warn('[PatientContext] exercise plan refresh on patient select:', planRes.message);
         return;
       }
@@ -1059,12 +1065,16 @@ export function PatientProvider({
       exercisePlanChangeSummaryByPatientId?: Record<string, string>;
     }) => {
       if (!supabase) {
+        console.error(
+          '[savePersistedStateToCloud] Supabase client is null — בדקו VITE_SUPABASE_URL ו־VITE_SUPABASE_ANON_KEY והפעילו מחדש את השרת.'
+        );
         setSupabaseSyncError(
           'Supabase לא מוגדר: הוסיפו VITE_SUPABASE_URL ו־VITE_SUPABASE_ANON_KEY לקובץ .env והפעילו מחדש את השרת.'
         );
         setSupabaseSyncStatus('idle');
         return false;
       }
+      const supabaseClient = supabase;
       /** Therapist/patient cloud writes require a real JWT — anon key cannot upsert profiles (400 / RLS). */
       if (isSupabaseConfigured && !isAuthenticated) {
         setSupabaseSyncStatus('idle');
@@ -1113,7 +1123,7 @@ export function PatientProvider({
 
             const summaryMap = mergedExtra?.exercisePlanChangeSummaryByPatientId;
             const savePromise = pushPersistedStateToSupabase(
-              supabase,
+              supabaseClient,
               buildPersistSnapshot(),
               {
                 ...supabasePushOptions,
@@ -1129,7 +1139,7 @@ export function PatientProvider({
               const result = await savePromise;
               cloudSaveMutexRef.current = null;
               outcome = result.ok;
-              if (result.ok) {
+              if (result.ok === true) {
                 setSupabaseSyncStatus('saved');
                 setSupabaseLastSavedAt(new Date().toISOString());
               } else {
@@ -1166,11 +1176,12 @@ export function PatientProvider({
       if (!supabase) {
         const msg =
           'Supabase לא מוגדר: הוסיפו VITE_SUPABASE_URL ו־VITE_SUPABASE_ANON_KEY לקובץ .env והפעילו מחדש את השרת.';
-        setSupabaseSyncError(msg);
         console.error('[Exercise cloud save]', msg);
+        setSupabaseSyncError(msg);
         setSupabaseSyncStatus('idle');
         return fail(msg);
       }
+      const supabaseClient = supabase;
       if (!isSupabaseConfigured || !isAuthenticated) {
         setSupabaseSyncStatus('idle');
         const msg =
@@ -1222,8 +1233,8 @@ export function PatientProvider({
         const patientForSync = allPatientsRef.current.find((p) => p.id === patientId);
         if (patientForSync) {
           const now = new Date().toISOString();
-          const patientSyncResult = await upsertPatientRecords(supabase, [patientForSync], now);
-          if (!patientSyncResult.ok) {
+          const patientSyncResult = await upsertPatientRecords(supabaseClient, [patientForSync], now);
+          if (patientSyncResult.ok === false) {
             console.warn(
               '[Exercise cloud save] אזהרה: סנכרון שורת המטופל נכשל (ממשיך לנסות לשמור את התוכנית)',
               { patientId, reason: patientSyncResult.message }
@@ -1237,10 +1248,10 @@ export function PatientProvider({
           });
         }
 
-        const upd = await updatePatientExercises(supabase, patientId, exercises, undefined, {
+        const upd = await updatePatientExercises(supabaseClient, patientId, exercises, undefined, {
           changeSummary: options?.changeSummary,
         });
-        if (!upd.ok) {
+        if (upd.ok === false) {
           failureMessage = upd.message;
           console.error('[Exercise cloud save] נכשל:', upd.message, { patientId });
           return false;
@@ -1258,16 +1269,16 @@ export function PatientProvider({
           setAllPatients((prev) =>
             prev.map((p) => (p.id === patientId ? patientWithCache : p))
           );
-          const cacheResult = await upsertPatientRecords(supabase, [patientWithCache], now);
-          if (!cacheResult.ok) {
+          const cacheResult = await upsertPatientRecords(supabaseClient, [patientWithCache], now);
+          if (cacheResult.ok === false) {
             console.warn('[Exercise cloud save] עדכון _exercisePlanCache ב-patients נכשל (לא קריטי):', cacheResult.message, { patientId });
           } else {
             console.log('[Exercise cloud save] _exercisePlanCache עודכן ב-patients.payload', { patientId, exerciseCount: exercises.length });
           }
         }
 
-        const fresh = await fetchActiveExercisePlanForPatient(supabase, patientId);
-        if (!fresh.ok) {
+        const fresh = await fetchActiveExercisePlanForPatient(supabaseClient, patientId);
+        if (fresh.ok === false) {
           console.warn('[Exercise cloud save] עדכון הצליח אך רענון נכשל:', fresh.message, {
             patientId,
           });
@@ -1877,14 +1888,16 @@ export function PatientProvider({
 
   const deletePatient = useCallback(
     async (patientId: string): Promise<{ ok: true } | { ok: false; message: string }> => {
-      const syncRemote =
-        isSupabaseConfigured && supabase != null && isSupabaseAuthEnabled();
-      if (syncRemote) {
-        if (!supabase) {
+      if (isSupabaseConfigured && isSupabaseAuthEnabled()) {
+        const client = supabase;
+        if (!client) {
+          console.error('[deletePatient] Supabase client is null — לא ניתן למחוק שורה מרחוק', {
+            patientId,
+          });
           return { ok: false, message: 'Supabase client לא זמין למחיקה מרחוק.' };
         }
-        const remote = await deletePatientRowFromSupabase(supabase, patientId);
-        if (!remote.ok) {
+        const remote = await deletePatientRowFromSupabase(client, patientId);
+        if (remote.ok === false) {
           console.error('[deletePatient] Remote delete failed:', remote.message, { patientId });
           return { ok: false, message: remote.message };
         }
