@@ -822,14 +822,36 @@ export function PatientProvider({
         exerciseCount: exercisePlan?.exercises.length ?? 0,
       });
 
+      const clinicalDayForMerge = getClinicalDate();
+      let mergedForCloud: Patient | null = null;
       setAllPatients((prev) => {
         const ix = prev.findIndex((p) => p.id === fetched.id);
-        if (ix < 0) return [...prev, fetched];
+        if (ix < 0) {
+          mergedForCloud = mergePatientPayloadForUpsert(undefined, fetched, {
+            clinicalToday: clinicalDayForMerge,
+          });
+          return [...prev, mergedForCloud];
+        }
         const next = [...prev];
         const localSlice = prev[ix];
-        next[ix] = mergePatientPayloadForUpsert(fetched, localSlice);
+        mergedForCloud = mergePatientPayloadForUpsert(fetched, localSlice, {
+          clinicalToday: clinicalDayForMerge,
+        });
+        next[ix] = mergedForCloud;
         return next;
       });
+
+      if (!cancelled && mergedForCloud) {
+        const syncRes = await upsertPatientRecords(
+          supabaseClient,
+          [mergedForCloud],
+          new Date().toISOString(),
+          { onlyPatientId: restrictPatientSessionId }
+        );
+        if (syncRes.ok === false && import.meta.env.DEV) {
+          console.warn('[PatientPortal] אחרי מיזוג מקומי+שרת — upsertPatientRecords נכשל', syncRes.message);
+        }
+      }
 
       const pid = fetched.id;
       setExercisePlans((prev) => {
@@ -896,9 +918,36 @@ export function PatientProvider({
         return;
       }
 
-      setAllPatients(
-        normalizePatientsTherapistIds(list, { fallbackTherapistId: therapist.id })
-      );
+      const clinicalDayForMerge = getClinicalDate();
+      let mergedPatientsForCloud: Patient[] = [];
+      setAllPatients((prev) => {
+        const normalizedServer = normalizePatientsTherapistIds(list, {
+          fallbackTherapistId: therapist.id,
+        });
+        const localById = new Map(prev.map((p) => [p.id, p]));
+        const mergedFromServer = normalizedServer.map((serverP) => {
+          const local = localById.get(serverP.id);
+          return local
+            ? mergePatientPayloadForUpsert(serverP, local, { clinicalToday: clinicalDayForMerge })
+            : mergePatientPayloadForUpsert(undefined, serverP, { clinicalToday: clinicalDayForMerge });
+        });
+        const serverIds = new Set(mergedFromServer.map((p) => p.id));
+        const localOnly = prev.filter((p) => !serverIds.has(p.id));
+        mergedPatientsForCloud = [...mergedFromServer, ...localOnly];
+        return mergedPatientsForCloud;
+      });
+
+      if (!cancelled && mergedPatientsForCloud.length > 0) {
+        const syncRes = await upsertPatientRecords(
+          supabaseClient,
+          mergedPatientsForCloud,
+          new Date().toISOString()
+        );
+        if (syncRes.ok === false && import.meta.env.DEV) {
+          console.warn('[PatientContext] אחרי מיזוג טעינת מטפל — upsertPatientRecords נכשל', syncRes.message);
+        }
+      }
+
       setExercisePlans(res.exercisePlans);
 
       // After loading patients, check which portal accounts are still unlinked

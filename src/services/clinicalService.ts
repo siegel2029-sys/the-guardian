@@ -1,6 +1,7 @@
 import type { PostgrestError, SupabaseClient, User } from '@supabase/supabase-js';
 import type {
   BodyArea,
+  DailyHistoryEntry,
   ExercisePlan,
   ExerciseSession,
   PainRecord,
@@ -8,6 +9,7 @@ import type {
   PatientExercise,
   Therapist,
 } from '../types';
+import { computeStreakForPatient } from '../utils/exerciseStreak';
 import {
   isSupabaseAuthEnabled,
   normalizePortalUsername,
@@ -93,6 +95,22 @@ function mergePainHistoryUnique(a: PainRecord[], b: PainRecord[]): PainRecord[] 
   return [...map.values()].sort((x, y) => x.date.localeCompare(y.date));
 }
 
+/** Minimal day map from merged session rows — for recomputing streak after fetch merge. */
+function dayMapFromExerciseSessions(sessions: ExerciseSession[]): Record<string, DailyHistoryEntry> {
+  const out: Record<string, DailyHistoryEntry> = {};
+  for (const s of sessions) {
+    out[s.date] = {
+      clinicalDate: s.date,
+      exercisesPlanned: s.totalExercises,
+      exercisesCompleted: s.exercisesCompleted,
+      completedExerciseIds: [],
+      xpEarned: s.xpEarned,
+      status: s.exercisesCompleted > 0 ? 'gold' : 'empty',
+    };
+  }
+  return out;
+}
+
 function recomputePainAverages(painHistory: PainRecord[]): {
   averageOverallPain: number;
   painByArea: Partial<Record<BodyArea, number>>;
@@ -120,21 +138,37 @@ function recomputePainAverages(painHistory: PainRecord[]): {
   return { averageOverallPain, painByArea: byArea };
 }
 
+export type MergePatientPayloadOptions = {
+  /**
+   * When set, `currentStreak` is derived from the merged `sessionHistory` (union of server + local),
+   * so one side cannot replace the other's streak counter without merging activity first.
+   */
+  clinicalToday?: string;
+};
+
 /**
  * Fetch-merge-save safe: combines server (`existing`) and client (`incoming`) so cumulative
  * gamification cannot be wiped by a stale client payload (e.g. empty XP after reload).
- * Demographics / clinical fields follow `incoming`; XP, coins, streaks, and analytics
- * history use conservative max/union merges.
+ * Demographics / clinical fields follow `incoming`; XP and coins use {@link Math.max}; session and
+ * pain histories are merged by date/key; streaks use merged history when `clinicalToday` is passed.
  */
-export function mergePatientPayloadForUpsert(existing: Patient | undefined, incoming: Patient): Patient {
+export function mergePatientPayloadForUpsert(
+  existing: Patient | undefined,
+  incoming: Patient,
+  opts?: MergePatientPayloadOptions
+): Patient {
   if (!existing) {
-    return normalizePatientProgressFields({ ...incoming });
+    let sole = normalizePatientProgressFields({ ...incoming });
+    if (opts?.clinicalToday) {
+      const dm = dayMapFromExerciseSessions(sole.analytics?.sessionHistory ?? []);
+      sole.currentStreak = computeStreakForPatient(sole, dm, opts.clinicalToday);
+      sole.longestStreak = Math.max(sole.longestStreak ?? 0, sole.currentStreak);
+    }
+    return sole;
   }
   const maxLife = Math.max(lifetimeXpFromPatient(existing), lifetimeXpFromPatient(incoming));
   let merged = patientWithLifetimeXp({ ...incoming }, maxLife);
   merged.coins = Math.max(existing.coins ?? 0, incoming.coins ?? 0);
-  merged.currentStreak = Math.max(existing.currentStreak ?? 0, incoming.currentStreak ?? 0);
-  merged.longestStreak = Math.max(existing.longestStreak ?? 0, incoming.longestStreak ?? 0);
   merged.lastSessionDate =
     (existing.lastSessionDate ?? '').localeCompare(incoming.lastSessionDate ?? '') > 0
       ? existing.lastSessionDate
@@ -168,6 +202,20 @@ export function mergePatientPayloadForUpsert(existing: Patient | undefined, inco
       incoming.analytics?.totalSessions ?? 0
     ),
   };
+
+  if (opts?.clinicalToday) {
+    const dm = dayMapFromExerciseSessions(sessionHistory);
+    const fromMergedHistory = computeStreakForPatient(merged, dm, opts.clinicalToday);
+    merged.currentStreak = fromMergedHistory;
+    merged.longestStreak = Math.max(
+      existing.longestStreak ?? 0,
+      incoming.longestStreak ?? 0,
+      fromMergedHistory
+    );
+  } else {
+    merged.currentStreak = Math.max(existing.currentStreak ?? 0, incoming.currentStreak ?? 0);
+    merged.longestStreak = Math.max(existing.longestStreak ?? 0, incoming.longestStreak ?? 0);
+  }
 
   return normalizePatientProgressFields(merged);
 }
