@@ -1,9 +1,15 @@
 import type { PatientExerciseFinishReport } from '../types';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { persistPatientFinishReportToCloud } from '../services/exerciseService';
 
 /**
- * Placeholder for syncing finish reports to the therapist dashboard / analytics API.
- * Replace the body with a real fetch when the backend is ready.
+ * מדביר דיווח סיום תרגיל ל־`session_history` (שילוב ב־payload של אותו יום קליני).
+ * נכשל בשקט אם Supabase לא מוגדר — במצב דמו מקומי בלבד.
  */
-export function sendDataToTherapist(report: PatientExerciseFinishReport): void {
-  console.info('[sendDataToTherapist]', report);
+export async function sendDataToTherapist(report: PatientExerciseFinishReport): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) return;
+  const res = await persistPatientFinishReportToCloud(supabase, report);
+  if (!res.ok) {
+    console.warn('[sendDataToTherapist] session_history', res.message);
+  }
 }

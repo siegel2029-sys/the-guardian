@@ -1,6 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { DailySession, ExercisePlanHistoryEntry, PatientExercise } from '../types';
-import { addClinicalDays } from '../utils/clinicalCalendar';
+import type {
+  DailySession,
+  ExercisePlanHistoryEntry,
+  PatientExercise,
+  PatientExerciseFinishReport,
+} from '../types';
+import { addClinicalDays, getClinicalDate } from '../utils/clinicalCalendar';
 import { clinicalPushFail, type ClinicalPushResult } from './clinicalService';
 
 export type ExercisePushResult = ClinicalPushResult;
@@ -87,6 +92,193 @@ export async function fetchRecentSessionHistoryForPatient(
     }
   }
   return out;
+}
+
+async function selectPatientTherapistId(
+  client: SupabaseClient,
+  patientId: string
+): Promise<string | null> {
+  const { data, error } = await client
+    .from('patients')
+    .select('therapist_id')
+    .eq('id', patientId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const tid = (data as { therapist_id?: string }).therapist_id?.trim();
+  return tid && tid.length > 0 ? tid : null;
+}
+
+function mergeFinishReportsPayload(
+  a?: PatientExerciseFinishReport[],
+  b?: PatientExerciseFinishReport[]
+): PatientExerciseFinishReport[] | undefined {
+  const map = new Map<string, PatientExerciseFinishReport>();
+  for (const r of [...(a ?? []), ...(b ?? [])]) {
+    map.set(r.id, r);
+  }
+  const out = [...map.values()];
+  return out.length > 0 ? out : undefined;
+}
+
+function mergeDailySessionPayloadWithExisting(
+  prev: DailySession | undefined,
+  incoming: DailySession
+): DailySession {
+  if (!prev) {
+    return {
+      ...incoming,
+      patientId: incoming.patientId,
+      finishReports: incoming.finishReports?.length ? incoming.finishReports : undefined,
+    };
+  }
+  const ids = new Set<string>([...(prev.completedIds ?? []), ...(incoming.completedIds ?? [])]);
+  const finishMerged = mergeFinishReportsPayload(prev.finishReports, incoming.finishReports);
+  return {
+    patientId: incoming.patientId,
+    date: incoming.date,
+    completedIds: [...ids],
+    sessionXp: Math.max(prev.sessionXp ?? 0, incoming.sessionXp ?? 0),
+    goldDisqualified: prev.goldDisqualified === true && incoming.goldDisqualified === true,
+    ...(finishMerged ? { finishReports: finishMerged } : {}),
+  };
+}
+
+/**
+ * Read–merge–write for one clinical day — reduces lost updates vs blind overwrite when
+ * the patient and therapist both touch `session_history`.
+ */
+export async function upsertDailySessionRowMerged(
+  client: SupabaseClient,
+  session: DailySession,
+  options?: { therapistId?: string | null }
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  let therapistId = options?.therapistId?.trim() ?? '';
+  if (!therapistId) {
+    const fromRow = await selectPatientTherapistId(client, session.patientId);
+    therapistId = fromRow ?? '';
+  }
+
+  const { data: existing, error: readErr } = await client
+    .from('session_history')
+    .select('payload')
+    .eq('patient_id', session.patientId)
+    .eq('session_date', session.date)
+    .maybeSingle();
+
+  if (readErr) {
+    return { ok: false, message: readErr.message };
+  }
+
+  const prevPayload =
+    existing?.payload && typeof existing.payload === 'object'
+      ? (existing.payload as DailySession)
+      : undefined;
+  const merged = mergeDailySessionPayloadWithExisting(prevPayload, {
+    ...session,
+    patientId: session.patientId,
+  });
+
+  const nowIso = new Date().toISOString();
+  const row: Record<string, unknown> = {
+    patient_id: session.patientId,
+    session_date: session.date,
+    payload: merged,
+    updated_at: nowIso,
+  };
+  if (therapistId) row.therapist_id = therapistId;
+
+  const { error } = await client
+    .from('session_history')
+    .upsert(row, { onConflict: 'patient_id,session_date' });
+
+  if (error) return { ok: false, message: error.message };
+  return { ok: true };
+}
+
+export async function persistPatientFinishReportToCloud(
+  client: SupabaseClient,
+  report: PatientExerciseFinishReport
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const clinicalDay = getClinicalDate(new Date(report.timestamp));
+  return upsertDailySessionRowMerged(client, {
+    patientId: report.patientId,
+    date: clinicalDay,
+    completedIds: [report.exerciseId],
+    sessionXp: 0,
+    finishReports: [report],
+  });
+}
+
+/** סשנים יומיים בטווח תאריכים קליניים (כולל הקצוות). */
+export async function fetchSessionHistoryBetween(
+  client: SupabaseClient,
+  patientId: string,
+  startDateYmd: string,
+  endDateYmd: string
+): Promise<DailySession[] | null> {
+  const { data, error } = await client
+    .from('session_history')
+    .select('session_date, payload')
+    .eq('patient_id', patientId)
+    .gte('session_date', startDateYmd)
+    .lte('session_date', endDateYmd)
+    .order('session_date', { ascending: true });
+
+  if (error) return null;
+
+  const out: DailySession[] = [];
+  for (const row of data ?? []) {
+    const sessionDate = (row as { session_date: string }).session_date;
+    const payload = (row as { payload: unknown }).payload as DailySession | null;
+    if (payload && typeof payload === 'object' && typeof payload.date === 'string') {
+      out.push({ ...payload, patientId });
+    } else {
+      out.push({ patientId, date: sessionDate, completedIds: [], sessionXp: 0 });
+    }
+  }
+  return out;
+}
+
+/** מיזוג סשנים מקומיים עם שורות שהגיעו מהשרת (דשבורד מטפל אחרי טעינה). */
+export function mergeDailySessionsWithServerForPatient(
+  prev: DailySession[],
+  patientId: string,
+  serverRows: DailySession[]
+): DailySession[] {
+  const others = prev.filter((s) => s.patientId !== patientId);
+  const localForPatient = prev.filter((s) => s.patientId === patientId);
+  const byDate = new Map<string, DailySession>();
+  for (const s of serverRows) {
+    byDate.set(s.date, {
+      ...s,
+      patientId,
+      finishReports: s.finishReports?.length ? [...s.finishReports] : undefined,
+    });
+  }
+  for (const s of localForPatient) {
+    const ex = byDate.get(s.date);
+    if (!ex) {
+      byDate.set(s.date, s);
+      continue;
+    }
+    const merged = mergeDailySessionPayloadWithExisting(ex, s);
+    byDate.set(s.date, merged);
+  }
+  return [...others, ...byDate.values()];
+}
+
+export function aggregateFinishReportsFromSessionRows(
+  rows: DailySession[]
+): PatientExerciseFinishReport[] {
+  const out: PatientExerciseFinishReport[] = [];
+  for (const s of rows) {
+    if (Array.isArray(s.finishReports)) out.push(...s.finishReports);
+  }
+  const byId = new Map<string, PatientExerciseFinishReport>();
+  for (const r of out) {
+    byId.set(r.id, r);
+  }
+  return [...byId.values()].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 }
 
 export async function fetchExercisePlanVersionsForPatient(

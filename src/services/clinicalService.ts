@@ -1,10 +1,23 @@
 import type { PostgrestError, SupabaseClient, User } from '@supabase/supabase-js';
-import type { ExercisePlan, Patient, PatientExercise, Therapist } from '../types';
+import type {
+  BodyArea,
+  ExercisePlan,
+  ExerciseSession,
+  PainRecord,
+  Patient,
+  PatientExercise,
+  Therapist,
+} from '../types';
 import {
   isSupabaseAuthEnabled,
   normalizePortalUsername,
   portalUsernameToAuthEmail,
 } from '../lib/patientPortalAuth';
+import {
+  lifetimeXpFromPatient,
+  normalizePatientProgressFields,
+  patientWithLifetimeXp,
+} from '../body/patientLevelXp';
 
 /**
  * בסיס ידע גלובלי («הידעת?») — לא נמשך כאן בשאילתות קליניות.
@@ -43,6 +56,116 @@ function shallowStripUndefined(row: Record<string, unknown>): Record<string, unk
     if (out[k] === undefined) delete out[k];
   }
   return out;
+}
+
+function mergeSessionHistoryByDate(a: ExerciseSession[], b: ExerciseSession[]): ExerciseSession[] {
+  const map = new Map<string, ExerciseSession>();
+  for (const s of [...a, ...b]) {
+    const cur = map.get(s.date);
+    if (!cur) {
+      map.set(s.date, { ...s });
+      continue;
+    }
+    map.set(s.date, {
+      date: s.date,
+      exercisesCompleted: Math.max(cur.exercisesCompleted, s.exercisesCompleted),
+      totalExercises: Math.max(cur.totalExercises, s.totalExercises),
+      difficultyRating: Math.max(cur.difficultyRating, s.difficultyRating),
+      xpEarned: Math.max(cur.xpEarned, s.xpEarned),
+    });
+  }
+  return [...map.values()].sort((x, y) => x.date.localeCompare(y.date));
+}
+
+function painRecordKey(r: PainRecord): string {
+  return `${r.date}|${r.bodyArea}|${r.painLevel}`;
+}
+
+function mergePainHistoryUnique(a: PainRecord[], b: PainRecord[]): PainRecord[] {
+  const map = new Map<string, PainRecord>();
+  for (const r of [...a, ...b]) {
+    map.set(painRecordKey(r), r);
+  }
+  return [...map.values()].sort((x, y) => x.date.localeCompare(y.date));
+}
+
+function recomputePainAverages(painHistory: PainRecord[]): {
+  averageOverallPain: number;
+  painByArea: Partial<Record<BodyArea, number>>;
+} {
+  if (painHistory.length === 0) {
+    return { averageOverallPain: 0, painByArea: {} };
+  }
+  const averageOverallPain =
+    Math.round(
+      (painHistory.reduce((sum, r) => sum + r.painLevel, 0) / painHistory.length) * 10
+    ) / 10;
+  const byArea: Partial<Record<BodyArea, number>> = {};
+  const buckets: Partial<Record<BodyArea, { sumw: number; w: number }>> = {};
+  for (const r of painHistory) {
+    const cur = buckets[r.bodyArea] ?? { sumw: 0, w: 0 };
+    cur.sumw += r.painLevel;
+    cur.w += 1;
+    buckets[r.bodyArea] = cur;
+  }
+  for (const [area, v] of Object.entries(buckets)) {
+    if (v && v.w > 0) {
+      byArea[area as BodyArea] = Math.round((v.sumw / v.w) * 10) / 10;
+    }
+  }
+  return { averageOverallPain, painByArea: byArea };
+}
+
+/**
+ * Fetch-merge-save safe: combines server (`existing`) and client (`incoming`) so cumulative
+ * gamification cannot be wiped by a stale client payload (e.g. empty XP after reload).
+ * Demographics / clinical fields follow `incoming`; XP, coins, streaks, and analytics
+ * history use conservative max/union merges.
+ */
+export function mergePatientPayloadForUpsert(existing: Patient | undefined, incoming: Patient): Patient {
+  if (!existing) {
+    return normalizePatientProgressFields({ ...incoming });
+  }
+  const maxLife = Math.max(lifetimeXpFromPatient(existing), lifetimeXpFromPatient(incoming));
+  let merged = patientWithLifetimeXp({ ...incoming }, maxLife);
+  merged.coins = Math.max(existing.coins ?? 0, incoming.coins ?? 0);
+  merged.currentStreak = Math.max(existing.currentStreak ?? 0, incoming.currentStreak ?? 0);
+  merged.longestStreak = Math.max(existing.longestStreak ?? 0, incoming.longestStreak ?? 0);
+  merged.lastSessionDate =
+    (existing.lastSessionDate ?? '').localeCompare(incoming.lastSessionDate ?? '') > 0
+      ? existing.lastSessionDate
+      : incoming.lastSessionDate;
+  merged.pendingMessages = Math.max(existing.pendingMessages ?? 0, incoming.pendingMessages ?? 0);
+
+  const sessionHistory = mergeSessionHistoryByDate(
+    existing.analytics?.sessionHistory ?? [],
+    incoming.analytics?.sessionHistory ?? []
+  );
+  const painHistory = mergePainHistoryUnique(
+    existing.analytics?.painHistory ?? [],
+    incoming.analytics?.painHistory ?? []
+  );
+  const { averageOverallPain, painByArea } = recomputePainAverages(painHistory);
+  const sessionDiffAvg =
+    sessionHistory.length === 0
+      ? incoming.analytics.averageDifficulty
+      : sessionHistory.reduce((sum, s) => sum + s.difficultyRating, 0) / sessionHistory.length;
+
+  merged.analytics = {
+    ...incoming.analytics,
+    sessionHistory,
+    painHistory,
+    averageOverallPain,
+    painByArea,
+    averageDifficulty: Math.round(sessionDiffAvg * 10) / 10,
+    totalSessions: Math.max(
+      sessionHistory.length,
+      existing.analytics?.totalSessions ?? 0,
+      incoming.analytics?.totalSessions ?? 0
+    ),
+  };
+
+  return normalizePatientProgressFields(merged);
 }
 
 function consoleTableBeforePatientsUpsert(row: Record<string, unknown>, label: string) {
@@ -305,16 +428,19 @@ export async function upsertPatientRecords(
         ? String(payloadForRow.primaryBodyArea)
         : null;
 
-    const firstName = (payloadForRow.name ?? '').trim();
-    const payloadForUpsert: Patient = {
+    const payloadDraft: Patient = {
       ...payloadForRow,
       therapistId: therapistIdForRow,
-      name: firstName || payloadForRow.name,
+      name: (payloadForRow.name ?? '').trim() || payloadForRow.name,
       demographicsFreeText: demoFree.length > 0 ? demoFree : undefined,
       occupation: occupationSql ?? undefined,
       birthDate: birthDateSql ?? undefined,
       primaryBodyArea: payloadForRow.primaryBodyArea,
     };
+
+    /** Merge with DB row so stale clients cannot zero out XP/coins (see {@link mergePatientPayloadForUpsert}). */
+    const payloadForUpsert = mergePatientPayloadForUpsert(oldPayload, payloadDraft);
+    const firstName = (payloadForUpsert.name ?? '').trim();
 
     const baseRow: Record<string, unknown> = {
       id: payloadForUpsert.id,

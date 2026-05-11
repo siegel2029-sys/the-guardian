@@ -1,4 +1,77 @@
-# Application Status Report — PHYSIOSHIELD
+# PROJECT STATUS REPORT: PHYSIO-SHIELD (May 2026)
+
+## 1. Core Identity & Context
+
+- **Project name:** Physio-Shield.
+- **Lead developer:** Nadav (Professional Physiotherapist).
+- **Mission:** Gamifying home-based physical therapy with 3D visualization and AI-driven insights.
+- **Tech stack:** React (Frontend), Supabase (Backend/Auth/DB), WebGL (BodyMap 3D), Cursor AI.
+
+---
+
+## 2. Supabase Database Blueprint (Source of Truth)
+
+**MUST FOLLOW THIS SCHEMA. Do not hallucinate columns.**
+
+### 2.1 Table: `patients`
+
+**Purpose:** Primary clinical and demographic data.
+
+**Key columns:**
+
+- `id` (UUID/Text): Primary Key.
+- `therapist_id` (UUID): Links to the therapist's `auth.uid()`.
+- `first_name` (Text).
+- `active_area` (Text): e.g., `knee_left`, `shoulder_right`.
+- `demographics_free_text` (Text): Free-form clinical history.
+- `payload` (JSONB): Mirror of all fields + extra UI state for redundancy.
+
+**RLS:** Enabled. Policies must allow `therapist_id = auth.uid()`.
+
+### 2.2 Table: `exercise_plans`
+
+**Purpose:** Patient exercise prescriptions and versions.
+
+**Critical constraint:** **NO UNIQUE CONSTRAINT** on `patient_id`. This allows multiple versions (history) for a single patient.
+
+**Columns:** `id` (UUID), `patient_id`, `exercises` (JSONB), `is_active` (Bool), `version_number` (Int).
+
+### 2.3 Table: `treatment_reports` (Optional/Internal)
+
+**Status:** Currently being merged into `patients.payload` for high-speed syncing, but schema exists for standalone scaling if needed.
+
+---
+
+## 3. Data Integrity & Sync "Laws"
+
+AI must adhere to these rules to prevent regressions:
+
+- **Snake case persistence:** All DB columns are snake_case. All React state is camelCase. The service layer handles the mapping.
+- **Flat + mirror strategy:** Clinical fields (like `active_area`) must be saved both as flat SQL columns **and** inside the payload JSONB blob.
+- **Optimistic state merge:** After a successful upsert, the app must merge the server response into local state:  
+  `setPatients(prev => prev.map(p => p.id === serverData.id ? { ...p, ...serverData } : p))`.
+- **No guard blocks:** Never use debug guards (like pilot11 checks) to block data mutations in production.
+- **Fresh UUIDs:** For `exercise_plans`, always generate a new `crypto.randomUUID()` for new versions to avoid 409 conflicts.
+
+---
+
+## 4. Feature Status
+
+- **3D BodyMap:** Fully integrated with `active_area` persistence.
+- **Mascot (Gordy):** Visual state tied to patient progress.
+- **Demographics:** Bi-directional sync between UI and SQL is active.
+- **Treatment Reports:** Logic for merging SOAP notes into the patient timeline is operational.
+
+---
+
+## 5. Deployment & Maintenance
+
+- **SQL migration:** Any new column must be added via Supabase SQL Editor with an `IF NOT EXISTS` clause.
+- **Environment:** `.env` manages `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+
+---
+
+## Legacy appendix: Application Status Report — PHYSIOSHIELD
 
 **Report type:** Codebase audit (static analysis, April 2026)  
 **Scope:** Repository as of audit date  
@@ -15,7 +88,7 @@ PHYSIOSHIELD is a **Hebrew-first, RTL** single-page application built with **Rea
 
 ---
 
-## 2. Clinical, Avatar, Companion & Security Specifications
+## Appendix A — Clinical, Avatar, Companion & Security Specifications
 
 The subsections below record **agreed clinical and product logic** for ongoing implementation. Where behavior is not yet fully reflected in code, the **Master Requirements Matrix** and **implementation notes** in each subsection remain the source of truth for delivery status.
 

@@ -23,7 +23,6 @@ import { bodyAreaLabels } from '../types';
 import { EXERCISE_LIBRARY } from '../data/mockData';
 import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../data/exerciseVideoDefaults';
 import { addClinicalDays, getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
-import { sendDataToTherapist } from '../utils/therapistAnalytics';
 import { getTherapistAlertEmail, openClinicalMailto } from '../utils/clinicalAlertEmail';
 import {
   PAIN_SURGE_PATIENT_COPY,
@@ -46,6 +45,10 @@ import {
   isValidPortalUsername,
 } from '../lib/patientPortalAuth';
 import { upsertPatientRecords } from '../services/clinicalService';
+import {
+  upsertDailySessionRowMerged,
+  persistPatientFinishReportToCloud,
+} from '../services/exerciseService';
 import { defaultPatientGear, type PatientGearState } from '../context/patientGearUtils';
 import { buildEmptySession, clampPain, clampEffort } from '../context/patientDomainHelpers';
 import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
@@ -105,6 +108,11 @@ export type UseExercisePlanParams = {
   /** When set (patient portal), rehab completions call `complete_exercise_safe` instead of updating `exercise_plans` directly. */
   supabaseClient: SupabaseClient | null;
   patientPortalPatientId: string | null;
+  /** Persist patient payload after exercise (portal). */
+  persistPatientPayloadToCloud?: (patient: Patient) => Promise<boolean>;
+  onExerciseCloudSyncError?: (message: string) => void;
+  getLatestPatient?: (patientId: string) => Patient | undefined;
+  getLatestDailySession?: (patientId: string, date: string) => DailySession | undefined;
 };
 
 function randomPatientPassword(): string {
@@ -149,6 +157,10 @@ export function useExercisePlan(params: UseExercisePlanParams) {
     setActiveSection,
     supabaseClient,
     patientPortalPatientId,
+    persistPatientPayloadToCloud,
+    onExerciseCloudSyncError,
+    getLatestPatient,
+    getLatestDailySession,
   } = params;
   // ── Exercise plan CRUD ─────────────────────────────────────────
   const getExercisePlan = useCallback(
@@ -373,123 +385,123 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               : s
           );
         });
-      });
 
-      setAllPatients((prev) =>
-        prev.map((p) => {
-          if (p.id !== patientId) return p;
+        setAllPatients((prev) =>
+          prev.map((p) => {
+            if (p.id !== patientId) return p;
 
-          // Clinical safety: red flag on elevated pain or reported exertion
-          const triggersClinicalAlert = pain >= 6 || effort >= 4;
-          const alertReasons: string[] = [];
-          if (pain >= 6) alertReasons.push(`כאב ${pain}/10`);
-          if (effort >= 4) alertReasons.push(`קושי ${effort}/5`);
+            // Clinical safety: red flag on elevated pain or reported exertion
+            const triggersClinicalAlert = pain >= 6 || effort >= 4;
+            const alertReasons: string[] = [];
+            if (pain >= 6) alertReasons.push(`כאב ${pain}/10`);
+            if (effort >= 4) alertReasons.push(`קושי ${effort}/5`);
 
-          const painRecord = {
-            date: clinicalDay,
-            painLevel: pain,
-            bodyArea: p.primaryBodyArea,
-            ...(alertReasons.length > 0
-              ? { notes: `התראת בטיחות — ${alertReasons.join(' · ')}` }
-              : {}),
-          };
+            const painRecord = {
+              date: clinicalDay,
+              painLevel: pain,
+              bodyArea: p.primaryBodyArea,
+              ...(alertReasons.length > 0
+                ? { notes: `התראת בטיחות — ${alertReasons.join(' · ')}` }
+                : {}),
+            };
 
-          const newPainHistory = options?.skipPainHistory
-            ? p.analytics.painHistory
-            : [...p.analytics.painHistory, painRecord];
-          const averageOverallPain =
-            newPainHistory.length === 0
-              ? p.analytics.averageOverallPain
-              : Math.round(
-                  (newPainHistory.reduce((sum, r) => sum + r.painLevel, 0) / newPainHistory.length) *
-                    10
-                ) / 10;
+            const newPainHistory = options?.skipPainHistory
+              ? p.analytics.painHistory
+              : [...p.analytics.painHistory, painRecord];
+            const averageOverallPain =
+              newPainHistory.length === 0
+                ? p.analytics.averageOverallPain
+                : Math.round(
+                    (newPainHistory.reduce((sum, r) => sum + r.painLevel, 0) / newPainHistory.length) *
+                      10
+                  ) / 10;
 
-          const sh = [...p.analytics.sessionHistory];
-          const todayIdx = sh.findIndex((s) => s.date === clinicalDay);
-          let newSessionHistory: ExerciseSession[];
+            const sh = [...p.analytics.sessionHistory];
+            const todayIdx = sh.findIndex((s) => s.date === clinicalDay);
+            let newSessionHistory: ExerciseSession[];
 
-          const newDaySessionRow = todayIdx === -1;
-          if (newDaySessionRow) {
-            newSessionHistory = [
-              ...sh,
-              {
-                date: clinicalDay,
-                exercisesCompleted: 1,
-                totalExercises: Math.max(1, totalInPlan),
-                difficultyRating: effort,
-                xpEarned: xpGain,
-              },
-            ];
-          } else {
-            const cur = sh[todayIdx];
-            if (!wasRepeatCompletion) {
-              const n = cur.exercisesCompleted + 1;
-              const avgDiff = Math.round(
-                (cur.difficultyRating * cur.exercisesCompleted + effort) / n
-              );
-              newSessionHistory = sh.map((s, i) =>
-                i === todayIdx
-                  ? {
-                      ...s,
-                      exercisesCompleted: n,
-                      totalExercises: Math.max(s.totalExercises, totalInPlan || 1),
-                      difficultyRating: avgDiff,
-                      xpEarned: s.xpEarned + xpGain,
-                    }
-                  : s
-              );
+            const newDaySessionRow = todayIdx === -1;
+            if (newDaySessionRow) {
+              newSessionHistory = [
+                ...sh,
+                {
+                  date: clinicalDay,
+                  exercisesCompleted: 1,
+                  totalExercises: Math.max(1, totalInPlan),
+                  difficultyRating: effort,
+                  xpEarned: xpGain,
+                },
+              ];
             } else {
-              newSessionHistory = sh.map((s, i) =>
-                i === todayIdx
-                  ? {
-                      ...s,
-                      exercisesCompleted: cur.exercisesCompleted,
-                      totalExercises: Math.max(s.totalExercises, totalInPlan || 1),
-                      difficultyRating: Math.round((cur.difficultyRating + effort) / 2),
-                      xpEarned: s.xpEarned + xpGain,
-                    }
-                  : s
-              );
+              const cur = sh[todayIdx];
+              if (!wasRepeatCompletion) {
+                const n = cur.exercisesCompleted + 1;
+                const avgDiff = Math.round(
+                  (cur.difficultyRating * cur.exercisesCompleted + effort) / n
+                );
+                newSessionHistory = sh.map((s, i) =>
+                  i === todayIdx
+                    ? {
+                        ...s,
+                        exercisesCompleted: n,
+                        totalExercises: Math.max(s.totalExercises, totalInPlan || 1),
+                        difficultyRating: avgDiff,
+                        xpEarned: s.xpEarned + xpGain,
+                      }
+                    : s
+                );
+              } else {
+                newSessionHistory = sh.map((s, i) =>
+                  i === todayIdx
+                    ? {
+                        ...s,
+                        exercisesCompleted: cur.exercisesCompleted,
+                        totalExercises: Math.max(s.totalExercises, totalInPlan || 1),
+                        difficultyRating: Math.round((cur.difficultyRating + effort) / 2),
+                        xpEarned: s.xpEarned + xpGain,
+                      }
+                    : s
+                );
+              }
             }
-          }
 
-          const sessionDiffAvg =
-            newSessionHistory.reduce((sum, s) => sum + s.difficultyRating, 0) /
-            newSessionHistory.length;
+            const sessionDiffAvg =
+              newSessionHistory.reduce((sum, s) => sum + s.difficultyRating, 0) /
+              newSessionHistory.length;
 
-          let { longestStreak, lastSessionDate } = p;
-          let currentStreak = p.currentStreak;
-          if (firstOfDay) {
-            currentStreak = nextStreak;
-            longestStreak = Math.max(longestStreak, currentStreak);
-          }
-          lastSessionDate = clinicalDay;
+            let { longestStreak, lastSessionDate } = p;
+            let currentStreak = p.currentStreak;
+            if (firstOfDay) {
+              currentStreak = nextStreak;
+              longestStreak = Math.max(longestStreak, currentStreak);
+            }
+            lastSessionDate = clinicalDay;
 
-          const totalSessions = newDaySessionRow
-            ? p.analytics.totalSessions + 1
-            : p.analytics.totalSessions;
+            const totalSessions = newDaySessionRow
+              ? p.analytics.totalSessions + 1
+              : p.analytics.totalSessions;
 
-          const leveled = applyXpCoinsLevelUp(p, xpGain, coinsGain);
+            const leveled = applyXpCoinsLevelUp(p, xpGain, coinsGain);
 
-          return {
-            ...leveled,
-            hasRedFlag: p.hasRedFlag || triggersClinicalAlert,
-            redFlagActive: p.redFlagActive || (pain >= 7 && sessionZone === p.primaryBodyArea),
-            lastSessionDate,
-            currentStreak,
-            longestStreak,
-            analytics: {
-              ...p.analytics,
-              painHistory: newPainHistory,
-              averageOverallPain: Math.round(averageOverallPain * 10) / 10,
-              sessionHistory: newSessionHistory,
-              averageDifficulty: Math.round(sessionDiffAvg * 10) / 10,
-              totalSessions,
-            },
-          };
-        })
-      );
+            return {
+              ...leveled,
+              hasRedFlag: p.hasRedFlag || triggersClinicalAlert,
+              redFlagActive: p.redFlagActive || (pain >= 7 && sessionZone === p.primaryBodyArea),
+              lastSessionDate,
+              currentStreak,
+              longestStreak,
+              analytics: {
+                ...p.analytics,
+                painHistory: newPainHistory,
+                averageOverallPain: Math.round(averageOverallPain * 10) / 10,
+                sessionHistory: newSessionHistory,
+                averageDifficulty: Math.round(sessionDiffAvg * 10) / 10,
+                totalSessions,
+              },
+            };
+          })
+        );
+      });
 
       if (consumeStreakShield) {
         setPatientGearByPatientId((gPrev) => {
@@ -642,24 +654,45 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         }
       }
 
-      if (
-        supabaseClient &&
-        patientPortalPatientId &&
-        patientId === patientPortalPatientId &&
-        options?.completionSource === 'rehab' &&
-        rehabEx
-      ) {
-        void completeExerciseSafe(supabaseClient, exerciseId, {
-          pain_level: pain,
-          effort_rating: effort,
-          clinical_date: clinicalDay,
-          optional_pool_no_reward: options?.optionalPoolNoReward ?? false,
-          session_body_area: options?.sessionBodyArea ?? null,
-        }).then((r) => {
-          if (!r.ok && import.meta.env.DEV) {
-            console.warn('[complete_exercise_safe]', r);
+      if (supabaseClient && patientPortalPatientId && patientId === patientPortalPatientId) {
+        void (async () => {
+          if (options?.completionSource === 'rehab' && rehabEx) {
+            const rpc = await completeExerciseSafe(supabaseClient, exerciseId, {
+              pain_level: pain,
+              effort_rating: effort,
+              clinical_date: clinicalDay,
+              optional_pool_no_reward: options?.optionalPoolNoReward ?? false,
+              session_body_area: options?.sessionBodyArea ?? null,
+            });
+            if (!rpc.ok) {
+              const detail = rpc.message ?? rpc.reason ?? 'complete_exercise_safe';
+              onExerciseCloudSyncError?.(
+                `לא נשמרה השלמת התרגיל בשרת. נסו שוב או פנו למטפל.\n\n${detail}`
+              );
+              return;
+            }
           }
-        });
+
+          const latestPatient = getLatestPatient?.(patientId);
+          if (latestPatient && persistPatientPayloadToCloud) {
+            const saved = await persistPatientPayloadToCloud(latestPatient);
+            if (!saved) {
+              onExerciseCloudSyncError?.(
+                'התקדמותכם (נקודות ומטבעות) לא נשמרה לענן. בדקו חיבור או התחברו מחדש.'
+              );
+            }
+          }
+
+          const latestSession = getLatestDailySession?.(patientId, clinicalDay);
+          if (latestSession) {
+            const sRes = await upsertDailySessionRowMerged(supabaseClient, latestSession, {
+              therapistId: patientBefore.therapistId,
+            });
+            if (!sRes.ok) {
+              onExerciseCloudSyncError?.(`שמירת סשן יומי נכשלה: ${sRes.message}`);
+            }
+          }
+        })();
       }
     },
     [
@@ -673,6 +706,10 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       setExerciseSafetyLockedPatientIds,
       supabaseClient,
       patientPortalPatientId,
+      persistPatientPayloadToCloud,
+      onExerciseCloudSyncError,
+      getLatestPatient,
+      getLatestDailySession,
     ]
   );
 
@@ -1122,13 +1159,25 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         patientId,
         timestamp: new Date().toISOString(),
       };
-      sendDataToTherapist(full);
+      if (supabaseClient && patientPortalPatientId && patientId === patientPortalPatientId) {
+        void persistPatientFinishReportToCloud(supabaseClient, full).then((r) => {
+          if (!r.ok) {
+            onExerciseCloudSyncError?.(
+              `דיווח הסיום לא נשמר לענן: ${r.message}`
+            );
+          }
+        });
+      }
       setPatientExerciseFinishReportsByPatientId((prev) => ({
         ...prev,
         [patientId]: [...(prev[patientId] ?? []), full],
       }));
     },
-    []
+    [
+      supabaseClient,
+      patientPortalPatientId,
+      onExerciseCloudSyncError,
+    ]
   );
 
   const getPatientExerciseFinishReports = useCallback(

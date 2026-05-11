@@ -42,7 +42,7 @@ import {
   type EmergencyScreenResult,
 } from '../safety/clinicalEmergencyScreening';
 import { mockTherapist, mockTherapistB } from '../data/mockData';
-import { getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
+import { getClinicalDate, getClinicalYesterday, addClinicalDays } from '../utils/clinicalCalendar';
 import { addDevCalendarOffsetDays, bumpDevCalendarOffsetDays } from '../utils/debugMockDate';
 import { canPilot11DebugMutatePatient } from '../utils/pilot11GamificationDebug';
 import { mergeHistoryFromSessions } from '../utils/dailyHistory';
@@ -80,7 +80,13 @@ import {
   getPatientById,
   fetchUnlinkedPortalPatientIds,
   postgrestHttpStatus,
+  mergePatientPayloadForUpsert,
 } from '../services/clinicalService';
+import {
+  fetchSessionHistoryBetween,
+  mergeDailySessionsWithServerForPatient,
+  aggregateFinishReportsFromSessionRows,
+} from '../services/exerciseService';
 import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
 import { useAuth } from './AuthContext';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
@@ -586,6 +592,9 @@ export function PatientProvider({
     const persisted = readPersistedOnce().patient;
     return persisted?.dailySessions ?? [];
   });
+  const dailySessionsRef = useRef(dailySessions);
+  dailySessionsRef.current = dailySessions;
+
   const [dailyHistoryByPatient, setDailyHistoryByPatient] = useState<
     Record<string, Record<string, DailyHistoryEntry>>
   >(() => {
@@ -816,7 +825,8 @@ export function PatientProvider({
         const ix = prev.findIndex((p) => p.id === fetched.id);
         if (ix < 0) return [...prev, fetched];
         const next = [...prev];
-        next[ix] = fetched;
+        const localSlice = prev[ix];
+        next[ix] = mergePatientPayloadForUpsert(fetched, localSlice);
         return next;
       });
 
@@ -941,6 +951,58 @@ export function PatientProvider({
         return [...rest, { patientId: pid, exercises: [] }];
       });
     })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    supabase,
+    selectedPatientId,
+    authLoading,
+    isAuthenticated,
+    sessionRole,
+    restrictPatientSessionId,
+  ]);
+
+  /** טעינת session_history + דיווחי סיום לדשבורד מטפל (Supabase Auth — ללא localStorage). */
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    if (restrictPatientSessionId) return;
+    if (authLoading || !isAuthenticated) return;
+    if (sessionRole !== 'therapist') return;
+
+    const pid = selectedPatientId.trim();
+    if (!pid) return;
+
+    const supabaseClient = supabase;
+    const today = getClinicalDate();
+    const start = addClinicalDays(today, -120);
+
+    let cancelled = false;
+    void (async () => {
+      const rows = await fetchSessionHistoryBetween(supabaseClient, pid, start, today);
+      if (cancelled || rows == null) {
+        if (!cancelled && rows == null && import.meta.env.DEV) {
+          console.warn('[PatientContext] fetchSessionHistoryBetween returned null', { patientId: pid });
+        }
+        return;
+      }
+
+      setDailySessions((prev) => mergeDailySessionsWithServerForPatient(prev, pid, rows));
+
+      setPatientExerciseFinishReportsByPatientId((prev) => {
+        const fromServer = aggregateFinishReportsFromSessionRows(rows);
+        const byId = new Map<string, PatientExerciseFinishReport>();
+        for (const r of prev[pid] ?? []) {
+          byId.set(r.id, r);
+        }
+        for (const r of fromServer) {
+          byId.set(r.id, r);
+        }
+        const merged = [...byId.values()].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+        return { ...prev, [pid]: merged };
+      });
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -1242,6 +1304,9 @@ export function PatientProvider({
           if (import.meta.env.DEV) {
             console.warn('[saveSinglePatientPayloadToCloud] נכשל', result.message);
           }
+          if (restrictPatientSessionId) {
+            window.alert(`שמירת התקדמות לענן נכשלה:\n\n${result.message}`);
+          }
           return false;
         }
         if (result.syncedPatients?.length) {
@@ -1261,6 +1326,21 @@ export function PatientProvider({
       restrictPatientSessionId,
       supabase,
     ]
+  );
+
+  const notifyExerciseCloudSyncError = useCallback((message: string) => {
+    window.alert(message);
+  }, []);
+
+  const getLatestPatientSnapshot = useCallback(
+    (patientId: string) => allPatientsRef.current.find((p) => p.id === patientId),
+    []
+  );
+
+  const getLatestDailySessionSnapshot = useCallback(
+    (patientId: string, date: string) =>
+      dailySessionsRef.current.find((s) => s.patientId === patientId && s.date === date),
+    []
   );
 
   const saveExercisePlanForPatientToCloud = useCallback(
@@ -1731,6 +1811,10 @@ export function PatientProvider({
     setActiveSection,
     supabaseClient: supabase,
     patientPortalPatientId: restrictPatientSessionId ?? null,
+    persistPatientPayloadToCloud: saveSinglePatientPayloadToCloud,
+    onExerciseCloudSyncError: notifyExerciseCloudSyncError,
+    getLatestPatient: getLatestPatientSnapshot,
+    getLatestDailySession: getLatestDailySessionSnapshot,
   });
 
   const clinical = useClinicalData({

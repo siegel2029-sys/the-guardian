@@ -403,6 +403,8 @@ export interface DailySession {
   sessionXp: number;
   /** שדה legacy לשמירה לאחור; כלל הזהב מבוסס השלמה מלאה בלבד */
   goldDisqualified?: boolean;
+  /** דיווחי מודאל סיום — נשמרים ב־session_history.payload לסנכרון מטפל */
+  finishReports?: PatientExerciseFinishReport[];
 }
 
 /** סטטוס יום בלוח הקליני (מעקב אחר השלמת פוקוס קליני) */

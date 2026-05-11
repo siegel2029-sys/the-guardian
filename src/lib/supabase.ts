@@ -47,6 +47,10 @@ function maskSupabaseUrl(u: string): string {
 /**
  * Browser Supabase client (anon key). Null when env is missing — callers must check
  * {@link isSupabaseConfigured} or handle null before use.
+ *
+ * Patient/clinical **writes** merge server rows in code (see `mergePatientPayloadForUpsert` and
+ * `upsertDailySessionRowMerged` in `src/services/`) so JSONB payloads are not blindly overwritten
+ * by stale clients.
  */
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(url, anonKey, {
