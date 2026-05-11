@@ -358,6 +358,8 @@ export interface Exercise {
   difficulty: ExerciseDifficulty;
   type: ExerciseType;
   instructions: string;
+  /** הערות/הנחיות ספציפיות שהמטפל כתב למטופל לתרגיל זה — נשמרות ב־exercise_plans */
+  customInstructions?: string;
   xpReward: number;
   videoPlaceholder?: string;
   /** קישור הדגמה — ברירת מחדל ב־`exerciseVideoDefaults.ts` אם לא הוגדר */

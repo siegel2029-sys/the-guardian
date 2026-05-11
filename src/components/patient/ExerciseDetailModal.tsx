@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { X, ClipboardList, Timer, PersonStanding } from 'lucide-react';
 import type { PatientExercise } from '../../types';
 import { formatTime } from '../dashboard/ManagePlanModal';
+import { patientFacingExerciseInstructions } from '../../utils/patientFacingExerciseInstructions';
 
 const QUALITY_CHECK_SECONDS = 10;
 
@@ -276,7 +277,7 @@ export default function ExerciseDetailModal({
               <h3 className="text-sm font-bold text-teal-900">הנחיות ביצוע</h3>
             </div>
             <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
-              {exercise.instructions}
+              {patientFacingExerciseInstructions(exercise)}
             </p>
           </section>
         </div>

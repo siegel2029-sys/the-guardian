@@ -1,9 +1,9 @@
-import { useRef, useState, useMemo } from 'react';
+import { useRef, useState, useMemo, useEffect } from 'react';
 import type { RefObject } from 'react';
 import {
   X, Plus, Trash2, Pencil, Check, Search, BookOpen,
   ClipboardList, Filter, Clock, RotateCcw, ChevronDown, ChevronUp,
-  Wand2, Sparkles, AlertCircle, Loader2,
+  Wand2, Sparkles, AlertCircle, Loader2, MessageSquare,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { EXERCISE_LIBRARY } from '../../data/mockData';
@@ -364,12 +364,32 @@ function PlanExerciseRow({
   exercise: PatientExercise;
   onRemove: () => void;
   onUpdate: (
-    updates: Partial<Pick<PatientExercise, 'patientReps' | 'patientSets' | 'isOptional'>>
+    updates: Partial<
+      Pick<
+        PatientExercise,
+        'patientReps' | 'patientSets' | 'isOptional' | 'customInstructions'
+      >
+    >
   ) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editSets, setEditSets] = useState(exercise.patientSets);
   const [editReps, setEditReps] = useState(exercise.patientReps);
+  const [therapistNotesOpen, setTherapistNotesOpen] = useState(
+    Boolean(exercise.customInstructions?.trim())
+  );
+  const [therapistNotesDraft, setTherapistNotesDraft] = useState(
+    exercise.customInstructions ?? ''
+  );
+
+  useEffect(() => {
+    setTherapistNotesDraft(exercise.customInstructions ?? '');
+  }, [exercise.customInstructions, exercise.id]);
+
+  const flushTherapistNotes = () => {
+    const t = therapistNotesDraft.trim();
+    onUpdate({ customInstructions: t.length > 0 ? t : undefined });
+  };
 
   const saveEdit = () => {
     onUpdate({ patientSets: editSets, patientReps: editReps });
@@ -469,32 +489,96 @@ function PlanExerciseRow({
             לבחירה
           </label>
           <div className="flex items-center gap-1">
-          {editing ? (
-            <>
-              <button onClick={saveEdit}
-                className="w-8 h-8 rounded-lg flex items-center justify-center bg-teal-50 hover:bg-teal-100 transition-colors">
-                <Check className="w-4 h-4 text-teal-600" />
-              </button>
-              <button onClick={() => { setEditing(false); setEditSets(exercise.patientSets); setEditReps(exercise.patientReps); }}
-                className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-100 hover:bg-slate-200 transition-colors">
-                <X className="w-4 h-4 text-slate-500" />
-              </button>
-            </>
-          ) : (
-            <>
-              <button onClick={() => setEditing(true)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-teal-50 transition-colors">
-                <Pencil className="w-3.5 h-3.5 text-slate-400 hover:text-teal-600" />
-              </button>
-              <button onClick={onRemove}
-                className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50 transition-colors">
-                <Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-red-500" />
-              </button>
-            </>
-          )}
+            {editing ? (
+              <>
+                <button
+                  type="button"
+                  onClick={saveEdit}
+                  aria-label="שמור סטים וחזרות"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center bg-teal-50 hover:bg-teal-100 transition-colors"
+                >
+                  <Check className="w-4 h-4 text-teal-600" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditing(false);
+                    setEditSets(exercise.patientSets);
+                    setEditReps(exercise.patientReps);
+                  }}
+                  aria-label="בטל עריכת סטים וחזרות"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-100 hover:bg-slate-200 transition-colors"
+                >
+                  <X className="w-4 h-4 text-slate-500" aria-hidden />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (therapistNotesOpen) flushTherapistNotes();
+                    setTherapistNotesOpen((o) => !o);
+                  }}
+                  aria-label={therapistNotesOpen ? 'סגור הנחיות למטופל' : 'הנחיות אישיות למטופל'}
+                  aria-expanded={therapistNotesOpen}
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
+                    exercise.customInstructions?.trim()
+                      ? 'bg-teal-50 hover:bg-teal-100'
+                      : 'hover:bg-slate-100'
+                  }`}
+                >
+                  <MessageSquare
+                    className={`w-3.5 h-3.5 ${
+                      exercise.customInstructions?.trim() ? 'text-teal-600' : 'text-slate-400'
+                    }`}
+                    aria-hidden
+                  />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  aria-label="ערוך סטים וחזרות"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-teal-50 transition-colors"
+                >
+                  <Pencil className="w-3.5 h-3.5 text-slate-400 hover:text-teal-600" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  onClick={onRemove}
+                  aria-label="הסר מהתוכנית"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-red-500" aria-hidden />
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
+      {therapistNotesOpen && (
+        <div className="px-3 pb-3 pt-2 border-t border-slate-100 bg-white/90">
+          <label
+            htmlFor={`therapist-notes-${exercise.id.replace(/[^a-zA-Z0-9_-]/g, '')}`}
+            className="text-[10px] font-bold text-slate-600 block mb-1.5"
+          >
+            הנחיות מהמטפל — יוצגו למטופל לפני הוראות ברירת המחדל
+          </label>
+          <textarea
+            id={`therapist-notes-${exercise.id.replace(/[^a-zA-Z0-9_-]/g, '')}`}
+            value={therapistNotesDraft}
+            onChange={(e) => setTherapistNotesDraft(e.target.value)}
+            onBlur={flushTherapistNotes}
+            rows={3}
+            maxLength={500}
+            placeholder='לדוגמה: "שמרו על גב ישר…"'
+            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-400/25 resize-none bg-white text-slate-800 placeholder:text-slate-400"
+          />
+          <p className="text-[9px] text-slate-400 mt-1 text-left tabular-nums">
+            {therapistNotesDraft.length}/500
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -621,7 +705,6 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
   const [planOpen, setPlanOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
 
-  const planTriggerRef = useRef<HTMLButtonElement>(null);
   const libraryTriggerRef = useRef<HTMLButtonElement>(null);
   const customTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -701,7 +784,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+        className="bg-white rounded-2xl shadow-2xl w-full max-h-[90vh] min-h-0 overflow-hidden flex flex-col"
         style={{ maxWidth: '520px' }}
         onClick={(e) => e.stopPropagation()}
         dir="rtl"
@@ -720,15 +803,19 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
               עריכה במסך מתעדכנת ברשימה; לחץ «שמירה» לעדכון exercise_plans ב-Supabase.
             </p>
           </div>
-          <button onClick={onClose}
-            className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-red-50 transition-colors">
-            <X className="w-5 h-5 text-slate-500" />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="סגור"
+            className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-red-50 transition-colors"
+          >
+            <X className="w-5 h-5 text-slate-500" aria-hidden />
           </button>
         </div>
 
         {/* Body */}
         {/* ── Body: compact button strip ─────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3" dir="rtl">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3" dir="rtl">
 
           {/* Plan summary card */}
           <div
@@ -766,7 +853,6 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
 
           {/* ── Trigger: current plan ──────────────────────────────────── */}
           <button
-            ref={planTriggerRef}
             type="button"
             onClick={() => setPlanOpen((v) => !v)}
             className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl border-2 text-sm font-semibold transition-all min-h-[48px]"
@@ -814,16 +900,13 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
             <span>✍️ הוסף תרגיל מותאם אישית</span>
           </button>
 
-          {/* ══ Portal: current plan exercises ════════════════════════ */}
-          <PortalDropdown
-            open={planOpen}
-            onClose={() => setPlanOpen(false)}
-            triggerRef={planTriggerRef as RefObject<HTMLElement | null>}
-            panelMaxHeight={480}
-            panelScrollable={false}
-          >
-            <div className="flex flex-col" dir="rtl" style={{ maxHeight: '480px' }}>
-              <div className="px-3 py-2 border-b border-slate-100 shrink-0 flex items-center justify-between">
+          {planOpen && (
+            <div
+              className="rounded-xl border-2 flex flex-col max-h-[60vh] min-h-0 overflow-hidden shadow-sm"
+              style={{ borderColor: '#99f6e4', background: '#f8fffe' }}
+              dir="rtl"
+            >
+              <div className="px-3 py-2 border-b border-slate-100 shrink-0 flex items-center justify-between bg-white/95">
                 <span className="text-xs font-bold text-slate-700">תרגילים בתוכנית</span>
                 {currentExercises.length > 0 && (
                   <span className="text-xs text-teal-600 font-bold">
@@ -831,10 +914,10 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                   </span>
                 )}
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-2">
                 {currentExercises.length === 0 ? (
                   <div className="flex flex-col items-center justify-center gap-2 py-8 text-slate-400 text-center">
-                    <ClipboardList className="w-8 h-8 opacity-30" />
+                    <ClipboardList className="w-8 h-8 opacity-30" aria-hidden />
                     <p className="text-sm">התוכנית ריקה</p>
                     <p className="text-xs">הוסף תרגילים מהספרייה או צור תרגיל מותאם</p>
                   </div>
@@ -850,7 +933,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                 )}
               </div>
             </div>
-          </PortalDropdown>
+          )}
 
           {/* ══ Portal: exercise library ══════════════════════════════ */}
           <PortalDropdown

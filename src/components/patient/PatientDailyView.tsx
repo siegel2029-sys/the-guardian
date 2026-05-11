@@ -32,6 +32,7 @@ import ExerciseVideoTimerModal, {
 } from './ExerciseVideoTimerModal';
 import GuardianAssistantFAB from './GuardianAssistantFAB';
 import { formatTime } from '../dashboard/ManagePlanModal';
+import { patientFacingExerciseInstructions } from '../../utils/patientFacingExerciseInstructions';
 import type { StrengthExerciseLevelDef } from '../../data/strengthExerciseDatabase';
 import { getStrengthChainForArea } from '../../data/strengthExerciseDatabase';
 import { bodyAreaBlocksSelfCare } from '../../body/bodyPickMapping';
@@ -1957,7 +1958,7 @@ export default function PatientDailyView() {
               ? exerciseVideoModal.exercise.videoUrl ?? ''
               : exerciseVideoModal.exercise.videoUrl
           }
-          description={exerciseVideoModal.exercise.instructions}
+          description={patientFacingExerciseInstructions(exerciseVideoModal.exercise)}
           clinicalRegressionHint={
             exerciseVideoModal.kind === 'rehab'
               ? exerciseVideoModal.exercise.clinicalRegressionHint ?? undefined

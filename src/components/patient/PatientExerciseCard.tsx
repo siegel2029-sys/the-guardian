@@ -1,5 +1,5 @@
 import { useRef, useCallback } from 'react';
-import { Play, CheckCircle2, Zap, Sparkles, PersonStanding } from 'lucide-react';
+import { Play, CheckCircle2, Zap, Sparkles, PersonStanding, MessageSquare } from 'lucide-react';
 import type { PatientExercise } from '../../types';
 import { formatTime } from '../dashboard/ManagePlanModal';
 
@@ -152,6 +152,12 @@ export default function PatientExerciseCard({
             >
               {exercise.name}
             </h4>
+            {exercise.customInstructions?.trim() ? (
+              <MessageSquare
+                className="w-3 h-3 shrink-0 text-teal-600"
+                aria-label="הנחיות מהמטפל"
+              />
+            ) : null}
             {exercise.isCustom ? (
               <Sparkles className="w-3 h-3 shrink-0 text-orange-500" aria-label="מותאם" />
             ) : (

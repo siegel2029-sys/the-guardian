@@ -220,7 +220,10 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       patientId: string,
       exerciseId: string,
       updates: Partial<
-        Pick<PatientExercise, 'patientReps' | 'patientSets' | 'patientWeightKg' | 'isOptional'>
+        Pick<
+          PatientExercise,
+          'patientReps' | 'patientSets' | 'patientWeightKg' | 'isOptional' | 'customInstructions'
+        >
       >
     ) => {
       setExercisePlans((prev) =>
