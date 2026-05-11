@@ -82,11 +82,14 @@ import {
   fetchUnlinkedPortalPatientIds,
   postgrestHttpStatus,
   mergePatientPayloadForUpsert,
+  mergeSessionCompletionByDateMaps,
 } from '../services/clinicalService';
 import {
   fetchSessionHistoryBetween,
   mergeDailySessionsWithServerForPatient,
   aggregateFinishReportsFromSessionRows,
+  buildSessionCompletionByDateFromDailySessions,
+  hydrateDailySessionsFromSessionCompletionMap,
 } from '../services/exerciseService';
 import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
 import { useAuth } from './AuthContext';
@@ -823,25 +826,61 @@ export function PatientProvider({
       });
 
       const clinicalDayForMerge = getClinicalDate();
-      let mergedForCloud: Patient | null = null;
+      const histStart = addClinicalDays(clinicalDayForMerge, -30);
+      const histRows = await fetchSessionHistoryBetween(
+        supabaseClient,
+        restrictPatientSessionId,
+        histStart,
+        clinicalDayForMerge
+      );
+      if (!cancelled && histRows && histRows.length > 0) {
+        setDailySessions((prev) =>
+          mergeDailySessionsWithServerForPatient(prev, restrictPatientSessionId, histRows)
+        );
+      }
+
+      const fromHistory =
+        histRows && histRows.length > 0
+          ? buildSessionCompletionByDateFromDailySessions(histRows)
+          : undefined;
+      const fetchedEnriched: Patient = {
+        ...fetched,
+        _sessionCompletionByDate: mergeSessionCompletionByDateMaps(
+          fetched._sessionCompletionByDate,
+          fromHistory
+        ),
+      };
+
+      const prevPatients = allPatientsRef.current;
+      const prevIx = prevPatients.findIndex((p) => p.id === fetchedEnriched.id);
+      const mergedForCloud: Patient =
+        prevIx < 0
+          ? mergePatientPayloadForUpsert(undefined, fetchedEnriched, {
+              clinicalToday: clinicalDayForMerge,
+            })
+          : mergePatientPayloadForUpsert(fetchedEnriched, prevPatients[prevIx], {
+              clinicalToday: clinicalDayForMerge,
+            });
+
       setAllPatients((prev) => {
-        const ix = prev.findIndex((p) => p.id === fetched.id);
-        if (ix < 0) {
-          mergedForCloud = mergePatientPayloadForUpsert(undefined, fetched, {
-            clinicalToday: clinicalDayForMerge,
-          });
-          return [...prev, mergedForCloud];
-        }
+        const ix = prev.findIndex((p) => p.id === fetchedEnriched.id);
+        if (ix < 0) return [...prev, mergedForCloud];
         const next = [...prev];
-        const localSlice = prev[ix];
-        mergedForCloud = mergePatientPayloadForUpsert(fetched, localSlice, {
-          clinicalToday: clinicalDayForMerge,
-        });
         next[ix] = mergedForCloud;
         return next;
       });
 
-      if (!cancelled && mergedForCloud) {
+      if (!cancelled) {
+        const completionMap = mergedForCloud._sessionCompletionByDate;
+        if (!histRows?.length && completionMap) {
+          setDailySessions((prev) =>
+            hydrateDailySessionsFromSessionCompletionMap(
+              prev,
+              restrictPatientSessionId,
+              completionMap
+            )
+          );
+        }
         const syncRes = await upsertPatientRecords(
           supabaseClient,
           [mergedForCloud],

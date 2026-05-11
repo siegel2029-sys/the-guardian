@@ -138,6 +138,27 @@ function recomputePainAverages(painHistory: PainRecord[]): {
   return { averageOverallPain, painByArea: byArea };
 }
 
+/** Union-merge per clinical day: completed exercise IDs + max session XP (local vs server). */
+export function mergeSessionCompletionByDateMaps(
+  a?: Record<string, { completedIds: string[]; sessionXp: number }>,
+  b?: Record<string, { completedIds: string[]; sessionXp: number }>
+): Record<string, { completedIds: string[]; sessionXp: number }> | undefined {
+  if (!a && !b) return undefined;
+  if (!a) return b && Object.keys(b).length > 0 ? { ...b } : undefined;
+  if (!b) return Object.keys(a).length > 0 ? { ...a } : undefined;
+  const out: Record<string, { completedIds: string[]; sessionXp: number }> = {};
+  for (const d of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const aa = a[d];
+    const bb = b[d];
+    const ids = new Set<string>([...(aa?.completedIds ?? []), ...(bb?.completedIds ?? [])]);
+    out[d] = {
+      completedIds: [...ids],
+      sessionXp: Math.max(aa?.sessionXp ?? 0, bb?.sessionXp ?? 0),
+    };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export type MergePatientPayloadOptions = {
   /**
    * When set, `currentStreak` is derived from the merged `sessionHistory` (union of server + local),
@@ -159,6 +180,10 @@ export function mergePatientPayloadForUpsert(
 ): Patient {
   if (!existing) {
     let sole = normalizePatientProgressFields({ ...incoming });
+    sole._sessionCompletionByDate = mergeSessionCompletionByDateMaps(
+      undefined,
+      incoming._sessionCompletionByDate
+    );
     if (opts?.clinicalToday) {
       const dm = dayMapFromExerciseSessions(sole.analytics?.sessionHistory ?? []);
       sole.currentStreak = computeStreakForPatient(sole, dm, opts.clinicalToday);
@@ -216,6 +241,11 @@ export function mergePatientPayloadForUpsert(
     merged.currentStreak = Math.max(existing.currentStreak ?? 0, incoming.currentStreak ?? 0);
     merged.longestStreak = Math.max(existing.longestStreak ?? 0, incoming.longestStreak ?? 0);
   }
+
+  merged._sessionCompletionByDate = mergeSessionCompletionByDateMaps(
+    existing._sessionCompletionByDate,
+    incoming._sessionCompletionByDate
+  );
 
   return normalizePatientProgressFields(merged);
 }

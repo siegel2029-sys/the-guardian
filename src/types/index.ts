@@ -229,6 +229,11 @@ export interface Patient {
    * מאוחסן בתוך `patients.payload` שהמטופל תמיד רשאי לקרוא.
    */
   _exercisePlanCache?: PatientExercise[];
+  /**
+   * מפת ימים קליניים → השלמות תרגיל (`completedIds`) + XP יומי, ממוזגים מ־session_history וממצב מקומי.
+   * נשמר ב־payload כדי שמזהי השלמה לא יאבדו ברענון כש־`session_history` אינו נטען מיד.
+   */
+  _sessionCompletionByDate?: Record<string, { completedIds: string[]; sessionXp: number }>;
 }
 
 /** תובנות AI לסשן טיפול — נשמרות ברשומת התיעוד (payload מטופל → Supabase) */

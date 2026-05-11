@@ -141,14 +141,21 @@ function mergeDailySessionPayloadWithExisting(
     return {
       ...incoming,
       patientId: incoming.patientId,
+      date: incoming.date,
       finishReports: incoming.finishReports?.length ? incoming.finishReports : undefined,
     };
   }
   const ids = new Set<string>([...(prev.completedIds ?? []), ...(incoming.completedIds ?? [])]);
   const finishMerged = mergeFinishReportsPayload(prev.finishReports, incoming.finishReports);
+  const dateKey =
+    incoming.date && incoming.date.length > 0
+      ? incoming.date
+      : prev.date && prev.date.length > 0
+        ? prev.date
+        : incoming.date;
   return {
     patientId: incoming.patientId,
-    date: incoming.date,
+    date: dateKey,
     completedIds: [...ids],
     sessionXp: Math.max(prev.sessionXp ?? 0, incoming.sessionXp ?? 0),
     goldDisqualified: prev.goldDisqualified === true && incoming.goldDisqualified === true,
@@ -276,13 +283,53 @@ export async function fetchSessionHistoryBetween(
   for (const row of data ?? []) {
     const sessionDate = (row as { session_date: string }).session_date;
     const payload = (row as { payload: unknown }).payload as DailySession | null;
-    if (payload && typeof payload === 'object' && typeof payload.date === 'string') {
-      out.push({ ...payload, patientId });
+    if (payload && typeof payload === 'object') {
+      const d =
+        typeof payload.date === 'string' && payload.date.length > 0 ? payload.date : sessionDate;
+      out.push({ ...(payload as DailySession), patientId, date: d });
     } else {
       out.push({ patientId, date: sessionDate, completedIds: [], sessionXp: 0 });
     }
   }
   return out;
+}
+
+/** ממיר שורות session_history למפת השלמות לשדה patients.payload._sessionCompletionByDate */
+export function buildSessionCompletionByDateFromDailySessions(
+  rows: DailySession[]
+): Record<string, { completedIds: string[]; sessionXp: number }> | undefined {
+  if (!rows.length) return undefined;
+  const out: Record<string, { completedIds: string[]; sessionXp: number }> = {};
+  for (const s of rows) {
+    if (!s.date) continue;
+    out[s.date] = {
+      completedIds: [...(s.completedIds ?? [])],
+      sessionXp: s.sessionXp ?? 0,
+    };
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * מזין את מצב ה־DailySession המקומי ממפת השלמות (למשל אחרי מיזוג payload כשאין עדיין שורת session_history).
+ */
+export function hydrateDailySessionsFromSessionCompletionMap(
+  prev: DailySession[],
+  patientId: string,
+  map?: Record<string, { completedIds: string[]; sessionXp: number }>
+): DailySession[] {
+  if (!map || Object.keys(map).length === 0) return prev;
+  let acc = prev;
+  for (const [date, v] of Object.entries(map)) {
+    const row: DailySession = {
+      patientId,
+      date,
+      completedIds: [...(v.completedIds ?? [])],
+      sessionXp: v.sessionXp ?? 0,
+    };
+    acc = mergeDailySessionsWithServerForPatient(acc, patientId, [row]);
+  }
+  return acc;
 }
 
 /** מיזוג סשנים מקומיים עם שורות שהגיעו מהשרת (דשבורד מטפל אחרי טעינה). */

@@ -44,7 +44,7 @@ import {
   normalizePortalUsername,
   isValidPortalUsername,
 } from '../lib/patientPortalAuth';
-import { upsertPatientRecords } from '../services/clinicalService';
+import { mergeSessionCompletionByDateMaps, upsertPatientRecords } from '../services/clinicalService';
 import {
   upsertDailySessionRowMerged,
   persistPatientFinishReportToCloud,
@@ -484,6 +484,16 @@ export function useExercisePlan(params: UseExercisePlanParams) {
 
             const leveled = applyXpCoinsLevelUp(p, xpGain, coinsGain);
 
+            const prevDs = dailySessions.find(
+              (s) => s.patientId === patientId && s.date === clinicalDay
+            );
+            const nextCompletedIds = prevDs
+              ? prevDs.completedIds.includes(exerciseId)
+                ? prevDs.completedIds
+                : [...prevDs.completedIds, exerciseId]
+              : [exerciseId];
+            const nextDaySessionXp = (prevDs?.sessionXp ?? 0) + xpGain;
+
             return {
               ...leveled,
               hasRedFlag: p.hasRedFlag || triggersClinicalAlert,
@@ -491,6 +501,12 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               lastSessionDate,
               currentStreak,
               longestStreak,
+              _sessionCompletionByDate: mergeSessionCompletionByDateMaps(p._sessionCompletionByDate, {
+                [clinicalDay]: {
+                  completedIds: nextCompletedIds,
+                  sessionXp: nextDaySessionXp,
+                },
+              }),
               analytics: {
                 ...p.analytics,
                 painHistory: newPainHistory,
@@ -1180,6 +1196,44 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           const r = await persistPatientFinishReportToCloud(supabaseClient, full);
           if (!r.ok) {
             onExerciseCloudSyncError?.(`דיווח הסיום לא נשמר לענן: ${r.message}`);
+          } else {
+            setDailySessions((prev) => {
+              const idx = prev.findIndex(
+                (s) => s.patientId === patientId && s.date === clinicalToday
+              );
+              if (idx < 0) {
+                return [
+                  ...prev,
+                  {
+                    patientId,
+                    date: clinicalToday,
+                    completedIds: [full.exerciseId],
+                    sessionXp: 0,
+                  },
+                ];
+              }
+              const s = prev[idx];
+              if (s.completedIds.includes(full.exerciseId)) return prev;
+              const next = [...prev];
+              next[idx] = { ...s, completedIds: [...s.completedIds, full.exerciseId] };
+              return next;
+            });
+            setAllPatients((prev) =>
+              prev.map((p) => {
+                if (p.id !== patientId) return p;
+                const prevDay = p._sessionCompletionByDate?.[clinicalToday];
+                const ids = new Set([...(prevDay?.completedIds ?? []), full.exerciseId]);
+                return {
+                  ...p,
+                  _sessionCompletionByDate: mergeSessionCompletionByDateMaps(p._sessionCompletionByDate, {
+                    [clinicalToday]: {
+                      completedIds: [...ids],
+                      sessionXp: prevDay?.sessionXp ?? 0,
+                    },
+                  }),
+                };
+              })
+            );
           }
         } catch (e) {
           logSupabaseCallError('appendPatientExerciseFinishReport', e, { patientId, reportId: full.id });
@@ -1195,6 +1249,9 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       supabaseClient,
       patientPortalPatientId,
       onExerciseCloudSyncError,
+      clinicalToday,
+      setDailySessions,
+      setAllPatients,
     ]
   );
 
