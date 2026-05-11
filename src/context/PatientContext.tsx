@@ -46,7 +46,7 @@ import { getClinicalDate, getClinicalYesterday, addClinicalDays } from '../utils
 import { addDevCalendarOffsetDays, bumpDevCalendarOffsetDays } from '../utils/debugMockDate';
 import { canPilot11DebugMutatePatient } from '../utils/pilot11GamificationDebug';
 import { mergeHistoryFromSessions } from '../utils/dailyHistory';
-import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
+import { pickCanonicalExercisePlan, mergeFetchedExercisePlanWithLocal } from '../utils/exercisePlanCanonical';
 import {
   savePersistedPatientState,
   PATIENT_STATE_STORAGE_KEY,
@@ -1041,18 +1041,17 @@ export function PatientProvider({
     void (async () => {
       const planRes = await fetchActiveExercisePlanForPatient(supabaseClient, pid);
       if (cancelled) return;
-      if (planRes.ok === false) {
-        console.warn('[PatientContext] exercise plan refresh on patient select:', planRes.message);
-        return;
-      }
       setExercisePlans((prev) => {
         const rest = prev.filter((ep) => ep.patientId !== pid);
-        if (planRes.exercisePlan) {
-          return [...rest, planRes.exercisePlan];
+        const localPlan = prev.find((ep) => ep.patientId === pid);
+        if (planRes.ok === false) {
+          console.error(
+            '[PatientContext] fetchActiveExercisePlanForPatient failed — using baseline plan so session_history hydration can still run',
+            { patientId: pid, reason: planRes.message }
+          );
+          return [...rest, mergeFetchedExercisePlanWithLocal(localPlan, null, pid)];
         }
-        const hadLocal = prev.some((ep) => ep.patientId === pid);
-        if (hadLocal) return prev;
-        return [...rest, { patientId: pid, exercises: [] }];
+        return [...rest, mergeFetchedExercisePlanWithLocal(localPlan, planRes.exercisePlan, pid)];
       });
     })();
     return () => {
@@ -1626,16 +1625,31 @@ export function PatientProvider({
 
         const fresh = await fetchActiveExercisePlanForPatient(supabaseClient, patientId);
         if (fresh.ok === false) {
-          console.warn('[Exercise cloud save] עדכון הצליח אך רענון נכשל:', fresh.message, {
-            patientId,
+          console.warn(
+            '[Exercise cloud save] רענון תוכנית מהשרת נכשל לאחר שמירה — משמרים תוכנית מקומית ממוזגת',
+            { patientId, reason: fresh.message }
+          );
+          setExercisePlans((prev) => {
+            const rest = prev.filter((ep) => ep.patientId !== patientId);
+            const localPlan = prev.find((ep) => ep.patientId === patientId);
+            const fallback = mergeFetchedExercisePlanWithLocal(
+              localPlan,
+              { patientId, exercises },
+              patientId
+            );
+            return [...rest, fallback];
           });
           return true;
         }
         setExercisePlans((prev) => {
           const rest = prev.filter((ep) => ep.patientId !== patientId);
-          const slice: ExercisePlan =
-            fresh.exercisePlan ?? { patientId, exercises };
-          return [...rest, slice];
+          const localPlan = prev.find((ep) => ep.patientId === patientId);
+          const remoteSlice =
+            fresh.exercisePlan ?? ({ patientId, exercises } as ExercisePlan);
+          return [
+            ...rest,
+            mergeFetchedExercisePlanWithLocal(localPlan, remoteSlice, patientId),
+          ];
         });
         return true;
         })();

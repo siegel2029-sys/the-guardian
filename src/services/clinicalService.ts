@@ -1244,35 +1244,57 @@ export async function fetchActiveExercisePlanForPatient(
     return { ok: true, exercisePlan: null };
   }
 
-  // With a UNIQUE constraint on patient_id there is at most one row per patient.
-  // The is_active filter is intentionally omitted: if the column was never set
-  // (defaulted to false/null) the filter would hide the row even though data exists.
+  // With versioned `exercise_plans`, multiple rows per `patient_id` are possible until legacy
+  // data is cleaned up. Never use `.single()` / `.maybeSingle()` here — PostgREST errors when
+  // more than one row matches. Pick the newest row by version_number, then updated_at.
   const { data, error } = await client
     .from('exercise_plans')
-    .select('patient_id, exercises')
+    .select('id, patient_id, exercises, version_number, updated_at, is_active')
     .eq('patient_id', id)
-    .maybeSingle();
+    .order('version_number', { ascending: false })
+    .order('updated_at', { ascending: false });
 
   console.log('[fetchActiveExercisePlanForPatient] raw Supabase response', {
     patientId: id,
-    data,
+    rowCount: data?.length ?? 0,
     error,
   });
 
   if (error) {
     return { ok: false, message: `exercise_plans: ${error.message}` };
   }
-  if (!data) {
+
+  const rows = data ?? [];
+  if (rows.length > 1) {
+    console.warn(
+      '[fetchActiveExercisePlanForPatient] multiple exercise_plans rows for patient_id — using first after sort (newest version)',
+      {
+        patientId: id,
+        rowCount: rows.length,
+        pickedVersion: rows[0]?.version_number,
+        pickedId: rows[0]?.id,
+      }
+    );
+  }
+
+  const row = rows[0];
+  if (!row) {
     return { ok: true, exercisePlan: null };
   }
 
-  const exercises = Array.isArray(data.exercises)
-    ? (data.exercises as PatientExercise[])
+  const exercises = Array.isArray(row.exercises)
+    ? (row.exercises as PatientExercise[])
     : ([] as PatientExercise[]);
 
   return {
     ok: true,
-    exercisePlan: { patientId: data.patient_id as string, exercises },
+    exercisePlan: {
+      patientId: row.patient_id as string,
+      exercises,
+      planRowId: row.id as string,
+      versionNumber: typeof row.version_number === 'number' ? row.version_number : undefined,
+      isActive: row.is_active === true ? true : row.is_active === false ? false : undefined,
+    },
   };
 }
 

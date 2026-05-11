@@ -19,3 +19,34 @@ export function pickCanonicalExercisePlan(
     (ep.versionNumber ?? 0) > (best.versionNumber ?? 0) ? ep : best
   );
 }
+
+/**
+ * Combine a freshly fetched plan with any local slice for the same patient so rapid saves /
+ * races do not drop in-memory exercises when the server row lags or returns empty.
+ */
+export function mergeFetchedExercisePlanWithLocal(
+  local: ExercisePlan | undefined,
+  fetched: ExercisePlan | null,
+  patientId: string
+): ExercisePlan {
+  const empty: ExercisePlan = { patientId, exercises: [] };
+  const loc = local?.patientId === patientId ? local : undefined;
+  const remote = fetched && fetched.patientId === patientId ? fetched : null;
+
+  if (!remote) {
+    return loc ?? empty;
+  }
+
+  const remoteEx = remote.exercises ?? [];
+  const localEx = loc?.exercises ?? [];
+  const exercises =
+    remoteEx.length > 0 ? remoteEx : localEx.length > 0 ? localEx : [];
+
+  return {
+    patientId,
+    exercises,
+    planRowId: remote.planRowId ?? loc?.planRowId,
+    versionNumber: remote.versionNumber ?? loc?.versionNumber,
+    isActive: remote.isActive ?? loc?.isActive,
+  };
+}
