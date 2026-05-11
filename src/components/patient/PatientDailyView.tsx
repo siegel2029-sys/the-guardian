@@ -527,33 +527,15 @@ export default function PatientDailyView() {
 
   const clinicalRehabExercises = useMemo(() => {
     if (!selectedPatient) return [];
-    const sec = selectedPatient.secondaryClinicalBodyAreas ?? [];
-    const inj = selectedPatient.injuryHighlightSegments ?? [];
+    /** Therapist `exercise_plans` are the manual prescription — never hide entries by active_area / body-map filters. */
+    const effectiveList = exercises;
 
-    // bodyAreaBlocksSelfCare was designed to block patient self-care zone picks on
-    // clinical areas — it is NOT the right gate for deciding which therapist-assigned
-    // exercises appear in the portal. Applying it as a filter here meant that any
-    // exercise whose targetArea didn't match the patient's injury highlights was
-    // silently dropped, making the list appear empty even though exercises exist.
-    //
-    // Policy: ALL exercises assigned by the therapist are rehabilitation exercises
-    // and must always be shown. Only fall back to the area-based filter when it
-    // produces a non-empty result AND clinical areas are actually defined, so that
-    // the patient body-map interaction (red/orange locked zones) still works as
-    // intended for clinically configured patients.
-    const areaFiltered =
-      (inj.length > 0 || sec.length > 0)
-        ? exercises.filter((e) => bodyAreaBlocksSelfCare(e.targetArea, inj, sec))
-        : [];
-    const effectiveList = areaFiltered.length > 0 ? areaFiltered : exercises;
-
-    console.log('[PatientDailyView] clinicalRehabExercises', {
-      total: exercises.length,
-      areaFilteredCount: areaFiltered.length,
-      effectiveCount: effectiveList.length,
-      hasInjuryAreas: inj.length > 0,
-      hasSecondaryAreas: sec.length > 0,
-    });
+    if (effectiveList.length > 0) {
+      console.log(
+        `[UI_SYNC] Showing ${effectiveList.length} exercises from manual plan, ignoring area filters.`,
+        { patientId: selectedPatient.id }
+      );
+    }
 
     const mandatory = effectiveList.filter((e) => !e.isOptional).sort((a, b) => a.name.localeCompare(b.name, 'he'));
     const optional = effectiveList.filter((e) => e.isOptional).sort((a, b) => a.name.localeCompare(b.name, 'he'));
@@ -669,31 +651,38 @@ export default function PatientDailyView() {
     return [...rehab, ...strengthMissionRows];
   }, [clinicalRehabExercises, strengthMissionRows]);
 
-  /** חובה + כוח: בלי תרגילי שיקום «לבחירה» — לא חוסמים סיום יום */
-  const totalMissions = mandatoryRehabExercises.length + strengthMissionRows.length;
+  /** ספירת משימות: כל תרגילי התוכנית שהמטפל הגדיר + תרגילי כוח (אזורי בחירה) */
+  const totalMissions = exercises.length + strengthMissionRows.length;
   const completedMissionCount = useMemo(() => {
     let n = 0;
-    for (const e of mandatoryRehabExercises) {
+    for (const e of exercises) {
       if (completedSet.has(e.id)) n += 1;
     }
     for (const row of strengthMissionRows) {
       if (completedSet.has(row.exercise.id)) n += 1;
     }
     return n;
-  }, [mandatoryRehabExercises, strengthMissionRows, completedSet]);
+  }, [exercises, strengthMissionRows, completedSet]);
 
   const missionListHasAny =
     mandatoryRehabExercises.length + optionalRehabExercises.length + strengthMissionRows.length > 0;
 
   const sessionCompleteForCelebration = useMemo(() => {
-    const mandatory = clinicalRehabExercises.filter((e) => !e.isOptional);
-    const requiredRehab = mandatory.length > 0 ? mandatory : clinicalRehabExercises;
-    if (requiredRehab.length > 0) {
-      return requiredRehab.every((e) => completedSet.has(e.id));
+    if (exercises.length > 0) {
+      const allPlanDone = exercises.every((e) => completedSet.has(e.id));
+      if (!allPlanDone) return false;
+      if (strengthMissionRows.length === 0) return true;
+      return strengthMissionRows.every((row) => completedSet.has(row.exercise.id));
     }
     if (totalMissions === 0) return false;
     return completedMissionCount === totalMissions;
-  }, [clinicalRehabExercises, completedSet, totalMissions, completedMissionCount]);
+  }, [
+    exercises,
+    completedSet,
+    strengthMissionRows,
+    totalMissions,
+    completedMissionCount,
+  ]);
 
   const trainingTabContextKey = useMemo(() => {
     const zoneKey = [...selectedZones].sort().join(',');
