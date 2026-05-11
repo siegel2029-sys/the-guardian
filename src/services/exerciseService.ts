@@ -1,10 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
+  BodyArea,
   DailySession,
   ExercisePlanHistoryEntry,
+  ExerciseSession,
+  PainRecord,
   PatientExercise,
   PatientExerciseFinishReport,
 } from '../types';
+import { bodyAreaLabels } from '../types';
+import { clampEffort, clampPain } from '../context/patientDomainHelpers';
 import { addClinicalDays, getClinicalDate } from '../utils/clinicalCalendar';
 import { clinicalPushFail, type ClinicalPushResult } from './clinicalService';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
@@ -30,6 +35,263 @@ function formatDayLabel(ymd: string): string {
   if (!y || !m || !d) return ymd;
   const dt = new Date(y, m - 1, d);
   return dt.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+const BODY_AREA_KEYS = new Set<string>(Object.keys(bodyAreaLabels));
+
+function coerceBodyAreaFromReportZone(zone: string | undefined, fallback: BodyArea): BodyArea {
+  if (zone && BODY_AREA_KEYS.has(zone)) return zone as BodyArea;
+  return fallback;
+}
+
+function parseOptionalPain0to10(v: unknown): number | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === 'number' && !Number.isNaN(v)) return clampPain(Math.round(v));
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    if (!Number.isNaN(n)) return clampPain(Math.round(n));
+  }
+  return undefined;
+}
+
+function pickFirstDefined(obj: Record<string, unknown>, keys: string[]): unknown {
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(obj, k) && obj[k] !== undefined && obj[k] !== null) {
+      return obj[k];
+    }
+  }
+  return undefined;
+}
+
+/** Normalizes one finish report JSON (camelCase or snake_case) for UI + analytics. */
+export function normalizeFinishReportPayload(
+  raw: unknown,
+  fallbackPatientId: string
+): PatientExerciseFinishReport | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const exerciseIdRaw = o.exerciseId ?? o.exercise_id;
+  if (typeof exerciseIdRaw !== 'string' || !exerciseIdRaw) return null;
+
+  const idRaw = o.id;
+  const id =
+    typeof idRaw === 'string' && idRaw.length > 0
+      ? idRaw
+      : `fin-${exerciseIdRaw}-${String(o.timestamp ?? o.logged_at ?? '')}`;
+
+  const patientId =
+    typeof o.patientId === 'string' && o.patientId
+      ? o.patientId
+      : typeof o.patient_id === 'string' && o.patient_id
+        ? o.patient_id
+        : fallbackPatientId;
+
+  const timestamp =
+    typeof o.timestamp === 'string'
+      ? o.timestamp
+      : typeof o.logged_at === 'string'
+        ? o.logged_at
+        : new Date().toISOString();
+
+  const difficultyN = Number(
+    o.difficultyScore ?? o.difficulty_score ?? o.effort_rating ?? o.effortRating ?? 3
+  );
+  const difficultyScore = clampEffort(Number.isFinite(difficultyN) ? difficultyN : 3);
+
+  const painRaw = pickFirstDefined(o, [
+    'painLevel',
+    'pain_level',
+    'vas',
+    'vasScore',
+    'vas_score',
+    'painVas',
+    'pain_vas',
+  ]);
+  const painN = parseOptionalPain0to10(painRaw);
+  const painLevel = painN !== undefined ? (painN as PatientExerciseFinishReport['painLevel']) : undefined;
+
+  const exerciseName =
+    typeof o.exerciseName === 'string'
+      ? o.exerciseName
+      : typeof o.exercise_name === 'string'
+        ? o.exercise_name
+        : undefined;
+  const zone =
+    typeof o.zone === 'string' ? o.zone : typeof o.zoneName === 'string' ? o.zoneName : undefined;
+  const source =
+    o.source === 'therapist' || o.source === 'self-care'
+      ? o.source
+      : o.source === 'rehab'
+        ? 'self-care'
+        : undefined;
+
+  return {
+    id,
+    patientId,
+    exerciseId: exerciseIdRaw,
+    timestamp,
+    difficultyScore,
+    ...(painLevel !== undefined ? { painLevel } : {}),
+    ...(exerciseName ? { exerciseName } : {}),
+    ...(zone ? { zone } : {}),
+    ...(source ? { source } : {}),
+  };
+}
+
+/**
+ * Converts raw `session_history.payload` (any legacy shape) into a canonical {@link DailySession}.
+ * Fills `completedIds` from `finishReports` / `finish_reports` when the ID list is empty or partial.
+ */
+export function normalizeServerDailySessionPayload(
+  payload: unknown,
+  patientId: string,
+  sessionDate: string
+): DailySession {
+  if (!payload || typeof payload !== 'object' || payload === null) {
+    return { patientId, date: sessionDate.slice(0, 10), completedIds: [], sessionXp: 0 };
+  }
+  const p = payload as Record<string, unknown>;
+  const dateRaw = p.date ?? p.session_date;
+  const date =
+    typeof dateRaw === 'string' && dateRaw.length >= 10
+      ? dateRaw.slice(0, 10)
+      : sessionDate.slice(0, 10);
+
+  const completedRaw = p.completedIds ?? p.completed_ids;
+  const completedIds: string[] = Array.isArray(completedRaw)
+    ? completedRaw.filter((x): x is string => typeof x === 'string' && x.length > 0)
+    : [];
+
+  const xpRaw = p.sessionXp ?? p.session_xp ?? 0;
+  const sessionXp =
+    typeof xpRaw === 'number' && !Number.isNaN(xpRaw) ? Math.max(0, xpRaw) : 0;
+
+  const frRaw = p.finishReports ?? p.finish_reports;
+  let finishReports: PatientExerciseFinishReport[] | undefined;
+  if (Array.isArray(frRaw)) {
+    const normalized = frRaw
+      .map((r) => normalizeFinishReportPayload(r, patientId))
+      .filter((x): x is PatientExerciseFinishReport => x != null);
+    finishReports = normalized.length > 0 ? normalized : undefined;
+  }
+
+  const ids = new Set(completedIds);
+  for (const r of finishReports ?? []) {
+    if (r.exerciseId) ids.add(r.exerciseId);
+  }
+
+  const goldDisqualified = p.goldDisqualified === true || p.gold_disqualified === true;
+
+  const sessionPainBefore = parseOptionalPain0to10(
+    pickFirstDefined(p, [
+      'sessionPainBefore',
+      'session_pain_before',
+      'painVasBefore',
+      'pain_vas_before',
+      'vasBefore',
+      'vas_before',
+      'pain_before',
+      'painBefore',
+      'beforeVas',
+      'before_vas',
+    ])
+  );
+  const sessionPainAfter = parseOptionalPain0to10(
+    pickFirstDefined(p, [
+      'sessionPainAfter',
+      'session_pain_after',
+      'painVasAfter',
+      'pain_vas_after',
+      'vasAfter',
+      'vas_after',
+      'pain_after',
+      'painAfter',
+      'afterVas',
+      'after_vas',
+    ])
+  );
+
+  const extra: DailySession = {
+    patientId,
+    date,
+    completedIds: [...ids],
+    sessionXp,
+    ...(goldDisqualified ? { goldDisqualified: true } : {}),
+    ...(finishReports ? { finishReports } : {}),
+    ...(sessionPainBefore != null ? { sessionPainBefore } : {}),
+    ...(sessionPainAfter != null ? { sessionPainAfter } : {}),
+  };
+
+  return extra;
+}
+
+/**
+ * Derives therapist-facing {@link PainRecord} / {@link ExerciseSession} rows from hydrated {@link DailySession}s.
+ */
+export function buildPainAndSessionHistoryFromDailySessions(
+  rows: DailySession[],
+  primaryBodyArea: BodyArea,
+  plannedExerciseCountFallback: number
+): { painHistory: PainRecord[]; sessionHistory: ExerciseSession[] } {
+  const painHistory: PainRecord[] = [];
+  const sessionHistory: ExerciseSession[] = [];
+  const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+  const planned = Math.max(0, plannedExerciseCountFallback);
+
+  for (const s of sorted) {
+    const ids = new Set<string>([...(s.completedIds ?? [])]);
+    for (const r of s.finishReports ?? []) {
+      if (r.exerciseId) ids.add(r.exerciseId);
+    }
+    const exercisesCompleted = ids.size;
+    const reports = s.finishReports ?? [];
+
+    if (s.sessionPainBefore != null) {
+      painHistory.push({
+        date: s.date,
+        painLevel: clampPain(s.sessionPainBefore),
+        bodyArea: primaryBodyArea,
+        notes: 'VAS לפני תרגול',
+      });
+    }
+    if (s.sessionPainAfter != null) {
+      painHistory.push({
+        date: s.date,
+        painLevel: clampPain(s.sessionPainAfter),
+        bodyArea: primaryBodyArea,
+        notes: 'VAS אחרי תרגול',
+      });
+    }
+
+    for (const r of reports) {
+      if (r.painLevel == null) continue;
+      const bodyArea = coerceBodyAreaFromReportZone(r.zone, primaryBodyArea);
+      painHistory.push({
+        date: s.date,
+        painLevel: r.painLevel,
+        bodyArea,
+        ...(r.exerciseName ? { notes: `אחרי «${r.exerciseName}»` } : {}),
+      });
+    }
+
+    if (exercisesCompleted > 0 || (s.sessionXp ?? 0) > 0 || reports.length > 0) {
+      let difficultyRating = 3;
+      if (reports.length > 0) {
+        const sum = reports.reduce((acc, x) => acc + x.difficultyScore, 0);
+        difficultyRating = clampEffort(Math.round(sum / reports.length));
+      }
+      const totalExercises = Math.max(planned, exercisesCompleted, 1);
+      sessionHistory.push({
+        date: s.date,
+        exercisesCompleted,
+        totalExercises,
+        difficultyRating,
+        xpEarned: s.sessionXp ?? 0,
+      });
+    }
+  }
+
+  return { painHistory, sessionHistory };
 }
 
 /** All inactive exercise_plans rows for a patient (ordered by version_number descending). */
@@ -84,17 +346,8 @@ export async function fetchRecentSessionHistoryForPatient(
   const out: DailySession[] = [];
   for (const row of data ?? []) {
     const sessionDate = (row as { session_date: string }).session_date;
-    const payload = (row as { payload: unknown }).payload as DailySession | null;
-    if (payload && typeof payload === 'object' && typeof payload.date === 'string') {
-      out.push(payload);
-    } else {
-      out.push({
-        patientId,
-        date: sessionDate,
-        completedIds: [],
-        sessionXp: 0,
-      });
-    }
+    const payload = (row as { payload: unknown }).payload;
+    out.push(normalizeServerDailySessionPayload(payload, patientId, sessionDate));
   }
   return out;
 }
@@ -137,16 +390,29 @@ function mergeDailySessionPayloadWithExisting(
   prev: DailySession | undefined,
   incoming: DailySession
 ): DailySession {
+  const unionIds = (s: DailySession): string[] => {
+    const ids = new Set<string>([...(s.completedIds ?? [])]);
+    for (const r of s.finishReports ?? []) {
+      if (r.exerciseId) ids.add(r.exerciseId);
+    }
+    return [...ids];
+  };
+
   if (!prev) {
+    const ids = new Set<string>(unionIds(incoming));
     return {
       ...incoming,
       patientId: incoming.patientId,
       date: incoming.date,
+      completedIds: [...ids],
       finishReports: incoming.finishReports?.length ? incoming.finishReports : undefined,
     };
   }
-  const ids = new Set<string>([...(prev.completedIds ?? []), ...(incoming.completedIds ?? [])]);
+  const ids = new Set<string>([...unionIds(prev), ...unionIds(incoming)]);
   const finishMerged = mergeFinishReportsPayload(prev.finishReports, incoming.finishReports);
+  for (const r of finishMerged ?? []) {
+    if (r.exerciseId) ids.add(r.exerciseId);
+  }
   const dateKey =
     incoming.date && incoming.date.length > 0
       ? incoming.date
@@ -160,6 +426,8 @@ function mergeDailySessionPayloadWithExisting(
     sessionXp: Math.max(prev.sessionXp ?? 0, incoming.sessionXp ?? 0),
     goldDisqualified: prev.goldDisqualified === true && incoming.goldDisqualified === true,
     ...(finishMerged ? { finishReports: finishMerged } : {}),
+    sessionPainBefore: incoming.sessionPainBefore ?? prev.sessionPainBefore,
+    sessionPainAfter: incoming.sessionPainAfter ?? prev.sessionPainAfter,
   };
 }
 
@@ -205,7 +473,11 @@ export async function upsertDailySessionRowMerged(
 
     const prevPayload =
       existing?.payload && typeof existing.payload === 'object'
-        ? (existing.payload as DailySession)
+        ? normalizeServerDailySessionPayload(
+            existing.payload,
+            session.patientId,
+            session.date
+          )
         : undefined;
     const merged = mergeDailySessionPayloadWithExisting(prevPayload, {
       ...session,
@@ -299,14 +571,8 @@ export async function fetchSessionHistoryBetween(
   const out: DailySession[] = [];
   for (const row of data ?? []) {
     const sessionDate = (row as { session_date: string }).session_date;
-    const payload = (row as { payload: unknown }).payload as DailySession | null;
-    if (payload && typeof payload === 'object') {
-      const d =
-        typeof payload.date === 'string' && payload.date.length > 0 ? payload.date : sessionDate;
-      out.push({ ...(payload as DailySession), patientId, date: d });
-    } else {
-      out.push({ patientId, date: sessionDate, completedIds: [], sessionXp: 0 });
-    }
+    const payload = (row as { payload: unknown }).payload;
+    out.push(normalizeServerDailySessionPayload(payload, patientId, sessionDate));
   }
   return out;
 }
@@ -536,10 +802,12 @@ export async function fetch7dComplianceFromSupabase(
 
   const byDate = new Map<string, DailySession>();
   for (const row of rows as { session_date: string; payload: unknown }[]) {
-    const payload = row.payload as DailySession | null;
-    if (payload && typeof payload === 'object' && payload.date) {
-      byDate.set(row.session_date, payload);
-    }
+    const normalized = normalizeServerDailySessionPayload(
+      row.payload,
+      patientId,
+      row.session_date
+    );
+    byDate.set(row.session_date, normalized);
   }
 
   const out: DayCompliancePoint[] = [];

@@ -82,6 +82,8 @@ import {
   fetchUnlinkedPortalPatientIds,
   postgrestHttpStatus,
   mergePatientPayloadForUpsert,
+  mergePainHistoryUnique,
+  mergeSessionHistoryByDate,
   mergeSessionCompletionByDateMaps,
 } from '../services/clinicalService';
 import {
@@ -89,6 +91,7 @@ import {
   mergeDailySessionsWithServerForPatient,
   aggregateFinishReportsFromSessionRows,
   buildSessionCompletionByDateFromDailySessions,
+  buildPainAndSessionHistoryFromDailySessions,
   hydrateDailySessionsFromSessionCompletionMap,
 } from '../services/exerciseService';
 import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
@@ -117,6 +120,35 @@ import {
 
 /** sessionStorage: LoginPage sets before routing; PatientProvider clears once to open dashboard hub. */
 export const THERAPIST_LOGIN_HUB_LANDING_SESSION_KEY = 'guardian-therapist-login-hub-landing-v1';
+
+/** Merges pain + exercise analytics derived from `session_history` rows into patient state for dashboard charts. */
+function applySessionHistoryAnalyticsHydration(
+  patient: Patient,
+  rows: DailySession[],
+  plannedExerciseCountFallback: number
+): Patient {
+  if (rows.length === 0) return patient;
+  const derived = buildPainAndSessionHistoryFromDailySessions(
+    rows,
+    patient.primaryBodyArea,
+    plannedExerciseCountFallback
+  );
+  const painHistory = mergePainHistoryUnique(patient.analytics.painHistory, derived.painHistory);
+  const sessionHistory = mergeSessionHistoryByDate(
+    patient.analytics.sessionHistory,
+    derived.sessionHistory
+  );
+  const agg = recomputePatientAnalyticsAggregates(painHistory, sessionHistory);
+  return {
+    ...patient,
+    analytics: {
+      ...patient.analytics,
+      painHistory,
+      sessionHistory,
+      ...agg,
+    },
+  };
+}
 
 export type {
   GearPurchaseResult,
@@ -877,16 +909,22 @@ export function PatientProvider({
               clinicalToday: clinicalDayForMerge,
             });
 
+      const planCountForHist = exercisePlan?.exercises.length ?? 0;
+      const mergedWithSessionAnalytics =
+        histRows && histRows.length > 0
+          ? applySessionHistoryAnalyticsHydration(mergedForCloud, histRows, planCountForHist)
+          : mergedForCloud;
+
       setAllPatients((prev) => {
         const ix = prev.findIndex((p) => p.id === fetchedEnriched.id);
-        if (ix < 0) return [...prev, mergedForCloud];
+        if (ix < 0) return [...prev, mergedWithSessionAnalytics];
         const next = [...prev];
-        next[ix] = mergedForCloud;
+        next[ix] = mergedWithSessionAnalytics;
         return next;
       });
 
       if (!cancelled) {
-        const completionMap = mergedForCloud._sessionCompletionByDate;
+        const completionMap = mergedWithSessionAnalytics._sessionCompletionByDate;
         if (!histRows?.length && completionMap) {
           setDailySessions((prev) =>
             hydrateDailySessionsFromSessionCompletionMap(
@@ -898,7 +936,7 @@ export function PatientProvider({
         }
         const syncRes = await upsertPatientRecords(
           supabaseClient,
-          [mergedForCloud],
+          [mergedWithSessionAnalytics],
           new Date().toISOString(),
           { onlyPatientId: restrictPatientSessionId }
         );
@@ -1093,21 +1131,23 @@ export function PatientProvider({
       setDailySessions((prev) => mergeDailySessionsWithServerForPatient(prev, pid, rows));
 
       const completionFromRows = buildSessionCompletionByDateFromDailySessions(rows);
-      if (completionFromRows && Object.keys(completionFromRows).length > 0) {
-        setAllPatients((prev) =>
-          prev.map((p) =>
-            p.id !== pid
-              ? p
-              : {
-                  ...p,
-                  _sessionCompletionByDate: mergeSessionCompletionByDateMaps(
-                    p._sessionCompletionByDate,
-                    completionFromRows
-                  ),
-                }
-          )
-        );
-      }
+      setAllPatients((prev) =>
+        prev.map((p) => {
+          if (p.id !== pid) return p;
+          let next: Patient = p;
+          if (completionFromRows && Object.keys(completionFromRows).length > 0) {
+            next = {
+              ...next,
+              _sessionCompletionByDate: mergeSessionCompletionByDateMaps(
+                next._sessionCompletionByDate,
+                completionFromRows
+              ),
+            };
+          }
+          const planLen = exercisePlans.find((ep) => ep.patientId === pid)?.exercises.length ?? 0;
+          return applySessionHistoryAnalyticsHydration(next, rows, planLen);
+        })
+      );
 
       const totalCompletedSlots = rows.reduce((n, r) => n + (r.completedIds?.length ?? 0), 0);
       const todayRow = rows.find((r) => r.date === today);
@@ -1143,9 +1183,8 @@ export function PatientProvider({
     isAuthenticated,
     sessionRole,
     restrictPatientSessionId,
+    exercisePlans,
   ]);
-
-  /** After therapist login/signup — land on dashboard hub, not last-open patient file. */
   useEffect(() => {
     if (restrictPatientSessionId) return;
     if (authLoading || !isAuthenticated || sessionRole !== 'therapist') return;

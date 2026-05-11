@@ -64,7 +64,7 @@ function shallowStripUndefined(row: Record<string, unknown>): Record<string, unk
   return out;
 }
 
-function mergeSessionHistoryByDate(a: ExerciseSession[], b: ExerciseSession[]): ExerciseSession[] {
+export function mergeSessionHistoryByDate(a: ExerciseSession[], b: ExerciseSession[]): ExerciseSession[] {
   const map = new Map<string, ExerciseSession>();
   for (const s of [...a, ...b]) {
     const cur = map.get(s.date);
@@ -87,7 +87,7 @@ function painRecordKey(r: PainRecord): string {
   return `${r.date}|${r.bodyArea}|${r.painLevel}`;
 }
 
-function mergePainHistoryUnique(a: PainRecord[], b: PainRecord[]): PainRecord[] {
+export function mergePainHistoryUnique(a: PainRecord[], b: PainRecord[]): PainRecord[] {
   const map = new Map<string, PainRecord>();
   for (const r of [...a, ...b]) {
     map.set(painRecordKey(r), r);

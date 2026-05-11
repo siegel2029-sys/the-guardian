@@ -412,6 +412,11 @@ export interface DailySession {
   goldDisqualified?: boolean;
   /** דיווחי מודאל סיום — נשמרים ב־session_history.payload לסנכרון מטפל */
   finishReports?: PatientExerciseFinishReport[];
+  /**
+   * תצלום VAS לפני/אחרי (אופציונלי) מתוך payload ב־session_history — ממופה ל־painHistory בהידרציה.
+   */
+  sessionPainBefore?: number;
+  sessionPainAfter?: number;
 }
 
 /** סטטוס יום בלוח הקליני (מעקב אחר השלמת פוקוס קליני) */
