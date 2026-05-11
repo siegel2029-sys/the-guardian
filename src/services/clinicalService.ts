@@ -491,6 +491,7 @@ export async function upsertPatientRecords(
       .maybeSingle();
 
     if (fetchErr) {
+      console.error('[SYNC_ERROR] upsertPatientRecords/select', fetchErr, { patientId: p.id });
       logSupabaseCallError('upsertPatientRecords/select', fetchErr, { patientId: p.id });
       return clinicalPushFail(`patients: ${fetchErr.message}`, fetchErr);
     }
@@ -578,16 +579,17 @@ export async function upsertPatientRecords(
       .upsert([upsertRow], { onConflict: 'id' })
       .select(selectCols);
     if (error) {
-      logSupabaseCallError('upsertPatientRecords/upsert', error, {
-        patientId: payloadForUpsert.id,
-        therapist_id: therapistIdForRow,
-      });
-      console.error('[upsertPatientRecords] upsert failed', {
+      console.error('[SYNC_ERROR] upsertPatientRecords/upsert', {
         patientId: payloadForUpsert.id,
         therapist_id: therapistIdForRow,
         error_message: error.message,
         error_code: (error as { code?: string }).code,
         error_details: (error as { details?: string }).details,
+        error,
+      });
+      logSupabaseCallError('upsertPatientRecords/upsert', error, {
+        patientId: payloadForUpsert.id,
+        therapist_id: therapistIdForRow,
       });
       return clinicalPushFail(`patients: ${error.message}`, error);
     }
@@ -640,6 +642,7 @@ export async function upsertPatientRecords(
 
   return { ok: true, syncedPatients };
   } catch (e) {
+    console.error('[SYNC_ERROR] upsertPatientRecords/unexpected', e);
     logSupabaseCallError('upsertPatientRecords/unexpected', e);
     return {
       ok: false,

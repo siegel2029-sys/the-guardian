@@ -837,6 +837,18 @@ export function PatientProvider({
         clinicalDayForMerge
       );
       if (!cancelled && histRows && histRows.length > 0) {
+        const totalCompletedSlots = histRows.reduce(
+          (n, r) => n + (r.completedIds?.length ?? 0),
+          0
+        );
+        const todayRow = histRows.find((r) => r.date === clinicalDayForMerge);
+        console.log('[HYDRATE_COMPLETION] patient portal — session_history from cloud', {
+          patientId: restrictPatientSessionId,
+          daysWithRows: histRows.length,
+          totalCompletedExerciseSlots: totalCompletedSlots,
+          todayCompletedCount: todayRow?.completedIds?.length ?? 0,
+          todayCompletedIds: [...(todayRow?.completedIds ?? [])],
+        });
         setDailySessions((prev) =>
           mergeDailySessionsWithServerForPatient(prev, restrictPatientSessionId, histRows)
         );
@@ -1080,6 +1092,33 @@ export function PatientProvider({
       }
 
       setDailySessions((prev) => mergeDailySessionsWithServerForPatient(prev, pid, rows));
+
+      const completionFromRows = buildSessionCompletionByDateFromDailySessions(rows);
+      if (completionFromRows && Object.keys(completionFromRows).length > 0) {
+        setAllPatients((prev) =>
+          prev.map((p) =>
+            p.id !== pid
+              ? p
+              : {
+                  ...p,
+                  _sessionCompletionByDate: mergeSessionCompletionByDateMaps(
+                    p._sessionCompletionByDate,
+                    completionFromRows
+                  ),
+                }
+          )
+        );
+      }
+
+      const totalCompletedSlots = rows.reduce((n, r) => n + (r.completedIds?.length ?? 0), 0);
+      const todayRow = rows.find((r) => r.date === today);
+      console.log('[HYDRATE_COMPLETION] therapist — session_history merged for patient', {
+        patientId: pid,
+        daysWithRows: rows.length,
+        totalCompletedExerciseSlots: totalCompletedSlots,
+        todayCompletedCount: todayRow?.completedIds?.length ?? 0,
+        todayCompletedIds: [...(todayRow?.completedIds ?? [])],
+      });
 
       setPatientExerciseFinishReportsByPatientId((prev) => {
         const fromServer = aggregateFinishReportsFromSessionRows(rows);
@@ -1405,12 +1444,19 @@ export function PatientProvider({
           return false;
         }
 
-        const result = restrictPatientSessionId
-          ? await upsertTreatmentReport(supabaseClient, patient, {
+        const clinicalDayMerge = getClinicalDate();
+      const baseline = allPatientsRef.current.find((x) => x.id === patient.id);
+      const patientPayload =
+        baseline != null
+          ? mergePatientPayloadForUpsert(baseline, patient, { clinicalToday: clinicalDayMerge })
+          : patient;
+
+      const result = restrictPatientSessionId
+          ? await upsertTreatmentReport(supabaseClient, patientPayload, {
               now,
               onlyPatientId: restrictPatientSessionId,
             })
-          : await upsertTreatmentReport(supabaseClient, patient, { now });
+          : await upsertTreatmentReport(supabaseClient, patientPayload, { now });
 
         if (result.ok === false) {
           if (import.meta.env.DEV) {
@@ -1427,6 +1473,7 @@ export function PatientProvider({
         return true;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        console.error('[SYNC_ERROR] saveSinglePatientPayloadToCloud', e);
         console.error('[saveSinglePatientPayloadToCloud] שגיאה לא צפויה', msg, e);
         return false;
       }
@@ -1560,8 +1607,12 @@ export function PatientProvider({
         const patientForCache = allPatientsRef.current.find((p) => p.id === patientId);
         if (patientForCache) {
           const now = new Date().toISOString();
-          const patientWithCache = { ...patientForCache, _exercisePlanCache: exercises };
-          // Update in-memory state so subsequent upsertPatientRecords calls preserve the cache.
+          const clinicalDayMerge = getClinicalDate();
+          const patientWithCache = mergePatientPayloadForUpsert(
+            patientForCache,
+            { ...patientForCache, _exercisePlanCache: exercises },
+            { clinicalToday: clinicalDayMerge }
+          );
           setAllPatients((prev) =>
             prev.map((p) => (p.id === patientId ? patientWithCache : p))
           );

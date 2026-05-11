@@ -693,6 +693,39 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             }
           }
 
+          await new Promise<void>((resolve) => {
+            queueMicrotask(() => resolve());
+          });
+
+          let latestSession = getLatestDailySession?.(patientId, clinicalDay);
+          if (!latestSession) {
+            const ids = prior?.completedIds ?? [];
+            latestSession = {
+              patientId,
+              date: clinicalDay,
+              completedIds: wasRepeatCompletion
+                ? ids
+                : ids.includes(exerciseId)
+                  ? ids
+                  : [...ids, exerciseId],
+              sessionXp: (prior?.sessionXp ?? 0) + xpGain,
+            };
+          } else if (!wasRepeatCompletion && !latestSession.completedIds.includes(exerciseId)) {
+            latestSession = {
+              ...latestSession,
+              completedIds: [...latestSession.completedIds, exerciseId],
+              sessionXp: latestSession.sessionXp + xpGain,
+            };
+          }
+
+          const sRes = await upsertDailySessionRowMerged(supabaseClient, latestSession, {
+            therapistId: patientBefore.therapistId,
+          });
+          if (!sRes.ok) {
+            onExerciseCloudSyncError?.(`שמירת סשן יומי נכשלה: ${sRes.message}`);
+            return;
+          }
+
           const latestPatient = getLatestPatient?.(patientId);
           if (latestPatient && persistPatientPayloadToCloud) {
             const saved = await persistPatientPayloadToCloud(latestPatient);
@@ -702,17 +735,12 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               );
             }
           }
-
-          const latestSession = getLatestDailySession?.(patientId, clinicalDay);
-          if (latestSession) {
-            const sRes = await upsertDailySessionRowMerged(supabaseClient, latestSession, {
-              therapistId: patientBefore.therapistId,
-            });
-            if (!sRes.ok) {
-              onExerciseCloudSyncError?.(`שמירת סשן יומי נכשלה: ${sRes.message}`);
-            }
-          }
         } catch (e) {
+          console.error('[SYNC_ERROR] submitExerciseReport/portalCloud', e, {
+            patientId,
+            exerciseId,
+            clinicalDay,
+          });
           logSupabaseCallError('submitExerciseReport/portalCloud', e, {
             patientId,
             exerciseId,
@@ -1190,63 +1218,77 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         patientId,
         timestamp: new Date().toISOString(),
       };
-      setPatientExerciseFinishReportsByPatientId((prev) => ({
-        ...prev,
-        [patientId]: [...(prev[patientId] ?? []), full],
-      }));
+
+      const applyLocalAppend = () => {
+        setPatientExerciseFinishReportsByPatientId((prev) => ({
+          ...prev,
+          [patientId]: [...(prev[patientId] ?? []), full],
+        }));
+        setDailySessions((prev) => {
+          const idx = prev.findIndex(
+            (s) => s.patientId === patientId && s.date === clinicalToday
+          );
+          if (idx < 0) {
+            return [
+              ...prev,
+              {
+                patientId,
+                date: clinicalToday,
+                completedIds: [full.exerciseId],
+                sessionXp: 0,
+              },
+            ];
+          }
+          const s = prev[idx];
+          if (s.completedIds.includes(full.exerciseId)) return prev;
+          const next = [...prev];
+          next[idx] = { ...s, completedIds: [...s.completedIds, full.exerciseId] };
+          return next;
+        });
+        setAllPatients((prev) =>
+          prev.map((p) => {
+            if (p.id !== patientId) return p;
+            const prevDay = p._sessionCompletionByDate?.[clinicalToday];
+            const ids = new Set([...(prevDay?.completedIds ?? []), full.exerciseId]);
+            return {
+              ...p,
+              _sessionCompletionByDate: mergeSessionCompletionByDateMaps(p._sessionCompletionByDate, {
+                [clinicalToday]: {
+                  completedIds: [...ids],
+                  sessionXp: prevDay?.sessionXp ?? 0,
+                },
+              }),
+            };
+          })
+        );
+      };
+
       if (supabaseClient && patientPortalPatientId && patientId === patientPortalPatientId) {
         try {
-          const r = await persistPatientFinishReportToCloud(supabaseClient, full);
+          const pRow = allPatients.find((x) => x.id === patientId);
+          const r = await persistPatientFinishReportToCloud(supabaseClient, full, {
+            therapistId: pRow?.therapistId,
+          });
           if (!r.ok) {
             onExerciseCloudSyncError?.(`דיווח הסיום לא נשמר לענן: ${r.message}`);
-          } else {
-            setDailySessions((prev) => {
-              const idx = prev.findIndex(
-                (s) => s.patientId === patientId && s.date === clinicalToday
-              );
-              if (idx < 0) {
-                return [
-                  ...prev,
-                  {
-                    patientId,
-                    date: clinicalToday,
-                    completedIds: [full.exerciseId],
-                    sessionXp: 0,
-                  },
-                ];
-              }
-              const s = prev[idx];
-              if (s.completedIds.includes(full.exerciseId)) return prev;
-              const next = [...prev];
-              next[idx] = { ...s, completedIds: [...s.completedIds, full.exerciseId] };
-              return next;
-            });
-            setAllPatients((prev) =>
-              prev.map((p) => {
-                if (p.id !== patientId) return p;
-                const prevDay = p._sessionCompletionByDate?.[clinicalToday];
-                const ids = new Set([...(prevDay?.completedIds ?? []), full.exerciseId]);
-                return {
-                  ...p,
-                  _sessionCompletionByDate: mergeSessionCompletionByDateMaps(p._sessionCompletionByDate, {
-                    [clinicalToday]: {
-                      completedIds: [...ids],
-                      sessionXp: prevDay?.sessionXp ?? 0,
-                    },
-                  }),
-                };
-              })
-            );
+            return;
           }
         } catch (e) {
+          console.error('[SYNC_ERROR] appendPatientExerciseFinishReport', e, {
+            patientId,
+            reportId: full.id,
+          });
           logSupabaseCallError('appendPatientExerciseFinishReport', e, { patientId, reportId: full.id });
           onExerciseCloudSyncError?.(
             e instanceof Error
               ? `דיווח הסיום לא נשמר לענן: ${e.message}`
               : 'דיווח הסיום לא נשמר לענן.'
           );
+          return;
         }
       }
+
+      applyLocalAppend();
     },
     [
       supabaseClient,
@@ -1255,6 +1297,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       clinicalToday,
       setDailySessions,
       setAllPatients,
+      allPatients,
     ]
   );
 

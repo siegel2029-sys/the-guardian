@@ -234,6 +234,10 @@ export async function upsertDailySessionRowMerged(
     }
     return { ok: true };
   } catch (e) {
+    console.error('[SYNC_ERROR] upsertDailySessionRowMerged/unexpected', e, {
+      patientId: session.patientId,
+      session_date: session.date,
+    });
     logSupabaseCallError('upsertDailySessionRowMerged/unexpected', e, {
       patientId: session.patientId,
     });
@@ -243,16 +247,29 @@ export async function upsertDailySessionRowMerged(
 
 export async function persistPatientFinishReportToCloud(
   client: SupabaseClient,
-  report: PatientExerciseFinishReport
+  report: PatientExerciseFinishReport,
+  options?: { therapistId?: string | null }
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const clinicalDay = getClinicalDate(new Date(report.timestamp));
-  return upsertDailySessionRowMerged(client, {
-    patientId: report.patientId,
-    date: clinicalDay,
-    completedIds: [report.exerciseId],
-    sessionXp: 0,
-    finishReports: [report],
-  });
+  try {
+    const clinicalDay = getClinicalDate(new Date(report.timestamp));
+    return await upsertDailySessionRowMerged(
+      client,
+      {
+        patientId: report.patientId,
+        date: clinicalDay,
+        completedIds: [report.exerciseId],
+        sessionXp: 0,
+        finishReports: [report],
+      },
+      { therapistId: options?.therapistId?.trim() || undefined }
+    );
+  } catch (e) {
+    console.error('[SYNC_ERROR] persistPatientFinishReportToCloud', e, {
+      patientId: report.patientId,
+      exerciseId: report.exerciseId,
+    });
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 /** סשנים יומיים בטווח תאריכים קליניים (כולל הקצוות). */
