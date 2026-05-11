@@ -18,6 +18,10 @@ import {
   normalizePatientProgressFields,
   patientWithLifetimeXp,
 } from '../body/patientLevelXp';
+import {
+  ensureSupabaseSessionReady,
+  logSupabaseCallError,
+} from '../lib/supabaseSessionGuard';
 
 /**
  * בסיס ידע גלובלי («הידעת?») — לא נמשך כאן בשאילתות קליניות.
@@ -351,6 +355,7 @@ export async function upsertPatientRecords(
   now: string,
   options?: UpsertPatientRecordsOptions
 ): Promise<ClinicalPushResult> {
+  try {
   const onlyId = options?.onlyPatientId?.trim();
   // auth_user_id to set at creation time (from signUpPortalPatientOnCreate).
   // Empty string means "not provided" — we won't include the column so we don't
@@ -360,6 +365,15 @@ export async function upsertPatientRecords(
     onlyId && onlyId.length > 0 ? patients.filter((p) => p.id === onlyId) : patients;
   const skipAudit = Boolean(onlyId && onlyId.length > 0);
   const isPatientPortal = Boolean(onlyId && onlyId.length > 0);
+
+  if (isSupabaseAuthEnabled()) {
+    const guard = await ensureSupabaseSessionReady(client, {
+      context: isPatientPortal ? 'שמירת מטופל (פורטל)' : 'שמירת מטופל (דשבורד מטפל)',
+    });
+    if (!guard.ok) {
+      return { ok: false, message: `patients: ${guard.message}` };
+    }
+  }
 
   let therapistUser: User | null = null;
   if (isSupabaseAuthEnabled() && !isPatientPortal) {
@@ -398,7 +412,10 @@ export async function upsertPatientRecords(
       .eq('id', p.id)
       .maybeSingle();
 
-    if (fetchErr) return clinicalPushFail(`patients: ${fetchErr.message}`, fetchErr);
+    if (fetchErr) {
+      logSupabaseCallError('upsertPatientRecords/select', fetchErr, { patientId: p.id });
+      return clinicalPushFail(`patients: ${fetchErr.message}`, fetchErr);
+    }
 
     const oldPayload = existing?.payload != null ? (existing.payload as Patient) : undefined;
 
@@ -483,6 +500,10 @@ export async function upsertPatientRecords(
       .upsert([upsertRow], { onConflict: 'id' })
       .select(selectCols);
     if (error) {
+      logSupabaseCallError('upsertPatientRecords/upsert', error, {
+        patientId: payloadForUpsert.id,
+        therapist_id: therapistIdForRow,
+      });
       console.error('[upsertPatientRecords] upsert failed', {
         patientId: payloadForUpsert.id,
         therapist_id: therapistIdForRow,
@@ -540,6 +561,13 @@ export async function upsertPatientRecords(
   }
 
   return { ok: true, syncedPatients };
+  } catch (e) {
+    logSupabaseCallError('upsertPatientRecords/unexpected', e);
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : String(e),
+    };
+  }
 }
 
 export type UpsertTreatmentReportOptions = Pick<UpsertPatientRecordsOptions, 'onlyPatientId'> & {

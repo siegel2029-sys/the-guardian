@@ -343,6 +343,8 @@ function BodyMap3D(props: BodyMap3DProps) {
   const [activeView, setActiveView] = useState<ViewPreset | null>('front');
   const [avatarHovered, setAvatarHovered] = useState(false);
   const [walkPausedByPointerOver, setWalkPausedByPointerOver] = useState(false);
+  /** Remount Canvas after WebGL restore so Fiber/Three state stays consistent; UI/finish callbacks stay mounted outside the canvas. */
+  const [webglCanvasKey, setWebglCanvasKey] = useState(0);
   const cameraTargetRef = useRef<THREE.Vector3 | null>(VIEW_POSITIONS.front.clone());
   const orbitActiveRef = useRef(false);
 
@@ -436,6 +438,7 @@ function BodyMap3D(props: BodyMap3DProps) {
         }}
       >
       <Canvas
+        key={webglCanvasKey}
         style={{
           display: 'block',
           width: '100%',
@@ -485,6 +488,9 @@ function BodyMap3D(props: BodyMap3DProps) {
             console.log('[BodyMap3D] WebGL context restored');
             // Force Three.js to reinitialise its internal state after restore.
             gl.setSize(canvas.clientWidth, canvas.clientHeight, false);
+            requestAnimationFrame(() => {
+              setWebglCanvasKey((k) => k + 1);
+            });
           };
           canvas.addEventListener('webglcontextlost', onContextLost, false);
           canvas.addEventListener('webglcontextrestored', onContextRestored, false);

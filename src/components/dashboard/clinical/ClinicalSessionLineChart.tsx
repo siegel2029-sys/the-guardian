@@ -81,12 +81,28 @@ export default function ClinicalSessionLineChart({ patient }: { patient: Patient
     );
   }
 
+  const hasSessionSignal = chartData.some(
+    (row) => row.pain != null || (row.effort10 > 0 && !Number.isNaN(row.effort10))
+  );
+  if (!hasSessionSignal) {
+    return (
+      <div className="w-full" dir="rtl">
+        <p className="text-xs font-semibold text-slate-700 mb-2 text-end">
+          שבעת הסשנים האחרונים · ציר אנכי 0–10 (VAS)
+        </p>
+        <p className="text-sm text-slate-500 text-center py-10 border border-dashed border-slate-200 rounded-xl bg-slate-50/80">
+          אין נתונים להצגה
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="w-full" dir="ltr">
+    <div className="w-full min-w-[280px]" dir="ltr">
       <p className="text-xs font-semibold text-slate-700 mb-2 text-end" dir="rtl">
         שבעת הסשנים האחרונים · ציר אנכי 0–10 (VAS)
       </p>
-      <ResponsiveContainer width="100%" height={300}>
+      <ResponsiveContainer width="100%" height={300} minWidth={280} minHeight={240}>
         <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
           <XAxis

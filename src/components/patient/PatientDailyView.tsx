@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect, useRef, useCallback, type KeyboardEvent } from 'react';
-import { flushSync } from 'react-dom';
 import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -923,7 +922,7 @@ export default function PatientDailyView() {
     });
   };
 
-  const handleTrainingComplete = (payload: ExerciseTrainingCompletePayload) => {
+  const handleTrainingComplete = async (payload: ExerciseTrainingCompletePayload) => {
     const m = exerciseVideoModal;
     if (!selectedPatient || !m) return;
 
@@ -940,25 +939,13 @@ export default function PatientDailyView() {
       const planXpForSelfCare = Math.max(1, Math.floor(m.exercise.xpReward * 0.5));
       const nextAfterOptional =
         exerciseInOptionalPool ? getNextOptionalAfterAddingId(m.exercise.id) : null;
-      flushSync(() => {
-        submitExerciseReport(selectedPatient.id, m.exercise.id, payload.painLevel, payload.effort, planXpForSelfCare, {
-          skipPainHistory: true,
-          completionSource: 'self-care',
-          sessionBodyArea: m.bodyArea,
-          optionalPoolNoReward,
-        });
+      await submitExerciseReport(selectedPatient.id, m.exercise.id, payload.painLevel, payload.effort, planXpForSelfCare, {
+        skipPainHistory: true,
+        completionSource: 'self-care',
+        sessionBodyArea: m.bodyArea,
+        optionalPoolNoReward,
       });
-      setExerciseVideoModal(null);
-      if (nextAfterOptional) {
-        signalOptionalReveal(true);
-      }
-      logSelfCareSession(
-        selectedPatient.id,
-        m.exercise.id,
-        m.exercise.name,
-        payload.effort
-      );
-      appendPatientExerciseFinishReport(selectedPatient.id, {
+      await appendPatientExerciseFinishReport(selectedPatient.id, {
         exerciseId: m.exercise.id,
         exerciseName: m.exercise.name,
         zone: bodyAreaLabels[m.bodyArea],
@@ -968,6 +955,15 @@ export default function PatientDailyView() {
         selfCareDifficultyTier: strengthTier,
         selfCareDifficultyLabel: strengthTierLabel,
       });
+      if (nextAfterOptional) {
+        signalOptionalReveal(true);
+      }
+      logSelfCareSession(
+        selectedPatient.id,
+        m.exercise.id,
+        m.exercise.name,
+        payload.effort
+      );
       if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
       else setLoadSafetyNudge(null);
       pushExerciseCompleteMilestone(payload.painLevel);
@@ -977,22 +973,27 @@ export default function PatientDailyView() {
         m.exercise.isOptional && exerciseInOptionalPool
           ? getNextOptionalAfterAddingId(m.exercise.id)
           : null;
-      flushSync(() => {
-        submitExerciseReport(
-          selectedPatient.id,
-          m.exercise.id,
-          pain,
-          payload.effort,
-          m.exercise.xpReward,
-          {
-            completionSource: 'rehab',
-            sessionBodyArea: m.exercise.targetArea,
-            optionalPoolNoReward:
-              m.exercise.isOptional && exerciseInOptionalPool && optionalPoolCompletionCount >= 1,
-          }
-        );
+      await submitExerciseReport(
+        selectedPatient.id,
+        m.exercise.id,
+        pain,
+        payload.effort,
+        m.exercise.xpReward,
+        {
+          completionSource: 'rehab',
+          sessionBodyArea: m.exercise.targetArea,
+          optionalPoolNoReward:
+            m.exercise.isOptional && exerciseInOptionalPool && optionalPoolCompletionCount >= 1,
+        }
+      );
+      await appendPatientExerciseFinishReport(selectedPatient.id, {
+        exerciseId: m.exercise.id,
+        exerciseName: m.exercise.name,
+        zone: bodyAreaLabels[m.exercise.targetArea],
+        difficultyScore: payload.effort,
+        painLevel: payload.painLevel,
+        source: 'therapist',
       });
-      setExerciseVideoModal(null);
       if (nextAfterOptional) {
         signalOptionalReveal(true);
       }
@@ -1001,14 +1002,6 @@ export default function PatientDailyView() {
         setTimerArmedExerciseIds([]);
       }
       pushExerciseCompleteMilestone(pain);
-      appendPatientExerciseFinishReport(selectedPatient.id, {
-        exerciseId: m.exercise.id,
-        exerciseName: m.exercise.name,
-        zone: bodyAreaLabels[m.exercise.targetArea],
-        difficultyScore: payload.effort,
-        painLevel: payload.painLevel,
-        source: 'therapist',
-      });
       if (pain >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
       else if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
       else setLoadSafetyNudge(null);
@@ -1028,27 +1021,25 @@ export default function PatientDailyView() {
   const lastPainRecord = selectedPatient?.analytics.painHistory.slice(-1)[0];
 
   /** Reports flow through {@link submitExerciseReport}; in the patient portal, Supabase stores rehab completion via `complete_exercise_safe` (no direct `exercise_plans` updates). */
-  const handleReportSubmit = (painLevel: number, effortRating: number) => {
+  const handleReportSubmit = async (painLevel: number, effortRating: number) => {
     if (!reportFor || !selectedPatient) return;
     const ex = reportFor;
     if (ex.isOptional) {
       const nextAfterOptional = getNextOptionalAfterAddingId(ex.id);
+      await submitExerciseReport(selectedPatient.id, ex.id, painLevel, effortRating, ex.xpReward, {
+        completionSource: 'rehab',
+        sessionBodyArea: ex.targetArea,
+        optionalPoolNoReward: optionalPoolCompletionCount >= 1,
+      });
       setReportFor(null);
       setReportInitialEffort(undefined);
       setTimerArmedExerciseIds([]);
-      flushSync(() => {
-        submitExerciseReport(selectedPatient.id, ex.id, painLevel, effortRating, ex.xpReward, {
-          completionSource: 'rehab',
-          sessionBodyArea: ex.targetArea,
-          optionalPoolNoReward: optionalPoolCompletionCount >= 1,
-        });
-      });
       if (nextAfterOptional) {
         signalOptionalReveal(true);
       }
       setOptionalGlowBoost((n) => Math.min(5, n + 1));
     } else {
-      submitExerciseReport(
+      await submitExerciseReport(
         selectedPatient.id,
         ex.id,
         painLevel,

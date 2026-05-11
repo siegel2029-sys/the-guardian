@@ -7,6 +7,11 @@ import type {
 } from '../types';
 import { addClinicalDays, getClinicalDate } from '../utils/clinicalCalendar';
 import { clinicalPushFail, type ClinicalPushResult } from './clinicalService';
+import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
+import {
+  ensureSupabaseSessionReady,
+  logSupabaseCallError,
+} from '../lib/supabaseSessionGuard';
 
 export type ExercisePushResult = ClinicalPushResult;
 
@@ -98,14 +103,22 @@ async function selectPatientTherapistId(
   client: SupabaseClient,
   patientId: string
 ): Promise<string | null> {
-  const { data, error } = await client
-    .from('patients')
-    .select('therapist_id')
-    .eq('id', patientId)
-    .maybeSingle();
-  if (error || !data) return null;
-  const tid = (data as { therapist_id?: string }).therapist_id?.trim();
-  return tid && tid.length > 0 ? tid : null;
+  try {
+    const { data, error } = await client
+      .from('patients')
+      .select('therapist_id')
+      .eq('id', patientId)
+      .maybeSingle();
+    if (error) {
+      logSupabaseCallError('selectPatientTherapistId', error, { patientId });
+      return null;
+    }
+    const tid = (data as { therapist_id?: string })?.therapist_id?.trim();
+    return tid && tid.length > 0 ? tid : null;
+  } catch (e) {
+    logSupabaseCallError('selectPatientTherapistId/catch', e, { patientId });
+    return null;
+  }
 }
 
 function mergeFinishReportsPayload(
@@ -152,47 +165,73 @@ export async function upsertDailySessionRowMerged(
   session: DailySession,
   options?: { therapistId?: string | null }
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  let therapistId = options?.therapistId?.trim() ?? '';
-  if (!therapistId) {
-    const fromRow = await selectPatientTherapistId(client, session.patientId);
-    therapistId = fromRow ?? '';
+  try {
+    if (isSupabaseAuthEnabled()) {
+      const guard = await ensureSupabaseSessionReady(client, {
+        context: 'שמירת session_history',
+      });
+      if (!guard.ok) {
+        return { ok: false, message: guard.message };
+      }
+    }
+
+    let therapistId = options?.therapistId?.trim() ?? '';
+    if (!therapistId) {
+      const fromRow = await selectPatientTherapistId(client, session.patientId);
+      therapistId = fromRow ?? '';
+    }
+
+    const { data: existing, error: readErr } = await client
+      .from('session_history')
+      .select('payload')
+      .eq('patient_id', session.patientId)
+      .eq('session_date', session.date)
+      .maybeSingle();
+
+    if (readErr) {
+      logSupabaseCallError('upsertDailySessionRowMerged/select', readErr, {
+        patientId: session.patientId,
+        session_date: session.date,
+      });
+      return { ok: false, message: readErr.message };
+    }
+
+    const prevPayload =
+      existing?.payload && typeof existing.payload === 'object'
+        ? (existing.payload as DailySession)
+        : undefined;
+    const merged = mergeDailySessionPayloadWithExisting(prevPayload, {
+      ...session,
+      patientId: session.patientId,
+    });
+
+    const nowIso = new Date().toISOString();
+    const row: Record<string, unknown> = {
+      patient_id: session.patientId,
+      session_date: session.date,
+      payload: merged,
+      updated_at: nowIso,
+    };
+    if (therapistId) row.therapist_id = therapistId;
+
+    const { error } = await client
+      .from('session_history')
+      .upsert(row, { onConflict: 'patient_id,session_date' });
+
+    if (error) {
+      logSupabaseCallError('upsertDailySessionRowMerged/upsert', error, {
+        patientId: session.patientId,
+        session_date: session.date,
+      });
+      return { ok: false, message: error.message };
+    }
+    return { ok: true };
+  } catch (e) {
+    logSupabaseCallError('upsertDailySessionRowMerged/unexpected', e, {
+      patientId: session.patientId,
+    });
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
   }
-
-  const { data: existing, error: readErr } = await client
-    .from('session_history')
-    .select('payload')
-    .eq('patient_id', session.patientId)
-    .eq('session_date', session.date)
-    .maybeSingle();
-
-  if (readErr) {
-    return { ok: false, message: readErr.message };
-  }
-
-  const prevPayload =
-    existing?.payload && typeof existing.payload === 'object'
-      ? (existing.payload as DailySession)
-      : undefined;
-  const merged = mergeDailySessionPayloadWithExisting(prevPayload, {
-    ...session,
-    patientId: session.patientId,
-  });
-
-  const nowIso = new Date().toISOString();
-  const row: Record<string, unknown> = {
-    patient_id: session.patientId,
-    session_date: session.date,
-    payload: merged,
-    updated_at: nowIso,
-  };
-  if (therapistId) row.therapist_id = therapistId;
-
-  const { error } = await client
-    .from('session_history')
-    .upsert(row, { onConflict: 'patient_id,session_date' });
-
-  if (error) return { ok: false, message: error.message };
-  return { ok: true };
 }
 
 export async function persistPatientFinishReportToCloud(
@@ -224,7 +263,14 @@ export async function fetchSessionHistoryBetween(
     .lte('session_date', endDateYmd)
     .order('session_date', { ascending: true });
 
-  if (error) return null;
+  if (error) {
+    logSupabaseCallError('fetchSessionHistoryBetween', error, {
+      patientId,
+      startDateYmd,
+      endDateYmd,
+    });
+    return null;
+  }
 
   const out: DailySession[] = [];
   for (const row of data ?? []) {
@@ -318,12 +364,22 @@ export async function upsertSessionHistory(
   now: string,
   options?: UpsertSessionHistoryOptions
 ): Promise<ExercisePushResult> {
-  const {
-    data: { user: authUser },
-  } = await client.auth.getUser();
-  const authTherapistId = authUser?.id?.trim() ?? '';
+  try {
+    if (isSupabaseAuthEnabled()) {
+      const guard = await ensureSupabaseSessionReady(client, {
+        context: 'שמירת session_history (אצווה)',
+      });
+      if (!guard.ok) {
+        return { ok: false, message: `session_history: ${guard.message}` };
+      }
+    }
 
-  const therapistMap = options?.therapistIdByPatientId ?? {};
+    const {
+      data: { user: authUser },
+    } = await client.auth.getUser();
+    const authTherapistId = authUser?.id?.trim() ?? '';
+
+    const therapistMap = options?.therapistIdByPatientId ?? {};
   // Map camelCase React state → snake_case DB column names.
   // session_history columns: patient_id, session_date, payload (JSONB), updated_at, therapist_id (optional).
   const missingTherapistFor: string[] = [];
@@ -375,8 +431,20 @@ export async function upsertSessionHistory(
 
   console.log('[upsertSessionHistory] response', { data, error: error ?? null });
 
-  if (error) return clinicalPushFail(`session_history: ${error.message}`, error);
+  if (error) {
+    logSupabaseCallError('upsertSessionHistory/upsert', error, {
+      rowCount: sessionRows.length,
+    });
+    return clinicalPushFail(`session_history: ${error.message}`, error);
+  }
   return { ok: true };
+  } catch (e) {
+    logSupabaseCallError('upsertSessionHistory/unexpected', e);
+    return clinicalPushFail(
+      `session_history: ${e instanceof Error ? e.message : String(e)}`,
+      e
+    );
+  }
 }
 
 /**
@@ -396,7 +464,10 @@ export async function fetch7dComplianceFromSupabase(
     .gte('session_date', start)
     .lte('session_date', clinicalToday);
 
-  if (error) return null;
+  if (error) {
+    logSupabaseCallError('fetch7dComplianceFromSupabase', error, { patientId, clinicalToday });
+    return null;
+  }
   const rows = data ?? [];
 
   const byDate = new Map<string, DailySession>();

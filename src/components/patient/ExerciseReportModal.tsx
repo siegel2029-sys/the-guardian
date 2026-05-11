@@ -13,7 +13,7 @@ const EFFORT_LABELS: Record<number, string> = {
 interface ExerciseReportModalProps {
   exercise: PatientExercise | null;
   onClose: () => void;
-  onSubmit: (painLevel: number, effortRating: number) => void;
+  onSubmit: (painLevel: number, effortRating: number) => void | Promise<void>;
   /** Prefill from card effort (1–5) */
   initialEffort?: 1 | 2 | 3 | 4 | 5;
 }
@@ -38,9 +38,9 @@ export default function ExerciseReportModal({
 
   if (!exercise) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(pain, effort);
+    await Promise.resolve(onSubmit(pain, effort));
   };
 
   const effortClamped = Math.min(5, Math.max(1, Math.round(effort))) as 1 | 2 | 3 | 4 | 5;

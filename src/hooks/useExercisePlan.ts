@@ -49,6 +49,7 @@ import {
   upsertDailySessionRowMerged,
   persistPatientFinishReportToCloud,
 } from '../services/exerciseService';
+import { logSupabaseCallError } from '../lib/supabaseSessionGuard';
 import { defaultPatientGear, type PatientGearState } from '../context/patientGearUtils';
 import { buildEmptySession, clampPain, clampEffort } from '../context/patientDomainHelpers';
 import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
@@ -276,7 +277,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
   );
 
   const submitExerciseReport = useCallback(
-    (
+    async (
       patientId: string,
       exerciseId: string,
       painLevel: number,
@@ -289,7 +290,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         /** 2nd+ optional pool exercise today — no XP/coins (anti-farming). */
         optionalPoolNoReward?: boolean;
       }
-    ) => {
+    ): Promise<void> => {
       const clinicalDay = getClinicalDate();
       const prior = dailySessions.find((s) => s.patientId === patientId && s.date === clinicalDay);
       const wasRepeatCompletion = prior?.completedIds.includes(exerciseId) ?? false;
@@ -655,7 +656,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       }
 
       if (supabaseClient && patientPortalPatientId && patientId === patientPortalPatientId) {
-        void (async () => {
+        try {
           if (options?.completionSource === 'rehab' && rehabEx) {
             const rpc = await completeExerciseSafe(supabaseClient, exerciseId, {
               pain_level: pain,
@@ -692,7 +693,18 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               onExerciseCloudSyncError?.(`שמירת סשן יומי נכשלה: ${sRes.message}`);
             }
           }
-        })();
+        } catch (e) {
+          logSupabaseCallError('submitExerciseReport/portalCloud', e, {
+            patientId,
+            exerciseId,
+            clinicalDay,
+          });
+          onExerciseCloudSyncError?.(
+            e instanceof Error
+              ? `שגיאת סנכרון לענן: ${e.message}`
+              : 'שגיאת סנכרון לענן — בדקו חיבור או התחברו מחדש.'
+          );
+        }
       }
     },
     [
@@ -1149,29 +1161,35 @@ export function useExercisePlan(params: UseExercisePlanParams) {
   );
 
   const appendPatientExerciseFinishReport = useCallback(
-    (
+    async (
       patientId: string,
       entry: Omit<PatientExerciseFinishReport, 'id' | 'patientId' | 'timestamp'>
-    ) => {
+    ): Promise<void> => {
       const full: PatientExerciseFinishReport = {
         ...entry,
         id: `fin-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         patientId,
         timestamp: new Date().toISOString(),
       };
-      if (supabaseClient && patientPortalPatientId && patientId === patientPortalPatientId) {
-        void persistPatientFinishReportToCloud(supabaseClient, full).then((r) => {
-          if (!r.ok) {
-            onExerciseCloudSyncError?.(
-              `דיווח הסיום לא נשמר לענן: ${r.message}`
-            );
-          }
-        });
-      }
       setPatientExerciseFinishReportsByPatientId((prev) => ({
         ...prev,
         [patientId]: [...(prev[patientId] ?? []), full],
       }));
+      if (supabaseClient && patientPortalPatientId && patientId === patientPortalPatientId) {
+        try {
+          const r = await persistPatientFinishReportToCloud(supabaseClient, full);
+          if (!r.ok) {
+            onExerciseCloudSyncError?.(`דיווח הסיום לא נשמר לענן: ${r.message}`);
+          }
+        } catch (e) {
+          logSupabaseCallError('appendPatientExerciseFinishReport', e, { patientId, reportId: full.id });
+          onExerciseCloudSyncError?.(
+            e instanceof Error
+              ? `דיווח הסיום לא נשמר לענן: ${e.message}`
+              : 'דיווח הסיום לא נשמר לענן.'
+          );
+        }
+      }
     },
     [
       supabaseClient,

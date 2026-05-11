@@ -70,6 +70,7 @@ import { computeStreakForPatient } from '../utils/exerciseStreak';
 import { type GearEquipSlot } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
+import { ensureSupabaseSessionReady } from '../lib/supabaseSessionGuard';
 import {
   fetchPatients,
   deletePatientRowFromSupabase,
@@ -261,7 +262,7 @@ interface PatientContextValue {
       sessionBodyArea?: BodyArea;
       optionalPoolNoReward?: boolean;
     }
-  ) => void;
+  ) => void | Promise<void>;
 
   // AI suggestions (מטופל מאשר → awaiting_therapist; מטפל מאשר → עדכון תוכנית)
   aiSuggestions: AiSuggestion[];
@@ -427,7 +428,7 @@ interface PatientContextValue {
   appendPatientExerciseFinishReport: (
     patientId: string,
     entry: Omit<PatientExerciseFinishReport, 'id' | 'patientId' | 'timestamp'>
-  ) => void;
+  ) => void | Promise<void>;
   getPatientExerciseFinishReports: (patientId: string) => PatientExerciseFinishReport[];
 
   /** רמת קושי לתרגיל כוח לפי אזור (0–2 → שלבי שרשרת L1–L3) */
@@ -1223,6 +1224,20 @@ export function PatientProvider({
               return;
             }
 
+            if (isSupabaseConfigured && isSupabaseAuthEnabled()) {
+              const guard = await ensureSupabaseSessionReady(supabaseClient, {
+                context: 'שמירה מלאה לענן (דשבורד / פורטל)',
+              });
+              if (guard.ok === false) {
+                cloudSaveMutexRef.current = null;
+                cloudSaveInFlightRef.current = false;
+                setSupabaseSyncStatus('error');
+                setSupabaseSyncError(guard.message);
+                for (const r of resolvers) r(false);
+                return;
+              }
+            }
+
             const savePromise = pushPersistedStateToSupabase(
               supabaseClient,
               snap,
@@ -1283,6 +1298,12 @@ export function PatientProvider({
         return false;
       }
       const supabaseClient = supabase;
+      if (isSupabaseConfigured) {
+        const guard = await ensureSupabaseSessionReady(supabaseClient, {
+          context: 'שמירת מטופל בודד לענן',
+        });
+        if (!guard.ok) return false;
+      }
       const now = new Date().toISOString();
       try {
         if (restrictPatientSessionId && patient.id !== restrictPatientSessionId) {
@@ -1325,6 +1346,7 @@ export function PatientProvider({
       mergeServerPatientsIntoState,
       restrictPatientSessionId,
       supabase,
+      ensureSupabaseSessionReady,
     ]
   );
 

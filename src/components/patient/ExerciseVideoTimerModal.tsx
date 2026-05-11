@@ -84,7 +84,7 @@ export interface ExerciseVideoTimerModalProps {
   /** סגירה ב-X — ללא ענקת XP */
   onClose: () => void;
   /** לחיצה על «סיים תרגול» אחרי טיימר 0 — מעדכן PatientContext */
-  onComplete: (payload: ExerciseTrainingCompletePayload) => void;
+  onComplete: (payload: ExerciseTrainingCompletePayload) => void | Promise<void>;
   /** מזהה תרגיל שיקום — נשלח ל־onTimerStarted כשמפעילים טיימר */
   timerArmExerciseId?: string;
   /** נקרא כשהמשתמש מפעיל את הטיימר («התחל תרגול») */
@@ -231,15 +231,20 @@ export default function ExerciseVideoTimerModal({
     if (presentation.kind === 'mp4') tryPlayVideo();
   }, [startTimer, tryPlayVideo, presentation.kind]);
 
-  const handleFinish = useCallback(() => {
+  const handleFinish = useCallback(async () => {
     if (remaining > 0 || !timerStarted) return;
-    onComplete({
-      effort,
-      painLevel,
-    });
-    clearTimer();
-    clearSuccessTimers();
-    onCloseRef.current();
+    try {
+      await Promise.resolve(
+        onComplete({
+          effort,
+          painLevel,
+        })
+      );
+    } finally {
+      clearTimer();
+      clearSuccessTimers();
+      onCloseRef.current();
+    }
   }, [remaining, timerStarted, effort, painLevel, onComplete, clearSuccessTimers, clearTimer]);
 
   if (!open) return null;

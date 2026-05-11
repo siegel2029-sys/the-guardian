@@ -73,6 +73,30 @@ export default function Compliance7DayChart({
     name: p.label,
   }));
 
+  const hasComplianceSignal = points.some((p) => p.planned > 0 || p.completed > 0);
+
+  if (!hasComplianceSignal) {
+    return (
+      <div
+        className="rounded-2xl border border-teal-100 bg-white p-5 shadow-sm mb-5"
+        dir="rtl"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-medical-success shrink-0" />
+              ציות לתוכנית — 7 ימים אחרונים
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">אין עדיין נתוני תוכנית או השלמות — הגרף יוצג כשיופיע מידע.</p>
+          </div>
+        </div>
+        <p className="text-sm text-slate-500 text-center py-10 border border-dashed border-slate-200 rounded-xl bg-slate-50/80">
+          אין נתונים להצגה
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div
       className="rounded-2xl border border-teal-100 bg-white p-5 shadow-sm mb-5"
@@ -103,8 +127,11 @@ export default function Compliance7DayChart({
         </p>
       )}
 
-      <div className="w-full h-[220px] min-h-[200px]" style={{ direction: 'ltr' }}>
-        <ResponsiveContainer width="100%" height="100%">
+      <div
+        className="w-full h-[220px] min-h-[200px] min-w-[280px]"
+        style={{ direction: 'ltr' }}
+      >
+        <ResponsiveContainer width="100%" height="100%" minWidth={280} minHeight={200}>
           <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis
