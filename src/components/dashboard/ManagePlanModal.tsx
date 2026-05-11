@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo, useEffect } from 'react';
+import { useRef, useState, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
 import type { RefObject } from 'react';
 import {
   X, Plus, Trash2, Pencil, Check, Search, BookOpen,
@@ -356,6 +356,14 @@ function CustomExerciseForm({
 }
 
 // ── Inline editor for a current-plan exercise ─────────────────────
+const CUSTOM_NOTE_MAX_LEN = 500;
+const TEXTAREA_MIN_PX = 72; // ≈ 3 שורות
+
+function normalizeCustomInstructionsForStore(raw: string): string | undefined {
+  const capped = raw.slice(0, CUSTOM_NOTE_MAX_LEN);
+  return capped.trim() === '' ? undefined : capped;
+}
+
 function PlanExerciseRow({
   exercise,
   onRemove,
@@ -381,17 +389,48 @@ function PlanExerciseRow({
   const [therapistNotesDraft, setTherapistNotesDraft] = useState(
     exercise.customInstructions ?? ''
   );
+  const [noteSaveFlash, setNoteSaveFlash] = useState(false);
+  const notesTaRef = useRef<HTMLTextAreaElement>(null);
+  const noteSaveFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const notesFieldId = `therapist-notes-${exercise.id.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+
+  const persistCustomInstructionsFromDraft = useCallback(
+    (raw: string, options?: { showFlash?: boolean }) => {
+      const capped = raw.slice(0, CUSTOM_NOTE_MAX_LEN);
+      setTherapistNotesDraft(capped);
+      onUpdate({ customInstructions: normalizeCustomInstructionsForStore(capped) });
+      if (options?.showFlash) {
+        setNoteSaveFlash(true);
+        if (noteSaveFlashTimerRef.current) clearTimeout(noteSaveFlashTimerRef.current);
+        noteSaveFlashTimerRef.current = setTimeout(() => {
+          setNoteSaveFlash(false);
+          noteSaveFlashTimerRef.current = null;
+        }, 1400);
+      }
+    },
+    [onUpdate]
+  );
+
+  useEffect(
+    () => () => {
+      if (noteSaveFlashTimerRef.current) clearTimeout(noteSaveFlashTimerRef.current);
+    },
+    []
+  );
 
   useEffect(() => {
     setTherapistNotesDraft(exercise.customInstructions ?? '');
   }, [exercise.customInstructions, exercise.id]);
 
-  const flushTherapistNotes = () => {
-    const t = therapistNotesDraft.trim();
-    onUpdate({ customInstructions: t.length > 0 ? t : undefined });
-  };
+  useLayoutEffect(() => {
+    const el = notesTaRef.current;
+    if (!el || !therapistNotesOpen) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(TEXTAREA_MIN_PX, el.scrollHeight)}px`;
+  }, [therapistNotesOpen, therapistNotesDraft]);
 
-  const saveEdit = () => {
+  const saveEditLabels = () => {
     onUpdate({ patientSets: editSets, patientReps: editReps });
     setEditing(false);
   };
@@ -399,9 +438,16 @@ function PlanExerciseRow({
   const isTimeBased = exercise.patientReps === 0 && !!exercise.holdSeconds;
   const effectiveType = exercise.isCustom ? 'custom' : exercise.type;
 
+  const toggleTherapistNotesPanel = () => {
+    if (therapistNotesOpen) {
+      persistCustomInstructionsFromDraft(therapistNotesDraft, { showFlash: true });
+    }
+    setTherapistNotesOpen((o) => !o);
+  };
+
   return (
     <div
-      className="rounded-xl border transition-all duration-200"
+      className="rounded-xl border transition-all duration-200 w-full min-w-0"
       style={{
         borderColor: editing ? '#0d9488' : exercise.isCustom ? '#fdba74' : '#e0f2f1',
         background: editing ? '#f0fffe' : exercise.isCustom ? '#fffbf5' : 'white',
@@ -409,13 +455,13 @@ function PlanExerciseRow({
       }}
       dir="rtl"
     >
-      <div className="flex items-center gap-3 p-3">
+      <div className="flex items-start gap-3 p-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-sm font-semibold text-slate-800 truncate">{exercise.name}</span>
+            <span className="text-sm font-semibold text-slate-800 break-words">{exercise.name}</span>
             {/* Type / Custom badge */}
             <span
-              className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+              className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0"
               style={{ background: typeBg[effectiveType], color: typeText[effectiveType] }}
             >
               {exercise.isCustom ? (
@@ -426,13 +472,13 @@ function PlanExerciseRow({
               ) : typeLabel[exercise.type]}
             </span>
             {exercise.isOptional && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-slate-100 text-slate-600 border border-slate-200 shrink-0">
                 לבחירה
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-xs text-teal-600 font-medium truncate">{exercise.muscleGroup}</span>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <span className="text-xs text-teal-600 font-medium break-words">{exercise.muscleGroup}</span>
             <span className="text-xs text-slate-400">·</span>
             <span className="text-xs text-slate-500">{bodyAreaLabels[exercise.targetArea]}</span>
           </div>
@@ -440,7 +486,7 @@ function PlanExerciseRow({
 
         {/* Sets × Reps/Time */}
         {!editing && (
-          <div className="shrink-0 text-center">
+          <div className="shrink-0 text-center self-center">
             <div className="text-sm font-bold text-slate-800">
               {exercise.patientSets} × {isTimeBased
                 ? formatTime(exercise.holdSeconds!)
@@ -454,7 +500,7 @@ function PlanExerciseRow({
 
         {/* Edit inputs */}
         {editing && (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 self-center">
             <div className="flex flex-col items-center">
               <label className="text-[9px] text-slate-400 mb-0.5">סטים</label>
               <input type="number" min={1} max={10} value={editSets}
@@ -478,7 +524,7 @@ function PlanExerciseRow({
         )}
 
         {/* Action buttons */}
-        <div className="flex flex-col items-end gap-2 shrink-0">
+        <div className="flex flex-col items-end gap-2 shrink-0 self-start pt-0.5">
           <label className="flex items-center gap-1.5 text-[10px] text-slate-600 cursor-pointer whitespace-nowrap">
             <input
               type="checkbox"
@@ -493,7 +539,7 @@ function PlanExerciseRow({
               <>
                 <button
                   type="button"
-                  onClick={saveEdit}
+                  onClick={saveEditLabels}
                   aria-label="שמור סטים וחזרות"
                   className="w-8 h-8 rounded-lg flex items-center justify-center bg-teal-50 hover:bg-teal-100 transition-colors"
                 >
@@ -516,10 +562,7 @@ function PlanExerciseRow({
               <>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (therapistNotesOpen) flushTherapistNotes();
-                    setTherapistNotesOpen((o) => !o);
-                  }}
+                  onClick={toggleTherapistNotesPanel}
                   aria-label={therapistNotesOpen ? 'סגור הנחיות למטופל' : 'הנחיות אישיות למטופל'}
                   aria-expanded={therapistNotesOpen}
                   className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
@@ -557,25 +600,40 @@ function PlanExerciseRow({
         </div>
       </div>
       {therapistNotesOpen && (
-        <div className="px-3 pb-3 pt-2 border-t border-slate-100 bg-white/90">
-          <label
-            htmlFor={`therapist-notes-${exercise.id.replace(/[^a-zA-Z0-9_-]/g, '')}`}
-            className="text-[10px] font-bold text-slate-600 block mb-1.5"
-          >
+        <div className="px-3 pb-3 pt-2 border-t border-slate-100 bg-white/90 w-full min-w-0">
+          <label htmlFor={notesFieldId} className="text-[10px] font-bold text-slate-600 block mb-1.5">
             הנחיות מהמטפל — יוצגו למטופל לפני הוראות ברירת המחדל
           </label>
-          <textarea
-            id={`therapist-notes-${exercise.id.replace(/[^a-zA-Z0-9_-]/g, '')}`}
-            value={therapistNotesDraft}
-            onChange={(e) => setTherapistNotesDraft(e.target.value)}
-            onBlur={flushTherapistNotes}
-            rows={3}
-            maxLength={500}
-            placeholder='לדוגמה: "שמרו על גב ישר…"'
-            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-400/25 resize-none bg-white text-slate-800 placeholder:text-slate-400"
-          />
+          <div className="flex items-start gap-2 w-full min-w-0">
+            <textarea
+              ref={notesTaRef}
+              id={notesFieldId}
+              value={therapistNotesDraft}
+              onChange={(e) => persistCustomInstructionsFromDraft(e.target.value)}
+              onBlur={(e) => persistCustomInstructionsFromDraft(e.currentTarget.value, { showFlash: true })}
+              rows={3}
+              maxLength={CUSTOM_NOTE_MAX_LEN}
+              placeholder="הוסף הנחיות אישיות כאן..."
+              className="flex-1 min-w-0 min-h-[4.5rem] px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-400/25 resize-none bg-white text-slate-800 placeholder:text-slate-400 overflow-hidden"
+            />
+            <button
+              type="button"
+              onClick={() => persistCustomInstructionsFromDraft(therapistNotesDraft, { showFlash: true })}
+              aria-label="שמור הערה"
+              className={`mt-0.5 shrink-0 w-9 h-9 rounded-xl border flex items-center justify-center transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
+                noteSaveFlash
+                  ? 'border-teal-500 bg-teal-50 text-teal-700 shadow-sm scale-105'
+                  : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-teal-300 hover:bg-teal-50/80'
+              }`}
+            >
+              <Check className={`w-4 h-4 ${noteSaveFlash ? 'text-teal-600' : ''}`} aria-hidden />
+            </button>
+          </div>
           <p className="text-[9px] text-slate-400 mt-1 text-left tabular-nums">
-            {therapistNotesDraft.length}/500
+            {therapistNotesDraft.length}/{CUSTOM_NOTE_MAX_LEN}
+            {noteSaveFlash ? (
+              <span className="text-teal-600 font-semibold mr-2">נשמר</span>
+            ) : null}
           </p>
         </div>
       )}
@@ -902,7 +960,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
 
           {planOpen && (
             <div
-              className="rounded-xl border-2 flex flex-col max-h-[60vh] min-h-0 overflow-hidden shadow-sm"
+              className="rounded-xl border-2 flex flex-col flex-1 min-h-0 max-h-[500px] overflow-hidden shadow-sm"
               style={{ borderColor: '#99f6e4', background: '#f8fffe' }}
               dir="rtl"
             >
@@ -914,7 +972,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                   </span>
                 )}
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-2">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 pb-[100px] space-y-2">
                 {currentExercises.length === 0 ? (
                   <div className="flex flex-col items-center justify-center gap-2 py-8 text-slate-400 text-center">
                     <ClipboardList className="w-8 h-8 opacity-30" aria-hidden />
