@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import ErrorBoundary from './components/ui/error-boundary'
+import { ensurePhysioshieldPortalRoot } from './lib/physioshieldPortalRoot'
+
+ensurePhysioshieldPortalRoot()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

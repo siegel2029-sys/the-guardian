@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { getPhysioshieldPortalRoot } from '../../lib/physioshieldPortalRoot';
 import { X, Send, Loader2, Sparkles } from 'lucide-react';
 import type { Patient, PatientExercise } from '../../types';
 import {
@@ -223,7 +224,7 @@ export default function GuardianAssistantFAB({
       {isPortal && !open && (
         <div
           ref={portalBarRef}
-          className={`guardi-companion-portal-root fixed z-[65] flex items-center overflow-hidden border border-slate-200/70 bg-white/92 shadow-sm backdrop-blur-md motion-safe:transition-[width,min-width,height,border-radius,box-shadow] motion-safe:duration-300 motion-safe:ease-out ${
+          className={`fixed z-[20] flex items-center overflow-hidden border border-slate-200/70 bg-white/92 shadow-sm backdrop-blur-md motion-safe:transition-[width,min-width,height,border-radius,box-shadow] motion-safe:duration-300 motion-safe:ease-out pointer-events-auto ${
             portalBarExpanded
               ? 'min-h-[3rem] w-[min(calc(100vw-1.5rem),22rem)] rounded-xl hover:border-slate-300/90 hover:bg-white hover:shadow-md'
               : 'h-12 w-12 min-h-12 min-w-12 justify-center rounded-full hover:border-slate-300/90 hover:bg-white active:scale-[0.99]'
@@ -316,7 +317,7 @@ export default function GuardianAssistantFAB({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="guardi-companion-portal-root fixed z-[65] bottom-6 left-4 flex h-14 w-14 items-center justify-center rounded-xl text-white shadow-lg"
+          className="fixed z-[20] bottom-6 left-4 flex h-14 w-14 items-center justify-center rounded-xl text-white shadow-lg pointer-events-auto"
           style={{
             background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
             boxShadow: '0 10px 26px -8px rgba(37, 99, 235, 0.45)',
@@ -329,7 +330,7 @@ export default function GuardianAssistantFAB({
 
       {open && (
         <div
-          className="guardi-companion-portal-root fixed inset-0 z-[90] flex items-end sm:items-center justify-center p-4"
+          className="fixed inset-0 z-[30] flex items-end sm:items-center justify-center p-4 pointer-events-auto"
           style={{ background: 'rgba(49, 46, 129, 0.25)' }}
           dir="rtl"
           onClick={() => setOpen(false)}
@@ -450,5 +451,5 @@ export default function GuardianAssistantFAB({
     </>
   );
 
-  return typeof document !== 'undefined' ? createPortal(chrome, document.body) : chrome;
+  return typeof document !== 'undefined' ? createPortal(chrome, getPhysioshieldPortalRoot()) : chrome;
 }

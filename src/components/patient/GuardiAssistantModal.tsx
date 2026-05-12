@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { getPhysioshieldPortalRoot } from '../../lib/physioshieldPortalRoot';
 import { X } from 'lucide-react';
 
 import imgFront from '../../assets/guardi/front.jpg';
@@ -434,7 +435,7 @@ export default function GuardiAssistantModal({
   if (overlayBodyMap && rect) {
     const tree = (
       <div
-        className="guardi-companion-portal-root fixed z-[60] flex flex-col items-center justify-center p-2 animate-guardi-companion-enter pointer-events-none"
+        className="fixed z-[10] flex flex-col items-center justify-center p-2 animate-guardi-companion-enter pointer-events-none"
         style={{
           top: rect.top,
           left: rect.left,
@@ -455,7 +456,7 @@ export default function GuardiAssistantModal({
         </div>
       </div>
     );
-    return typeof document !== 'undefined' ? createPortal(tree, document.body) : tree;
+    return typeof document !== 'undefined' ? createPortal(tree, getPhysioshieldPortalRoot()) : tree;
   }
 
   const cornerChrome = (
@@ -463,12 +464,12 @@ export default function GuardiAssistantModal({
       <div
         role="presentation"
         tabIndex={-1}
-        className="guardi-companion-portal-root fixed inset-0 z-[61] cursor-default bg-slate-900/10"
+        className="fixed inset-0 z-[5] cursor-default bg-slate-900/10 pointer-events-auto"
         aria-hidden
         onClick={handleDismiss}
       />
       <div
-        className="guardi-companion-portal-root fixed z-[62] flex flex-col items-end gap-2 pointer-events-none max-w-[min(300px,calc(100vw-2rem))] animate-guardi-companion-enter"
+        className="fixed z-[10] flex flex-col items-end gap-2 pointer-events-none max-w-[min(300px,calc(100vw-2rem))] animate-guardi-companion-enter"
         style={{
           bottom: 'calc(6.25rem + env(safe-area-inset-bottom, 0px))',
           right: 'max(12px, env(safe-area-inset-right, 0px))',
@@ -482,5 +483,5 @@ export default function GuardiAssistantModal({
     </>
   );
 
-  return typeof document !== 'undefined' ? createPortal(cornerChrome, document.body) : cornerChrome;
+  return typeof document !== 'undefined' ? createPortal(cornerChrome, getPhysioshieldPortalRoot()) : cornerChrome;
 }

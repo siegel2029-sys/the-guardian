@@ -806,7 +806,16 @@
   }
 }
 
-/* Portaled mascot + assistant — `position: fixed` must win over transformed ancestors (WebGL / 3D). */
-.guardi-companion-portal-root {
+/* Mascot + assistant portal — above all in-app modals (max z-[260]); bypasses 3D/transform ancestors. */
+#physioshield-portal-root {
   position: fixed !important;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 999999 !important;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
