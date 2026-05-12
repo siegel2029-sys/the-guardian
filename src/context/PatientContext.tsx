@@ -74,6 +74,11 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
 import { ensureSupabaseSessionReady } from '../lib/supabaseSessionGuard';
 import {
+  getAppKbHydratedFromCloud,
+  resetAppKbHydrationGate,
+  setAppKbHydratedFromCloud,
+} from '../lib/kbHydrationGate';
+import {
   fetchPatients,
   deletePatientRowFromSupabase,
   fetchActiveExercisePlanForPatient,
@@ -89,6 +94,7 @@ import {
   mergeSessionCompletionByDateMaps,
   mergeKnowledgeFactsForUpsert,
   mergeKnowledgeFactsHydrateFromTherapistCloud,
+  fetchTherapistAppKbWithLegacyGlobalFallback,
   resolveStableAuthUserIdForKb,
 } from '../services/clinicalService';
 import {
@@ -133,6 +139,8 @@ async function hydrateTherapistKnowledgeFactsFromSupabase(
   opts?: {
     suppressCloudKbFetchUntilMs?: number;
     forceFreshKbFetch?: boolean;
+    /** נקרא רק אחרי סיבוב רשת מוצלח ל־app_knowledge_base (כולל מיגרציה מ־global). */
+    markHydratedFromCloud?: () => void;
   }
 ): Promise<KnowledgeFact[]> {
   const suppressMs = opts?.suppressCloudKbFetchUntilMs ?? 0;
@@ -159,10 +167,17 @@ async function hydrateTherapistKnowledgeFactsFromSupabase(
       console.warn(`[TIP_SYNC] Initializing fetch for Therapist ID: ${therapistKey}`);
     }
 
-    const kbGlobal = await fetchAppKnowledgeBaseFromSupabase(client, {
-      therapistAuthUserId: therapistKey,
-    });
-    kbItems = kbGlobal?.items;
+    const { items } = await fetchTherapistAppKbWithLegacyGlobalFallback(client, therapistKey);
+    kbItems = items;
+
+    const mergedAfterFetch = mergeKnowledgeFactsHydrateFromTherapistCloud(
+      patientsSnapshotFromServerFetch,
+      kbItems,
+      prevFacts
+    );
+    setKnowledgeFacts(mergedAfterFetch);
+    opts?.markHydratedFromCloud?.();
+    return mergedAfterFetch;
   }
 
   const merged = mergeKnowledgeFactsHydrateFromTherapistCloud(
@@ -570,6 +585,8 @@ interface PatientContextValue {
   removeKnowledgeFact: (factId: string) => void;
   /** טעינה מ־Supabase — מחליפה את רשימת העובדות מהענן */
   refreshKnowledgeBaseFromCloud: () => Promise<void>;
+  /** true לאחר טעינת app_knowledge_base מהענן מאז הריענון (דשבורד מטפל + Auth). */
+  hasHydratedKbFromCloud: boolean;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -781,6 +798,22 @@ export function PatientProvider({
   const knowledgeFactsRef = useRef(knowledgeFacts);
   knowledgeFactsRef.current = knowledgeFacts;
 
+  /** מאז ריענון: האם בוצעה טעינת app_knowledge_base מהענן (משמש נעילת upsert). */
+  const [hasHydratedKbFromCloud, setHasHydratedKbFromCloud] = useState(false);
+
+  const markKbHydratedFromCloudCb = useCallback(() => {
+    setAppKbHydratedFromCloud(true);
+    setHasHydratedKbFromCloud(true);
+  }, []);
+
+  useEffect(() => {
+    const isTherapistDashboard =
+      sessionRole === 'therapist' && isAuthenticated && !restrictPatientSessionId;
+    if (isTherapistDashboard) return;
+    resetAppKbHydrationGate();
+    setHasHydratedKbFromCloud(false);
+  }, [sessionRole, isAuthenticated, restrictPatientSessionId]);
+
   /** אחרי הוספת טיפ — לא למשוך מ-app_knowledge_base למשך כמה שניות (מונע בועה נעלמת עד settle ב-DB). */
   const suppressAppKbCloudFetchUntilRef = useRef(0);
   const KB_CLOUD_FETCH_COOLDOWN_MS_AFTER_TIP_SAVE = 5000;
@@ -798,10 +831,11 @@ export function PatientProvider({
         {
           suppressCloudKbFetchUntilMs: suppressAppKbCloudFetchUntilRef.current,
           forceFreshKbFetch: true,
+          markHydratedFromCloud: markKbHydratedFromCloudCb,
         }
       );
     },
-    [supabase]
+    [supabase, markKbHydratedFromCloudCb]
   );
 
   const [supabaseSyncStatus, setSupabaseSyncStatus] = useState<
@@ -1105,13 +1139,30 @@ export function PatientProvider({
       }
 
       const clinicalDayForMerge = getClinicalDate();
+      const prevPatientsSnapshot = allPatientsRef.current;
+      const normalizedServer = normalizePatientsTherapistIds(list, {
+        fallbackTherapistId: therapist.id,
+      });
+
+      let mergedKbAfterHydrate: KnowledgeFact[] = [];
+      if (!cancelled) {
+        mergedKbAfterHydrate = await hydrateTherapistKnowledgeFactsFromSupabase(
+          supabaseClient,
+          normalizedServer,
+          setKnowledgeFacts,
+          knowledgeFactsRef.current,
+          {
+            suppressCloudKbFetchUntilMs: suppressAppKbCloudFetchUntilRef.current,
+            forceFreshKbFetch: true,
+            markHydratedFromCloud: markKbHydratedFromCloudCb,
+          }
+        );
+      }
+
       let mergedPatientsForCloud: Patient[] = [];
-      setAllPatients((prev) => {
-        const normalizedServer = normalizePatientsTherapistIds(list, {
-          fallbackTherapistId: therapist.id,
-        });
-        const localById = new Map(prev.map((p) => [p.id, p]));
-        const kbSnap = knowledgeFactsRef.current;
+      if (!cancelled) {
+        const localById = new Map(prevPatientsSnapshot.map((p) => [p.id, p]));
+        const kbSnap = mergedKbAfterHydrate;
         const mergedFromServer = normalizedServer.map((serverP) => {
           const local = localById.get(serverP.id);
           if (local) {
@@ -1126,24 +1177,9 @@ export function PatientProvider({
           });
         });
         const serverIds = new Set(mergedFromServer.map((p) => p.id));
-        const localOnly = prev.filter((p) => !serverIds.has(p.id));
+        const localOnly = prevPatientsSnapshot.filter((p) => !serverIds.has(p.id));
         mergedPatientsForCloud = [...mergedFromServer, ...localOnly];
-        return mergedPatientsForCloud;
-      });
-
-      let mergedKbAfterHydrate: KnowledgeFact[] = [];
-
-      if (!cancelled) {
-        mergedKbAfterHydrate = await hydrateTherapistKnowledgeFactsFromSupabase(
-          supabaseClient,
-          mergedPatientsForCloud,
-          setKnowledgeFacts,
-          knowledgeFactsRef.current,
-          {
-            suppressCloudKbFetchUntilMs: suppressAppKbCloudFetchUntilRef.current,
-            forceFreshKbFetch: true,
-          }
-        );
+        setAllPatients(mergedPatientsForCloud);
       }
 
       if (!cancelled && mergedPatientsForCloud.length > 0) {
@@ -1181,6 +1217,7 @@ export function PatientProvider({
     restrictPatientSessionId,
     supabase,
     refreshKnowledgeBaseFromCloudMerged,
+    markKbHydratedFromCloudCb,
   ]);
 
   /**
@@ -1464,6 +1501,18 @@ export function PatientProvider({
     setSupabaseSyncStatus('saving');
     setSupabaseSyncError(null);
 
+    if (
+      isSupabaseConfigured &&
+      isSupabaseAuthEnabled() &&
+      supabasePushOptions.sessionRole === 'therapist' &&
+      !restrictPatientSessionId
+    ) {
+      const deadline = Date.now() + 25_000;
+      while (!getAppKbHydratedFromCloud() && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+
     const mergedExtra = accumulatedCloudSaveOptionsRef.current;
     accumulatedCloudSaveOptionsRef.current = null;
 
@@ -1530,7 +1579,13 @@ export function PatientProvider({
     } finally {
       cloudSaveInFlightRef.current = false;
     }
-  }, [supabase, supabasePushOptions, isSupabaseConfigured, mergeServerPatientsIntoState]);
+  }, [
+    supabase,
+    supabasePushOptions,
+    isSupabaseConfigured,
+    mergeServerPatientsIntoState,
+    restrictPatientSessionId,
+  ]);
 
   const savePersistedStateToCloud = useCallback(
     async (options?: {
@@ -2672,6 +2727,7 @@ export function PatientProvider({
         addManualKnowledgeFact: addManualKnowledgeFactAndForceCloudSave,
         removeKnowledgeFact: gamification.removeKnowledgeFact,
         refreshKnowledgeBaseFromCloud: refreshKnowledgeBaseFromCloudMerged,
+        hasHydratedKbFromCloud,
       }}
     >
       {children}

@@ -26,6 +26,12 @@ import {
   ensureSupabaseSessionReady,
   logSupabaseCallError,
 } from '../lib/supabaseSessionGuard';
+import {
+  getAppKbHydratedFromCloud,
+  hasAttemptedGlobalKbMigrationForTherapist,
+  markGlobalKbMigrationAttemptedForTherapist,
+} from '../lib/kbHydrationGate';
+import { fetchAppKnowledgeBaseFromSupabase } from './gamificationService';
 
 /**
  * בסיס ידע גלובלי («הידעת?») — לא נמשך כאן בשאילתות קליניות.
@@ -270,13 +276,74 @@ export function mergeKnowledgeFactsHydrateFromTherapistCloud(
 }
 
 /**
+ * טוען שורת מטפל; אם ריקה — ניסיון חד־פעמי למיגרציה משורת legacy `id='global'`,
+ * כולל upsert לשורת המטפל (`bypassKbHydrationGate`).
+ */
+export async function fetchTherapistAppKbWithLegacyGlobalFallback(
+  client: SupabaseClient,
+  therapistAuthUserId: string | undefined,
+  fetchOpts?: { approvedOnly?: boolean }
+): Promise<{ items: KnowledgeFact[] | undefined }> {
+  const rowTherapist = await fetchAppKnowledgeBaseFromSupabase(client, {
+    ...fetchOpts,
+    ...(therapistAuthUserId ? { therapistAuthUserId } : {}),
+  });
+  let normalizedTherapist = normalizeKnowledgeFactsList(rowTherapist?.items ?? []);
+
+  if (therapistAuthUserId && normalizedTherapist.length === 0) {
+    if (!hasAttemptedGlobalKbMigrationForTherapist(therapistAuthUserId)) {
+      markGlobalKbMigrationAttemptedForTherapist(therapistAuthUserId);
+      const legacy = await fetchAppKnowledgeBaseFromSupabase(client, fetchOpts);
+      const legacyNorm = normalizeKnowledgeFactsList(legacy?.items ?? []);
+      if (legacyNorm.length > 0) {
+        console.warn('[TIP_SYNC] Legacy global app_knowledge_base — migrating to therapist row', {
+          therapistAuthUserId,
+          itemCount: legacyNorm.length,
+        });
+        const mig = await upsertGlobalAppKnowledgeBaseWithTipSyncLog(
+          client,
+          legacyNorm,
+          new Date().toISOString(),
+          { bypassKbHydrationGate: true }
+        );
+        if (!mig.ok && import.meta.env.DEV) {
+          console.warn('[TIP_SYNC] KB migration upsert failed', mig.message);
+        }
+        return { items: legacyNorm };
+      }
+    }
+  }
+
+  return {
+    items: normalizedTherapist.length > 0 ? normalizedTherapist : undefined,
+  };
+}
+
+/**
  * כתיבה לטבלת `app_knowledge_base` — כולל `therapist_id` (ומפתח `id` תואם) כדי לעבור RLS.
  */
 export async function upsertGlobalAppKnowledgeBaseWithTipSyncLog(
   client: SupabaseClient,
   knowledgeItems: KnowledgeFact[],
-  now: string
+  now: string,
+  opts?: { bypassKbHydrationGate?: boolean }
 ): Promise<AppKnowledgeBaseSaveOutcome> {
+  if (
+    isSupabaseAuthEnabled() &&
+    !opts?.bypassKbHydrationGate &&
+    !getAppKbHydratedFromCloud()
+  ) {
+    console.warn(
+      '[TIP_SYNC] app_knowledge_base upsert skipped — KB not hydrated from cloud yet (startup gate)'
+    );
+    return {
+      ok: true,
+      data: null,
+      therapistAuthUserId: null,
+      skippedReason: 'kb-not-hydrated',
+    };
+  }
+
   let therapistAuthUserId: string | null = null;
   if (isSupabaseAuthEnabled()) {
     therapistAuthUserId = await resolveStableAuthUserIdForKb(client, { maxWaitMs: 10_000 });
@@ -479,7 +546,12 @@ export function clinicalPushFail(message: string, err?: unknown): {
 
 /** תוצאת upsert ל־app_knowledge_base כולל גוף תשובה לדיבוג (403/400 וכו׳). */
 export type AppKnowledgeBaseSaveOutcome =
-  | { ok: true; data: unknown; therapistAuthUserId: string | null }
+  | {
+      ok: true;
+      data: unknown | null;
+      therapistAuthUserId: string | null;
+      skippedReason?: 'kb-not-hydrated';
+    }
   | {
       ok: false;
       message: string;
