@@ -379,6 +379,8 @@ export async function upsertGlobalAppKnowledgeBaseWithTipSyncLog(
     row.id = 'global';
   }
 
+  console.log('[DEBUG_KB_PAYLOAD] Sending items:', knowledgeItems);
+
   const { data, error } = await client
     .from('app_knowledge_base')
     .upsert(row, { onConflict: 'id' })

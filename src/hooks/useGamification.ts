@@ -14,9 +14,7 @@ import {
 import { getClinicalDate } from '../utils/clinicalCalendar';
 import { supabase } from '../lib/supabase';
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
-import {
-  KNOWLEDGE_TEASER_MAX_CHARS,
-} from '../utils/knowledgeFactNormalize';
+import { tryBuildManualKnowledgeFactRow } from '../utils/knowledgeFactNormalize';
 import type { DailyHistoryEntry, Patient } from '../types';
 import { clinicalDateToLocalMidnight } from '../utils/clinicalCalendar';
 import {
@@ -754,33 +752,8 @@ export function useGamification({
 
   const addManualKnowledgeFact = useCallback(
     (input: { teaser: string; title: string; explanation: string; sourceUrl: string }) => {
-      const title = input.title.trim();
-      const explanation = input.explanation.trim();
-      let teaser = input.teaser.trim().slice(0, KNOWLEDGE_TEASER_MAX_CHARS);
-      if (!teaser && title) teaser = title.slice(0, KNOWLEDGE_TEASER_MAX_CHARS);
-      let sourceUrl = input.sourceUrl.trim();
-      if (!title || !explanation || !sourceUrl) return;
-      if (!/^https?:\/\//i.test(sourceUrl)) {
-        sourceUrl = `https://${sourceUrl}`;
-      }
-      try {
-        const u = new URL(sourceUrl);
-        if (u.protocol !== 'https:' && u.protocol !== 'http:') return;
-        sourceUrl = u.toString();
-      } catch {
-        return;
-      }
-      const id = `dyk-m-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      const row: KnowledgeFact = {
-        id,
-        teaser,
-        title,
-        explanation,
-        sourceUrl,
-        isApproved: true,
-        source: 'manual',
-        createdAt: new Date().toISOString(),
-      };
+      const row = tryBuildManualKnowledgeFactRow(input);
+      if (!row) return;
       setKnowledgeFacts((prev) => [...prev, row]);
     },
     [setKnowledgeFacts]

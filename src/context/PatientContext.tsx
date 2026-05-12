@@ -107,7 +107,7 @@ import {
 } from '../services/exerciseService';
 import { pushPersistedStateToSupabase, type PushPersistedStateOptions, type SupabasePushResult } from '../lib/supabaseSync';
 import { useAuth } from './AuthContext';
-import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
+import { normalizeKnowledgeFactsList, tryBuildManualKnowledgeFactRow } from '../utils/knowledgeFactNormalize';
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
 import type {
   GearPurchaseResult,
@@ -561,6 +561,9 @@ interface PatientContextValue {
   unlinkedPortalPatientIds: string[];
   savePersistedStateToCloud: (options?: {
     exercisePlanChangeSummaryByPatientId?: Record<string, string>;
+    immediate?: boolean;
+    onPushComplete?: (result: SupabasePushResult) => void;
+    persistSnapshotOverride?: PersistedPatientStateV1;
   }) => Promise<boolean>;
   /**
    * שורת `patients` אחת ל-Supabase (כולל `payload` / תיעוד טיפולים) + מיזוג מיידי של התגובה ל-state.
@@ -858,6 +861,8 @@ export function PatientProvider({
   const accumulatedCloudSaveOptionsRef = useRef<{
     exercisePlanChangeSummaryByPatientId?: Record<string, string>;
     onPushComplete?: (result: SupabasePushResult) => void;
+    /** Snapshot חד-פעמי ל-push מיידי (למשל טיפ חדש לפני רינדור מחדש של ה-ref). */
+    persistSnapshotOverride?: PersistedPatientStateV1;
   } | null>(null);
   const cloudSaveDebouncedResolversRef = useRef<Array<(ok: boolean) => void>>([]);
   /** True while a cloud push is actively in flight after acquiring the mutex (full or plan save). */
@@ -1518,7 +1523,7 @@ export function PatientProvider({
 
     const onPushComplete = mergedExtra?.onPushComplete;
     const summaryMap = mergedExtra?.exercisePlanChangeSummaryByPatientId;
-    const snap = latestCloudPersistRef.current;
+    const snap = mergedExtra?.persistSnapshotOverride ?? latestCloudPersistRef.current;
     if (!snap) {
       cloudSaveMutexRef.current = null;
       cloudSaveInFlightRef.current = false;
@@ -1590,9 +1595,11 @@ export function PatientProvider({
   const savePersistedStateToCloud = useCallback(
     async (options?: {
       exercisePlanChangeSummaryByPatientId?: Record<string, string>;
-      /** דילוג על debounce — שמירת בסיס ידע / טיפים לפני ריענון רקע מהשרת */
+      /** דילוג על debounce — מצב ענן חייב את המערך העדכני (טיפ חדש וכו׳) */
       immediate?: boolean;
       onPushComplete?: (result: SupabasePushResult) => void;
+      /** דוחף snapshot זה במקום latestCloudPersistRef (מונע stale state לפני setState). */
+      persistSnapshotOverride?: PersistedPatientStateV1;
     }) => {
       if (!supabase) {
         console.error(
@@ -1613,12 +1620,14 @@ export function PatientProvider({
       const incoming = options?.exercisePlanChangeSummaryByPatientId;
       if (
         (incoming && Object.keys(incoming).length > 0) ||
-        typeof options?.onPushComplete === 'function'
+        typeof options?.onPushComplete === 'function' ||
+        options?.persistSnapshotOverride != null
       ) {
         const acc = accumulatedCloudSaveOptionsRef.current ?? {};
         const next: {
           exercisePlanChangeSummaryByPatientId?: Record<string, string>;
           onPushComplete?: (result: SupabasePushResult) => void;
+          persistSnapshotOverride?: PersistedPatientStateV1;
         } = { ...acc };
         if (incoming && Object.keys(incoming).length > 0) {
           next.exercisePlanChangeSummaryByPatientId = {
@@ -1628,6 +1637,9 @@ export function PatientProvider({
         }
         if (options?.onPushComplete) {
           next.onPushComplete = options.onPushComplete;
+        }
+        if (options?.persistSnapshotOverride) {
+          next.persistSnapshotOverride = options.persistSnapshotOverride;
         }
         accumulatedCloudSaveOptionsRef.current = next;
       }
@@ -2227,9 +2239,32 @@ export function PatientProvider({
       sourceUrl: string;
     }) => {
       suppressAppKbCloudFetchUntilRef.current = Date.now() + KB_CLOUD_FETCH_COOLDOWN_MS_AFTER_TIP_SAVE;
-      gamification.addManualKnowledgeFact(input);
+      const row = tryBuildManualKnowledgeFactRow(input);
+      if (!row) return;
+
+      const baseSnap = latestCloudPersistRef.current;
+      const prevKb = normalizeKnowledgeFactsList(baseSnap?.knowledgeFacts ?? knowledgeFactsRef.current);
+      const nextFacts = [...prevKb, row];
+
+      setKnowledgeFacts(nextFacts);
+      setAllPatients((prevPatients) =>
+        prevPatients.map((p) => ({ ...p, knowledgeFacts: nextFacts }))
+      );
+
+      if (!baseSnap) {
+        console.error('[TIP_SYNC] Cannot cloud-save tip — persist snapshot ref empty');
+        return;
+      }
+
+      const persistSnapshotOverride: PersistedPatientStateV1 = {
+        ...baseSnap,
+        knowledgeFacts: nextFacts,
+        patients: baseSnap.patients.map((p) => ({ ...p, knowledgeFacts: nextFacts })),
+      };
+
       void savePersistedStateToCloud({
         immediate: true,
+        persistSnapshotOverride,
         onPushComplete: (pushResult) => {
           console.log('[TIP_SYNC] Supabase cloud push — full result after therapist tip save:', pushResult);
           const kbUpsert = pushResult.knowledgeBaseUpsert;
@@ -2248,7 +2283,7 @@ export function PatientProvider({
         },
       });
     },
-    [gamification, savePersistedStateToCloud]
+    [savePersistedStateToCloud]
   );
 
   const exercise = useExercisePlan({

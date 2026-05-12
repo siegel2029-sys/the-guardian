@@ -95,3 +95,39 @@ export function normalizeKnowledgeFactsList(raw: unknown): KnowledgeFact[] {
   }
   return out;
 }
+
+/** טיפ ידני מהדשבורד — אותה ולידציה כמו ב-useGamification.addManualKnowledgeFact */
+export function tryBuildManualKnowledgeFactRow(input: {
+  teaser: string;
+  title: string;
+  explanation: string;
+  sourceUrl: string;
+}): KnowledgeFact | null {
+  const title = input.title.trim();
+  const explanation = input.explanation.trim();
+  let teaser = input.teaser.trim().slice(0, KNOWLEDGE_TEASER_MAX_CHARS);
+  if (!teaser && title) teaser = title.slice(0, KNOWLEDGE_TEASER_MAX_CHARS);
+  let sourceUrl = input.sourceUrl.trim();
+  if (!title || !explanation || !sourceUrl) return null;
+  if (!/^https?:\/\//i.test(sourceUrl)) {
+    sourceUrl = `https://${sourceUrl}`;
+  }
+  try {
+    const u = new URL(sourceUrl);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    sourceUrl = u.toString();
+  } catch {
+    return null;
+  }
+  const id = `dyk-m-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return {
+    id,
+    teaser,
+    title,
+    explanation,
+    sourceUrl,
+    isApproved: true,
+    source: 'manual',
+    createdAt: new Date().toISOString(),
+  };
+}
