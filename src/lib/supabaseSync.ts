@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { PersistedPatientStateV1 } from '../context/patientPersistence';
+import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
 import {
   resolveTherapistIdForSupabaseRls,
@@ -87,11 +88,12 @@ export async function pushPersistedStateToSupabase(
     );
     if (!result.ok) return result;
 
-    const kb = state.knowledgeFacts ?? [];
-    const patientsForUpsert =
-      kb.length > 0
-        ? state.patients.map((p) => ({ ...p, knowledgeFacts: kb }))
-        : state.patients;
+    const kb = normalizeKnowledgeFactsList(state.knowledgeFacts ?? []);
+    /** תמיד יוצרים עותק עם הרשימה הקנונית — גם כשהמאגר ריק, כדי לא לדחוף ghost `knowledgeFacts` מתוך אובייקטי מטופל ישנים. */
+    const patientsForUpsert = state.patients.map((p) => ({
+      ...p,
+      knowledgeFacts: kb.length > 0 ? kb : undefined,
+    }));
 
     result = await upsertPatientRecords(client, patientsForUpsert, now, {
       ...(options?.trustKnowledgeFactDeletions !== undefined

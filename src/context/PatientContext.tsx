@@ -2385,18 +2385,33 @@ export function PatientProvider({
 
       const baseSnap = latestCloudPersistRef.current;
       const prevKb = normalizeKnowledgeFactsList(baseSnap?.knowledgeFacts ?? knowledgeFactsRef.current);
-      if (!prevKb.some((f) => f.id === trimmedId)) {
+      const livePatients = allPatientsRef.current;
+      const nextFacts = prevKb.filter((f) => f.id !== trimmedId);
+      const patientsWithoutFact = livePatients.map((p) => ({
+        ...p,
+        knowledgeFacts: normalizeKnowledgeFactsList(p.knowledgeFacts).filter((f) => f.id !== trimmedId),
+      }));
+
+      const factWasPresent =
+        prevKb.some((f) => f.id === trimmedId) ||
+        livePatients.some((p) =>
+          normalizeKnowledgeFactsList(p.knowledgeFacts).some((f) => f.id === trimmedId)
+        );
+
+      if (!factWasPresent) {
         if (import.meta.env.DEV) {
-          console.warn('[TIP_SYNC] deleteKnowledgeFactAndForceCloudSave — fact id not in local KB', trimmedId);
+          console.warn(
+            '[TIP_SYNC] deleteKnowledgeFactAndForceCloudSave — fact id not in local KB or patient payloads',
+            trimmedId
+          );
         }
         return;
       }
-      const nextFacts = prevKb.filter((f) => f.id !== trimmedId);
+
+      knowledgeFactsRef.current = nextFacts;
 
       setKnowledgeFacts(nextFacts);
-      setAllPatients((prevPatients) =>
-        prevPatients.map((p) => ({ ...p, knowledgeFacts: nextFacts }))
-      );
+      setAllPatients(patientsWithoutFact);
 
       if (!baseSnap) {
         console.error('[TIP_SYNC] Cannot cloud-save KB delete — persist snapshot ref empty');
@@ -2409,12 +2424,13 @@ export function PatientProvider({
       const persistSnapshotOverride: PersistedPatientStateV1 = {
         ...baseSnap,
         knowledgeFacts: nextFacts,
-        patients: baseSnap.patients.map((p) => ({ ...p, knowledgeFacts: nextFacts })),
+        patients: patientsWithoutFact,
       };
 
       void savePersistedStateToCloud({
         immediate: true,
         persistSnapshotOverride,
+        /** ממופה ל-`therapistTrustKnowledgeFactDeletions` ב-merge לטבלת patients (מניעת «הקמה מחדש» מ-payload ישן). */
         trustKnowledgeFactDeletions: true,
         onPushComplete: (pushResult) => {
           console.log('[TIP_SYNC] Supabase cloud push — full result after therapist tip delete:', pushResult);

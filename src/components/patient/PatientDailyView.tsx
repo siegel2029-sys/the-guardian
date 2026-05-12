@@ -31,6 +31,7 @@ import ExerciseVideoTimerModal, {
   type ExerciseTrainingCompletePayload,
 } from './ExerciseVideoTimerModal';
 import GuardianAssistantFAB from './GuardianAssistantFAB';
+import { PatientDidYouKnowAnchorButton } from './PatientDidYouKnowPortal';
 import { formatTime } from '../dashboard/ManagePlanModal';
 import { patientFacingExerciseInstructions } from '../../utils/patientFacingExerciseInstructions';
 import type { StrengthExerciseLevelDef } from '../../data/strengthExerciseDatabase';
@@ -1285,6 +1286,12 @@ export default function PatientDailyView() {
                 ref={bodyMapSectionRef}
                 className="relative w-full max-w-[300px] mx-auto aspect-[9/16] min-h-[420px] max-h-[min(640px,68dvh)] isolate overscroll-y-contain"
               >
+                <div className="pointer-events-none absolute inset-0 z-[18] overflow-visible">
+                  <PatientDidYouKnowAnchorButton
+                    align="corner"
+                    className="pointer-events-auto absolute top-2 left-2 sm:top-3 sm:left-3"
+                  />
+                </div>
                 <BodyMap3D
                   activeAreas={exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
@@ -1512,13 +1519,20 @@ export default function PatientDailyView() {
         {portalTab === 'activity' && (
         <>
         <div
-          className={
+          className={[
+            'relative',
             trainingAiPlanModalOpen
               ? 'pointer-events-none select-none opacity-[0.35] motion-safe:transition-opacity motion-safe:duration-200'
-              : undefined
-          }
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
           aria-hidden={trainingAiPlanModalOpen || undefined}
         >
+        <PatientDidYouKnowAnchorButton
+          align="corner"
+          className="absolute top-1 start-3 z-20"
+        />
         <h1
           id="today-missions"
           className="text-lg font-bold text-slate-900 mb-2 tracking-tight scroll-mt-28 text-center"
