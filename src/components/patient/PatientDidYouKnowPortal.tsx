@@ -90,18 +90,18 @@ export function PatientDidYouKnowAnchorButton({
 
   return (
     <div
-      className={`pointer-events-auto z-[25] ${cornerRing} rounded-full dyk-float-trigger-halo ${className ?? ''}`}
+      className={`pointer-events-auto z-[25] max-md:scale-90 ${cornerRing} rounded-full dyk-float-trigger-halo ${className ?? ''}`}
     >
       <button
         type="button"
         onClick={openFromTrigger}
-        className="flex h-10 w-10 min-h-10 min-w-10 sm:h-12 sm:w-12 sm:min-h-12 sm:min-w-12 cursor-pointer items-center justify-center rounded-full border-2 border-amber-400/90 bg-slate-950/50 shadow-lg shadow-amber-950/25 outline-none backdrop-blur-md transition-[transform,box-shadow] active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-amber-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900/50"
+        className="flex h-[2.375rem] w-[2.375rem] min-h-[2.375rem] min-w-[2.375rem] sm:h-12 sm:w-12 sm:min-h-12 sm:min-w-12 cursor-pointer items-center justify-center rounded-full border-2 border-amber-400/90 bg-slate-950/50 shadow-lg shadow-amber-950/25 outline-none backdrop-blur-md transition-[transform,box-shadow] active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-amber-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900/50"
         aria-label={`הידעת? ${cloudTeaser} — הקישו לפתיחה`}
       >
         <span className="sr-only">הידעת? {cloudTeaser} — פתיחת עובדה</span>
         <span className={dykTriggerBulbClass} aria-hidden>
           <Lightbulb
-            className="h-5 w-5 shrink-0 text-amber-100 sm:h-6 sm:w-6"
+            className="h-[1.1rem] w-[1.1rem] shrink-0 text-amber-100 sm:h-6 sm:w-6"
             strokeWidth={1.45}
             aria-hidden
           />
@@ -112,14 +112,11 @@ export function PatientDidYouKnowAnchorButton({
 }
 
 function DidYouKnowPortalModal({
-  patient,
   fact,
   isMobile,
   expanded,
-  setExpanded,
   successBurst,
   setSuccessBurst,
-  readThroughContent,
   scrollBodyRef,
   onScrollBody,
   onExpandedFocusCapture,
@@ -131,14 +128,11 @@ function DidYouKnowPortalModal({
   rxp,
   rcoins,
 }: {
-  patient: Patient;
   fact: KnowledgeFact;
   isMobile: boolean;
   expanded: boolean;
-  setExpanded: (v: boolean) => void;
   successBurst: boolean;
   setSuccessBurst: (v: boolean) => void;
-  readThroughContent: boolean;
   scrollBodyRef: RefObject<HTMLDivElement | null>;
   onScrollBody: () => void;
   onExpandedFocusCapture: () => void;
@@ -480,14 +474,11 @@ export function PatientDidYouKnowProvider({ children }: { children: ReactNode })
       {children}
       {patient && fact && (
         <DidYouKnowPortalModal
-          patient={patient}
           fact={fact}
           isMobile={isMobile}
           expanded={expanded}
-          setExpanded={setExpanded}
           successBurst={successBurst}
           setSuccessBurst={setSuccessBurst}
-          readThroughContent={readThroughContent}
           scrollBodyRef={scrollBodyRef}
           onScrollBody={onScrollBody}
           onExpandedFocusCapture={onExpandedFocusCapture}

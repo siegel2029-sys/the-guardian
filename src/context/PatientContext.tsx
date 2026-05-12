@@ -1570,6 +1570,7 @@ export function PatientProvider({
 
     const onPushComplete = mergedExtra?.onPushComplete;
     const summaryMap = mergedExtra?.exercisePlanChangeSummaryByPatientId;
+    const appendKnowledgeDeletedSeedIds = mergedExtra?.appendKnowledgeDeletedSeedIds;
     const snap = mergedExtra?.persistSnapshotOverride ?? latestCloudPersistRef.current;
     if (!snap) {
       cloudSaveMutexRef.current = null;
@@ -1622,8 +1623,8 @@ export function PatientProvider({
         ...(mergedExtra?.trustKnowledgeFactDeletions === true
           ? { trustKnowledgeFactDeletions: true }
           : {}),
-        ...((mergedExtra?.appendKnowledgeDeletedSeedIds?.length ?? 0) > 0
-          ? { appendKnowledgeDeletedSeedIds: mergedExtra.appendKnowledgeDeletedSeedIds }
+        ...((appendKnowledgeDeletedSeedIds?.length ?? 0) > 0
+          ? { appendKnowledgeDeletedSeedIds }
           : {}),
       }
     );
@@ -2421,10 +2422,13 @@ export function PatientProvider({
       ).length;
 
       const nextFacts = prevKb.filter((f) => f.id !== trimmedId);
-      const patientsWithoutFact = livePatients.map((p) => ({
-        ...p,
-        knowledgeFacts: normalizeKnowledgeFactsList(p.knowledgeFacts).filter((f) => f.id !== trimmedId),
-      }));
+      const patientsWithoutFact = livePatients.map((p) => {
+        const stripped = normalizeKnowledgeFactsList(p.knowledgeFacts).filter((f) => f.id !== trimmedId);
+        return {
+          ...p,
+          knowledgeFacts: stripped.length > 0 ? stripped : undefined,
+        };
+      });
 
       const factWasPresent =
         prevKb.some((f) => f.id === trimmedId) ||

@@ -1281,18 +1281,17 @@ export default function PatientDailyView() {
       <div className="flex-1 px-4 py-4 pb-36">
         {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
-            <div className="rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden mx-auto w-full max-w-md touch-pan-y">
-              <div
-                ref={bodyMapSectionRef}
-                className="relative w-full max-w-[300px] mx-auto aspect-[9/16] min-h-[420px] max-h-[min(640px,68dvh)] isolate overscroll-y-contain"
-              >
-                <div className="pointer-events-none absolute inset-0 z-[18] overflow-visible">
+            <div className="relative mx-auto w-full max-w-md touch-pan-y">
+              <div className="rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden mx-auto w-full">
+                <div
+                  ref={bodyMapSectionRef}
+                  className="relative w-full max-w-[300px] mx-auto aspect-[9/16] min-h-[420px] max-h-[min(640px,68dvh)] isolate overscroll-y-contain"
+                >
                   <PatientDidYouKnowAnchorButton
                     align="corner"
-                    className="pointer-events-auto absolute top-4 -left-4 z-[18] max-md:top-5"
+                    className="pointer-events-auto absolute top-2 left-0 z-30 -translate-x-3 sm:-translate-x-4"
                   />
-                </div>
-                <BodyMap3D
+                  <BodyMap3D
                   activeAreas={exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
                   clinicalArea={selectedPatient.primaryBodyArea}
@@ -1316,9 +1315,9 @@ export default function PatientDailyView() {
                   wrapperClassName="h-full w-full min-h-0"
                   onAreaClick={handleAvatarZoneClick}
                 />
+                </div>
               </div>
             </div>
-
 
             {!patientMustChangePassword && totalMissions > 0 && (
               <div
@@ -1531,7 +1530,7 @@ export default function PatientDailyView() {
         >
         <PatientDidYouKnowAnchorButton
           align="corner"
-          className="absolute top-4 end-4 z-20 max-md:top-3"
+          className="absolute top-2 left-2 z-30 sm:left-3"
         />
         <h1
           id="today-missions"
