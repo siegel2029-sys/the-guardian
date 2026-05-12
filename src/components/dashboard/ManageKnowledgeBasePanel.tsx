@@ -18,7 +18,7 @@ export default function ManageKnowledgeBasePanel() {
   const {
     knowledgeFacts,
     addManualKnowledgeFact,
-    removeKnowledgeFact,
+    deleteKnowledgeFactAndForceCloudSave,
     refreshKnowledgeBaseFromCloud,
     supabaseConfigured,
   } = usePatient();
@@ -220,7 +220,11 @@ export default function ManageKnowledgeBasePanel() {
           ) : (
             <ul className="divide-y divide-slate-100 max-h-[min(70vh,720px)] overflow-y-auto">
               {knowledgeFacts.map((f) => (
-                <KnowledgeFactRow key={f.id} fact={f} onDelete={() => removeKnowledgeFact(f.id)} />
+                <KnowledgeFactRow
+                  key={f.id}
+                  fact={f}
+                  onDelete={() => deleteKnowledgeFactAndForceCloudSave(f.id)}
+                />
               ))}
             </ul>
           )}

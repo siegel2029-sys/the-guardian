@@ -595,6 +595,8 @@ interface PatientContextValue {
     immediate?: boolean;
     onPushComplete?: (result: SupabasePushResult) => void;
     persistSnapshotOverride?: PersistedPatientStateV1;
+    /** Therapist KB deletes: merge drops server-only facts */
+    trustKnowledgeFactDeletions?: boolean;
   }) => Promise<boolean>;
   /**
    * שורת `patients` אחת ל-Supabase (כולל `payload` / תיעוד טיפולים) + מיזוג מיידי של התגובה ל-state.
@@ -616,7 +618,7 @@ interface PatientContextValue {
     explanation: string;
     sourceUrl: string;
   }) => void;
-  removeKnowledgeFact: (factId: string) => void;
+  deleteKnowledgeFactAndForceCloudSave: (factId: string) => void;
   /** טעינה מ־Supabase — מחליפה את רשימת העובדות מהענן */
   refreshKnowledgeBaseFromCloud: () => Promise<void>;
   /** true לאחר טעינת app_knowledge_base מהענן מאז הריענון (דשבורד מטפל + Auth). */
@@ -899,8 +901,8 @@ export function PatientProvider({
   const accumulatedCloudSaveOptionsRef = useRef<{
     exercisePlanChangeSummaryByPatientId?: Record<string, string>;
     onPushComplete?: (result: SupabasePushResult) => void;
-    /** Snapshot חד-פעמי ל-push מיידי (למשל טיפ חדש לפני רינדור מחדש של ה-ref). */
     persistSnapshotOverride?: PersistedPatientStateV1;
+    trustKnowledgeFactDeletions?: boolean;
   } | null>(null);
   const cloudSaveDebouncedResolversRef = useRef<Array<(ok: boolean) => void>>([]);
   /** True while a cloud push is actively in flight after acquiring the mutex (full or plan save). */
@@ -1612,6 +1614,9 @@ export function PatientProvider({
         ...(summaryMap && Object.keys(summaryMap).length > 0
           ? { exercisePlanChangeSummaryByPatientId: summaryMap }
           : {}),
+        ...(mergedExtra?.trustKnowledgeFactDeletions === true
+          ? { trustKnowledgeFactDeletions: true }
+          : {}),
       }
     );
     cloudSaveMutexRef.current = savePromise.then((r) => r.ok);
@@ -1659,6 +1664,7 @@ export function PatientProvider({
       onPushComplete?: (result: SupabasePushResult) => void;
       /** דוחף snapshot זה במקום latestCloudPersistRef (מונע stale state לפני setState). */
       persistSnapshotOverride?: PersistedPatientStateV1;
+      trustKnowledgeFactDeletions?: boolean;
     }) => {
       if (!supabase) {
         console.error(
@@ -1680,13 +1686,15 @@ export function PatientProvider({
       if (
         (incoming && Object.keys(incoming).length > 0) ||
         typeof options?.onPushComplete === 'function' ||
-        options?.persistSnapshotOverride != null
+        options?.persistSnapshotOverride != null ||
+        options?.trustKnowledgeFactDeletions === true
       ) {
         const acc = accumulatedCloudSaveOptionsRef.current ?? {};
         const next: {
           exercisePlanChangeSummaryByPatientId?: Record<string, string>;
           onPushComplete?: (result: SupabasePushResult) => void;
           persistSnapshotOverride?: PersistedPatientStateV1;
+          trustKnowledgeFactDeletions?: boolean;
         } = { ...acc };
         if (incoming && Object.keys(incoming).length > 0) {
           next.exercisePlanChangeSummaryByPatientId = {
@@ -1699,6 +1707,9 @@ export function PatientProvider({
         }
         if (options?.persistSnapshotOverride) {
           next.persistSnapshotOverride = options.persistSnapshotOverride;
+        }
+        if (options?.trustKnowledgeFactDeletions === true || acc.trustKnowledgeFactDeletions === true) {
+          next.trustKnowledgeFactDeletions = true;
         }
         accumulatedCloudSaveOptionsRef.current = next;
       }
@@ -2366,6 +2377,86 @@ export function PatientProvider({
     [savePersistedStateToCloud, markKbHydratedFromCloudCb, supabase]
   );
 
+  const deleteKnowledgeFactAndForceCloudSave = useCallback(
+    (factId: string) => {
+      suppressAppKbCloudFetchUntilRef.current = Date.now() + KB_CLOUD_FETCH_COOLDOWN_MS_AFTER_TIP_SAVE;
+      const trimmedId = factId.trim();
+      if (!trimmedId) return;
+
+      const baseSnap = latestCloudPersistRef.current;
+      const prevKb = normalizeKnowledgeFactsList(baseSnap?.knowledgeFacts ?? knowledgeFactsRef.current);
+      if (!prevKb.some((f) => f.id === trimmedId)) {
+        if (import.meta.env.DEV) {
+          console.warn('[TIP_SYNC] deleteKnowledgeFactAndForceCloudSave — fact id not in local KB', trimmedId);
+        }
+        return;
+      }
+      const nextFacts = prevKb.filter((f) => f.id !== trimmedId);
+
+      setKnowledgeFacts(nextFacts);
+      setAllPatients((prevPatients) =>
+        prevPatients.map((p) => ({ ...p, knowledgeFacts: nextFacts }))
+      );
+
+      if (!baseSnap) {
+        console.error('[TIP_SYNC] Cannot cloud-save KB delete — persist snapshot ref empty');
+        return;
+      }
+
+      markKbHydratedFromCloudCb();
+      console.warn('[TIP_SYNC] KB hydration gate opened before therapist tip delete (emergency release)');
+
+      const persistSnapshotOverride: PersistedPatientStateV1 = {
+        ...baseSnap,
+        knowledgeFacts: nextFacts,
+        patients: baseSnap.patients.map((p) => ({ ...p, knowledgeFacts: nextFacts })),
+      };
+
+      void savePersistedStateToCloud({
+        immediate: true,
+        persistSnapshotOverride,
+        trustKnowledgeFactDeletions: true,
+        onPushComplete: (pushResult) => {
+          console.log('[TIP_SYNC] Supabase cloud push — full result after therapist tip delete:', pushResult);
+          const kbUpsert = pushResult.knowledgeBaseUpsert;
+          if (kbUpsert !== undefined) {
+            console.log('[TIP_SYNC] app_knowledge_base upsert response (delete):', kbUpsert);
+            if (!kbUpsert.ok) {
+              console.warn('[TIP_SYNC] KB upsert error (delete):', kbUpsert.message, {
+                httpStatus: kbUpsert.httpStatus,
+                raw: kbUpsert.raw,
+              });
+            }
+          }
+          if (!pushResult.ok) {
+            console.warn('[TIP_SYNC] Cloud push failed (delete):', pushResult.message, pushResult.httpStatus);
+            return;
+          }
+          const client = supabase;
+          if (!client) return;
+          if (kbUpsert?.ok === true && kbUpsert.skippedReason === 'kb-not-hydrated') return;
+          if (kbUpsert?.ok === false) return;
+          void (async () => {
+            const uid = (await client.auth.getUser()).data.user?.id?.trim();
+            if (!uid) return;
+            const fetched = await fetchAppKnowledgeBaseFromSupabase(client, {
+              therapistAuthUserId: uid,
+            });
+            const authoritative = normalizeKnowledgeFactsList(fetched?.items ?? []);
+            setKnowledgeFacts(authoritative);
+            setAllPatients((prev) =>
+              prev.map((p) => ({ ...p, knowledgeFacts: authoritative }))
+            );
+            console.log(
+              `[TIP_SYNC] KB delete verified from cloud — server row item count: ${authoritative.length}`
+            );
+          })();
+        },
+      });
+    },
+    [savePersistedStateToCloud, markKbHydratedFromCloudCb, supabase]
+  );
+
   const exercise = useExercisePlan({
     patients,
     allPatients,
@@ -2840,7 +2931,7 @@ export function PatientProvider({
         saveExercisePlanForPatientToCloud,
         knowledgeFacts: gamification.knowledgeFacts,
         addManualKnowledgeFact: addManualKnowledgeFactAndForceCloudSave,
-        removeKnowledgeFact: gamification.removeKnowledgeFact,
+        deleteKnowledgeFactAndForceCloudSave,
         refreshKnowledgeBaseFromCloud: refreshKnowledgeBaseFromCloudMerged,
         hasHydratedKbFromCloud,
       }}

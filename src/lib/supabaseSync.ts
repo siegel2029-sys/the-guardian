@@ -44,6 +44,10 @@ export type PushPersistedStateOptions = {
    * Keys are patient IDs; omitted or empty string → null in DB for that patient.
    */
   exercisePlanChangeSummaryByPatientId?: Record<string, string>;
+  /**
+   * Therapist: merge trusts local KB membership so deleted tips are not resurrected from stale `patients.payload`.
+   */
+  trustKnowledgeFactDeletions?: boolean;
 };
 
 /**
@@ -71,7 +75,9 @@ export async function pushPersistedStateToSupabase(
       if (!ownPatientId) {
         return { ok: false, message: 'patient sync: missing patientSessionId' };
       }
-      return await upsertPatientRecords(client, state.patients, now, { onlyPatientId: ownPatientId });
+      return await upsertPatientRecords(client, state.patients, now, {
+        onlyPatientId: ownPatientId,
+      });
     }
 
     let result: SupabasePushResult = await upsertTherapistProfilesForPatients(
@@ -87,7 +93,11 @@ export async function pushPersistedStateToSupabase(
         ? state.patients.map((p) => ({ ...p, knowledgeFacts: kb }))
         : state.patients;
 
-    result = await upsertPatientRecords(client, patientsForUpsert, now);
+    result = await upsertPatientRecords(client, patientsForUpsert, now, {
+      ...(options?.trustKnowledgeFactDeletions !== undefined
+        ? { trustKnowledgeFactDeletions: options.trustKnowledgeFactDeletions }
+        : {}),
+    });
     if (!result.ok) return result;
     const syncedPatients = result.syncedPatients;
 

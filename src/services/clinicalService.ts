@@ -730,6 +730,12 @@ export type UpsertPatientRecordsOptions = {
    * accidentally overwritten.
    */
   authUserId?: string;
+  /**
+   * When true, patient payload merge drops KB facts that exist only on the server
+   * (local list wins for membership). Pass for therapist-driven deletes.
+   * When omitted, defaults to hydrated therapist-dashboard behavior.
+   */
+  trustKnowledgeFactDeletions?: boolean;
 };
 
 export async function upsertPatientRecords(
@@ -842,10 +848,14 @@ export async function upsertPatientRecords(
     /** Merge with DB row so stale clients cannot zero out XP/coins (see {@link mergePatientPayloadForUpsert}). */
     const omitKnowledgeFactsForCloud =
       isSupabaseAuthEnabled() && !isPatientPortal && !getAppKbHydratedFromCloud();
+    const defaultTrustKbDel = !omitKnowledgeFactsForCloud && !isPatientPortal;
+    const trustKbDel =
+      options?.trustKnowledgeFactDeletions !== undefined
+        ? options.trustKnowledgeFactDeletions
+        : defaultTrustKbDel;
     const payloadForUpsert = mergePatientPayloadForUpsert(oldPayload, payloadDraft, {
       omitKnowledgeFactsForCloud,
-      therapistTrustKnowledgeFactDeletions:
-        !omitKnowledgeFactsForCloud && !isPatientPortal,
+      therapistTrustKnowledgeFactDeletions: trustKbDel,
     });
     const firstName = (payloadForUpsert.name ?? '').trim();
 
