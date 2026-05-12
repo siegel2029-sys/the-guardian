@@ -1,5 +1,14 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { Lightbulb, ExternalLink, Gift, Lock, X } from 'lucide-react';
+import type { KnowledgeFact, Patient } from '../../types';
+import { KNOWLEDGE_ENRICHMENT_DISCLAIMER_HE } from '../../config/clinicalDisclaimers';
+import { PATIENT_REWARDS } from '../../config/patientRewards';
+import { getKnowledgeSourceBadgeText } from '../../utils/knowledgeSourceBadge';
+import {
+  selectDailyApprovedKnowledgeFact,
+  useLocalCalendarDayKey,
+} from '../../utils/dailyKnowledgeFact';
+import { RewardLabel } from '../ui/RewardLabel';
 
 const MOBILE_MAX_WIDTH_PX = 767;
 
@@ -19,15 +28,7 @@ function useIsMobileViewport(): boolean {
 
   return isMobile;
 }
-import type { KnowledgeFact, Patient } from '../../types';
-import { KNOWLEDGE_ENRICHMENT_DISCLAIMER_HE } from '../../config/clinicalDisclaimers';
-import { PATIENT_REWARDS } from '../../config/patientRewards';
-import { getKnowledgeSourceBadgeText } from '../../utils/knowledgeSourceBadge';
-import {
-  selectDailyApprovedKnowledgeFact,
-  useLocalCalendarDayKey,
-} from '../../utils/dailyKnowledgeFact';
-import { RewardLabel } from '../ui/RewardLabel';
+
 interface DidYouKnowBubbleProps {
   patient: Patient;
   /** עובדות שמוצגות בפורטל (מאושרות / נוספו כברירת מחדל) */
@@ -36,10 +37,8 @@ interface DidYouKnowBubbleProps {
   hasReadArticle: (patientId: string, articleId: string) => boolean;
   /** כבר נלחץ הסמל היום (מקומי) — המנורה נשארת סטטית עד מחר */
   tipAlreadyOpenedToday: boolean;
-  /** נקרא בלחיצה על סמל/ענן לפני פתיחת המודאל */
+  /** נקרא בלחיצה על סמל לפני פתיחת המודאל */
   onDidYouKnowTriggerOpen: () => void;
-  /** `inline` = בתוך זרימת העמוד (מעל רשימת התרגילים); ברירת מחדל — קבוע בפינה */
-  variant?: 'floating' | 'inline';
 }
 
 const SCROLL_END_THRESHOLD_PX = 40;
@@ -52,22 +51,6 @@ function scrollReachedEnd(el: HTMLElement): boolean {
   return scrollHeight - scrollTop - clientHeight <= SCROLL_END_THRESHOLD_PX;
 }
 
-/** כחול־אפור עדין — קו ענן מינימלי */
-const CLOUD_STROKE = '#475569';
-
-/**
- * ענן רך ומינימלי — עקומות עדינות, מקצועי.
- * viewBox 0 0 240 120
- */
-const CLOUD_PATH =
-  'M 40 78 C 40 52 62 38 92 40 C 108 28 140 28 156 40 C 186 36 208 52 208 74 C 208 96 186 110 124 108 C 62 110 40 96 40 78 Z';
-
-const TRAIL_DOT = '#64748b';
-
-/** טקסט טיזר בתוך הענן — מינימלי, מיושר ל־Physio-Shield */
-const CLOUD_TEASER_TEXT_CLASS =
-  'font-dyk-bubble line-clamp-5 max-h-[4.15rem] max-w-[11.35rem] break-words text-center text-[0.625rem] font-medium tracking-tight leading-[1.68] text-slate-600 sm:max-h-[4.55rem] sm:max-w-[12rem] sm:text-[0.6875rem] sm:leading-[1.72]';
-
 /** ענן מחשבה — מודאל עם Modal Title + Detailed Explanation מהדשבורד */
 export default function DidYouKnowBubble({
   patient,
@@ -76,7 +59,6 @@ export default function DidYouKnowBubble({
   hasReadArticle,
   tipAlreadyOpenedToday,
   onDidYouKnowTriggerOpen,
-  variant = 'floating',
 }: DidYouKnowBubbleProps) {
   const isMobile = useIsMobileViewport();
   const calendarDayKey = useLocalCalendarDayKey();
@@ -212,7 +194,7 @@ export default function DidYouKnowBubble({
     <>
       {expanded && (
         <div
-          className="fixed left-0 right-0 flex items-center justify-center md:inset-0 z-[100] max-md:px-3 p-4 sm:p-6"
+          className="fixed left-0 right-0 flex items-center justify-center md:inset-0 z-[120] max-md:px-3 p-4 sm:p-6"
           style={
             isMobile
               ? {
@@ -341,154 +323,32 @@ export default function DidYouKnowBubble({
         </div>
       )}
 
-      {/* פינה שמאלית-עליונה (מובייל = אייקון) או שורה ממורכזת מעל רשימת תרגילים (`inline`) */}
-      {variant === 'inline' ? (
-        <div className="relative z-20 mb-6 mt-1 w-full flex justify-center pointer-events-none isolate">
-          <div className={`pointer-events-auto ${isMobile ? '' : 'animate-dyk-cloud-float'}`}>
-            {isMobile ? (
-              <button
-                type="button"
-                onClick={openFromTrigger}
-                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-slate-200/70 bg-white/90 shadow-sm shadow-slate-900/6 outline-none backdrop-blur-md transition-[transform,box-shadow] active:scale-95 focus-visible:ring-2 focus-visible:ring-slate-400/30 focus-visible:ring-offset-2"
-                aria-label={`הידעת? ${cloudTeaser} — הקישו לפתיחה`}
-              >
-                <span className="sr-only">הידעת? {cloudTeaser} — פתיחת עובדה</span>
-                <span className={dykTriggerBulbClass} aria-hidden>
-                  <Lightbulb className="h-5 w-5 shrink-0 text-slate-700" strokeWidth={1.45} aria-hidden />
-                </span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={openFromTrigger}
-                className="flex w-[min(92vw,18rem)] cursor-pointer flex-col items-center border-0 bg-transparent p-1 text-center outline-none focus-visible:ring-2 focus-visible:ring-slate-400/35 focus-visible:ring-offset-2"
-                aria-label={`הידעת? ${cloudTeaser} — הקישו לפתיחה`}
-              >
-                <span className="sr-only">
-                  הידעת? {cloudTeaser} — פתיחת עובדה
-                </span>
-
-                <div className="relative w-full" style={{ aspectRatio: '240 / 120' }}>
-                  <svg
-                    className="absolute inset-0 h-full w-full drop-shadow-sm"
-                    viewBox="0 0 240 120"
-                    preserveAspectRatio="xMidYMid meet"
-                    aria-hidden
-                  >
-                    <path
-                      d={CLOUD_PATH}
-                      fill="#ffffff"
-                      stroke={CLOUD_STROKE}
-                      strokeWidth={0.95}
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  </svg>
-                  <span className="relative z-[3] flex h-full w-full flex-col items-center justify-center gap-2 px-[13%] pb-[17%] pt-[11%] pointer-events-none">
-                    <span className={dykTriggerBulbClass} aria-hidden>
-                      <Lightbulb
-                        className="h-[1.35rem] w-[1.35rem] shrink-0 text-slate-700 sm:h-6 sm:w-6"
-                        strokeWidth={1.35}
-                        aria-hidden
-                      />
-                    </span>
-                    <span className={CLOUD_TEASER_TEXT_CLASS}>{cloudTeaser}</span>
-                  </span>
-                </div>
-
-                <div className="mt-1 flex flex-col items-center gap-2 pt-2" aria-hidden>
-                  <span
-                    className="shrink-0 rounded-full"
-                    style={{ width: 8, height: 8, backgroundColor: TRAIL_DOT }}
-                  />
-                  <span
-                    className="shrink-0 rounded-full"
-                    style={{ width: 4, height: 4, backgroundColor: TRAIL_DOT }}
-                  />
-                </div>
-              </button>
-            )}
-          </div>
+      {/* Floating trigger — bottom-left on all portal screens (above tab bar + safe area) */}
+      <div
+        className="fixed z-[100] overflow-visible pointer-events-none isolation-isolate"
+        style={{
+          bottom: 'max(2rem, calc(6.25rem + env(safe-area-inset-bottom, 0px)))',
+          left: 'calc(1.5rem + env(safe-area-inset-left, 0px))',
+        }}
+      >
+        <div className="pointer-events-auto rounded-full dyk-float-trigger-halo">
+          <button
+            type="button"
+            onClick={openFromTrigger}
+            className="flex h-14 w-14 min-h-[3.5rem] min-w-[3.5rem] sm:h-12 sm:w-12 sm:min-h-12 sm:min-w-12 cursor-pointer items-center justify-center rounded-full border-2 border-amber-400/90 bg-slate-950/50 shadow-lg shadow-amber-950/25 outline-none backdrop-blur-md transition-[transform,box-shadow] active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-amber-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900/50"
+            aria-label={`הידעת? ${cloudTeaser} — הקישו לפתיחה`}
+          >
+            <span className="sr-only">הידעת? {cloudTeaser} — פתיחת עובדה</span>
+            <span className={dykTriggerBulbClass} aria-hidden>
+              <Lightbulb
+                className="h-7 w-7 shrink-0 text-amber-100 sm:h-6 sm:w-6"
+                strokeWidth={1.45}
+                aria-hidden
+              />
+            </span>
+          </button>
         </div>
-      ) : (
-        <div
-          className="fixed z-[72] overflow-visible pointer-events-none isolation-isolate"
-          style={{
-            top: isMobile
-              ? 'calc(4.35rem + env(safe-area-inset-top, 0px))'
-              : 'calc(28px + env(safe-area-inset-top, 0px))',
-            left: 'calc(18px + env(safe-area-inset-left, 0px))',
-          }}
-        >
-          <div className={`pointer-events-auto ${isMobile ? '' : 'animate-dyk-cloud-float'}`}>
-            {isMobile ? (
-              <button
-                type="button"
-                onClick={openFromTrigger}
-                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-slate-200/70 bg-white/90 shadow-sm shadow-slate-900/6 outline-none backdrop-blur-md transition-[transform,box-shadow] active:scale-95 focus-visible:ring-2 focus-visible:ring-slate-400/30 focus-visible:ring-offset-2"
-                aria-label={`הידעת? ${cloudTeaser} — הקישו לפתיחה`}
-              >
-                <span className="sr-only">הידעת? {cloudTeaser} — פתיחת עובדה</span>
-                <span className={dykTriggerBulbClass} aria-hidden>
-                  <Lightbulb className="h-5 w-5 shrink-0 text-slate-700" strokeWidth={1.45} aria-hidden />
-                </span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={openFromTrigger}
-                className="flex w-[min(92vw,18rem)] cursor-pointer flex-col items-center border-0 bg-transparent p-1 text-center outline-none focus-visible:ring-2 focus-visible:ring-slate-400/35 focus-visible:ring-offset-2"
-                aria-label={`הידעת? ${cloudTeaser} — הקישו לפתיחה`}
-              >
-                <span className="sr-only">
-                  הידעת? {cloudTeaser} — פתיחת עובדה
-                </span>
-
-                <div className="relative w-full" style={{ aspectRatio: '240 / 120' }}>
-                  <svg
-                    className="absolute inset-0 h-full w-full drop-shadow-sm"
-                    viewBox="0 0 240 120"
-                    preserveAspectRatio="xMidYMid meet"
-                    aria-hidden
-                  >
-                    <path
-                      d={CLOUD_PATH}
-                      fill="#ffffff"
-                      stroke={CLOUD_STROKE}
-                      strokeWidth={0.95}
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  </svg>
-                  <span className="relative z-[3] flex h-full w-full flex-col items-center justify-center gap-2 px-[13%] pb-[17%] pt-[11%] pointer-events-none">
-                    <span className={dykTriggerBulbClass} aria-hidden>
-                      <Lightbulb
-                        className="h-[1.35rem] w-[1.35rem] shrink-0 text-slate-700 sm:h-6 sm:w-6"
-                        strokeWidth={1.35}
-                        aria-hidden
-                      />
-                    </span>
-                    <span className={CLOUD_TEASER_TEXT_CLASS}>{cloudTeaser}</span>
-                  </span>
-                </div>
-
-                <div className="mt-1 flex flex-col items-center gap-2 pt-2" aria-hidden>
-                  <span
-                    className="shrink-0 rounded-full"
-                    style={{ width: 8, height: 8, backgroundColor: TRAIL_DOT }}
-                  />
-                  <span
-                    className="shrink-0 rounded-full"
-                    style={{ width: 4, height: 4, backgroundColor: TRAIL_DOT }}
-                  />
-                </div>
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      </div>
     </>
   );
 }

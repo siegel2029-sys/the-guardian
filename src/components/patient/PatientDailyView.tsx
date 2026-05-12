@@ -37,7 +37,6 @@ import type { StrengthExerciseLevelDef } from '../../data/strengthExerciseDataba
 import { getStrengthChainForArea } from '../../data/strengthExerciseDatabase';
 import { bodyAreaBlocksSelfCare } from '../../body/bodyPickMapping';
 import EmergencyStopModal from './EmergencyStopModal';
-import KnowledgeCloud from './KnowledgeCloud';
 import PatientAiPlanSuggestionModal from './PatientAiPlanSuggestionModal';
 import PainAnalyticsModal from './PainAnalyticsModal';
 import ClinicalMonthCalendar from './ClinicalMonthCalendar';
@@ -67,7 +66,6 @@ import { evaluateAiProgramLongitudinalGate } from '../../ai/aiProgramLongitudina
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
 import { getOptionalPoolExerciseId } from '../../utils/optionalExerciseUnlock';
 import { displayPortalRehabExerciseTitle } from '../../utils/portalRehabExerciseTitle';
-import { useLocalCalendarDayKey } from '../../utils/dailyKnowledgeFact';
 import {
   getTotalActiveDaysForScenery,
   getGuardiFlowerBloomAnnouncement,
@@ -180,10 +178,6 @@ export default function PatientDailyView() {
     getPatientMessages,
     markMessageRead,
     submitPatientAiPlanAdjustmentRequest,
-    markArticleAsRead,
-    hasReadArticle,
-    getDidYouKnowTipOpenedLocalYmd,
-    recordDidYouKnowTipOpened,
     hasDailyLoginBonusPending,
     getPatientGear,
     purchaseGearItem,
@@ -207,7 +201,6 @@ export default function PatientDailyView() {
     getPatientExerciseFinishReports,
     getSelfCareStrengthTier,
     setSelfCareStrengthTier,
-    knowledgeFacts,
     getGuardiMountainAmbientLine,
   } = usePatient();
 
@@ -442,24 +435,6 @@ export default function PatientDailyView() {
         : 0,
     [selectedPatient, patientDayMap, clinicalToday]
   );
-
-  const approvedKnowledgeFacts = useMemo(
-    () => knowledgeFacts.filter((f) => f.isApproved),
-    [knowledgeFacts]
-  );
-
-  const dykLocalCalendarDayKey = useLocalCalendarDayKey();
-  const dykTipAlreadyOpenedToday = Boolean(
-    selectedPatient &&
-      getDidYouKnowTipOpenedLocalYmd(selectedPatient.id) === dykLocalCalendarDayKey
-  );
-
-  const factsForKnowledgeCloud = useMemo(() => approvedKnowledgeFacts, [approvedKnowledgeFacts]);
-
-  const showKnowledgeCloud =
-    !!selectedPatient &&
-    !patientMustChangePassword &&
-    approvedKnowledgeFacts.length > 0;
 
   const exerciseSafetyLocked = selectedPatient
     ? isPatientExerciseSafetyLocked(selectedPatient.id)
@@ -1550,24 +1525,6 @@ export default function PatientDailyView() {
         >
           תכנית השיקום (חובה)
         </h1>
-        {showKnowledgeCloud && portalTab === 'activity' && selectedPatient && (
-          <KnowledgeCloud
-            variant="inline"
-            patient={selectedPatient}
-            approvedFacts={factsForKnowledgeCloud}
-            tipAlreadyOpenedToday={dykTipAlreadyOpenedToday}
-            onDidYouKnowTriggerOpen={() =>
-              recordDidYouKnowTipOpened(selectedPatient.id, dykLocalCalendarDayKey)
-            }
-            onCollectReward={(articleId, opts) =>
-              markArticleAsRead(selectedPatient.id, articleId, {
-                ...opts,
-                didYouKnowLocalCalendarYmd: dykLocalCalendarDayKey,
-              })
-            }
-            hasReadArticle={hasReadArticle}
-          />
-        )}
         {aiProgramLongitudinalGate?.showSteadyProgress &&
           !patientMustChangePassword &&
           !exercisesLocked &&
@@ -1822,25 +1779,6 @@ export default function PatientDailyView() {
           </button>
         </div>
       </nav>
-
-      {showKnowledgeCloud && portalTab !== 'activity' && selectedPatient && (
-        <KnowledgeCloud
-          variant="floating"
-          patient={selectedPatient}
-          approvedFacts={factsForKnowledgeCloud}
-          tipAlreadyOpenedToday={dykTipAlreadyOpenedToday}
-          onDidYouKnowTriggerOpen={() =>
-            recordDidYouKnowTipOpened(selectedPatient.id, dykLocalCalendarDayKey)
-          }
-          onCollectReward={(articleId, opts) =>
-            markArticleAsRead(selectedPatient.id, articleId, {
-              ...opts,
-              didYouKnowLocalCalendarYmd: dykLocalCalendarDayKey,
-            })
-          }
-          hasReadArticle={hasReadArticle}
-        />
-      )}
 
       <GuardiCompanion
         eligible={guardiCompanionEligible}

@@ -1,5 +1,5 @@
 /**
  * «הידעת?» — re-export של `DidYouKnowBubble`.
- * `variant="inline"` מעל רשימת התרגילים; ברירת מחדל — `floating` בפינה.
+ * מוצג כצף דרך {@link PatientPortalDidYouKnowLayer} מעל כל מסכי הפורטל.
  */
 export { default } from './DidYouKnowBubble';

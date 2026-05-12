@@ -2,6 +2,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { PatientProvider } from './context/PatientContext';
 import { AppRoutes } from './components/ProtectedRoute';
+import PatientPortalDidYouKnowLayer from './components/patient/PatientPortalDidYouKnowLayer';
 
 /**
  * Patient list scope follows auth: therapist dashboard vs patient portal.
@@ -22,6 +23,7 @@ function PatientRouterShell() {
       <BrowserRouter>
         <div className="min-h-dvh antialiased text-base text-slate-900">
           <AppRoutes />
+          <PatientPortalDidYouKnowLayer />
         </div>
       </BrowserRouter>
     </PatientProvider>
