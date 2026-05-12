@@ -73,9 +73,12 @@ export function normalizeKnowledgeFact(raw: unknown): KnowledgeFact | null {
   const isApproved =
     o.isApproved === true || (o.is_approved as unknown) === true;
   const createdAt = typeof o.createdAt === 'string' ? o.createdAt : undefined;
+  const seedIdRaw = pickFirstTrimmed(o.seedId, o.seed_id);
+  const seedId = seedIdRaw.length > 0 ? seedIdRaw : undefined;
 
   return {
     id,
+    ...(seedId ? { seedId } : {}),
     teaser: clampTeaser(teaser),
     title,
     explanation,

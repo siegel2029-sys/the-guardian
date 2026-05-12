@@ -31,13 +31,19 @@ function rowToAppKnowledgeBaseRow(
 ): AppKnowledgeBaseRow | null {
   const rawItems = data.items;
   if (!Array.isArray(rawItems)) return null;
+  const deletedSeedIds = parseDeletedSeedIds(data.deleted_seed_ids);
   let items = normalizeKnowledgeFactsList(rawItems);
+  items = items.filter((f) => {
+    const sid = f.seedId?.trim();
+    if (!sid) return true;
+    return !deletedSeedIds.includes(sid);
+  });
   if (options?.approvedOnly) {
     items = items.filter((f) => f.isApproved);
   }
   return {
     items,
-    deletedSeedIds: parseDeletedSeedIds(data.deleted_seed_ids),
+    deletedSeedIds,
   };
 }
 

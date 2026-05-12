@@ -49,6 +49,8 @@ export type PushPersistedStateOptions = {
    * Therapist: merge trusts local KB membership so deleted tips are not resurrected from stale `patients.payload`.
    */
   trustKnowledgeFactDeletions?: boolean;
+  /** מזהי זרע להוספה ל־`app_knowledge_base.deleted_seed_ids` (מיזוג עם השרת ב-upsert). */
+  appendKnowledgeDeletedSeedIds?: string[];
 };
 
 /**
@@ -162,8 +164,11 @@ export async function pushPersistedStateToSupabase(
 
     const kbOutcome = await upsertGlobalAppKnowledgeBaseWithTipSyncLog(
       client,
-      kbToSave,
-      now
+      normalizeKnowledgeFactsList(kbToSave),
+      now,
+      {
+        appendDeletedSeedIds: options?.appendKnowledgeDeletedSeedIds,
+      }
     );
     if (!kbOutcome.ok) {
       return {

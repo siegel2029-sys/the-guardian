@@ -280,10 +280,20 @@ export function aggregateKnowledgeFactsFromPatientPayloads(patients: Patient[]):
 export function mergeKnowledgeFactsHydrateFromTherapistCloud(
   patientsFromServerFetch: Patient[],
   factsFromAppKnowledgeBaseGlobal: KnowledgeFact[] | undefined,
-  localFacts: KnowledgeFact[] | undefined
+  localFacts: KnowledgeFact[] | undefined,
+  deletedSeedIds?: string[]
 ): KnowledgeFact[] {
-  const fromPayloads = aggregateKnowledgeFactsFromPatientPayloads(patientsFromServerFetch);
-  const fromGlobal = normalizeKnowledgeFactsList(factsFromAppKnowledgeBaseGlobal ?? []);
+  const ban = new Set((deletedSeedIds ?? []).map((s) => s.trim()).filter(Boolean));
+  const filterSeeds = (facts: KnowledgeFact[]) => {
+    if (ban.size === 0) return facts;
+    return facts.filter((f) => {
+      const sid = f.seedId?.trim();
+      if (!sid) return true;
+      return !ban.has(sid);
+    });
+  };
+  const fromPayloads = filterSeeds(aggregateKnowledgeFactsFromPatientPayloads(patientsFromServerFetch));
+  const fromGlobal = filterSeeds(normalizeKnowledgeFactsList(factsFromAppKnowledgeBaseGlobal ?? []));
   const byId = new Map<string, KnowledgeFact>();
   for (const f of fromPayloads) byId.set(f.id, f);
   for (const f of fromGlobal) byId.set(f.id, f);
@@ -310,39 +320,41 @@ export async function fetchTherapistAppKbWithLegacyGlobalFallback(
   client: SupabaseClient,
   therapistAuthUserId: string | undefined,
   fetchOpts?: { approvedOnly?: boolean }
-): Promise<{ items: KnowledgeFact[] | undefined }> {
+): Promise<{ items: KnowledgeFact[] | undefined; deletedSeedIds: string[] }> {
   const rowTherapist = await fetchAppKnowledgeBaseFromSupabase(client, {
     ...fetchOpts,
     ...(therapistAuthUserId ? { therapistAuthUserId } : {}),
   });
-  let normalizedTherapist = normalizeKnowledgeFactsList(rowTherapist?.items ?? []);
+  const therapistItems = rowTherapist?.items ?? [];
+  const deletedSeedIds = rowTherapist?.deletedSeedIds ?? [];
 
-  if (therapistAuthUserId && normalizedTherapist.length === 0) {
+  if (therapistAuthUserId && therapistItems.length === 0) {
     if (!hasAttemptedGlobalKbMigrationForTherapist(therapistAuthUserId)) {
       markGlobalKbMigrationAttemptedForTherapist(therapistAuthUserId);
-      const legacy = await fetchAppKnowledgeBaseFromSupabase(client, fetchOpts);
-      const legacyNorm = normalizeKnowledgeFactsList(legacy?.items ?? []);
-      if (legacyNorm.length > 0) {
+      const legacyRow = await fetchAppKnowledgeBaseFromSupabase(client, fetchOpts);
+      const legacyItems = legacyRow?.items ?? [];
+      if (legacyItems.length > 0) {
         console.warn('[TIP_SYNC] Legacy global app_knowledge_base — migrating to therapist row', {
           therapistAuthUserId,
-          itemCount: legacyNorm.length,
+          itemCount: legacyItems.length,
         });
         const mig = await upsertGlobalAppKnowledgeBaseWithTipSyncLog(
           client,
-          legacyNorm,
+          legacyItems,
           new Date().toISOString(),
           { bypassKbHydrationGate: true }
         );
         if (!mig.ok && import.meta.env.DEV) {
           console.warn('[TIP_SYNC] KB migration upsert failed', mig.message);
         }
-        return { items: legacyNorm };
+        return { items: legacyItems, deletedSeedIds: legacyRow?.deletedSeedIds ?? [] };
       }
     }
   }
 
   return {
-    items: normalizedTherapist.length > 0 ? normalizedTherapist : undefined,
+    items: therapistItems.length > 0 ? therapistItems : undefined,
+    deletedSeedIds,
   };
 }
 
@@ -353,7 +365,11 @@ export async function upsertGlobalAppKnowledgeBaseWithTipSyncLog(
   client: SupabaseClient,
   knowledgeItems: KnowledgeFact[],
   now: string,
-  opts?: { bypassKbHydrationGate?: boolean }
+  opts?: {
+    bypassKbHydrationGate?: boolean;
+    /** מתמזג ל-`deleted_seed_ids` הקיים בשורה (dedupe) — לא דורס את המערך. */
+    appendDeletedSeedIds?: string[];
+  }
 ): Promise<AppKnowledgeBaseSaveOutcome> {
   if (
     isSupabaseAuthEnabled() &&
@@ -383,9 +399,36 @@ export async function upsertGlobalAppKnowledgeBaseWithTipSyncLog(
     }
   }
 
+  const rowId = therapistAuthUserId ?? 'global';
+
+  let existingDeleted: string[] = [];
+  try {
+    const { data: existingRow } = await client
+      .from('app_knowledge_base')
+      .select('deleted_seed_ids')
+      .eq('id', rowId)
+      .maybeSingle();
+    const rawDel =
+      existingRow &&
+      typeof existingRow === 'object' &&
+      'deleted_seed_ids' in existingRow
+        ? (existingRow as { deleted_seed_ids?: unknown }).deleted_seed_ids
+        : undefined;
+    if (Array.isArray(rawDel)) {
+      existingDeleted = rawDel.filter((x): x is string => typeof x === 'string' && x.length > 0);
+    }
+  } catch {
+    /* ignore — upsert still proceeds */
+  }
+
+  const append = (opts?.appendDeletedSeedIds ?? [])
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  const mergedDeletedSeedIds = [...new Set([...existingDeleted, ...append])];
+
   const row: Record<string, unknown> = {
     items: knowledgeItems,
-    deleted_seed_ids: [],
+    deleted_seed_ids: mergedDeletedSeedIds,
     updated_at: now,
   };
   if (therapistAuthUserId) {

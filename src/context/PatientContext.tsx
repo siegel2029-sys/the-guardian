@@ -198,13 +198,17 @@ async function hydrateTherapistKnowledgeFactsFromSupabase(
       console.warn(`[TIP_SYNC] Initializing fetch for Therapist ID: ${therapistKey}`);
     }
 
-    const { items } = await fetchTherapistAppKbWithLegacyGlobalFallback(client, therapistKey);
+    const { items, deletedSeedIds } = await fetchTherapistAppKbWithLegacyGlobalFallback(
+      client,
+      therapistKey
+    );
     kbItems = items;
 
     const mergedAfterFetch = mergeKnowledgeFactsHydrateFromTherapistCloud(
       patientsSnapshotFromServerFetch,
       kbItems,
-      prevFacts
+      prevFacts,
+      deletedSeedIds
     );
     setKnowledgeFacts(mergedAfterFetch);
     opts?.markHydratedFromCloud?.();
@@ -903,6 +907,7 @@ export function PatientProvider({
     onPushComplete?: (result: SupabasePushResult) => void;
     persistSnapshotOverride?: PersistedPatientStateV1;
     trustKnowledgeFactDeletions?: boolean;
+    appendKnowledgeDeletedSeedIds?: string[];
   } | null>(null);
   const cloudSaveDebouncedResolversRef = useRef<Array<(ok: boolean) => void>>([]);
   /** True while a cloud push is actively in flight after acquiring the mutex (full or plan save). */
@@ -1617,6 +1622,9 @@ export function PatientProvider({
         ...(mergedExtra?.trustKnowledgeFactDeletions === true
           ? { trustKnowledgeFactDeletions: true }
           : {}),
+        ...((mergedExtra?.appendKnowledgeDeletedSeedIds?.length ?? 0) > 0
+          ? { appendKnowledgeDeletedSeedIds: mergedExtra.appendKnowledgeDeletedSeedIds }
+          : {}),
       }
     );
     cloudSaveMutexRef.current = savePromise.then((r) => r.ok);
@@ -1665,6 +1673,7 @@ export function PatientProvider({
       /** דוחף snapshot זה במקום latestCloudPersistRef (מונע stale state לפני setState). */
       persistSnapshotOverride?: PersistedPatientStateV1;
       trustKnowledgeFactDeletions?: boolean;
+      appendKnowledgeDeletedSeedIds?: string[];
     }) => {
       if (!supabase) {
         console.error(
@@ -1687,7 +1696,8 @@ export function PatientProvider({
         (incoming && Object.keys(incoming).length > 0) ||
         typeof options?.onPushComplete === 'function' ||
         options?.persistSnapshotOverride != null ||
-        options?.trustKnowledgeFactDeletions === true
+        options?.trustKnowledgeFactDeletions === true ||
+        (options?.appendKnowledgeDeletedSeedIds?.length ?? 0) > 0
       ) {
         const acc = accumulatedCloudSaveOptionsRef.current ?? {};
         const next: {
@@ -1695,6 +1705,7 @@ export function PatientProvider({
           onPushComplete?: (result: SupabasePushResult) => void;
           persistSnapshotOverride?: PersistedPatientStateV1;
           trustKnowledgeFactDeletions?: boolean;
+          appendKnowledgeDeletedSeedIds?: string[];
         } = { ...acc };
         if (incoming && Object.keys(incoming).length > 0) {
           next.exercisePlanChangeSummaryByPatientId = {
@@ -1710,6 +1721,19 @@ export function PatientProvider({
         }
         if (options?.trustKnowledgeFactDeletions === true || acc.trustKnowledgeFactDeletions === true) {
           next.trustKnowledgeFactDeletions = true;
+        }
+        const incomingSeeds = options?.appendKnowledgeDeletedSeedIds?.filter(
+          (s) => typeof s === 'string' && s.trim() !== ''
+        );
+        if (incomingSeeds?.length) {
+          next.appendKnowledgeDeletedSeedIds = [
+            ...new Set([
+              ...(acc.appendKnowledgeDeletedSeedIds ?? []),
+              ...incomingSeeds.map((s) => s.trim()),
+            ]),
+          ];
+        } else if (acc.appendKnowledgeDeletedSeedIds?.length) {
+          next.appendKnowledgeDeletedSeedIds = acc.appendKnowledgeDeletedSeedIds;
         }
         accumulatedCloudSaveOptionsRef.current = next;
       }
@@ -2386,6 +2410,16 @@ export function PatientProvider({
       const baseSnap = latestCloudPersistRef.current;
       const prevKb = normalizeKnowledgeFactsList(baseSnap?.knowledgeFacts ?? knowledgeFactsRef.current);
       const livePatients = allPatientsRef.current;
+      const removedFact =
+        prevKb.find((f) => f.id === trimmedId) ??
+        livePatients
+          .flatMap((p) => normalizeKnowledgeFactsList(p.knowledgeFacts))
+          .find((f) => f.id === trimmedId);
+      const seedToAppend = removedFact?.seedId?.trim() ?? '';
+      const scrubbedPatientCount = livePatients.filter((p) =>
+        normalizeKnowledgeFactsList(p.knowledgeFacts).some((f) => f.id === trimmedId)
+      ).length;
+
       const nextFacts = prevKb.filter((f) => f.id !== trimmedId);
       const patientsWithoutFact = livePatients.map((p) => ({
         ...p,
@@ -2432,6 +2466,7 @@ export function PatientProvider({
         persistSnapshotOverride,
         /** ממופה ל-`therapistTrustKnowledgeFactDeletions` ב-merge לטבלת patients (מניעת «הקמה מחדש» מ-payload ישן). */
         trustKnowledgeFactDeletions: true,
+        ...(seedToAppend ? { appendKnowledgeDeletedSeedIds: [seedToAppend] } : {}),
         onPushComplete: (pushResult) => {
           console.log('[TIP_SYNC] Supabase cloud push — full result after therapist tip delete:', pushResult);
           const kbUpsert = pushResult.knowledgeBaseUpsert;
@@ -2448,6 +2483,9 @@ export function PatientProvider({
             console.warn('[TIP_SYNC] Cloud push failed (delete):', pushResult.message, pushResult.httpStatus);
             return;
           }
+          console.log(
+            `[SYNC_DEBUG] Fact ${trimmedId} scrubbed from ${scrubbedPatientCount} patients and global row.`
+          );
           const client = supabase;
           if (!client) return;
           if (kbUpsert?.ok === true && kbUpsert.skippedReason === 'kb-not-hydrated') return;

@@ -95,13 +95,13 @@ export function PatientDidYouKnowAnchorButton({
       <button
         type="button"
         onClick={openFromTrigger}
-        className="flex h-14 w-14 min-h-[3.5rem] min-w-[3.5rem] sm:h-12 sm:w-12 sm:min-h-12 sm:min-w-12 cursor-pointer items-center justify-center rounded-full border-2 border-amber-400/90 bg-slate-950/50 shadow-lg shadow-amber-950/25 outline-none backdrop-blur-md transition-[transform,box-shadow] active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-amber-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900/50"
+        className="flex h-10 w-10 min-h-10 min-w-10 sm:h-12 sm:w-12 sm:min-h-12 sm:min-w-12 cursor-pointer items-center justify-center rounded-full border-2 border-amber-400/90 bg-slate-950/50 shadow-lg shadow-amber-950/25 outline-none backdrop-blur-md transition-[transform,box-shadow] active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-amber-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900/50"
         aria-label={`הידעת? ${cloudTeaser} — הקישו לפתיחה`}
       >
         <span className="sr-only">הידעת? {cloudTeaser} — פתיחת עובדה</span>
         <span className={dykTriggerBulbClass} aria-hidden>
           <Lightbulb
-            className="h-7 w-7 shrink-0 text-amber-100 sm:h-6 sm:w-6"
+            className="h-5 w-5 shrink-0 text-amber-100 sm:h-6 sm:w-6"
             strokeWidth={1.45}
             aria-hidden
           />

@@ -147,6 +147,11 @@ export interface PatientExerciseFinishReport {
 /** עובדת "הידעת?" — נוספה ידנית ע״י מטפל; מאושרת לפני הצגה למטופל */
 export interface KnowledgeFact {
   id: string;
+  /**
+   * מזהה זרע לתוכן שנוצר/נבחר אצווה — נשמר ב־`app_knowledge_base.deleted_seed_ids` אחרי מחיקה
+   * כדי למנוע הופעה חוזרת של אותו פריט.
+   */
+  seedId?: string;
   /** טקסט קצר לבועה הצפה (עד 50 תווים) */
   teaser: string;
   /** כותרת במודאל המורחב */

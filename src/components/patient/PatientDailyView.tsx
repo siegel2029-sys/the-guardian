@@ -1289,7 +1289,7 @@ export default function PatientDailyView() {
                 <div className="pointer-events-none absolute inset-0 z-[18] overflow-visible">
                   <PatientDidYouKnowAnchorButton
                     align="corner"
-                    className="pointer-events-auto absolute top-2 left-2 sm:top-3 sm:left-3"
+                    className="pointer-events-auto absolute top-4 -left-4 z-[18] max-md:top-5"
                   />
                 </div>
                 <BodyMap3D
@@ -1531,7 +1531,7 @@ export default function PatientDailyView() {
         >
         <PatientDidYouKnowAnchorButton
           align="corner"
-          className="absolute top-1 start-3 z-20"
+          className="absolute top-4 end-4 z-20 max-md:top-3"
         />
         <h1
           id="today-missions"
