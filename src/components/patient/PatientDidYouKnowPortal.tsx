@@ -68,20 +68,18 @@ export function usePatientDidYouKnowAnchor(): PatientDidYouKnowAnchorContextValu
 }
 
 /**
- * «הידעת?» — טריגר מאגר הידע (מנורה); עם `portaledViewportFixed` מוצג דרך PhysioshieldPortal
- * ונשאר קבוע ביחס ל־viewport בזמן גלילה (לא חלק מכרטיס האווטאר).
+ * «הידעת?» — טריגר מאגר הידע (מנורה). תמיד נטען דרך PhysioshieldPortal ל־`#physioshield-portal-root`
+ * (לא בתוך #root) עם מיקום viewport-fixed — לא גלול עם כרטיס האווטאר.
+ * `portaledViewportFixed` חייב להיות true (ברירת מחדל); קיים לצורך ביקורת/בנייה.
  */
 export function PatientDidYouKnowAnchorButton({
   className,
   align = 'corner',
   portaledViewportFixed = true,
 }: {
-  /** מחלקות לעטיפת הכפתור (במצב מוטבע — לרוב מיקום absolute יחסית לאב) */
   className?: string;
-  /** corner: טבעת פינה בולטת; inline: ללא */
   align?: 'corner' | 'inline';
-  /** כפתור יעוגה ל־document.body דרך הפורטל — fixed, מעל תוכן הגלילה */
-  portaledViewportFixed?: boolean;
+  portaledViewportFixed?: true;
 }) {
   const ctx = usePatientDidYouKnowAnchor();
   if (!ctx?.visible) return null;
@@ -95,7 +93,7 @@ export function PatientDidYouKnowAnchorButton({
 
   const body = (
     <div
-      className={`pointer-events-auto max-md:scale-90 ${portaledViewportFixed ? 'physioshield-dyk-kb-trigger' : 'z-[25]'} ${cornerRing} rounded-full dyk-float-trigger-halo ${className ?? ''}`}
+      className={`physioshield-dyk-kb-trigger pointer-events-auto max-md:scale-90 ${cornerRing} rounded-full dyk-float-trigger-halo ${className ?? ''}`}
     >
       <button
         type="button"
@@ -115,11 +113,9 @@ export function PatientDidYouKnowAnchorButton({
     </div>
   );
 
-  if (portaledViewportFixed) {
-    return <PhysioshieldPortal layerClassName="physioshield-dyk-kb-portal-layer">{body}</PhysioshieldPortal>;
-  }
-
-  return body;
+  return (
+    <PhysioshieldPortal layerClassName="physioshield-dyk-kb-portal-layer">{body}</PhysioshieldPortal>
+  );
 }
 
 function DidYouKnowPortalModal({

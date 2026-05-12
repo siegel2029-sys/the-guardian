@@ -840,7 +840,8 @@
   z-index: 10000 !important;
 }
 
-.physioshield-dyk-kb-trigger {
+/* ID prefix: only elements portaled under #physioshield-portal-root get fixed layout (never absolute inside #root). */
+#physioshield-portal-root .physioshield-dyk-kb-trigger {
   position: fixed !important;
   top: 150px;
   left: 20px;

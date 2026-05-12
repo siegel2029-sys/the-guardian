@@ -1309,7 +1309,9 @@ export default function PatientDailyView() {
       </header>
 
       <div className="flex-1 px-4 py-4 pb-36">
-        {(portalTab === 'home' || portalTab === 'activity') && <PatientDidYouKnowAnchorButton />}
+        {(portalTab === 'home' || portalTab === 'activity') && (
+          <PatientDidYouKnowAnchorButton portaledViewportFixed={true} />
+        )}
         {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
             <div className="relative mx-auto w-full max-w-md touch-pan-y">
