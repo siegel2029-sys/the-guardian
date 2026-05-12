@@ -79,7 +79,7 @@ export function calcPanelStyle(trigger: HTMLElement): CSSProperties {
     top = rect.bottom + window.scrollY + 4;
   }
 
-  return { position: 'absolute', top, left, width, maxHeight, zIndex: 99999 };
+    return { position: 'absolute', top, left, width, maxHeight, zIndex: 40000 };
 }
 
 // ─── PortalDropdown (low-level) ───────────────────────────────────────────────
@@ -93,7 +93,7 @@ export function calcPanelStyle(trigger: HTMLElement): CSSProperties {
  *   it tracks the trigger even when the trigger is inside a scrollable pane.
  * - Closes on outside click and Escape key.
  * - Never clipped by `overflow: hidden` ancestors because it lives at the
- *   document body level with `position: absolute` and `zIndex: 99999`.
+ *   document body level with `position: absolute` and `zIndex` below `#physioshield-portal-root` (999999).
  */
 export function PortalDropdown({
   open,
@@ -185,7 +185,7 @@ export function PortalDropdown({
             transform: 'translate(-50%, -50%)',
             width: 'min(92vw, 520px)',
             maxHeight: panelMaxHeight ? `${panelMaxHeight}px` : '85vh',
-            zIndex: 99999,
+            zIndex: 40000,
             overflowY: 'auto',
           }}
           className="rounded-xl border-2 border-slate-200 bg-white shadow-2xl"

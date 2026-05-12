@@ -90,40 +90,39 @@ export async function registerPatientPushForSupabase(
   };
 }
 
-/** Dev / debug: step-by-step Browser Notification checks (alerts + console). */
+/** Dev / debug: sequential alerts + Notification (isolates wiring vs browser policy). */
 export async function showPhysioshieldTestNotification(): Promise<void> {
-  window.alert('Button Clicked!');
+  if (typeof window === 'undefined') return;
 
-  if (typeof window === 'undefined') {
+  const loc = window.location;
+  const host = loc.hostname;
+
+  globalThis.alert('Button Clicked!');
+  console.log('[Physio-Shield Test Push] hostname:', host);
+
+  if (!('Notification' in globalThis)) {
+    console.warn('[Physio-Shield Test Push] Notification API unavailable — likely browser restriction');
+    globalThis.alert('Notification API not available in this context.');
+    console.log('[Physio-Shield Test Push] hostname:', host);
     return;
   }
 
-  console.log('[Physio-Shield Test Push] hostname:', window.location.hostname);
+  const permission = await Notification.requestPermission();
+  globalThis.alert('Permission: ' + permission);
 
-  if (!('Notification' in window)) {
-    console.warn('[Physio-Shield Test Push] Notification API missing — likely browser restriction');
-    window.alert('Notification API not available in this context.');
-    return;
+  if (permission === 'granted') {
+    try {
+      // eslint-disable-next-line no-new
+      new Notification('Test', { body: 'It works!' });
+      console.log('[Physio-Shield Test Push] new Notification("Test") sent');
+    } catch (e) {
+      console.error('[Physio-Shield Test Push] new Notification() failed — browser/OS restriction?', e);
+      console.log('[Physio-Shield Test Push] hostname:', host);
+    }
+  } else {
+    console.warn('[Physio-Shield Test Push] permission not granted');
+    console.log('[Physio-Shield Test Push] hostname:', host);
   }
-
-  await new Promise<void>((resolve) => {
-    Notification.requestPermission().then((permission) => {
-      window.alert('Permission: ' + permission);
-      if (permission === 'granted') {
-        try {
-          // eslint-disable-next-line no-new
-          new Notification('Test', { body: 'It works!' });
-        } catch (e) {
-          console.error('[Physio-Shield Test Push] new Notification failed', e);
-          console.log('[Physio-Shield Test Push] hostname:', window.location.hostname);
-        }
-      } else {
-        console.warn('[Physio-Shield Test Push] not granted — browser or OS may block');
-        console.log('[Physio-Shield Test Push] hostname:', window.location.hostname);
-      }
-      resolve();
-    });
-  });
 }
 
 export async function persistPatientPushProfile(params: {

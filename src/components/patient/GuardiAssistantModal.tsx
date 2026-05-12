@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import { createPortal } from 'react-dom';
-import { getPhysioshieldPortalRoot } from '../../lib/physioshieldPortalRoot';
 import { X } from 'lucide-react';
+import PhysioshieldPortal from '../ui/PhysioshieldPortal';
 
 import imgFront from '../../assets/guardi/front.jpg';
 import imgSuperman from '../../assets/guardi/supermen_pose_guardi.jpg';
@@ -456,7 +455,7 @@ export default function GuardiAssistantModal({
         </div>
       </div>
     );
-    return typeof document !== 'undefined' ? createPortal(tree, getPhysioshieldPortalRoot()) : tree;
+    return <PhysioshieldPortal>{tree}</PhysioshieldPortal>;
   }
 
   const cornerChrome = (
@@ -483,5 +482,5 @@ export default function GuardiAssistantModal({
     </>
   );
 
-  return typeof document !== 'undefined' ? createPortal(cornerChrome, getPhysioshieldPortalRoot()) : cornerChrome;
+  return <PhysioshieldPortal>{cornerChrome}</PhysioshieldPortal>;
 }

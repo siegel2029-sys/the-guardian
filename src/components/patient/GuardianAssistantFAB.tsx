@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { createPortal } from 'react-dom';
-import { getPhysioshieldPortalRoot } from '../../lib/physioshieldPortalRoot';
 import { X, Send, Loader2, Sparkles } from 'lucide-react';
+import PhysioshieldPortal from '../ui/PhysioshieldPortal';
 import type { Patient, PatientExercise } from '../../types';
 import {
   buildGuardianTurn,
@@ -451,5 +450,5 @@ export default function GuardianAssistantFAB({
     </>
   );
 
-  return typeof document !== 'undefined' ? createPortal(chrome, getPhysioshieldPortalRoot()) : chrome;
+  return <PhysioshieldPortal>{chrome}</PhysioshieldPortal>;
 }
