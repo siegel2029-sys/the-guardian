@@ -289,6 +289,7 @@ export function mergeKnowledgeFactsHydrateFromTherapistCloud(
 /**
  * טוען שורת מטפל; אם ריקה — ניסיון חד־פעמי למיגרציה משורת legacy `id='global'`,
  * כולל upsert לשורת המטפל (`bypassKbHydrationGate`).
+ * ה-fetch עצמו מוגבל בזמן ב־{@link fetchAppKnowledgeBaseFromSupabase} (gamificationService).
  */
 export async function fetchTherapistAppKbWithLegacyGlobalFallback(
   client: SupabaseClient,

@@ -7,6 +7,9 @@ export type AppKnowledgeBaseRow = {
   deletedSeedIds: string[];
 };
 
+/** מגן מפני תלייה של fetch שלא חוזר — משחרר את יומ הטעינה בהמשך. */
+export const APP_KB_FETCH_TIMEOUT_MS = 5000;
+
 /** `approvedOnly` — פורטל מטופל: רק פריטים עם `is_approved` / `isApproved` === true אחרי הנירמול. */
 export type FetchAppKnowledgeBaseOptions = {
   approvedOnly?: boolean;
@@ -51,47 +54,141 @@ function warnKbMissingTable(error: PostgrestError | null): void {
   }
 }
 
+function emptyKbRow(): AppKnowledgeBaseRow {
+  return { items: [], deletedSeedIds: [] };
+}
+
+/** גוף ה-fetch ללא timeout — תמיד `.maybeSingle()` (לא `.single()`). */
+async function executeAppKbFetch(
+  client: SupabaseClient,
+  options?: FetchAppKnowledgeBaseOptions
+): Promise<AppKnowledgeBaseRow | null> {
+  try {
+    const therapistKey = options?.therapistAuthUserId?.trim() ?? '';
+
+    if (therapistKey) {
+      let { data, error } = await client
+        .from('app_knowledge_base')
+        .select('items, deleted_seed_ids, therapist_id, id')
+        .eq('id', therapistKey)
+        .maybeSingle();
+
+      warnKbMissingTable(error);
+
+      const rawLen =
+        data && typeof data === 'object' && Array.isArray((data as Record<string, unknown>).items)
+          ? ((data as Record<string, unknown>).items as unknown[]).length
+          : null;
+
+      console.log('[TIP_SYNC] Database returned:', {
+        step: 'WHERE id = therapistAuthUserId',
+        therapistAuthUserId: therapistKey,
+        rowPresent: !!(data && typeof data === 'object'),
+        postgrestError: error?.message ?? null,
+        rawItemsLength: rawLen,
+        rowId:
+          data && typeof data === 'object'
+            ? String((data as Record<string, unknown>).id ?? '')
+            : undefined,
+        rowTherapistIdCol:
+          data && typeof data === 'object'
+            ? String((data as Record<string, unknown>).therapist_id ?? '')
+            : undefined,
+      });
+
+      if (!error && data && typeof data === 'object') {
+        const row = rowToAppKnowledgeBaseRow(data as Record<string, unknown>, options);
+        if (row) return row;
+      }
+
+      ({ data, error } = await client
+        .from('app_knowledge_base')
+        .select('items, deleted_seed_ids, therapist_id, id')
+        .eq('therapist_id', therapistKey)
+        .maybeSingle());
+
+      warnKbMissingTable(error);
+
+      const rawLen2 =
+        data && typeof data === 'object' && Array.isArray((data as Record<string, unknown>).items)
+          ? ((data as Record<string, unknown>).items as unknown[]).length
+          : null;
+
+      console.log('[TIP_SYNC] Database returned:', {
+        step: 'WHERE therapist_id = therapistAuthUserId',
+        therapistAuthUserId: therapistKey,
+        rowPresent: !!(data && typeof data === 'object'),
+        postgrestError: error?.message ?? null,
+        rawItemsLength: rawLen2,
+      });
+
+      if (!error && data && typeof data === 'object') {
+        const row = rowToAppKnowledgeBaseRow(data as Record<string, unknown>, options);
+        if (row) return row;
+      }
+
+      return null;
+    }
+
+    const { data: legacyData, error: legacyErr } = await client
+      .from('app_knowledge_base')
+      .select('items, deleted_seed_ids, therapist_id, id')
+      .eq('id', 'global')
+      .maybeSingle();
+
+    warnKbMissingTable(legacyErr);
+
+    console.log('[TIP_SYNC] Database returned:', {
+      step: 'WHERE id = global',
+      rowPresent: !!(legacyData && typeof legacyData === 'object'),
+      postgrestError: legacyErr?.message ?? null,
+      rawItemsLength:
+        legacyData &&
+        typeof legacyData === 'object' &&
+        Array.isArray((legacyData as Record<string, unknown>).items)
+          ? ((legacyData as Record<string, unknown>).items as unknown[]).length
+          : null,
+    });
+
+    if (legacyErr || !legacyData || typeof legacyData !== 'object') return null;
+    return rowToAppKnowledgeBaseRow(legacyData as Record<string, unknown>, options);
+  } catch (e) {
+    console.warn('[TIP_SYNC] executeAppKbFetch error', e);
+    return emptyKbRow();
+  }
+}
+
 export async function fetchAppKnowledgeBaseFromSupabase(
   client: SupabaseClient,
   options?: FetchAppKnowledgeBaseOptions
 ): Promise<AppKnowledgeBaseRow | null> {
-  const therapistKey = options?.therapistAuthUserId?.trim() ?? '';
+  const started = Date.now();
+  try {
+    type Race = { tag: 'ok'; value: AppKnowledgeBaseRow | null } | { tag: 'timeout' };
 
-  if (therapistKey) {
-    let { data, error } = await client
-      .from('app_knowledge_base')
-      .select('items, deleted_seed_ids, therapist_id, id')
-      .eq('id', therapistKey)
-      .maybeSingle();
+    const fetchPromise: Promise<Race> = executeAppKbFetch(client, options).then((value) => ({
+      tag: 'ok' as const,
+      value,
+    }));
 
-    warnKbMissingTable(error);
-    if (!error && data && typeof data === 'object') {
-      const row = rowToAppKnowledgeBaseRow(data as Record<string, unknown>, options);
-      if (row) return row;
+    const timeoutPromise: Promise<Race> = new Promise((resolve) => {
+      setTimeout(() => resolve({ tag: 'timeout' as const }), APP_KB_FETCH_TIMEOUT_MS);
+    });
+
+    const outcome = await Promise.race([fetchPromise, timeoutPromise]);
+
+    if (outcome.tag === 'timeout') {
+      console.warn(
+        `[TIP_SYNC] fetchAppKnowledgeBaseFromSupabase timed out after ${APP_KB_FETCH_TIMEOUT_MS}ms — returning empty items`
+      );
+      return emptyKbRow();
     }
 
-    ({ data, error } = await client
-      .from('app_knowledge_base')
-      .select('items, deleted_seed_ids, therapist_id, id')
-      .eq('therapist_id', therapistKey)
-      .maybeSingle());
-
-    warnKbMissingTable(error);
-    if (!error && data && typeof data === 'object') {
-      const row = rowToAppKnowledgeBaseRow(data as Record<string, unknown>, options);
-      if (row) return row;
-    }
-
-    return null;
+    return outcome.value;
+  } catch (e) {
+    console.warn('[TIP_SYNC] fetchAppKnowledgeBaseFromSupabase error', e);
+    return emptyKbRow();
+  } finally {
+    console.log('[TIP_SYNC] Fetch sequence ended', { elapsedMs: Date.now() - started });
   }
-
-  const { data: legacyData, error: legacyErr } = await client
-    .from('app_knowledge_base')
-    .select('items, deleted_seed_ids, therapist_id, id')
-    .eq('id', 'global')
-    .maybeSingle();
-
-  warnKbMissingTable(legacyErr);
-  if (legacyErr || !legacyData || typeof legacyData !== 'object') return null;
-  return rowToAppKnowledgeBaseRow(legacyData as Record<string, unknown>, options);
 }

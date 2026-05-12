@@ -2256,6 +2256,10 @@ export function PatientProvider({
         return;
       }
 
+      /** מאפשר upsert ל-app_knowledge_base גם אם טעינת KB ראשונית תקועה / נכשלה */
+      markKbHydratedFromCloudCb();
+      console.warn('[TIP_SYNC] KB hydration gate opened before therapist tip save (emergency release)');
+
       const persistSnapshotOverride: PersistedPatientStateV1 = {
         ...baseSnap,
         knowledgeFacts: nextFacts,
@@ -2283,7 +2287,7 @@ export function PatientProvider({
         },
       });
     },
-    [savePersistedStateToCloud]
+    [savePersistedStateToCloud, markKbHydratedFromCloudCb]
   );
 
   const exercise = useExercisePlan({
