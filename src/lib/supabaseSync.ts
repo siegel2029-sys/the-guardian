@@ -80,7 +80,13 @@ export async function pushPersistedStateToSupabase(
     );
     if (!result.ok) return result;
 
-    result = await upsertPatientRecords(client, state.patients, now);
+    const kb = state.knowledgeFacts ?? [];
+    const patientsForUpsert =
+      kb.length > 0
+        ? state.patients.map((p) => ({ ...p, knowledgeFacts: kb }))
+        : state.patients;
+
+    result = await upsertPatientRecords(client, patientsForUpsert, now);
     if (!result.ok) return result;
     const syncedPatients = result.syncedPatients;
 

@@ -85,6 +85,8 @@ import {
   mergePainHistoryUnique,
   mergeSessionHistoryByDate,
   mergeSessionCompletionByDateMaps,
+  mergeKnowledgeFactsForUpsert,
+  aggregateKnowledgeFactsFromPatientPayloads,
 } from '../services/clinicalService';
 import {
   fetchSessionHistoryBetween,
@@ -722,6 +724,8 @@ export function PatientProvider({
     const persisted = readPersistedOnce().patient;
     return normalizeKnowledgeFactsList(persisted?.knowledgeFacts);
   });
+  const knowledgeFactsRef = useRef(knowledgeFacts);
+  knowledgeFactsRef.current = knowledgeFacts;
 
   const [supabaseSyncStatus, setSupabaseSyncStatus] = useState<
     'idle' | 'saving' | 'saved' | 'error'
@@ -958,7 +962,9 @@ export function PatientProvider({
       // because the therapist-scoped localStorage snapshot is not available.
       const kbRes = await fetchAppKnowledgeBaseFromSupabase(supabaseClient, { approvedOnly: true });
       if (!cancelled) {
-        setKnowledgeFacts(kbRes?.items ?? []);
+        setKnowledgeFacts((prev) =>
+          mergeKnowledgeFactsForUpsert(kbRes?.items ?? [], prev)
+        );
       }
     })();
     return () => { cancelled = true; };
@@ -1017,11 +1023,19 @@ export function PatientProvider({
           fallbackTherapistId: therapist.id,
         });
         const localById = new Map(prev.map((p) => [p.id, p]));
+        const kbSnap = knowledgeFactsRef.current;
         const mergedFromServer = normalizedServer.map((serverP) => {
           const local = localById.get(serverP.id);
-          return local
-            ? mergePatientPayloadForUpsert(serverP, local, { clinicalToday: clinicalDayForMerge })
-            : mergePatientPayloadForUpsert(undefined, serverP, { clinicalToday: clinicalDayForMerge });
+          if (local) {
+            const localDraft =
+              kbSnap.length > 0 ? { ...local, knowledgeFacts: kbSnap } : local;
+            return mergePatientPayloadForUpsert(serverP, localDraft, {
+              clinicalToday: clinicalDayForMerge,
+            });
+          }
+          return mergePatientPayloadForUpsert(undefined, serverP, {
+            clinicalToday: clinicalDayForMerge,
+          });
         });
         const serverIds = new Set(mergedFromServer.map((p) => p.id));
         const localOnly = prev.filter((p) => !serverIds.has(p.id));
@@ -1029,10 +1043,20 @@ export function PatientProvider({
         return mergedPatientsForCloud;
       });
 
+      if (!cancelled) {
+        const kbHydrated = aggregateKnowledgeFactsFromPatientPayloads(mergedPatientsForCloud);
+        setKnowledgeFacts((prev) => mergeKnowledgeFactsForUpsert(kbHydrated, prev));
+      }
+
       if (!cancelled && mergedPatientsForCloud.length > 0) {
+        const kbSnap = knowledgeFactsRef.current;
+        const patientsForUpsert =
+          kbSnap.length > 0
+            ? mergedPatientsForCloud.map((p) => ({ ...p, knowledgeFacts: kbSnap }))
+            : mergedPatientsForCloud;
         const syncRes = await upsertPatientRecords(
           supabaseClient,
-          mergedPatientsForCloud,
+          patientsForUpsert,
           new Date().toISOString()
         );
         if (syncRes.ok === false && import.meta.env.DEV) {
@@ -1320,9 +1344,99 @@ export function PatientProvider({
     });
   }, []);
 
+  const performCloudPersistPush = useCallback(async (): Promise<boolean> => {
+    const supabaseClient = supabase;
+    if (!supabaseClient) {
+      cloudSaveMutexRef.current = null;
+      cloudSaveInFlightRef.current = false;
+      setSupabaseSyncStatus('error');
+      setSupabaseSyncError('מצב שמירה פנימי לא מוכן — רעננו את הדף.');
+      return false;
+    }
+
+    if (cloudSaveMutexRef.current) {
+      try {
+        await cloudSaveMutexRef.current;
+      } catch {
+        /* ignore errors from the previous save — we'll attempt again below */
+      }
+    }
+
+    cloudSaveInFlightRef.current = true;
+    setSupabaseSyncStatus('saving');
+    setSupabaseSyncError(null);
+
+    const mergedExtra = accumulatedCloudSaveOptionsRef.current;
+    accumulatedCloudSaveOptionsRef.current = null;
+
+    const summaryMap = mergedExtra?.exercisePlanChangeSummaryByPatientId;
+    const snap = latestCloudPersistRef.current;
+    if (!snap) {
+      cloudSaveMutexRef.current = null;
+      cloudSaveInFlightRef.current = false;
+      setSupabaseSyncStatus('error');
+      setSupabaseSyncError('מצב שמירה פנימי לא מוכן — רעננו את הדף.');
+      return false;
+    }
+
+    if (isSupabaseConfigured && isSupabaseAuthEnabled()) {
+      const guard = await ensureSupabaseSessionReady(supabaseClient, {
+        context: 'שמירה מלאה לענן (דשבורד / פורטל)',
+      });
+      if (guard.ok === false) {
+        cloudSaveMutexRef.current = null;
+        cloudSaveInFlightRef.current = false;
+        setSupabaseSyncStatus('error');
+        setSupabaseSyncError(guard.message);
+        return false;
+      }
+    }
+
+    const savePromise = pushPersistedStateToSupabase(
+      supabaseClient,
+      snap,
+      {
+        ...supabasePushOptions,
+        ...(summaryMap && Object.keys(summaryMap).length > 0
+          ? { exercisePlanChangeSummaryByPatientId: summaryMap }
+          : {}),
+      }
+    );
+    cloudSaveMutexRef.current = savePromise.then((r) => r.ok);
+
+    try {
+      const result = await savePromise;
+      cloudSaveMutexRef.current = null;
+      if (result.ok === true) {
+        setSupabaseSyncStatus('saved');
+        setSupabaseLastSavedAt(new Date().toISOString());
+        if (result.syncedPatients?.length) {
+          mergeServerPatientsIntoState(result.syncedPatients);
+        }
+        return true;
+      }
+      setSupabaseSyncStatus('error');
+      setSupabaseSyncError(result.message);
+      alertIfSupabaseClientFailure(result.message, result.httpStatus);
+      return false;
+    } catch (e) {
+      cloudSaveMutexRef.current = null;
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[savePersistedStateToCloud] שגיאה לא צפויה', msg, e);
+      setSupabaseSyncStatus('error');
+      setSupabaseSyncError(msg);
+      alertIfSupabaseClientFailure(msg, undefined, e);
+      return false;
+    } finally {
+      cloudSaveInFlightRef.current = false;
+    }
+  }, [supabase, supabasePushOptions, isSupabaseConfigured, mergeServerPatientsIntoState]);
+
   const savePersistedStateToCloud = useCallback(
     async (options?: {
       exercisePlanChangeSummaryByPatientId?: Record<string, string>;
+      /** דילוג על debounce — שמירת בסיס ידע / טיפים לפני ריענון רקע מהשרת */
+      immediate?: boolean;
     }) => {
       if (!supabase) {
         console.error(
@@ -1334,7 +1448,6 @@ export function PatientProvider({
         setSupabaseSyncStatus('idle');
         return false;
       }
-      const supabaseClient = supabase;
       /** Therapist/patient cloud writes require a real JWT — anon key cannot upsert profiles (400 / RLS). */
       if (isSupabaseConfigured && !isAuthenticated) {
         setSupabaseSyncStatus('idle');
@@ -1352,6 +1465,18 @@ export function PatientProvider({
         };
       }
 
+      if (options?.immediate) {
+        if (cloudSaveDebounceTimerRef.current) {
+          clearTimeout(cloudSaveDebounceTimerRef.current);
+          cloudSaveDebounceTimerRef.current = null;
+        }
+        const stackedResolvers = [...cloudSaveDebouncedResolversRef.current];
+        cloudSaveDebouncedResolversRef.current = [];
+        const outcome = await performCloudPersistPush();
+        for (const r of stackedResolvers) r(outcome);
+        return outcome;
+      }
+
       return new Promise<boolean>((resolve) => {
         cloudSaveDebouncedResolversRef.current.push(resolve);
 
@@ -1366,9 +1491,6 @@ export function PatientProvider({
             const resolvers = cloudSaveDebouncedResolversRef.current;
             cloudSaveDebouncedResolversRef.current = [];
 
-            const mergedExtra = accumulatedCloudSaveOptionsRef.current;
-            accumulatedCloudSaveOptionsRef.current = null;
-
             if (cloudSaveMutexRef.current) {
               try {
                 await cloudSaveMutexRef.current;
@@ -1377,81 +1499,14 @@ export function PatientProvider({
               }
             }
 
-            cloudSaveInFlightRef.current = true;
-            setSupabaseSyncStatus('saving');
-            setSupabaseSyncError(null);
-
-            const summaryMap = mergedExtra?.exercisePlanChangeSummaryByPatientId;
-            const snap = latestCloudPersistRef.current;
-            if (!snap) {
-              cloudSaveMutexRef.current = null;
-              cloudSaveInFlightRef.current = false;
-              setSupabaseSyncStatus('error');
-              setSupabaseSyncError('מצב שמירה פנימי לא מוכן — רעננו את הדף.');
-              for (const r of resolvers) r(false);
-              return;
-            }
-
-            if (isSupabaseConfigured && isSupabaseAuthEnabled()) {
-              const guard = await ensureSupabaseSessionReady(supabaseClient, {
-                context: 'שמירה מלאה לענן (דשבורד / פורטל)',
-              });
-              if (guard.ok === false) {
-                cloudSaveMutexRef.current = null;
-                cloudSaveInFlightRef.current = false;
-                setSupabaseSyncStatus('error');
-                setSupabaseSyncError(guard.message);
-                for (const r of resolvers) r(false);
-                return;
-              }
-            }
-
-            const savePromise = pushPersistedStateToSupabase(
-              supabaseClient,
-              snap,
-              {
-                ...supabasePushOptions,
-                ...(summaryMap && Object.keys(summaryMap).length > 0
-                  ? { exercisePlanChangeSummaryByPatientId: summaryMap }
-                  : {}),
-              }
-            );
-            cloudSaveMutexRef.current = savePromise.then((r) => r.ok);
-
-            let outcome: boolean;
-            try {
-              const result = await savePromise;
-              cloudSaveMutexRef.current = null;
-              outcome = result.ok;
-              if (result.ok === true) {
-                setSupabaseSyncStatus('saved');
-                setSupabaseLastSavedAt(new Date().toISOString());
-                if (result.syncedPatients?.length) {
-                  mergeServerPatientsIntoState(result.syncedPatients);
-                }
-              } else {
-                setSupabaseSyncStatus('error');
-                setSupabaseSyncError(result.message);
-                alertIfSupabaseClientFailure(result.message, result.httpStatus);
-              }
-            } catch (e) {
-              cloudSaveMutexRef.current = null;
-              const msg = e instanceof Error ? e.message : String(e);
-              console.error('[savePersistedStateToCloud] שגיאה לא צפויה', msg, e);
-              setSupabaseSyncStatus('error');
-              setSupabaseSyncError(msg);
-              alertIfSupabaseClientFailure(msg, undefined, e);
-              outcome = false;
-            } finally {
-              cloudSaveInFlightRef.current = false;
-            }
+            const outcome = await performCloudPersistPush();
 
             for (const r of resolvers) r(outcome);
           })();
         }, CLOUD_SAVE_DEBOUNCE_MS);
       });
     },
-    [supabasePushOptions, isAuthenticated, supabase, isSupabaseConfigured, mergeServerPatientsIntoState]
+    [performCloudPersistPush, isAuthenticated, supabase, isSupabaseConfigured]
   );
 
   const saveSinglePatientPayloadToCloud = useCallback(
@@ -1997,6 +2052,26 @@ export function PatientProvider({
     setKnowledgeFacts,
   });
 
+  const refreshKnowledgeBaseFromCloudMerged = useCallback(async () => {
+    if (!supabase) return;
+    const kbRow = await fetchAppKnowledgeBaseFromSupabase(supabase);
+    if (!kbRow) return;
+    setKnowledgeFacts((prev) => mergeKnowledgeFactsForUpsert(kbRow.items, prev));
+  }, [supabase]);
+
+  const addManualKnowledgeFactAndForceCloudSave = useCallback(
+    (input: {
+      teaser: string;
+      title: string;
+      explanation: string;
+      sourceUrl: string;
+    }) => {
+      gamification.addManualKnowledgeFact(input);
+      void savePersistedStateToCloud({ immediate: true });
+    },
+    [gamification, savePersistedStateToCloud]
+  );
+
   const exercise = useExercisePlan({
     patients,
     allPatients,
@@ -2470,9 +2545,9 @@ export function PatientProvider({
         saveSinglePatientPayloadToCloud,
         saveExercisePlanForPatientToCloud,
         knowledgeFacts: gamification.knowledgeFacts,
-        addManualKnowledgeFact: gamification.addManualKnowledgeFact,
+        addManualKnowledgeFact: addManualKnowledgeFactAndForceCloudSave,
         removeKnowledgeFact: gamification.removeKnowledgeFact,
-        refreshKnowledgeBaseFromCloud: gamification.refreshKnowledgeBaseFromCloud,
+        refreshKnowledgeBaseFromCloud: refreshKnowledgeBaseFromCloudMerged,
       }}
     >
       {children}

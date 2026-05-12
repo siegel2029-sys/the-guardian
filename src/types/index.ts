@@ -144,6 +144,21 @@ export interface PatientExerciseFinishReport {
   selfCareDifficultyLabel?: string;
 }
 
+/** עובדת "הידעת?" — נוספה ידנית ע״י מטפל; מאושרת לפני הצגה למטופל */
+export interface KnowledgeFact {
+  id: string;
+  /** טקסט קצר לבועה הצפה (עד 50 תווים) */
+  teaser: string;
+  /** כותרת במודאל המורחב */
+  title: string;
+  explanation: string;
+  /** קישור למאמר/מקור */
+  sourceUrl: string;
+  isApproved: boolean;
+  source: 'manual';
+  createdAt?: string;
+}
+
 export interface Patient {
   id: string;
   /** מטפל אחראי — סינון דשבורד ורישום מטופלים חדשים */
@@ -234,6 +249,11 @@ export interface Patient {
    * נשמר ב־payload כדי שמזהי השלמה לא יאבדו ברענון כש־`session_history` אינו נטען מיד.
    */
   _sessionCompletionByDate?: Record<string, { completedIds: string[]; sessionXp: number }>;
+  /**
+   * עובדות «הידעת?» — משוכפלות ל־`patients.payload` בעת סנכרון מטפל (יחד עם `app_knowledge_base`)
+   * כדי שמיזוג עם נתוני שרת ישנים לא ידרוס טיפים מקומיים לפני שמירת הענן.
+   */
+  knowledgeFacts?: KnowledgeFact[];
 }
 
 /** תובנות AI לסשן טיפול — נשמרות ברשומת התיעוד (payload מטופל → Supabase) */
@@ -326,21 +346,6 @@ export type NavSection =
   | 'messages'
   | 'settings'
   | 'knowledge';
-
-/** עובדת "הידעת?" — נוספה ידנית ע״י מטפל; מאושרת לפני הצגה למטופל */
-export interface KnowledgeFact {
-  id: string;
-  /** טקסט קצר לבועה הצפה (עד 50 תווים) */
-  teaser: string;
-  /** כותרת במודאל המורחב */
-  title: string;
-  explanation: string;
-  /** קישור למאמר/מקור */
-  sourceUrl: string;
-  isApproved: boolean;
-  source: 'manual';
-  createdAt?: string;
-}
 
 // ── Exercise System ──────────────────────────────────────────────
 

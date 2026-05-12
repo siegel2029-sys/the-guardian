@@ -4,11 +4,13 @@ import type {
   DailyHistoryEntry,
   ExercisePlan,
   ExerciseSession,
+  KnowledgeFact,
   PainRecord,
   Patient,
   PatientExercise,
   Therapist,
 } from '../types';
+import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
 import { computeStreakForPatient } from '../utils/exerciseStreak';
 import {
   isSupabaseAuthEnabled,
@@ -168,6 +170,39 @@ export type MergePatientPayloadOptions = {
 };
 
 /**
+ * מיזוג רשימת «הידעת?» בין שרת (`existing`) ללקוח (`incoming`).
+ * אם יש תוכן מקומי והשרת ריק — שומרים את המקומי (מונע דריסה מסנכרון ישן).
+ */
+export function mergeKnowledgeFactsForUpsert(
+  serverFacts: KnowledgeFact[] | undefined,
+  localFacts: KnowledgeFact[] | undefined
+): KnowledgeFact[] {
+  const server = normalizeKnowledgeFactsList(serverFacts ?? []);
+  const local = normalizeKnowledgeFactsList(localFacts ?? []);
+  console.log(
+    `[TIP_SYNC] Merging tip content. Local: ${local.length}, Server: ${server.length}`
+  );
+  if (local.length > 0 && server.length === 0) return local;
+  if (server.length > 0 && local.length === 0) return server;
+  if (server.length === 0 && local.length === 0) return [];
+  const byId = new Map<string, KnowledgeFact>();
+  for (const f of server) byId.set(f.id, f);
+  for (const f of local) byId.set(f.id, f);
+  return [...byId.values()];
+}
+
+/** איחוד עובדות מכל payload מטופל אחרי טעינת רשימת מטופלים מהשרת. */
+export function aggregateKnowledgeFactsFromPatientPayloads(patients: Patient[]): KnowledgeFact[] {
+  const byId = new Map<string, KnowledgeFact>();
+  for (const p of patients) {
+    for (const f of normalizeKnowledgeFactsList(p.knowledgeFacts)) {
+      byId.set(f.id, f);
+    }
+  }
+  return [...byId.values()];
+}
+
+/**
  * Fetch-merge-save safe: combines server (`existing`) and client (`incoming`) so cumulative
  * gamification cannot be wiped by a stale client payload (e.g. empty XP after reload).
  * Demographics / clinical fields follow `incoming`; XP and coins use {@link Math.max}; session and
@@ -184,6 +219,8 @@ export function mergePatientPayloadForUpsert(
       undefined,
       incoming._sessionCompletionByDate
     );
+    const mergedFactsOnly = mergeKnowledgeFactsForUpsert(undefined, incoming.knowledgeFacts);
+    sole.knowledgeFacts = mergedFactsOnly.length > 0 ? mergedFactsOnly : undefined;
     if (opts?.clinicalToday) {
       const dm = dayMapFromExerciseSessions(sole.analytics?.sessionHistory ?? []);
       sole.currentStreak = computeStreakForPatient(sole, dm, opts.clinicalToday);
@@ -246,6 +283,12 @@ export function mergePatientPayloadForUpsert(
     existing._sessionCompletionByDate,
     incoming._sessionCompletionByDate
   );
+
+  const mergedFacts = mergeKnowledgeFactsForUpsert(
+    existing.knowledgeFacts,
+    incoming.knowledgeFacts
+  );
+  merged.knowledgeFacts = mergedFacts.length > 0 ? mergedFacts : undefined;
 
   return normalizePatientProgressFields(merged);
 }
