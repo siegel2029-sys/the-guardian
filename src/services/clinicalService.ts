@@ -1194,6 +1194,39 @@ async function insertNewActiveExercisePlanVersion(
 }
 
 /**
+ * מונע יצירת גרסאות חדשות ללא הגבלה כשמצב מקומי/ענן מתנדנד (לולאת שמירה).
+ * מתאפס בריענון דף מלא.
+ */
+let haltExercisePlanUpsertsThisSession = false;
+
+/** לבדיקות בלבד */
+export function resetExercisePlanUpsertHaltForTests(): void {
+  haltExercisePlanUpsertsThisSession = false;
+}
+
+/** חתימת תוכן יציבה להשוואת תוכניות — מונעת גרסה חדשה כשאין שינוי אמיתי */
+function exercisesComparableSignature(exercises: PatientExercise[]): string {
+  const sorted = [...exercises].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  return JSON.stringify(
+    sorted.map((ex) => {
+      const record = ex as unknown as Record<string, unknown>;
+      const keys = Object.keys(record).sort();
+      const out: Record<string, unknown> = {};
+      for (const k of keys) {
+        const v = record[k];
+        if (v !== undefined) out[k] = v;
+      }
+      return out;
+    })
+  );
+}
+
+function exercisesComparableSignatureFromUnknown(raw: unknown): string {
+  if (!Array.isArray(raw)) return exercisesComparableSignature([]);
+  return exercisesComparableSignature(raw as PatientExercise[]);
+}
+
+/**
  * Syncs a single patient's exercise plan using the same versioning flow as {@link upsertExercisePlans}.
  * (A legacy `.upsert({ onConflict: 'patient_id' })` path is invalid once multiple `exercise_plans`
  * rows exist per patient — it causes PostgREST 409 / constraint conflicts.)
@@ -1230,9 +1263,9 @@ export type UpsertExercisePlansOptions = {
 };
 
 /**
- * Syncs exercise plans to Supabase with versioning: each push deactivates the active row and inserts
- * a new version (even when the exercise JSON is unchanged), so every explicit save sends a full write.
- * Writes {@link clinical_audit_logs} when the plan body changes or a plan is first created.
+ * Syncs exercise plans to Supabase with versioning: deactivates the active row and inserts a new
+ * version **only when the exercises payload differs** from the active row (deep-stable comparison).
+ * First-time creates still insert v1. {@link clinical_audit_logs} on real creates/updates.
  */
 export async function upsertExercisePlans(
   client: SupabaseClient,
@@ -1260,6 +1293,13 @@ export async function upsertExercisePlans(
       };
     }
     const authUid = authUser.id;
+
+    if (haltExercisePlanUpsertsThisSession) {
+      console.error(
+        '[CRITICAL] exercise_plans upserts halted this session — skipping batch (see earlier version guard)'
+      );
+      return { ok: true };
+    }
 
     const changeSummaryByPatientId = options?.changeSummaryByPatientId ?? {};
 
@@ -1318,17 +1358,6 @@ export async function upsertExercisePlans(
         );
       }
 
-      console.log('[upsertExercisePlans] שולח תוכנית לענן', {
-        patient_id: patientId,
-        therapist_id_auth_uid: authUid,
-        row_therapist_id: rowTherapistId,
-        rls_will_pass: rowTherapistId === authUid,
-        exerciseCount: exercises.length,
-        is_active: true,
-        changeSummary,
-        now,
-      });
-
       // ── Fetch current active row ─────────────────────────────────────────
       const { data: active, error: selErr } = await client
         .from('exercise_plans')
@@ -1361,6 +1390,41 @@ export async function upsertExercisePlans(
       }
 
       const hadPrev = prevActive != null;
+      const currentVn = prevActive?.version_number ?? 0;
+
+      if (currentVn >= 20) {
+        haltExercisePlanUpsertsThisSession = true;
+        console.error(
+          '[CRITICAL] exercise_plans version_number >= 20 — halting auto-save to prevent DB exhaustion',
+          { patientId, version_number: currentVn }
+        );
+        return { ok: true };
+      }
+
+      if (hadPrev) {
+        const dbSig = exercisesComparableSignatureFromUnknown(prevActive!.exercises);
+        const incomingSig = exercisesComparableSignature(exercises);
+        if (dbSig === incomingSig) {
+          console.log(
+            `[SAVE_CHECK] Attempting to save exercise plan. Change detected: NO (${patientId})`
+          );
+          continue;
+        }
+      }
+
+      console.log(`[SAVE_CHECK] Attempting to save exercise plan. Change detected: YES (${patientId})`);
+
+      console.log('[upsertExercisePlans] שולח תוכנית לענן', {
+        patient_id: patientId,
+        therapist_id_auth_uid: authUid,
+        row_therapist_id: rowTherapistId,
+        rls_will_pass: rowTherapistId === authUid,
+        exerciseCount: exercises.length,
+        is_active: true,
+        changeSummary,
+        now,
+      });
+
       const nextVersion = hadPrev ? (prevActive!.version_number ?? 1) + 1 : 1;
       const parentPlanId = hadPrev ? prevActive!.id : null;
       const logLabel = hadPrev ? 'exercise_plans INSERT (new version)' : 'exercise_plans INSERT (v1)';

@@ -90,6 +90,13 @@ export async function pushPersistedStateToSupabase(
     if (!result.ok) return result;
     const syncedPatients = result.syncedPatients;
 
+    const kbLen = state.knowledgeFacts?.length ?? 0;
+    console.log('[SAVE_CHECK] Cloud push payload:', {
+      patientsCount: state.patients.length,
+      exercisePlansCount: state.exercisePlans.length,
+      knowledgeFactsCount: kbLen,
+    });
+
     const changeMap = options?.exercisePlanChangeSummaryByPatientId;
     const changeSummaryByPatientId: Record<string, string> | undefined =
       changeMap && Object.keys(changeMap).length > 0

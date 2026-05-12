@@ -855,8 +855,11 @@ export function PatientProvider({
    */
   const cloudSaveMutexRef = useRef<Promise<boolean> | null>(null);
 
-  /** Trailing debounce for full-cloud pushes (coalesces bursts e.g. after Gemini). */
-  const CLOUD_SAVE_DEBOUNCE_MS = 400;
+  /**
+   * דחיית דחיפה לענן (מטפל + plans + בסיס ידע).
+   * שינוי בתוכניות נשמר רק כשהשינוי אמיתי — ראו {@link upsertExercisePlans} (השוואת payload לפני גרסה חדשה).
+   */
+  const CLOUD_SAVE_DEBOUNCE_MS = 2800;
   const cloudSaveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumulatedCloudSaveOptionsRef = useRef<{
     exercisePlanChangeSummaryByPatientId?: Record<string, string>;
