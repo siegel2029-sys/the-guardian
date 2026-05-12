@@ -11,6 +11,10 @@ import type {
   Therapist,
 } from '../types';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
+import {
+  upsertGlobalAppKnowledgeBase,
+  type GamificationPushResult,
+} from './gamificationService';
 import { computeStreakForPatient } from '../utils/exerciseStreak';
 import {
   isSupabaseAuthEnabled,
@@ -171,6 +175,7 @@ export type MergePatientPayloadOptions = {
 
 /**
  * מיזוג רשימת «הידעת?» בין שרת (`existing`) ללקוח (`incoming`).
+ * מכשיר חדש: מצב מקומי ריק + נתוני שרת — הענן מנצח (אין «דריסה ריקה»).
  * אם יש תוכן מקומי והשרת ריק — שומרים את המקומי (מונע דריסה מסנכרון ישן).
  */
 export function mergeKnowledgeFactsForUpsert(
@@ -182,9 +187,13 @@ export function mergeKnowledgeFactsForUpsert(
   console.log(
     `[TIP_SYNC] Merging tip content. Local: ${local.length}, Server: ${server.length}`
   );
+
+  /** New device / מטמון ריק אחרי התחברות — לא לדרוס ענן בטיפים ריקים מקומית */
+  if (local.length === 0 && server.length > 0) return server;
+
   if (local.length > 0 && server.length === 0) return local;
-  if (server.length > 0 && local.length === 0) return server;
   if (server.length === 0 && local.length === 0) return [];
+
   const byId = new Map<string, KnowledgeFact>();
   for (const f of server) byId.set(f.id, f);
   for (const f of local) byId.set(f.id, f);
@@ -200,6 +209,44 @@ export function aggregateKnowledgeFactsFromPatientPayloads(patients: Patient[]):
     }
   }
   return [...byId.values()];
+}
+
+/**
+ * אחרי טעינת מטפלים מ-Supabase: מאחד עובדות מכל ה־payloads שהגיעו מהשרת (לא רק מטמון ישן)
+ * עם שורת `app_knowledge_base` (גלובלית; שורת id=`global` גוברת על כפילויות לפי id).
+ * ואז ממזג עם state מקומי — כשהמקומי ריק, התוצאה היא תוכן הענן בלבד.
+ */
+export function mergeKnowledgeFactsHydrateFromTherapistCloud(
+  patientsFromServerFetch: Patient[],
+  factsFromAppKnowledgeBaseGlobal: KnowledgeFact[] | undefined,
+  localFacts: KnowledgeFact[] | undefined
+): KnowledgeFact[] {
+  const fromPayloads = aggregateKnowledgeFactsFromPatientPayloads(patientsFromServerFetch);
+  const fromGlobal = normalizeKnowledgeFactsList(factsFromAppKnowledgeBaseGlobal ?? []);
+  const byId = new Map<string, KnowledgeFact>();
+  for (const f of fromPayloads) byId.set(f.id, f);
+  for (const f of fromGlobal) byId.set(f.id, f);
+  const serverCombined = [...byId.values()];
+  return mergeKnowledgeFactsForUpsert(serverCombined, localFacts ?? []);
+}
+
+/**
+ * כתיבה לטבלת `app_knowledge_base` (מפתח `global`) — בנוסף ל-mirror אופציונלי ב־`patients.payload`.
+ */
+export async function upsertGlobalAppKnowledgeBaseWithTipSyncLog(
+  client: SupabaseClient,
+  knowledgeItems: KnowledgeFact[],
+  now: string
+): Promise<GamificationPushResult> {
+  const result = await upsertGlobalAppKnowledgeBase(client, knowledgeItems, now);
+  if (import.meta.env.DEV && result.ok) {
+    console.log('[TIP_SYNC] app_knowledge_base upsert', {
+      table: 'app_knowledge_base',
+      rowId: 'global',
+      itemCount: knowledgeItems.length,
+    });
+  }
+  return result;
 }
 
 /**

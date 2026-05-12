@@ -8,7 +8,9 @@ import {
   useEffect,
   useRef,
   startTransition,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
 } from 'react';
 import type {
   Patient,
@@ -86,7 +88,7 @@ import {
   mergeSessionHistoryByDate,
   mergeSessionCompletionByDateMaps,
   mergeKnowledgeFactsForUpsert,
-  aggregateKnowledgeFactsFromPatientPayloads,
+  mergeKnowledgeFactsHydrateFromTherapistCloud,
 } from '../services/clinicalService';
 import {
   fetchSessionHistoryBetween,
@@ -119,6 +121,19 @@ import {
   recomputePatientAnalyticsAggregates,
   type PatientRewardMeta,
 } from './patientDomainHelpers';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+/** טעינת בסיס הידע מ-app_knowledge_base + aggregation של payloads מה-fetch הנוכחי (לא מהטמון בלבד). */
+async function hydrateTherapistKnowledgeFactsFromSupabase(
+  client: SupabaseClient,
+  patientsSnapshotFromServerFetch: Patient[],
+  setKnowledgeFacts: Dispatch<SetStateAction<KnowledgeFact[]>>
+): Promise<void> {
+  const kbGlobal = await fetchAppKnowledgeBaseFromSupabase(client);
+  setKnowledgeFacts((prev) =>
+    mergeKnowledgeFactsHydrateFromTherapistCloud(patientsSnapshotFromServerFetch, kbGlobal?.items, prev)
+  );
+}
 
 /** sessionStorage: LoginPage sets before routing; PatientProvider clears once to open dashboard hub. */
 export const THERAPIST_LOGIN_HUB_LANDING_SESSION_KEY = 'guardian-therapist-login-hub-landing-v1';
@@ -727,6 +742,16 @@ export function PatientProvider({
   const knowledgeFactsRef = useRef(knowledgeFacts);
   knowledgeFactsRef.current = knowledgeFacts;
 
+  /** רענון/אתחול: app_knowledge_base + aggregation של knowledgeFacts מכל ה-payloads ב-snapshot (בטעינה מועבר mergedPatientsForCloud מהשרת). */
+  const refreshKnowledgeBaseFromCloudMerged = useCallback(
+    async (patientsSnapshotOverride?: Patient[]) => {
+      if (!supabase) return;
+      const snapshot = patientsSnapshotOverride ?? allPatientsRef.current;
+      await hydrateTherapistKnowledgeFactsFromSupabase(supabase, snapshot, setKnowledgeFacts);
+    },
+    [supabase]
+  );
+
   const [supabaseSyncStatus, setSupabaseSyncStatus] = useState<
     'idle' | 'saving' | 'saved' | 'error'
   >('idle');
@@ -988,6 +1013,9 @@ export function PatientProvider({
         if (import.meta.env.DEV) {
           console.warn('[PatientContext] fetchPatients (patients + exercise_plans)', res.message);
         }
+        if (!cancelled) {
+          await refreshKnowledgeBaseFromCloudMerged([]);
+        }
         return;
       }
       const list = res.patients;
@@ -1011,7 +1039,7 @@ export function PatientProvider({
         setSelfCareStrengthTierByPatientId({});
         setPatientRewardMetaByPatientId({});
         setPatientGearByPatientId({});
-        setKnowledgeFacts([]);
+        await refreshKnowledgeBaseFromCloudMerged([]);
         setEmergencyModalPatientId(null);
         return;
       }
@@ -1043,16 +1071,22 @@ export function PatientProvider({
         return mergedPatientsForCloud;
       });
 
+      let mergedKbAfterHydrate: KnowledgeFact[] = [];
+
       if (!cancelled) {
-        const kbHydrated = aggregateKnowledgeFactsFromPatientPayloads(mergedPatientsForCloud);
-        setKnowledgeFacts((prev) => mergeKnowledgeFactsForUpsert(kbHydrated, prev));
+        const kbGlobal = await fetchAppKnowledgeBaseFromSupabase(supabaseClient);
+        mergedKbAfterHydrate = mergeKnowledgeFactsHydrateFromTherapistCloud(
+          mergedPatientsForCloud,
+          kbGlobal?.items,
+          knowledgeFactsRef.current
+        );
+        setKnowledgeFacts(mergedKbAfterHydrate);
       }
 
       if (!cancelled && mergedPatientsForCloud.length > 0) {
-        const kbSnap = knowledgeFactsRef.current;
         const patientsForUpsert =
-          kbSnap.length > 0
-            ? mergedPatientsForCloud.map((p) => ({ ...p, knowledgeFacts: kbSnap }))
+          mergedKbAfterHydrate.length > 0
+            ? mergedPatientsForCloud.map((p) => ({ ...p, knowledgeFacts: mergedKbAfterHydrate }))
             : mergedPatientsForCloud;
         const syncRes = await upsertPatientRecords(
           supabaseClient,
@@ -1083,6 +1117,7 @@ export function PatientProvider({
     therapist?.id,
     restrictPatientSessionId,
     supabase,
+    refreshKnowledgeBaseFromCloudMerged,
   ]);
 
   /**
@@ -2051,13 +2086,6 @@ export function PatientProvider({
     knowledgeFacts,
     setKnowledgeFacts,
   });
-
-  const refreshKnowledgeBaseFromCloudMerged = useCallback(async () => {
-    if (!supabase) return;
-    const kbRow = await fetchAppKnowledgeBaseFromSupabase(supabase);
-    if (!kbRow) return;
-    setKnowledgeFacts((prev) => mergeKnowledgeFactsForUpsert(kbRow.items, prev));
-  }, [supabase]);
 
   const addManualKnowledgeFactAndForceCloudSave = useCallback(
     (input: {

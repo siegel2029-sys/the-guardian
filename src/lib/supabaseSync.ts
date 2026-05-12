@@ -6,9 +6,9 @@ import {
   type ClinicalPushResult,
   upsertPatientRecords,
   upsertTherapistProfilesForPatients,
+  upsertGlobalAppKnowledgeBaseWithTipSyncLog,
 } from '../services/clinicalService';
 import { upsertExercisePlans, upsertSessionHistory } from '../services/exerciseService';
-import { upsertGlobalAppKnowledgeBase } from '../services/gamificationService';
 
 async function therapistIdByPatientIdForClinicalSync(
   client: SupabaseClient,
@@ -118,7 +118,7 @@ export async function pushPersistedStateToSupabase(
     });
     if (!result.ok) return result;
 
-    result = await upsertGlobalAppKnowledgeBase(client, state.knowledgeFacts ?? [], now);
+    result = await upsertGlobalAppKnowledgeBaseWithTipSyncLog(client, state.knowledgeFacts ?? [], now);
     if (!result.ok) return result;
 
     return syncedPatients && syncedPatients.length > 0 ? { ok: true, syncedPatients } : { ok: true };
