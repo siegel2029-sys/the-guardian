@@ -22,6 +22,7 @@ import {
   useLocalCalendarDayKey,
 } from '../../utils/dailyKnowledgeFact';
 import { RewardLabel } from '../ui/RewardLabel';
+import PhysioshieldPortal from '../ui/PhysioshieldPortal';
 
 const MOBILE_MAX_WIDTH_PX = 767;
 
@@ -67,16 +68,20 @@ export function usePatientDidYouKnowAnchor(): PatientDidYouKnowAnchorContextValu
 }
 
 /**
- * «הידעת?» — כפתור צף ליד האווטאר; המודאל נשאר בשכבת הפורטל.
+ * «הידעת?» — טריגר מאגר הידע (מנורה); עם `portaledViewportFixed` מוצג דרך PhysioshieldPortal
+ * ונשאר קבוע ביחס ל־viewport בזמן גלילה (לא חלק מכרטיס האווטאר).
  */
 export function PatientDidYouKnowAnchorButton({
   className,
   align = 'corner',
+  portaledViewportFixed = true,
 }: {
-  /** מחלקות לעטיפת הכפתור (מיקום absolute יחסית לאב) */
+  /** מחלקות לעטיפת הכפתור (במצב מוטבע — לרוב מיקום absolute יחסית לאב) */
   className?: string;
-  /** corner: מנורה ליד פינת הדמות; offset מהדמה למטבעות בכותרת */
+  /** corner: טבעת פינה בולטת; inline: ללא */
   align?: 'corner' | 'inline';
+  /** כפתור יעוגה ל־document.body דרך הפורטל — fixed, מעל תוכן הגלילה */
+  portaledViewportFixed?: boolean;
 }) {
   const ctx = usePatientDidYouKnowAnchor();
   if (!ctx?.visible) return null;
@@ -88,9 +93,9 @@ export function PatientDidYouKnowAnchorButton({
       ? 'ring-2 ring-amber-400/35 ring-offset-2 ring-offset-white/90 shadow-[0_0_22px_rgba(251,191,36,0.45)]'
       : '';
 
-  return (
+  const body = (
     <div
-      className={`pointer-events-auto z-[25] max-md:scale-90 ${cornerRing} rounded-full dyk-float-trigger-halo ${className ?? ''}`}
+      className={`pointer-events-auto max-md:scale-90 ${portaledViewportFixed ? 'physioshield-dyk-kb-trigger' : 'z-[25]'} ${cornerRing} rounded-full dyk-float-trigger-halo ${className ?? ''}`}
     >
       <button
         type="button"
@@ -109,6 +114,12 @@ export function PatientDidYouKnowAnchorButton({
       </button>
     </div>
   );
+
+  if (portaledViewportFixed) {
+    return <PhysioshieldPortal layerClassName="physioshield-dyk-kb-portal-layer">{body}</PhysioshieldPortal>;
+  }
+
+  return body;
 }
 
 function DidYouKnowPortalModal({

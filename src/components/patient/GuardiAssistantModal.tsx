@@ -434,7 +434,7 @@ export default function GuardiAssistantModal({
   if (overlayBodyMap && rect) {
     const tree = (
       <div
-        className="fixed z-[10] flex flex-col items-center justify-center p-2 animate-guardi-companion-enter pointer-events-none"
+        className="fixed z-[10] p-2 pointer-events-none"
         style={{
           top: rect.top,
           left: rect.left,
@@ -450,8 +450,12 @@ export default function GuardiAssistantModal({
           className="absolute inset-0 z-0 cursor-default rounded-[inherit] bg-transparent p-0 border-0 pointer-events-auto"
           onClick={handleDismiss}
         />
-        <div className="relative z-[1] pointer-events-auto max-h-full overflow-y-auto overscroll-contain">
-          {panel}
+        <div className="relative z-[1] flex h-full w-full items-center justify-center pointer-events-none">
+          <div className="animate-guardi-companion-enter max-h-full min-h-0 w-full min-w-0">
+            <div className="pointer-events-auto max-h-full overflow-y-auto overscroll-contain">
+              {panel}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -468,7 +472,7 @@ export default function GuardiAssistantModal({
         onClick={handleDismiss}
       />
       <div
-        className="fixed z-[10] flex flex-col items-end gap-2 pointer-events-none max-w-[min(300px,calc(100vw-2rem))] animate-guardi-companion-enter"
+        className="fixed z-[10] flex max-w-[min(300px,calc(100vw-2rem))] flex-col items-end gap-2 pointer-events-none"
         style={{
           bottom: 'calc(6.25rem + env(safe-area-inset-bottom, 0px))',
           right: 'max(12px, env(safe-area-inset-right, 0px))',
@@ -477,7 +481,9 @@ export default function GuardiAssistantModal({
         key={animKey}
         aria-live="polite"
       >
-        <div className="pointer-events-auto">{panel}</div>
+        <div className="animate-guardi-companion-enter w-full">
+          <div className="pointer-events-auto">{panel}</div>
+        </div>
       </div>
     </>
   );

@@ -498,7 +498,7 @@
     }
     to {
       opacity: 1;
-      transform: translateY(0);
+      transform: none;
     }
   }
 
@@ -828,4 +828,22 @@
   height: 100%;
   pointer-events: none;
   box-sizing: border-box;
+}
+
+/* Clicks pass through the layer; opt-in hits with `pointer-events-auto` (Tailwind) on UI shells. */
+#physioshield-portal-root .physioshield-portal-layer .pointer-events-auto {
+  pointer-events: auto;
+}
+
+/* Did You Know / KB lightbulb — not Gordy; fixed to viewport so it does not scroll with the exercise card */
+#physioshield-portal-root .physioshield-portal-layer.physioshield-dyk-kb-portal-layer {
+  z-index: 10000 !important;
+}
+
+.physioshield-dyk-kb-trigger {
+  position: fixed !important;
+  top: 150px;
+  left: 20px;
+  z-index: 10000 !important;
+  pointer-events: auto;
 }

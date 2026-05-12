@@ -1117,6 +1117,15 @@ export default function AnatomyModel({
     };
   }, [muscleMaps]);
 
+  useEffect(() => {
+    const { normalMap, roughnessMap } = muscleMaps;
+    const id = requestAnimationFrame(() => {
+      normalMap.needsUpdate = false;
+      roughnessMap.needsUpdate = false;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [muscleMaps]);
+
   const glowAnchorArea =
     injuryHighlightSegments.length > 0 ? injuryHighlightSegments[0] : null;
   const glowPos = useMemo<[number, number, number]>(

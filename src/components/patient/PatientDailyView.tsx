@@ -1309,17 +1309,7 @@ export default function PatientDailyView() {
       </header>
 
       <div className="flex-1 px-4 py-4 pb-36">
-        {portalOnboardingSilence && (
-          <div
-            className="mb-4 rounded-2xl border border-indigo-200/90 bg-gradient-to-br from-indigo-50/95 to-white px-4 py-3 shadow-sm"
-            role="status"
-          >
-            <p className="text-sm font-semibold text-indigo-950 leading-snug">
-              I&apos;m learning your baseline! After your 3rd session, I&apos;ll start providing deeper
-              insights.
-            </p>
-          </div>
-        )}
+        {(portalTab === 'home' || portalTab === 'activity') && <PatientDidYouKnowAnchorButton />}
         {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
             <div className="relative mx-auto w-full max-w-md touch-pan-y">
@@ -1328,10 +1318,6 @@ export default function PatientDailyView() {
                   ref={bodyMapSectionRef}
                   className="relative w-full max-w-[300px] mx-auto aspect-[9/16] min-h-[420px] max-h-[min(640px,68dvh)] isolate overscroll-y-contain"
                 >
-                  <PatientDidYouKnowAnchorButton
-                    align="corner"
-                    className="pointer-events-auto absolute top-2 left-0 z-30 -translate-x-3 sm:-translate-x-4"
-                  />
                   <BodyMap3D
                   activeAreas={exercises.length === 0 ? [] : activeAreas}
                   primaryArea={selectedPatient.primaryBodyArea}
@@ -1569,10 +1555,6 @@ export default function PatientDailyView() {
             .join(' ')}
           aria-hidden={trainingAiPlanModalOpen || undefined}
         >
-        <PatientDidYouKnowAnchorButton
-          align="corner"
-          className="absolute top-2 left-2 z-30 sm:left-3"
-        />
         <h1
           id="today-missions"
           className="text-lg font-bold text-slate-900 mb-2 tracking-tight scroll-mt-28 text-center"

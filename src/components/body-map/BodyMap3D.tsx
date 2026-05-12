@@ -253,8 +253,13 @@ function StudioGradientBackground() {
     ctx.fillRect(0, 0, 2, 256);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
+    tex.needsUpdate = true;
     scene.background = tex;
+    const fin = requestAnimationFrame(() => {
+      tex.needsUpdate = false;
+    });
     return () => {
+      cancelAnimationFrame(fin);
       scene.background = null;
       tex.dispose();
     };
@@ -521,6 +526,11 @@ function BodyMap3D(props: BodyMap3DProps) {
           far: 120,
         }}
         shadows={painCleanStudio ? false : true}
+        onCreated={({ gl }) => {
+          if (!painCleanStudio) {
+            gl.shadowMap.type = THREE.PCFShadowMap;
+          }
+        }}
         gl={{
           antialias: true,
           alpha: useScenicBackdrop || painCleanStudio,
