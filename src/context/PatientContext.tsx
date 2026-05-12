@@ -1100,14 +1100,26 @@ export function PatientProvider({
             )
           );
         }
-        const syncRes = await upsertPatientRecords(
-          supabaseClient,
-          [mergedWithSessionAnalytics],
-          new Date().toISOString(),
-          { onlyPatientId: restrictPatientSessionId }
-        );
-        if (syncRes.ok === false && import.meta.env.DEV) {
-          console.warn('[PatientPortal] אחרי מיזוג מקומי+שרת — upsertPatientRecords נכשל', syncRes.message);
+        if (
+          mergedWithSessionAnalytics.id.trim() === restrictPatientSessionId.trim()
+        ) {
+          const syncRes = await upsertPatientRecords(
+            supabaseClient,
+            [mergedWithSessionAnalytics],
+            new Date().toISOString(),
+            { onlyPatientId: restrictPatientSessionId }
+          );
+          if (syncRes.ok === false && import.meta.env.DEV) {
+            console.warn(
+              '[PatientPortal] אחרי מיזוג מקומי+שרת — upsertPatientRecords נכשל',
+              syncRes.message
+            );
+          }
+        } else if (import.meta.env.DEV) {
+          console.warn('[PatientPortal] skipping upsertPatientRecords — patient id mismatch', {
+            sessionId: restrictPatientSessionId,
+            mergedId: mergedWithSessionAnalytics.id,
+          });
         }
       }
 
@@ -1126,14 +1138,19 @@ export function PatientProvider({
       if (portalTherapistId) {
         console.warn(`[TIP_SYNC] Initializing fetch for Therapist ID: ${portalTherapistId}`);
       }
-      const kbRes = await fetchAppKnowledgeBaseFromSupabase(supabaseClient, {
-        approvedOnly: true,
-        therapistAuthUserId: portalTherapistId,
-      });
-      if (!cancelled) {
-        setKnowledgeFacts((prev) =>
-          mergeKnowledgeFactsForUpsert(kbRes?.items ?? [], prev)
-        );
+      try {
+        const kbRes = await fetchAppKnowledgeBaseFromSupabase(supabaseClient, {
+          approvedOnly: true,
+          therapistAuthUserId: portalTherapistId,
+        });
+        if (!cancelled) {
+          setKnowledgeFacts((prev) => mergeKnowledgeFactsForUpsert(kbRes?.items ?? [], prev));
+        }
+      } catch (e) {
+        console.warn('[TIP_SYNC] fetchAppKnowledgeBaseFromSupabase failed — keeping prior tips', {
+          patientId: restrictPatientSessionId,
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
     })();
     return () => { cancelled = true; };
@@ -1332,12 +1349,7 @@ export function PatientProvider({
     let cancelled = false;
     void (async () => {
       const rows = await fetchSessionHistoryBetween(supabaseClient, pid, start, today);
-      if (cancelled || rows == null) {
-        if (!cancelled && rows == null && import.meta.env.DEV) {
-          console.warn('[PatientContext] fetchSessionHistoryBetween returned null', { patientId: pid });
-        }
-        return;
-      }
+      if (cancelled) return;
 
       setDailySessions((prev) => mergeDailySessionsWithServerForPatient(prev, pid, rows));
 

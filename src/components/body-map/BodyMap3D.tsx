@@ -175,6 +175,67 @@ function StreakRimLight() {
   );
 }
 
+type BodyMapWebGlLifecycleProps = {
+  painCleanStudio: boolean;
+  useScenicBackdrop: boolean;
+  flatTherapistPicker: boolean;
+  onContextRestoredRemount: () => void;
+};
+
+/** Renderer setup, context-loss/recovery, and dispose on unmount (avoids leaked GPU + frozen UI). */
+function BodyMapWebGlLifecycle({
+  painCleanStudio,
+  useScenicBackdrop,
+  flatTherapistPicker,
+  onContextRestoredRemount,
+}: BodyMapWebGlLifecycleProps) {
+  const { gl, scene } = useThree();
+
+  useLayoutEffect(() => {
+    gl.shadowMap.enabled = !painCleanStudio;
+    if (!painCleanStudio) {
+      gl.shadowMap.type = THREE.PCFShadowMap;
+    }
+    if (useScenicBackdrop || painCleanStudio) {
+      gl.setClearColor(0x000000, 0);
+      scene.background = null;
+    } else if (flatTherapistPicker) {
+      scene.background = new THREE.Color('#fafafa');
+    }
+  }, [gl, scene, painCleanStudio, useScenicBackdrop, flatTherapistPicker]);
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const onContextLost = (e: Event) => {
+      e.preventDefault();
+      console.warn('[BodyMap3D] webglcontextlost — prevented default so the browser may restore');
+    };
+    const onContextRestored = () => {
+      console.log('[BodyMap3D] webglcontextrestored — syncing size & remounting Canvas');
+      gl.setSize(canvas.clientWidth, canvas.clientHeight, false);
+      requestAnimationFrame(() => onContextRestoredRemount());
+    };
+    canvas.addEventListener('webglcontextlost', onContextLost, false);
+    canvas.addEventListener('webglcontextrestored', onContextRestored, false);
+    return () => {
+      canvas.removeEventListener('webglcontextlost', onContextLost);
+      canvas.removeEventListener('webglcontextrestored', onContextRestored);
+    };
+  }, [gl, onContextRestoredRemount]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        gl.dispose();
+      } catch {
+        /* ignore double-dispose */
+      }
+    };
+  }, [gl]);
+
+  return null;
+}
+
 // ── Studio gradient background + soft depth fog (matches medical reference) ──
 function StudioGradientBackground() {
   const scene = useThree((s) => s.scene);
@@ -345,6 +406,9 @@ function BodyMap3D(props: BodyMap3DProps) {
   const [walkPausedByPointerOver, setWalkPausedByPointerOver] = useState(false);
   /** Remount Canvas after WebGL restore so Fiber/Three state stays consistent; UI/finish callbacks stay mounted outside the canvas. */
   const [webglCanvasKey, setWebglCanvasKey] = useState(0);
+  const bumpWebglCanvasKey = useCallback(() => {
+    setWebglCanvasKey((k) => k + 1);
+  }, []);
   const cameraTargetRef = useRef<THREE.Vector3 | null>(VIEW_POSITIONS.front.clone());
   const orbitActiveRef = useRef(false);
 
@@ -456,7 +520,7 @@ function BodyMap3D(props: BodyMap3DProps) {
           near: 0.08,
           far: 120,
         }}
-        shadows={painCleanStudio ? false : 'soft'}
+        shadows={painCleanStudio ? false : true}
         gl={{
           antialias: true,
           alpha: useScenicBackdrop || painCleanStudio,
@@ -464,39 +528,14 @@ function BodyMap3D(props: BodyMap3DProps) {
           toneMappingExposure: painCleanStudio ? 1.52 : 1.35,
           outputColorSpace: THREE.SRGBColorSpace,
         }}
-        onCreated={({ gl, scene }) => {
-          gl.shadowMap.enabled = !painCleanStudio;
-          if (!painCleanStudio) {
-            gl.shadowMap.type = THREE.PCFShadowMap;
-          }
-          if (useScenicBackdrop || painCleanStudio) {
-            gl.setClearColor(0x000000, 0);
-            scene.background = null;
-          } else if (flatTherapistPicker) {
-            scene.background = new THREE.Color('#fafafa');
-          }
-
-          // Prevent permanent context loss on mobile / low-memory devices.
-          // Calling e.preventDefault() in 'webglcontextlost' allows the browser
-          // to attempt context restoration instead of discarding it.
-          const canvas = gl.domElement;
-          const onContextLost = (e: Event) => {
-            e.preventDefault();
-            console.warn('[BodyMap3D] WebGL context lost — waiting for browser restore');
-          };
-          const onContextRestored = () => {
-            console.log('[BodyMap3D] WebGL context restored');
-            // Force Three.js to reinitialise its internal state after restore.
-            gl.setSize(canvas.clientWidth, canvas.clientHeight, false);
-            requestAnimationFrame(() => {
-              setWebglCanvasKey((k) => k + 1);
-            });
-          };
-          canvas.addEventListener('webglcontextlost', onContextLost, false);
-          canvas.addEventListener('webglcontextrestored', onContextRestored, false);
-        }}
         dpr={[1, 2]}
       >
+        <BodyMapWebGlLifecycle
+          painCleanStudio={painCleanStudio}
+          useScenicBackdrop={useScenicBackdrop}
+          flatTherapistPicker={flatTherapistPicker}
+          onContextRestoredRemount={bumpWebglCanvasKey}
+        />
         {!useScenicBackdrop && !flatTherapistPicker && <StudioGradientBackground />}
 
         <ambientLight intensity={1.5} />

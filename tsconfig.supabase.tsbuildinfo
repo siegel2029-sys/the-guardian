@@ -1,1 +1,1 @@
-{"root":["./supabase/functions/deno-env.d.ts","./supabase/functions/gemini-proxy/index.ts"],"version":"6.0.2"}
+{"root":["./supabase/functions/deno-env.d.ts","./supabase/functions/gemini-proxy/index.ts","./supabase/functions/reminder-cron/index.ts"],"version":"6.0.2"}

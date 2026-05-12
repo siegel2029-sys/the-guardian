@@ -823,6 +823,12 @@ export async function upsertPatientRecords(
   const syncedPatients: Patient[] = [];
 
   for (const p of source) {
+    const patientRowId = (p.id ?? '').trim();
+    if (!patientRowId) {
+      console.warn('[upsertPatientRecords] skipping patient without id');
+      continue;
+    }
+
     let therapistIdForRow = p.therapistId;
     let payloadForRow: Patient = p;
 
@@ -841,12 +847,12 @@ export async function upsertPatientRecords(
     const { data: existing, error: fetchErr } = await client
       .from('patients')
       .select('payload, therapist_id, auth_user_id')
-      .eq('id', p.id)
+      .eq('id', patientRowId)
       .maybeSingle();
 
     if (fetchErr) {
-      console.error('[SYNC_ERROR] upsertPatientRecords/select', fetchErr, { patientId: p.id });
-      logSupabaseCallError('upsertPatientRecords/select', fetchErr, { patientId: p.id });
+      console.error('[SYNC_ERROR] upsertPatientRecords/select', fetchErr, { patientId: patientRowId });
+      logSupabaseCallError('upsertPatientRecords/select', fetchErr, { patientId: patientRowId });
       return clinicalPushFail(`patients: ${fetchErr.message}`, fetchErr);
     }
 
@@ -880,6 +886,7 @@ export async function upsertPatientRecords(
 
     const payloadDraft: Patient = {
       ...payloadForRow,
+      id: patientRowId,
       therapistId: therapistIdForRow,
       name: (payloadForRow.name ?? '').trim() || payloadForRow.name,
       demographicsFreeText: demoFree.length > 0 ? demoFree : undefined,
@@ -896,10 +903,17 @@ export async function upsertPatientRecords(
       options?.trustKnowledgeFactDeletions !== undefined
         ? options.trustKnowledgeFactDeletions
         : defaultTrustKbDel;
-    const payloadForUpsert = mergePatientPayloadForUpsert(oldPayload, payloadDraft, {
+    let payloadForUpsert = mergePatientPayloadForUpsert(oldPayload, payloadDraft, {
       omitKnowledgeFactsForCloud,
       therapistTrustKnowledgeFactDeletions: trustKbDel,
     });
+    if ((payloadForUpsert.id ?? '').trim() !== patientRowId) {
+      console.warn('[upsertPatientRecords] repairing payload id to match row key', {
+        patientRowId,
+        payloadId: payloadForUpsert.id,
+      });
+      payloadForUpsert = { ...payloadForUpsert, id: patientRowId };
+    }
     const firstName = (payloadForUpsert.name ?? '').trim();
 
     const baseRow: Record<string, unknown> = {
@@ -979,7 +993,7 @@ export async function upsertPatientRecords(
       oldPayload === undefined
         ? await insertClinicalAuditLog(client, {
             therapistId: therapistIdForRow,
-            patientId: p.id,
+            patientId: patientRowId,
             entityType: 'patient_info',
             action: 'create',
             oldValue: null,
@@ -987,7 +1001,7 @@ export async function upsertPatientRecords(
           })
         : await insertClinicalAuditLog(client, {
             therapistId: therapistIdForRow,
-            patientId: p.id,
+            patientId: patientRowId,
             entityType: 'patient_info',
             action: 'update',
             oldValue: oldPayload,
@@ -1595,7 +1609,9 @@ export async function fetchPatientPayloadsForTherapist(
 
   if (error) {
     if (import.meta.env.DEV) {
-      console.warn('[fetchPatientPayloadsForTherapist]', error.message);
+      console.warn('[fetchPatientPayloadsForTherapist]', error.message, {
+        code: (error as { code?: string }).code,
+      });
     }
     return { ok: false, message: error.message };
   }
@@ -1647,7 +1663,12 @@ export async function fetchActiveExercisePlansForPatientIds(
   });
 
   if (error) {
-    return { ok: false, message: `exercise_plans: ${error.message}` };
+    console.warn('[fetchActiveExercisePlansForPatientIds] soft-fail — returning no plans', {
+      patientIds: ids,
+      message: error.message,
+      code: (error as { code?: string }).code,
+    });
+    return { ok: true, exercisePlans: [] };
   }
 
   const exercisePlans: ExercisePlan[] = (data ?? []).map((row) => ({
@@ -1689,7 +1710,12 @@ export async function fetchActiveExercisePlanForPatient(
   });
 
   if (error) {
-    return { ok: false, message: `exercise_plans: ${error.message}` };
+    console.warn('[fetchActiveExercisePlanForPatient] soft-fail — treating as empty plan', {
+      patientId: id,
+      message: error.message,
+      code: (error as { code?: string }).code,
+    });
+    return { ok: true, exercisePlan: null };
   }
 
   const rows = data ?? [];
@@ -1803,14 +1829,16 @@ export async function getPatientById(
     return { ok: false, message: 'patients: missing or invalid payload' };
   }
 
+  let exercisePlan: ExercisePlan | null = activePlanResult.ok
+    ? activePlanResult.exercisePlan
+    : null;
   if (!activePlanResult.ok) {
-    return { ok: false, message: activePlanResult.message };
+    console.warn('[getPatientById] exercise_plans result not ok (unexpected) — using cache only', {
+      patientId: id,
+      message: activePlanResult.message,
+    });
   }
 
-  let exercisePlan = activePlanResult.exercisePlan;
-
-  // Fallback: if exercise_plans returned nothing (RLS blocks patient JWT),
-  // use the cached copy stored inside patients.payload by the therapist on last save.
   if (!exercisePlan) {
     const cached = (payload as Patient)._exercisePlanCache;
     if (Array.isArray(cached) && cached.length > 0) {

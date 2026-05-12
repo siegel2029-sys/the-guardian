@@ -73,6 +73,7 @@ import {
   guardiBloomTierStorageKey,
 } from '../../hooks/useGamification';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
+import { usePatientReminderInfrastructure } from '../../hooks/usePatientReminderInfrastructure';
 
 type PortalTab = 'home' | 'activity' | 'gear' | 'messages';
 
@@ -423,6 +424,18 @@ export default function PatientDailyView() {
     [session?.completedIds]
   );
 
+  const { exerciseLogCount, refetchExerciseLogCount } = usePatientReminderInfrastructure({
+    patientId: selectedPatient?.id ?? null,
+    active: sessionRole === 'patient' && usesSupabaseSession,
+    portalTab,
+  });
+  const portalOnboardingSilence = exerciseLogCount !== null && exerciseLogCount < 3;
+
+  useEffect(() => {
+    if (!selectedPatient) return;
+    void refetchExerciseLogCount();
+  }, [selectedPatient?.id, completedSet.size, refetchExerciseLogCount]);
+
   const patientDayMap = useMemo(
     () =>
       selectedPatient ? dailyHistoryByPatient[selectedPatient.id] ?? {} : {},
@@ -518,6 +531,26 @@ export default function PatientDailyView() {
     return [...mandatory, ...optional];
   }, [exercises, selectedPatient]);
 
+  const aiProgramLongitudinalGate = useMemo(() => {
+    if (!selectedPatient) return null;
+    const base = evaluateAiProgramLongitudinalGate({
+      patient: selectedPatient,
+      clinicalToday,
+      dayMap: patientDayMap,
+      rehabExerciseCount: clinicalRehabExercises.length,
+    });
+    if (portalOnboardingSilence) {
+      return { ...base, shouldSuggest: false, showSteadyProgress: false };
+    }
+    return base;
+  }, [
+    selectedPatient,
+    clinicalToday,
+    patientDayMap,
+    clinicalRehabExercises.length,
+    portalOnboardingSilence,
+  ]);
+
   const mandatoryRehabExercises = useMemo(
     () => clinicalRehabExercises.filter((e) => !e.isOptional),
     [clinicalRehabExercises]
@@ -535,19 +568,6 @@ export default function PatientDailyView() {
     setOptionalGlowBoost(0);
     setTimerArmedExerciseIds([]);
   }, [selectedPatient?.id, clinicalToday]);
-
-  const aiProgramLongitudinalGate = useMemo(
-    () =>
-      selectedPatient
-        ? evaluateAiProgramLongitudinalGate({
-            patient: selectedPatient,
-            clinicalToday,
-            dayMap: patientDayMap,
-            rehabExerciseCount: clinicalRehabExercises.length,
-          })
-        : null,
-    [selectedPatient, clinicalToday, patientDayMap, clinicalRehabExercises.length]
-  );
 
   useEffect(() => {
     setAiSteadyBannerDismissed(false);
@@ -705,8 +725,17 @@ export default function PatientDailyView() {
   }, [navigate, portalTab]);
 
   useEffect(() => {
-    if (!selectedPatient || portalTab !== 'activity' || patientMustChangePassword || exercisesLocked) {
+    if (
+      !selectedPatient ||
+      portalTab !== 'activity' ||
+      patientMustChangePassword ||
+      exercisesLocked ||
+      portalOnboardingSilence
+    ) {
       setTrainingAiPlanModalOpen(false);
+      setTrainingAiPlanModalLoading(false);
+      setTrainingAiPlanModalSuggestion(null);
+      setTrainingAiPlanModalInfo(null);
       return;
     }
 
@@ -772,6 +801,7 @@ export default function PatientDailyView() {
     exercisesLocked,
     clinicalRehabExercises,
     aiProgramLongitudinalGate,
+    portalOnboardingSilence,
   ]);
 
   useEffect(() => {
@@ -1279,6 +1309,17 @@ export default function PatientDailyView() {
       </header>
 
       <div className="flex-1 px-4 py-4 pb-36">
+        {portalOnboardingSilence && (
+          <div
+            className="mb-4 rounded-2xl border border-indigo-200/90 bg-gradient-to-br from-indigo-50/95 to-white px-4 py-3 shadow-sm"
+            role="status"
+          >
+            <p className="text-sm font-semibold text-indigo-950 leading-snug">
+              I&apos;m learning your baseline! After your 3rd session, I&apos;ll start providing deeper
+              insights.
+            </p>
+          </div>
+        )}
         {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
             <div className="relative mx-auto w-full max-w-md touch-pan-y">

@@ -550,7 +550,7 @@ export async function fetchSessionHistoryBetween(
   patientId: string,
   startDateYmd: string,
   endDateYmd: string
-): Promise<DailySession[] | null> {
+): Promise<DailySession[]> {
   const { data, error } = await client
     .from('session_history')
     .select('session_date, payload')
@@ -560,12 +560,16 @@ export async function fetchSessionHistoryBetween(
     .order('session_date', { ascending: true });
 
   if (error) {
-    logSupabaseCallError('fetchSessionHistoryBetween', error, {
-      patientId,
-      startDateYmd,
-      endDateYmd,
-    });
-    return null;
+    if (import.meta.env.DEV) {
+      console.warn('[fetchSessionHistoryBetween] returning empty history', {
+        patientId,
+        startDateYmd,
+        endDateYmd,
+        message: error.message,
+        code: (error as { code?: string }).code,
+      });
+    }
+    return [];
   }
 
   const out: DailySession[] = [];

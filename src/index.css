@@ -805,3 +805,8 @@
     }
   }
 }
+
+/* Portaled mascot + assistant — `position: fixed` must win over transformed ancestors (WebGL / 3D). */
+.guardi-companion-portal-root {
+  position: fixed !important;
+}

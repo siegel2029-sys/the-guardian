@@ -9,6 +9,7 @@ import {
   getDevCalendarOffsetDays,
 } from '../../utils/debugMockDate';
 import { formatLocalYmd } from '../../utils/dailyKnowledgeFact';
+import { showPhysioshieldTestNotification } from '../../services/patientPushNotifications';
 
 /**
  * פאנל דיבוג — רק ב־development (מוצג מההורה).
@@ -87,6 +88,19 @@ export default function PortalPatientDebugPanel() {
           <p className="text-[9px] text-slate-400 leading-snug">
             רק dev — נשמר ב־localStorage. XP בשדה = סה״כ מצטבר (כל הרמות).
           </p>
+
+          {import.meta.env.DEV && (
+            <div className="rounded-lg border border-sky-700/50 bg-sky-950/40 px-2 py-1.5 space-y-1">
+              <p className="text-[9px] font-bold text-sky-200 uppercase tracking-wide">התראות (בדיקה)</p>
+              <button
+                type="button"
+                className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-sky-800 text-sky-50 hover:bg-sky-700 border border-sky-600/60"
+                onClick={() => void showPhysioshieldTestNotification()}
+              >
+                Test Push (מיידי בדפדפן)
+              </button>
+            </div>
+          )}
 
           <p className="text-[9px] font-bold text-slate-300 uppercase tracking-wide">היסטוריה</p>
           <button

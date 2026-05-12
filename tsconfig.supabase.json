@@ -10,7 +10,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "paths": {
-      "@supabase/supabase-js": ["./node_modules/@supabase/supabase-js"]
+      "@supabase/supabase-js": ["./node_modules/@supabase/supabase-js"],
+      "npm:@supabase/supabase-js@2": ["./node_modules/@supabase/supabase-js"]
     }
   },
   "include": ["supabase/functions/**/*.ts", "supabase/functions/**/*.d.ts"]
