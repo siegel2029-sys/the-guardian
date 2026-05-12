@@ -210,6 +210,11 @@ export type MergePatientPayloadOptions = {
    * so one side cannot replace the other's streak counter without merging activity first.
    */
   clinicalToday?: string;
+  /**
+   * דשבורד מטפל + Supabase Auth לפני טעינת app_knowledge_base: אל תמזג ואל תכלול `knowledgeFacts`
+   * ב־payload שנשלח — כדי שלא יידרס JSONB שכבר קיים בשרת מטיפים ריקים מקומית.
+   */
+  omitKnowledgeFactsForCloud?: boolean;
 };
 
 /**
@@ -223,9 +228,11 @@ export function mergeKnowledgeFactsForUpsert(
 ): KnowledgeFact[] {
   const server = normalizeKnowledgeFactsList(serverFacts ?? []);
   const local = normalizeKnowledgeFactsList(localFacts ?? []);
-  console.log(
-    `[TIP_SYNC] Merging tip content. Local: ${local.length}, Server: ${server.length}`
-  );
+  if (server.length > 0 || local.length > 0) {
+    console.log(
+      `[TIP_SYNC] Merging tip content. Local: ${local.length}, Server: ${server.length}`
+    );
+  }
 
   /** New device / מטמון ריק אחרי התחברות — לא לדרוס ענן בטיפים ריקים מקומית */
   if (local.length === 0 && server.length > 0) return server;
@@ -266,6 +273,10 @@ export function mergeKnowledgeFactsHydrateFromTherapistCloud(
   for (const f of fromPayloads) byId.set(f.id, f);
   for (const f of fromGlobal) byId.set(f.id, f);
   const serverCombined = [...byId.values()];
+  const localNorm = normalizeKnowledgeFactsList(localFacts ?? []);
+  if (serverCombined.length === 0 && localNorm.length === 0) {
+    return [];
+  }
   const merged = mergeKnowledgeFactsForUpsert(serverCombined, localFacts ?? []);
   if ((localFacts?.length ?? 0) === 0 && merged.length > 0) {
     console.warn(
@@ -414,14 +425,20 @@ export function mergePatientPayloadForUpsert(
   incoming: Patient,
   opts?: MergePatientPayloadOptions
 ): Patient {
+  const omitKb = opts?.omitKnowledgeFactsForCloud === true;
+
   if (!existing) {
     let sole = normalizePatientProgressFields({ ...incoming });
     sole._sessionCompletionByDate = mergeSessionCompletionByDateMaps(
       undefined,
       incoming._sessionCompletionByDate
     );
-    const mergedFactsOnly = mergeKnowledgeFactsForUpsert(undefined, incoming.knowledgeFacts);
-    sole.knowledgeFacts = mergedFactsOnly.length > 0 ? mergedFactsOnly : undefined;
+    if (omitKb) {
+      delete sole.knowledgeFacts;
+    } else {
+      const mergedFactsOnly = mergeKnowledgeFactsForUpsert(undefined, incoming.knowledgeFacts);
+      sole.knowledgeFacts = mergedFactsOnly.length > 0 ? mergedFactsOnly : undefined;
+    }
     if (opts?.clinicalToday) {
       const dm = dayMapFromExerciseSessions(sole.analytics?.sessionHistory ?? []);
       sole.currentStreak = computeStreakForPatient(sole, dm, opts.clinicalToday);
@@ -485,11 +502,15 @@ export function mergePatientPayloadForUpsert(
     incoming._sessionCompletionByDate
   );
 
-  const mergedFacts = mergeKnowledgeFactsForUpsert(
-    existing.knowledgeFacts,
-    incoming.knowledgeFacts
-  );
-  merged.knowledgeFacts = mergedFacts.length > 0 ? mergedFacts : undefined;
+  if (omitKb) {
+    delete merged.knowledgeFacts;
+  } else {
+    const mergedFacts = mergeKnowledgeFactsForUpsert(
+      existing.knowledgeFacts,
+      incoming.knowledgeFacts
+    );
+    merged.knowledgeFacts = mergedFacts.length > 0 ? mergedFacts : undefined;
+  }
 
   return normalizePatientProgressFields(merged);
 }
@@ -796,7 +817,11 @@ export async function upsertPatientRecords(
     };
 
     /** Merge with DB row so stale clients cannot zero out XP/coins (see {@link mergePatientPayloadForUpsert}). */
-    const payloadForUpsert = mergePatientPayloadForUpsert(oldPayload, payloadDraft);
+    const omitKnowledgeFactsForCloud =
+      isSupabaseAuthEnabled() && !isPatientPortal && !getAppKbHydratedFromCloud();
+    const payloadForUpsert = mergePatientPayloadForUpsert(oldPayload, payloadDraft, {
+      omitKnowledgeFactsForCloud,
+    });
     const firstName = (payloadForUpsert.name ?? '').trim();
 
     const baseRow: Record<string, unknown> = {
