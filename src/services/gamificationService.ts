@@ -61,7 +61,7 @@ export async function fetchAppKnowledgeBaseFromSupabase(
     let { data, error } = await client
       .from('app_knowledge_base')
       .select('items, deleted_seed_ids, therapist_id, id')
-      .eq('therapist_id', therapistKey)
+      .eq('id', therapistKey)
       .maybeSingle();
 
     warnKbMissingTable(error);
@@ -73,7 +73,7 @@ export async function fetchAppKnowledgeBaseFromSupabase(
     ({ data, error } = await client
       .from('app_knowledge_base')
       .select('items, deleted_seed_ids, therapist_id, id')
-      .eq('id', therapistKey)
+      .eq('therapist_id', therapistKey)
       .maybeSingle());
 
     warnKbMissingTable(error);
@@ -81,6 +81,8 @@ export async function fetchAppKnowledgeBaseFromSupabase(
       const row = rowToAppKnowledgeBaseRow(data as Record<string, unknown>, options);
       if (row) return row;
     }
+
+    return null;
   }
 
   const { data: legacyData, error: legacyErr } = await client

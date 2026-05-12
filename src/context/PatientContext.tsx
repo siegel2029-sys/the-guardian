@@ -89,6 +89,7 @@ import {
   mergeSessionCompletionByDateMaps,
   mergeKnowledgeFactsForUpsert,
   mergeKnowledgeFactsHydrateFromTherapistCloud,
+  resolveStableAuthUserIdForKb,
 } from '../services/clinicalService';
 import {
   fetchSessionHistoryBetween,
@@ -128,22 +129,49 @@ async function hydrateTherapistKnowledgeFactsFromSupabase(
   client: SupabaseClient,
   patientsSnapshotFromServerFetch: Patient[],
   setKnowledgeFacts: Dispatch<SetStateAction<KnowledgeFact[]>>,
-  suppressCloudKbFetchUntilMs = 0
-): Promise<void> {
+  prevFacts: KnowledgeFact[],
+  opts?: {
+    suppressCloudKbFetchUntilMs?: number;
+    forceFreshKbFetch?: boolean;
+  }
+): Promise<KnowledgeFact[]> {
+  const suppressMs = opts?.suppressCloudKbFetchUntilMs ?? 0;
+  const fetchBlocked = !opts?.forceFreshKbFetch && Date.now() < suppressMs;
+
   let kbItems: KnowledgeFact[] | undefined;
-  if (Date.now() >= suppressCloudKbFetchUntilMs) {
-    const {
-      data: { user },
-    } = await client.auth.getUser();
-    const uid = user?.id ?? undefined;
+
+  if (!fetchBlocked) {
+    let therapistKey: string | undefined;
+    if (isSupabaseAuthEnabled()) {
+      const uid = await resolveStableAuthUserIdForKb(client, { maxWaitMs: 12_000 });
+      const trimmed = uid?.trim();
+      if (!trimmed) {
+        console.warn('[TIP_SYNC] KB fetch skipped — therapist auth uid not stable after wait');
+        const mergedOnlyPayloads = mergeKnowledgeFactsHydrateFromTherapistCloud(
+          patientsSnapshotFromServerFetch,
+          undefined,
+          prevFacts
+        );
+        setKnowledgeFacts(mergedOnlyPayloads);
+        return mergedOnlyPayloads;
+      }
+      therapistKey = trimmed;
+      console.warn(`[TIP_SYNC] Initializing fetch for Therapist ID: ${therapistKey}`);
+    }
+
     const kbGlobal = await fetchAppKnowledgeBaseFromSupabase(client, {
-      therapistAuthUserId: uid,
+      therapistAuthUserId: therapistKey,
     });
     kbItems = kbGlobal?.items;
   }
-  setKnowledgeFacts((prev) =>
-    mergeKnowledgeFactsHydrateFromTherapistCloud(patientsSnapshotFromServerFetch, kbItems, prev)
+
+  const merged = mergeKnowledgeFactsHydrateFromTherapistCloud(
+    patientsSnapshotFromServerFetch,
+    kbItems,
+    prevFacts
   );
+  setKnowledgeFacts(merged);
+  return merged;
 }
 
 /** sessionStorage: LoginPage sets before routing; PatientProvider clears once to open dashboard hub. */
@@ -766,7 +794,11 @@ export function PatientProvider({
         supabase,
         snapshot,
         setKnowledgeFacts,
-        suppressAppKbCloudFetchUntilRef.current
+        knowledgeFactsRef.current,
+        {
+          suppressCloudKbFetchUntilMs: suppressAppKbCloudFetchUntilRef.current,
+          forceFreshKbFetch: true,
+        }
       );
     },
     [supabase]
@@ -1006,9 +1038,13 @@ export function PatientProvider({
       // Fetch the global knowledge base so the 💡 "Did you know?" bubble is visible
       // in the patient portal. Supabase-auth sessions start with knowledgeFacts = []
       // because the therapist-scoped localStorage snapshot is not available.
+      const portalTherapistId = fetched.therapistId?.trim();
+      if (portalTherapistId) {
+        console.warn(`[TIP_SYNC] Initializing fetch for Therapist ID: ${portalTherapistId}`);
+      }
       const kbRes = await fetchAppKnowledgeBaseFromSupabase(supabaseClient, {
         approvedOnly: true,
-        therapistAuthUserId: fetched.therapistId,
+        therapistAuthUserId: portalTherapistId,
       });
       if (!cancelled) {
         setKnowledgeFacts((prev) =>
@@ -1098,22 +1134,16 @@ export function PatientProvider({
       let mergedKbAfterHydrate: KnowledgeFact[] = [];
 
       if (!cancelled) {
-        let kbItemsFromCloud: KnowledgeFact[] | undefined;
-        if (Date.now() >= suppressAppKbCloudFetchUntilRef.current) {
-          const {
-            data: { user },
-          } = await supabaseClient.auth.getUser();
-          const kbGlobal = await fetchAppKnowledgeBaseFromSupabase(supabaseClient, {
-            therapistAuthUserId: user?.id,
-          });
-          kbItemsFromCloud = kbGlobal?.items;
-        }
-        mergedKbAfterHydrate = mergeKnowledgeFactsHydrateFromTherapistCloud(
+        mergedKbAfterHydrate = await hydrateTherapistKnowledgeFactsFromSupabase(
+          supabaseClient,
           mergedPatientsForCloud,
-          kbItemsFromCloud,
-          knowledgeFactsRef.current
+          setKnowledgeFacts,
+          knowledgeFactsRef.current,
+          {
+            suppressCloudKbFetchUntilMs: suppressAppKbCloudFetchUntilRef.current,
+            forceFreshKbFetch: true,
+          }
         );
-        setKnowledgeFacts(mergedKbAfterHydrate);
       }
 
       if (!cancelled && mergedPatientsForCloud.length > 0) {

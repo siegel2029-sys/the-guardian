@@ -47,6 +47,43 @@ export function resolveTherapistIdForSupabaseRls(patientTherapistId: string, use
   return null;
 }
 
+/**
+ * ממתין ל־`auth.uid()` יציב אחרי ריענון/כניסה לפני fetch/write של `app_knowledge_base`.
+ */
+export async function resolveStableAuthUserIdForKb(
+  client: SupabaseClient,
+  opts?: { maxWaitMs?: number; pollMs?: number }
+): Promise<string | null> {
+  if (!isSupabaseAuthEnabled()) return null;
+
+  const maxWaitMs = opts?.maxWaitMs ?? 12_000;
+  const pollMs = opts?.pollMs ?? 100;
+  const deadline = Date.now() + maxWaitMs;
+
+  while (Date.now() < deadline) {
+    const {
+      data: { user },
+      error: userErr,
+    } = await client.auth.getUser();
+    const uid = user?.id?.trim();
+    if (uid) return uid;
+    if (userErr && import.meta.env.DEV) {
+      console.warn('[TIP_SYNC] resolveStableAuthUserIdForKb: getUser error (retrying)', userErr);
+    }
+
+    const {
+      data: { session },
+    } = await client.auth.getSession();
+    const sid = session?.user?.id?.trim();
+    if (sid) return sid;
+
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+
+  console.warn('[TIP_SYNC] resolveStableAuthUserIdForKb: timeout — auth uid not ready');
+  return null;
+}
+
 const THERAPISTS_BY_ID: Record<string, Therapist> = {};
 
 /**
@@ -209,8 +246,8 @@ export function aggregateKnowledgeFactsFromPatientPayloads(patients: Patient[]):
 
 /**
  * אחרי טעינת מטפלים מ-Supabase: מאחד עובדות מכל ה־payloads שהגיעו מהשרת (לא רק מטמון ישן)
- * עם שורת `app_knowledge_base` (גלובלית; שורת id=`global` גוברת על כפילויות לפי id).
- * ואז ממזג עם state מקומי — כשהמקומי ריק, התוצאה היא תוכן הענן בלבד.
+ * עם שורת `app_knowledge_base` של המטפל (`id` / `therapist_id` = auth uid כשפעיל).
+ * כשהמקומי ריק, התוצאה מתמלאת מתוכן השרת (payload + שורת KB).
  */
 export function mergeKnowledgeFactsHydrateFromTherapistCloud(
   patientsFromServerFetch: Patient[],
@@ -223,7 +260,13 @@ export function mergeKnowledgeFactsHydrateFromTherapistCloud(
   for (const f of fromPayloads) byId.set(f.id, f);
   for (const f of fromGlobal) byId.set(f.id, f);
   const serverCombined = [...byId.values()];
-  return mergeKnowledgeFactsForUpsert(serverCombined, localFacts ?? []);
+  const merged = mergeKnowledgeFactsForUpsert(serverCombined, localFacts ?? []);
+  if ((localFacts?.length ?? 0) === 0 && merged.length > 0) {
+    console.warn(
+      `[TIP_SYNC] Hydration replaced empty local knowledgeFacts with ${merged.length} server/payload fact(s).`
+    );
+  }
+  return merged;
 }
 
 /**
@@ -236,12 +279,13 @@ export async function upsertGlobalAppKnowledgeBaseWithTipSyncLog(
 ): Promise<AppKnowledgeBaseSaveOutcome> {
   let therapistAuthUserId: string | null = null;
   if (isSupabaseAuthEnabled()) {
-    const {
-      data: { user },
-      error: userErr,
-    } = await client.auth.getUser();
-    if (!userErr && user?.id?.trim()) {
-      therapistAuthUserId = user.id.trim();
+    therapistAuthUserId = await resolveStableAuthUserIdForKb(client, { maxWaitMs: 10_000 });
+    if (!therapistAuthUserId) {
+      const {
+        data: { user },
+        error: userErr,
+      } = await client.auth.getUser();
+      if (!userErr && user?.id?.trim()) therapistAuthUserId = user.id.trim();
     }
   }
 
