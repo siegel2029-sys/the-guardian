@@ -96,6 +96,7 @@ import {
   mergeKnowledgeFactsHydrateFromTherapistCloud,
   fetchTherapistAppKbWithLegacyGlobalFallback,
   resolveStableAuthUserIdForKb,
+  exercisePlanExercisesComparableSignature,
 } from '../services/clinicalService';
 import {
   fetchSessionHistoryBetween,
@@ -129,6 +130,36 @@ import {
   type PatientRewardMeta,
 } from './patientDomainHelpers';
 import type { SupabaseClient } from '@supabase/supabase-js';
+
+function cloneExercisePlansForBaseline(plans: ExercisePlan[]): ExercisePlan[] {
+  try {
+    return JSON.parse(JSON.stringify(plans)) as ExercisePlan[];
+  } catch {
+    return plans.map((p) => ({
+      ...p,
+      exercises: p.exercises.map((ex) => ({ ...ex })),
+    }));
+  }
+}
+
+/** תוכניות שהשתנו לעומת צילום בסיס מהטעינה בדשבורד המטפל — דוחפת רק אותן ל-Supabase */
+function exercisePlansDeltaForTherapistPush(
+  current: ExercisePlan[],
+  baseline: ExercisePlan[] | null
+): ExercisePlan[] {
+  if (!baseline || baseline.length === 0) {
+    return current;
+  }
+  const baseByPatient = new Map(baseline.map((p) => [p.patientId, p]));
+  return current.filter((plan) => {
+    const b = baseByPatient.get(plan.patientId);
+    if (!b) return true;
+    return (
+      exercisePlanExercisesComparableSignature(plan.exercises) !==
+      exercisePlanExercisesComparableSignature(b.exercises)
+    );
+  });
+}
 
 /** טעינת בסיס הידע מ-app_knowledge_base + aggregation של payloads מה-fetch הנוכחי (לא מהטמון בלבד). */
 async function hydrateTherapistKnowledgeFactsFromSupabase(
@@ -809,12 +840,16 @@ export function PatientProvider({
     setHasHydratedKbFromCloud(true);
   }, []);
 
+  /** צילום תוכניות מתאר טעינת דשבורד המטפל — דוחפים רק שינויי תוכן לעומתו */
+  const exercisePlansSessionBaselineRef = useRef<ExercisePlan[] | null>(null);
+
   useEffect(() => {
     const isTherapistDashboard =
       sessionRole === 'therapist' && isAuthenticated && !restrictPatientSessionId;
     if (isTherapistDashboard) return;
     resetAppKbHydrationGate();
     setHasHydratedKbFromCloud(false);
+    exercisePlansSessionBaselineRef.current = null;
   }, [sessionRole, isAuthenticated, restrictPatientSessionId]);
 
   /** אחרי הוספת טיפ — לא למשוך מ-app_knowledge_base למשך כמה שניות (מונע בועה נעלמת עד settle ב-DB). */
@@ -1141,6 +1176,7 @@ export function PatientProvider({
         setSelfCareStrengthTierByPatientId({});
         setPatientRewardMetaByPatientId({});
         setPatientGearByPatientId({});
+        exercisePlansSessionBaselineRef.current = [];
         await refreshKnowledgeBaseFromCloudMerged([]);
         setEmergencyModalPatientId(null);
         return;
@@ -1206,6 +1242,7 @@ export function PatientProvider({
       }
 
       setExercisePlans(res.exercisePlans);
+      exercisePlansSessionBaselineRef.current = cloneExercisePlansForBaseline(res.exercisePlans);
 
       // After loading patients, check which portal accounts are still unlinked
       // (auth_user_id = NULL). This doesn't affect therapist saves but does block
@@ -1548,9 +1585,28 @@ export function PatientProvider({
       }
     }
 
+    let pushSnap = snap;
+    const therapistExerciseDeltaPush =
+      isSupabaseConfigured &&
+      isSupabaseAuthEnabled() &&
+      supabasePushOptions.sessionRole === 'therapist' &&
+      !restrictPatientSessionId;
+    if (therapistExerciseDeltaPush) {
+      const baseline = exercisePlansSessionBaselineRef.current;
+      const deltaPlans = exercisePlansDeltaForTherapistPush(snap.exercisePlans, baseline);
+      pushSnap = { ...snap, exercisePlans: deltaPlans };
+      if (import.meta.env.DEV) {
+        console.log('[SAVE_CHECK] Exercise plans delta push', {
+          totalInSnapshot: snap.exercisePlans.length,
+          baselinePlans: baseline?.length ?? 0,
+          deltaCount: deltaPlans.length,
+        });
+      }
+    }
+
     const savePromise = pushPersistedStateToSupabase(
       supabaseClient,
-      snap,
+      pushSnap,
       {
         ...supabasePushOptions,
         ...(summaryMap && Object.keys(summaryMap).length > 0
@@ -2286,11 +2342,28 @@ export function PatientProvider({
           }
           if (!pushResult.ok) {
             console.warn('[TIP_SYNC] Cloud push failed:', pushResult.message, pushResult.httpStatus);
+            return;
           }
+          const client = supabase;
+          if (!client) return;
+          if (kbUpsert?.ok === true && kbUpsert.skippedReason === 'kb-not-hydrated') return;
+          if (kbUpsert?.ok === false) return;
+          void (async () => {
+            const uid = (await client.auth.getUser()).data.user?.id?.trim();
+            if (!uid) return;
+            const row = await fetchAppKnowledgeBaseFromSupabase(client, {
+              therapistAuthUserId: uid,
+            });
+            const authoritative = normalizeKnowledgeFactsList(row?.items ?? []);
+            setKnowledgeFacts(authoritative);
+            setAllPatients((prev) =>
+              prev.map((p) => ({ ...p, knowledgeFacts: authoritative }))
+            );
+          })();
         },
       });
     },
-    [savePersistedStateToCloud, markKbHydratedFromCloudCb]
+    [savePersistedStateToCloud, markKbHydratedFromCloudCb, supabase]
   );
 
   const exercise = useExercisePlan({

@@ -8,6 +8,7 @@ import {
   upsertTherapistProfilesForPatients,
   upsertGlobalAppKnowledgeBaseWithTipSyncLog,
 } from '../services/clinicalService';
+import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
 import { upsertExercisePlans, upsertSessionHistory } from '../services/exerciseService';
 
 async function therapistIdByPatientIdForClinicalSync(
@@ -125,9 +126,31 @@ export async function pushPersistedStateToSupabase(
     });
     if (!result.ok) return result;
 
+    const kbToSave = state.knowledgeFacts ?? [];
+    const localKbCount = kbToSave.length;
+    const finalKbSaveCount = kbToSave.length;
+    let serverKbCount: number | string = 'n/a';
+    if (isSupabaseAuthEnabled()) {
+      try {
+        const {
+          data: { user },
+        } = await client.auth.getUser();
+        const uid = user?.id?.trim();
+        if (uid) {
+          const row = await fetchAppKnowledgeBaseFromSupabase(client, { therapistAuthUserId: uid });
+          serverKbCount = row?.items?.length ?? 0;
+        }
+      } catch {
+        serverKbCount = 'error';
+      }
+    }
+    console.log(
+      `[SYNC_DEBUG] Final KB items to be saved: ${finalKbSaveCount}. (Local was ${localKbCount}, Server was ${serverKbCount})`
+    );
+
     const kbOutcome = await upsertGlobalAppKnowledgeBaseWithTipSyncLog(
       client,
-      state.knowledgeFacts ?? [],
+      kbToSave,
       now
     );
     if (!kbOutcome.ok) {

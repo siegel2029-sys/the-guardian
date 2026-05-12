@@ -215,6 +215,14 @@ export type MergePatientPayloadOptions = {
    * ב־payload שנשלח — כדי שלא יידרס JSONB שכבר קיים בשרת מטיפים ריקים מקומית.
    */
   omitKnowledgeFactsForCloud?: boolean;
+  /**
+   * דשבורד מטפל אחרי טעינת KB מהענן: טיפ קיים בשרת ולא ברשימה המקומית — נחשב למחיקה (לא להחזיר ב-merge).
+   */
+  therapistTrustKnowledgeFactDeletions?: boolean;
+};
+
+export type MergeKnowledgeFactsForUpsertOptions = {
+  therapistTrustLocalDeletions?: boolean;
 };
 
 /**
@@ -224,10 +232,17 @@ export type MergePatientPayloadOptions = {
  */
 export function mergeKnowledgeFactsForUpsert(
   serverFacts: KnowledgeFact[] | undefined,
-  localFacts: KnowledgeFact[] | undefined
+  localFacts: KnowledgeFact[] | undefined,
+  opts?: MergeKnowledgeFactsForUpsertOptions
 ): KnowledgeFact[] {
-  const server = normalizeKnowledgeFactsList(serverFacts ?? []);
+  let server = normalizeKnowledgeFactsList(serverFacts ?? []);
   const local = normalizeKnowledgeFactsList(localFacts ?? []);
+
+  if (opts?.therapistTrustLocalDeletions) {
+    const localIds = new Set(local.map((f) => f.id));
+    server = server.filter((s) => localIds.has(s.id));
+  }
+
   if (server.length > 0 || local.length > 0) {
     console.log(
       `[TIP_SYNC] Merging tip content. Local: ${local.length}, Server: ${server.length}`
@@ -439,7 +454,9 @@ export function mergePatientPayloadForUpsert(
     if (omitKb) {
       delete sole.knowledgeFacts;
     } else {
-      const mergedFactsOnly = mergeKnowledgeFactsForUpsert(undefined, incoming.knowledgeFacts);
+      const mergedFactsOnly = mergeKnowledgeFactsForUpsert(undefined, incoming.knowledgeFacts, {
+        therapistTrustLocalDeletions: opts?.therapistTrustKnowledgeFactDeletions === true,
+      });
       sole.knowledgeFacts = mergedFactsOnly.length > 0 ? mergedFactsOnly : undefined;
     }
     if (opts?.clinicalToday) {
@@ -510,7 +527,10 @@ export function mergePatientPayloadForUpsert(
   } else {
     const mergedFacts = mergeKnowledgeFactsForUpsert(
       existing.knowledgeFacts,
-      incoming.knowledgeFacts
+      incoming.knowledgeFacts,
+      {
+        therapistTrustLocalDeletions: opts?.therapistTrustKnowledgeFactDeletions === true,
+      }
     );
     merged.knowledgeFacts = mergedFacts.length > 0 ? mergedFacts : undefined;
   }
@@ -824,6 +844,8 @@ export async function upsertPatientRecords(
       isSupabaseAuthEnabled() && !isPatientPortal && !getAppKbHydratedFromCloud();
     const payloadForUpsert = mergePatientPayloadForUpsert(oldPayload, payloadDraft, {
       omitKnowledgeFactsForCloud,
+      therapistTrustKnowledgeFactDeletions:
+        !omitKnowledgeFactsForCloud && !isPatientPortal,
     });
     const firstName = (payloadForUpsert.name ?? '').trim();
 
@@ -1205,7 +1227,7 @@ export function resetExercisePlanUpsertHaltForTests(): void {
 }
 
 /** חתימת תוכן יציבה להשוואת תוכניות — מונעת גרסה חדשה כשאין שינוי אמיתי */
-function exercisesComparableSignature(exercises: PatientExercise[]): string {
+export function exercisePlanExercisesComparableSignature(exercises: PatientExercise[]): string {
   const sorted = [...exercises].sort((a, b) => String(a.id).localeCompare(String(b.id)));
   return JSON.stringify(
     sorted.map((ex) => {
@@ -1222,8 +1244,8 @@ function exercisesComparableSignature(exercises: PatientExercise[]): string {
 }
 
 function exercisesComparableSignatureFromUnknown(raw: unknown): string {
-  if (!Array.isArray(raw)) return exercisesComparableSignature([]);
-  return exercisesComparableSignature(raw as PatientExercise[]);
+  if (!Array.isArray(raw)) return exercisePlanExercisesComparableSignature([]);
+  return exercisePlanExercisesComparableSignature(raw as PatientExercise[]);
 }
 
 /**
@@ -1403,7 +1425,7 @@ export async function upsertExercisePlans(
 
       if (hadPrev) {
         const dbSig = exercisesComparableSignatureFromUnknown(prevActive!.exercises);
-        const incomingSig = exercisesComparableSignature(exercises);
+        const incomingSig = exercisePlanExercisesComparableSignature(exercises);
         if (dbSig === incomingSig) {
           console.log(
             `[SAVE_CHECK] Attempting to save exercise plan. Change detected: NO (${patientId})`
