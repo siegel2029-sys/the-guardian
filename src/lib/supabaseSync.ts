@@ -118,10 +118,25 @@ export async function pushPersistedStateToSupabase(
     });
     if (!result.ok) return result;
 
-    result = await upsertGlobalAppKnowledgeBaseWithTipSyncLog(client, state.knowledgeFacts ?? [], now);
-    if (!result.ok) return result;
+    const kbOutcome = await upsertGlobalAppKnowledgeBaseWithTipSyncLog(
+      client,
+      state.knowledgeFacts ?? [],
+      now
+    );
+    if (!kbOutcome.ok) {
+      return {
+        ok: false,
+        message: kbOutcome.message,
+        httpStatus: kbOutcome.httpStatus,
+        knowledgeBaseUpsert: kbOutcome,
+      };
+    }
 
-    return syncedPatients && syncedPatients.length > 0 ? { ok: true, syncedPatients } : { ok: true };
+    const payloadOk =
+      syncedPatients && syncedPatients.length > 0
+        ? ({ ok: true as const, syncedPatients, knowledgeBaseUpsert: kbOutcome })
+        : ({ ok: true as const, knowledgeBaseUpsert: kbOutcome });
+    return payloadOk;
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) };
   }

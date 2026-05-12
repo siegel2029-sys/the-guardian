@@ -98,7 +98,7 @@ import {
   buildPainAndSessionHistoryFromDailySessions,
   hydrateDailySessionsFromSessionCompletionMap,
 } from '../services/exerciseService';
-import { pushPersistedStateToSupabase, type PushPersistedStateOptions } from '../lib/supabaseSync';
+import { pushPersistedStateToSupabase, type PushPersistedStateOptions, type SupabasePushResult } from '../lib/supabaseSync';
 import { useAuth } from './AuthContext';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
@@ -127,11 +127,22 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 async function hydrateTherapistKnowledgeFactsFromSupabase(
   client: SupabaseClient,
   patientsSnapshotFromServerFetch: Patient[],
-  setKnowledgeFacts: Dispatch<SetStateAction<KnowledgeFact[]>>
+  setKnowledgeFacts: Dispatch<SetStateAction<KnowledgeFact[]>>,
+  suppressCloudKbFetchUntilMs = 0
 ): Promise<void> {
-  const kbGlobal = await fetchAppKnowledgeBaseFromSupabase(client);
+  let kbItems: KnowledgeFact[] | undefined;
+  if (Date.now() >= suppressCloudKbFetchUntilMs) {
+    const {
+      data: { user },
+    } = await client.auth.getUser();
+    const uid = user?.id ?? undefined;
+    const kbGlobal = await fetchAppKnowledgeBaseFromSupabase(client, {
+      therapistAuthUserId: uid,
+    });
+    kbItems = kbGlobal?.items;
+  }
   setKnowledgeFacts((prev) =>
-    mergeKnowledgeFactsHydrateFromTherapistCloud(patientsSnapshotFromServerFetch, kbGlobal?.items, prev)
+    mergeKnowledgeFactsHydrateFromTherapistCloud(patientsSnapshotFromServerFetch, kbItems, prev)
   );
 }
 
@@ -742,12 +753,21 @@ export function PatientProvider({
   const knowledgeFactsRef = useRef(knowledgeFacts);
   knowledgeFactsRef.current = knowledgeFacts;
 
+  /** אחרי הוספת טיפ — לא למשוך מ-app_knowledge_base למשך כמה שניות (מונע בועה נעלמת עד settle ב-DB). */
+  const suppressAppKbCloudFetchUntilRef = useRef(0);
+  const KB_CLOUD_FETCH_COOLDOWN_MS_AFTER_TIP_SAVE = 5000;
+
   /** רענון/אתחול: app_knowledge_base + aggregation של knowledgeFacts מכל ה-payloads ב-snapshot (בטעינה מועבר mergedPatientsForCloud מהשרת). */
   const refreshKnowledgeBaseFromCloudMerged = useCallback(
     async (patientsSnapshotOverride?: Patient[]) => {
       if (!supabase) return;
       const snapshot = patientsSnapshotOverride ?? allPatientsRef.current;
-      await hydrateTherapistKnowledgeFactsFromSupabase(supabase, snapshot, setKnowledgeFacts);
+      await hydrateTherapistKnowledgeFactsFromSupabase(
+        supabase,
+        snapshot,
+        setKnowledgeFacts,
+        suppressAppKbCloudFetchUntilRef.current
+      );
     },
     [supabase]
   );
@@ -771,6 +791,7 @@ export function PatientProvider({
   const cloudSaveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumulatedCloudSaveOptionsRef = useRef<{
     exercisePlanChangeSummaryByPatientId?: Record<string, string>;
+    onPushComplete?: (result: SupabasePushResult) => void;
   } | null>(null);
   const cloudSaveDebouncedResolversRef = useRef<Array<(ok: boolean) => void>>([]);
   /** True while a cloud push is actively in flight after acquiring the mutex (full or plan save). */
@@ -985,7 +1006,10 @@ export function PatientProvider({
       // Fetch the global knowledge base so the 💡 "Did you know?" bubble is visible
       // in the patient portal. Supabase-auth sessions start with knowledgeFacts = []
       // because the therapist-scoped localStorage snapshot is not available.
-      const kbRes = await fetchAppKnowledgeBaseFromSupabase(supabaseClient, { approvedOnly: true });
+      const kbRes = await fetchAppKnowledgeBaseFromSupabase(supabaseClient, {
+        approvedOnly: true,
+        therapistAuthUserId: fetched.therapistId,
+      });
       if (!cancelled) {
         setKnowledgeFacts((prev) =>
           mergeKnowledgeFactsForUpsert(kbRes?.items ?? [], prev)
@@ -1074,10 +1098,19 @@ export function PatientProvider({
       let mergedKbAfterHydrate: KnowledgeFact[] = [];
 
       if (!cancelled) {
-        const kbGlobal = await fetchAppKnowledgeBaseFromSupabase(supabaseClient);
+        let kbItemsFromCloud: KnowledgeFact[] | undefined;
+        if (Date.now() >= suppressAppKbCloudFetchUntilRef.current) {
+          const {
+            data: { user },
+          } = await supabaseClient.auth.getUser();
+          const kbGlobal = await fetchAppKnowledgeBaseFromSupabase(supabaseClient, {
+            therapistAuthUserId: user?.id,
+          });
+          kbItemsFromCloud = kbGlobal?.items;
+        }
         mergedKbAfterHydrate = mergeKnowledgeFactsHydrateFromTherapistCloud(
           mergedPatientsForCloud,
-          kbGlobal?.items,
+          kbItemsFromCloud,
           knowledgeFactsRef.current
         );
         setKnowledgeFacts(mergedKbAfterHydrate);
@@ -1404,6 +1437,7 @@ export function PatientProvider({
     const mergedExtra = accumulatedCloudSaveOptionsRef.current;
     accumulatedCloudSaveOptionsRef.current = null;
 
+    const onPushComplete = mergedExtra?.onPushComplete;
     const summaryMap = mergedExtra?.exercisePlanChangeSummaryByPatientId;
     const snap = latestCloudPersistRef.current;
     if (!snap) {
@@ -1442,6 +1476,7 @@ export function PatientProvider({
     try {
       const result = await savePromise;
       cloudSaveMutexRef.current = null;
+      onPushComplete?.(result);
       if (result.ok === true) {
         setSupabaseSyncStatus('saved');
         setSupabaseLastSavedAt(new Date().toISOString());
@@ -1472,6 +1507,7 @@ export function PatientProvider({
       exercisePlanChangeSummaryByPatientId?: Record<string, string>;
       /** דילוג על debounce — שמירת בסיס ידע / טיפים לפני ריענון רקע מהשרת */
       immediate?: boolean;
+      onPushComplete?: (result: SupabasePushResult) => void;
     }) => {
       if (!supabase) {
         console.error(
@@ -1490,14 +1526,25 @@ export function PatientProvider({
       }
 
       const incoming = options?.exercisePlanChangeSummaryByPatientId;
-      if (incoming && Object.keys(incoming).length > 0) {
+      if (
+        (incoming && Object.keys(incoming).length > 0) ||
+        typeof options?.onPushComplete === 'function'
+      ) {
         const acc = accumulatedCloudSaveOptionsRef.current ?? {};
-        accumulatedCloudSaveOptionsRef.current = {
-          exercisePlanChangeSummaryByPatientId: {
+        const next: {
+          exercisePlanChangeSummaryByPatientId?: Record<string, string>;
+          onPushComplete?: (result: SupabasePushResult) => void;
+        } = { ...acc };
+        if (incoming && Object.keys(incoming).length > 0) {
+          next.exercisePlanChangeSummaryByPatientId = {
             ...(acc.exercisePlanChangeSummaryByPatientId ?? {}),
             ...incoming,
-          },
-        };
+          };
+        }
+        if (options?.onPushComplete) {
+          next.onPushComplete = options.onPushComplete;
+        }
+        accumulatedCloudSaveOptionsRef.current = next;
       }
 
       if (options?.immediate) {
@@ -2094,8 +2141,27 @@ export function PatientProvider({
       explanation: string;
       sourceUrl: string;
     }) => {
+      suppressAppKbCloudFetchUntilRef.current = Date.now() + KB_CLOUD_FETCH_COOLDOWN_MS_AFTER_TIP_SAVE;
       gamification.addManualKnowledgeFact(input);
-      void savePersistedStateToCloud({ immediate: true });
+      void savePersistedStateToCloud({
+        immediate: true,
+        onPushComplete: (pushResult) => {
+          console.log('[TIP_SYNC] Supabase cloud push — full result after therapist tip save:', pushResult);
+          const kbUpsert = pushResult.knowledgeBaseUpsert;
+          if (kbUpsert !== undefined) {
+            console.log('[TIP_SYNC] app_knowledge_base upsert response:', kbUpsert);
+            if (!kbUpsert.ok) {
+              console.warn('[TIP_SYNC] KB upsert error:', kbUpsert.message, {
+                httpStatus: kbUpsert.httpStatus,
+                raw: kbUpsert.raw,
+              });
+            }
+          }
+          if (!pushResult.ok) {
+            console.warn('[TIP_SYNC] Cloud push failed:', pushResult.message, pushResult.httpStatus);
+          }
+        },
+      });
     },
     [gamification, savePersistedStateToCloud]
   );

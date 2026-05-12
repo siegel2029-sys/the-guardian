@@ -11,10 +11,6 @@ import type {
   Therapist,
 } from '../types';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
-import {
-  upsertGlobalAppKnowledgeBase,
-  type GamificationPushResult,
-} from './gamificationService';
 import { computeStreakForPatient } from '../utils/exerciseStreak';
 import {
   isSupabaseAuthEnabled,
@@ -34,7 +30,7 @@ import {
 /**
  * בסיס ידע גלובלי («הידעת?») — לא נמשך כאן בשאילתות קליניות.
  *
- * המאגר ב־Supabase: טבלה `app_knowledge_base`, שורת `id='global'`, עמודת `items` (JSONB של אובייקטי עובדות).
+ * המאגר ב־Supabase: טבלה `app_knowledge_base` — לרוב שורה לכל מטפל עם `id` / `therapist_id` = `auth.uid()`, עמודת `items` (JSONB).
  * אין פילטר SQL ל־`is_approved` על כל איבר בתוך ה־JSON; הפילטר לפורטל המטופל מיושם ב־`fetchAppKnowledgeBaseFromSupabase`
  * (ב־`gamificationService.ts`) עם `{ approvedOnly: true }` — לאחר הנירמול ב־`knowledgeFactNormalize.ts`.
  */
@@ -231,22 +227,69 @@ export function mergeKnowledgeFactsHydrateFromTherapistCloud(
 }
 
 /**
- * כתיבה לטבלת `app_knowledge_base` (מפתח `global`) — בנוסף ל-mirror אופציונלי ב־`patients.payload`.
+ * כתיבה לטבלת `app_knowledge_base` — כולל `therapist_id` (ומפתח `id` תואם) כדי לעבור RLS.
  */
 export async function upsertGlobalAppKnowledgeBaseWithTipSyncLog(
   client: SupabaseClient,
   knowledgeItems: KnowledgeFact[],
   now: string
-): Promise<GamificationPushResult> {
-  const result = await upsertGlobalAppKnowledgeBase(client, knowledgeItems, now);
-  if (import.meta.env.DEV && result.ok) {
+): Promise<AppKnowledgeBaseSaveOutcome> {
+  let therapistAuthUserId: string | null = null;
+  if (isSupabaseAuthEnabled()) {
+    const {
+      data: { user },
+      error: userErr,
+    } = await client.auth.getUser();
+    if (!userErr && user?.id?.trim()) {
+      therapistAuthUserId = user.id.trim();
+    }
+  }
+
+  const row: Record<string, unknown> = {
+    items: knowledgeItems,
+    deleted_seed_ids: [],
+    updated_at: now,
+  };
+  if (therapistAuthUserId) {
+    row.id = therapistAuthUserId;
+    row.therapist_id = therapistAuthUserId;
+  } else {
+    row.id = 'global';
+  }
+
+  const { data, error } = await client
+    .from('app_knowledge_base')
+    .upsert(row, { onConflict: 'id' })
+    .select();
+
+  if (error) {
+    const code = 'code' in error ? String((error as { code?: string }).code) : '';
+    const isMissingTable =
+      code === 'PGRST205' ||
+      /404|not find the table|schema cache/i.test(error.message ?? '');
+    const hint = isMissingTable
+      ? ' — יש להחיל מיגרציות (app_knowledge_base + therapist_id + deleted_seed_ids) על פרויקט Supabase המקושר.'
+      : '';
+    return {
+      ok: false,
+      message: `app_knowledge_base: ${error.message}${hint}`,
+      httpStatus: postgrestHttpStatus(error),
+      code,
+      raw: error,
+      therapistAuthUserId,
+    };
+  }
+
+  if (import.meta.env.DEV) {
     console.log('[TIP_SYNC] app_knowledge_base upsert', {
       table: 'app_knowledge_base',
-      rowId: 'global',
+      therapistAuthUserId,
       itemCount: knowledgeItems.length,
+      returnedRows: data,
     });
   }
-  return result;
+
+  return { ok: true, data: data ?? null, therapistAuthUserId };
 }
 
 /**
@@ -390,9 +433,21 @@ export function clinicalPushFail(message: string, err?: unknown): {
   return httpStatus !== undefined ? { ok: false, message, httpStatus } : { ok: false, message };
 }
 
+/** תוצאת upsert ל־app_knowledge_base כולל גוף תשובה לדיבוג (403/400 וכו׳). */
+export type AppKnowledgeBaseSaveOutcome =
+  | { ok: true; data: unknown; therapistAuthUserId: string | null }
+  | {
+      ok: false;
+      message: string;
+      httpStatus?: number;
+      code?: string;
+      raw?: unknown;
+      therapistAuthUserId: string | null;
+    };
+
 export type ClinicalPushResult =
-  | { ok: true; syncedPatients?: Patient[] }
-  | { ok: false; message: string; httpStatus?: number };
+  | { ok: true; syncedPatients?: Patient[]; knowledgeBaseUpsert?: AppKnowledgeBaseSaveOutcome }
+  | { ok: false; message: string; httpStatus?: number; knowledgeBaseUpsert?: AppKnowledgeBaseSaveOutcome };
 
 export type ClinicalAuditLogRow = {
   id: string;

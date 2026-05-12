@@ -788,7 +788,12 @@ export function useGamification({
 
   const refreshKnowledgeBaseFromCloud = useCallback(async () => {
     if (!supabase) return;
-    const kbRow = await fetchAppKnowledgeBaseFromSupabase(supabase);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const kbRow = await fetchAppKnowledgeBaseFromSupabase(supabase, {
+      therapistAuthUserId: user?.id,
+    });
     if (kbRow) {
       setKnowledgeFacts(kbRow.items);
     }
