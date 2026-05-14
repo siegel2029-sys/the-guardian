@@ -83,24 +83,43 @@ export function usePatientReminderInfrastructure(opts: {
   }, [active, patientId]);
 
   useEffect(() => {
-    if (!active || !patientId || !isSupabaseConfigured || !supabase) return;
-    if (!authUserId) return;
-    if (pushInitDone.current) return;
+    console.log('[Push hook] effect', {
+      active,
+      patientId: patientId ?? null,
+      authUserId: authUserId ?? null,
+      pushInitAlreadyDone: pushInitDone.current,
+    });
+
+    if (!active || !patientId || !isSupabaseConfigured || !supabase) {
+      console.log('[Push hook] skip — inactive or missing patientId/supabase');
+      return;
+    }
+    if (!authUserId) {
+      console.log('[Push hook] skip — waiting for Supabase auth session (authUserId empty)');
+      return;
+    }
+    if (pushInitDone.current) {
+      console.log('[Push hook] skip — pushInitDone already true');
+      return;
+    }
     pushInitDone.current = true;
+
+    console.log('[Push hook] invoking registerPatientPushForSupabase', { patientId });
 
     void (async () => {
       const reg = await registerPatientPushForSupabase(patientId);
+      console.log('[Push hook] registerPatientPushForSupabase result', reg);
       if (!reg.ok) {
-        if (import.meta.env.DEV) {
-          console.info('[usePatientReminderInfrastructure] push register skipped:', reg.reason);
-        }
+        console.warn('[usePatientReminderInfrastructure] push register skipped:', reg.reason);
         return;
       }
+      console.log('[Push hook] calling persistPatientPushProfile');
       const saved = await persistPatientPushProfile({
         patientId,
         token: reg.token,
         webPushSubscription: reg.webPushSubscription,
       });
+      console.log('[Push hook] persistPatientPushProfile result', saved);
       if (!saved.ok) {
         console.warn('[usePatientReminderInfrastructure] push persist', saved.message);
       }

@@ -59,6 +59,7 @@ export type WebPushSubscriptionPayload = NonNullable<Patient['webPushSubscriptio
  */
 export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushSubscriptionPayload | null> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.log('Push: subscribeWebPush — unsupported (no window / serviceWorker / PushManager)');
     return null;
   }
 
@@ -71,7 +72,8 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
   }
 
   try {
-    await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    console.log('Push: Service Worker registration status:', registration);
     const reg = await navigator.serviceWorker.ready;
     if (!reg.pushManager) {
       console.warn('[PhysioShield push] pushManager missing on registration');
@@ -81,17 +83,25 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
       const keyBytes = urlBase64ToUint8Array(vapidPublic);
-      sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: keyBytes as BufferSource,
-      });
+      try {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: keyBytes as BufferSource,
+        });
+      } catch (subscribeErr) {
+        console.error('Push: subscribe() threw:', subscribeErr);
+        throw subscribeErr;
+      }
     }
 
     const json = sub.toJSON() as WebPushSubscriptionPayload | undefined;
-    if (!json?.endpoint) return null;
+    if (!json?.endpoint) {
+      console.warn('Push: subscription JSON missing endpoint', json);
+      return null;
+    }
     return json;
   } catch (e) {
-    console.warn('[PhysioShield push] pushManager.subscribe failed', e);
+    console.error('Push: subscribe flow failed (exact error):', e);
     return null;
   }
 }
@@ -101,12 +111,14 @@ async function subscribeWebPushAfterPermissionGrantedWithRetries(
   delayMs = 400
 ): Promise<WebPushSubscriptionPayload | null> {
   for (let i = 0; i < attempts; i++) {
+    console.log(`Push: subscribe attempt ${i + 1}/${attempts}`);
     const json = await subscribeWebPushAfterPermissionGranted();
     if (json?.endpoint) return json;
     if (i + 1 < attempts) {
       await new Promise((r) => setTimeout(r, delayMs));
     }
   }
+  console.warn('Push: all subscribe retries exhausted without a subscription');
   return null;
 }
 
@@ -125,15 +137,20 @@ export type PushRegisterResult =
  * to a placeholder token when subscribe is unavailable.
  */
 export async function registerPatientPushForSupabase(patientId: string): Promise<PushRegisterResult> {
+  console.log('Push: Starting registration...');
   console.log('DEBUG VAPID KEY:', import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY);
   const native = getNativeExpoPushTokenSync();
   if (native) {
+    console.log('Push: Using native Expo token; skipping web subscribe.');
     return { ok: true, token: native, permission: 'granted' };
   }
 
   if (typeof window === 'undefined' || typeof Notification === 'undefined') {
+    console.log('Push: Abort — notifications unsupported (no window / Notification API).');
     return { ok: false, reason: 'notifications_unsupported' };
   }
+
+  console.log('Push: Permission status:', Notification.permission);
 
   let prompted = false;
   try {
@@ -158,7 +175,10 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
     }
   }
 
+  console.log('Push: Permission status (after prompt handling):', permission);
+
   if (permission === 'denied') {
+    console.log('Push: Abort — permission denied.');
     return { ok: false, reason: 'permission_denied' };
   }
 
@@ -169,6 +189,7 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
 
   if (permission === 'granted') {
     if (vapidPublic) {
+      console.log('Push: VAPID present — subscribing via PushManager (with retries).');
       const subJson = await subscribeWebPushAfterPermissionGrantedWithRetries();
       if (!subJson?.endpoint) {
         console.warn(
@@ -179,6 +200,7 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
       webPushSubscription = subJson;
       token = subJson.endpoint;
     } else {
+      console.log('Push: No VAPID — attempting subscribe or placeholder.');
       const subJson = await subscribeWebPushAfterPermissionGranted();
       if (subJson?.endpoint) {
         webPushSubscription = subJson;
@@ -188,8 +210,14 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
       }
     }
   } else {
+    console.log('Push: Permission still default — placeholder token only.');
     token = buildWebPlaceholderToken(patientId);
   }
+
+  console.log('Push: Registration finished OK.', {
+    hasWebPushSubscription: Boolean(webPushSubscription?.endpoint),
+    tokenPrefix: token.slice(0, 48),
+  });
 
   return {
     ok: true,
