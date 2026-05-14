@@ -78,7 +78,11 @@ export function usePatientReminderInfrastructure(opts: {
         }
         return;
       }
-      const saved = await persistPatientPushProfile({ patientId, token: reg.token });
+      const saved = await persistPatientPushProfile({
+        patientId,
+        token: reg.token,
+        webPushSubscription: reg.webPushSubscription,
+      });
       if (!saved.ok && import.meta.env.DEV) {
         console.warn('[usePatientReminderInfrastructure] push persist', saved.message);
       }

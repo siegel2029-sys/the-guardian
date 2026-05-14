@@ -1,10 +1,10 @@
 import { supabase } from '../lib/supabase';
+import type { Patient } from '../types';
 
 const PUSH_PROMPT_KEY = 'physioshield_push_permission_prompted_v1';
 
 function getNativeExpoPushTokenSync(): string | null {
   try {
-    // Optional native bridge (e.g. React Native / Expo webview hosting this bundle)
     const g = globalThis as unknown as {
       __EXPO_PUSH_TOKEN__?: string;
       expo?: { getPushToken?: () => string | null };
@@ -35,17 +35,72 @@ function buildWebPlaceholderToken(patientId: string): string {
   return `web-notify:${id}`;
 }
 
+/** VAPID public key (URL-safe base64) → Uint8Array for `applicationServerKey`. */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+export type WebPushSubscriptionPayload = NonNullable<Patient['webPushSubscription']>;
+
+/**
+ * After notification permission is granted: register SW + `pushManager.subscribe` (VAPID).
+ */
+export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushSubscriptionPayload | null> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return null;
+  }
+
+  const rawKey = import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY;
+  const vapidPublic = typeof rawKey === 'string' ? rawKey.trim() : '';
+  if (!vapidPublic) {
+    console.warn(
+      '[PhysioShield push] VITE_WEB_PUSH_VAPID_PUBLIC_KEY missing — cannot call pushManager.subscribe'
+    );
+    return null;
+  }
+
+  try {
+    await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    const reg = await navigator.serviceWorker.ready;
+
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const keyBytes = urlBase64ToUint8Array(vapidPublic);
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: keyBytes as BufferSource,
+      });
+    }
+
+    const json = sub.toJSON() as WebPushSubscriptionPayload | undefined;
+    if (!json?.endpoint) return null;
+    return json;
+  } catch (e) {
+    console.warn('[PhysioShield push] pushManager.subscribe failed', e);
+    return null;
+  }
+}
+
 export type PushRegisterResult =
-  | { ok: true; token: string; permission: NotificationPermission | 'unsupported' }
+  | {
+      ok: true;
+      token: string;
+      permission: NotificationPermission | 'unsupported';
+      webPushSubscription?: WebPushSubscriptionPayload;
+    }
   | { ok: false; reason: string };
 
 /**
- * Requests browser notification permission on first launch, resolves an Expo push token
- * (when native sets global) or a stable web placeholder for persistence (remote push requires Expo).
+ * Requests notification permission; when granted on web, registers push subscription (VAPID) or falls back to placeholder token.
  */
-export async function registerPatientPushForSupabase(
-  patientId: string
-): Promise<PushRegisterResult> {
+export async function registerPatientPushForSupabase(patientId: string): Promise<PushRegisterResult> {
   const native = getNativeExpoPushTokenSync();
   if (native) {
     return { ok: true, token: native, permission: 'granted' };
@@ -82,11 +137,26 @@ export async function registerPatientPushForSupabase(
     return { ok: false, reason: 'permission_denied' };
   }
 
-  const token = buildWebPlaceholderToken(patientId);
+  let webPushSubscription: WebPushSubscriptionPayload | undefined;
+  let token: string;
+
+  if (permission === 'granted') {
+    const subJson = await subscribeWebPushAfterPermissionGranted();
+    if (subJson?.endpoint) {
+      webPushSubscription = subJson;
+      token = subJson.endpoint;
+    } else {
+      token = buildWebPlaceholderToken(patientId);
+    }
+  } else {
+    token = buildWebPlaceholderToken(patientId);
+  }
+
   return {
     ok: true,
     token,
     permission: permission === 'granted' ? 'granted' : 'default',
+    webPushSubscription,
   };
 }
 
@@ -111,6 +181,7 @@ export async function showPhysioshieldTestNotification(): Promise<void> {
   globalThis.alert('Permission: ' + permission);
 
   if (permission === 'granted') {
+    await subscribeWebPushAfterPermissionGranted();
     try {
       // eslint-disable-next-line no-new
       new Notification('Test', { body: 'It works!' });
@@ -128,6 +199,7 @@ export async function showPhysioshieldTestNotification(): Promise<void> {
 export async function persistPatientPushProfile(params: {
   patientId: string;
   token: string;
+  webPushSubscription?: WebPushSubscriptionPayload;
 }): Promise<{ ok: boolean; message?: string }> {
   if (!supabase) {
     return { ok: false, message: 'supabase_not_configured' };
@@ -137,17 +209,40 @@ export async function persistPatientPushProfile(params: {
       ? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC'
       : 'UTC';
 
-  const { error } = await supabase
-    .from('patients')
-    .update({
-      push_token: params.token,
-      reminder_timezone: tz,
-    })
-    .eq('id', params.patientId);
+  const patch: Record<string, unknown> = {
+    push_token: params.token,
+    reminder_timezone: tz,
+  };
+
+  if (params.webPushSubscription) {
+    const { data: row, error: fetchErr } = await supabase
+      .from('patients')
+      .select('payload')
+      .eq('id', params.patientId)
+      .maybeSingle();
+
+    if (fetchErr) {
+      return { ok: false, message: fetchErr.message };
+    }
+    if (!row) {
+      return { ok: false, message: 'patient_not_found_or_unauthorized' };
+    }
+
+    const existing = row.payload;
+    const base =
+      existing && typeof existing === 'object' && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+    base.webPushSubscription = params.webPushSubscription;
+    patch.payload = base;
+  }
+
+  const { error } = await supabase.from('patients').update(patch).eq('id', params.patientId);
 
   if (error) {
     return { ok: false, message: error.message };
   }
+  console.log('Push Token Saved!');
   return { ok: true };
 }
 

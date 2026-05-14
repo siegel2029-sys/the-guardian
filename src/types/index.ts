@@ -259,6 +259,15 @@ export interface Patient {
    * כדי שמיזוג עם נתוני שרת ישנים לא ידרוס טיפים מקומיים לפני שמירת הענן.
    */
   knowledgeFacts?: KnowledgeFact[];
+  /**
+   * מנוי Web Push מהדפדפן (VAPID) — נשמר ב־`patients.payload` לאחר `pushManager.subscribe`.
+   * משמש שרת/Edge Functions לשליחת התראות מחוץ ל-Expo.
+   */
+  webPushSubscription?: {
+    endpoint: string;
+    expirationTime?: number | null;
+    keys?: { p256dh: string; auth: string };
+  };
 }
 
 /** תובנות AI לסשן טיפול — נשמרות ברשומת התיעוד (payload מטופל → Supabase) */
