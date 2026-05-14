@@ -125,6 +125,7 @@ export type PushRegisterResult =
  * to a placeholder token when subscribe is unavailable.
  */
 export async function registerPatientPushForSupabase(patientId: string): Promise<PushRegisterResult> {
+  console.log('DEBUG VAPID KEY:', import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY);
   const native = getNativeExpoPushTokenSync();
   if (native) {
     return { ok: true, token: native, permission: 'granted' };
