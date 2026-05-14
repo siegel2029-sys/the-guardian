@@ -70,16 +70,13 @@ export function usePatientDidYouKnowAnchor(): PatientDidYouKnowAnchorContextValu
 /**
  * «הידעת?» — טריגר מאגר הידע (מנורה). תמיד נטען דרך PhysioshieldPortal ל־`#physioshield-portal-root`
  * (לא בתוך #root) עם מיקום viewport-fixed — לא גלול עם כרטיס האווטאר.
- * `portaledViewportFixed` חייב להיות true (ברירת מחדל); קיים לצורך ביקורת/בנייה.
  */
 export function PatientDidYouKnowAnchorButton({
   className,
   align = 'corner',
-  portaledViewportFixed = true,
 }: {
   className?: string;
   align?: 'corner' | 'inline';
-  portaledViewportFixed?: true;
 }) {
   const ctx = usePatientDidYouKnowAnchor();
   if (!ctx?.visible) return null;
