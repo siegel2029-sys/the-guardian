@@ -16,11 +16,28 @@ export function usePatientReminderInfrastructure(opts: {
 } {
   const { patientId, active, portalTab } = opts;
   const [exerciseLogCount, setExerciseLogCount] = useState<number | null>(null);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
   const pushInitDone = useRef(false);
 
   useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) {
+      setAuthUserId(null);
+      return;
+    }
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      setAuthUserId(session?.user?.id ?? null);
+    });
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUserId(session?.user?.id ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
     pushInitDone.current = false;
-  }, [patientId]);
+  }, [patientId, authUserId]);
 
   const refetchExerciseLogCount = useCallback(async () => {
     if (!patientId || !isSupabaseConfigured || !supabase) {
@@ -67,6 +84,7 @@ export function usePatientReminderInfrastructure(opts: {
 
   useEffect(() => {
     if (!active || !patientId || !isSupabaseConfigured || !supabase) return;
+    if (!authUserId) return;
     if (pushInitDone.current) return;
     pushInitDone.current = true;
 
@@ -83,11 +101,11 @@ export function usePatientReminderInfrastructure(opts: {
         token: reg.token,
         webPushSubscription: reg.webPushSubscription,
       });
-      if (!saved.ok && import.meta.env.DEV) {
+      if (!saved.ok) {
         console.warn('[usePatientReminderInfrastructure] push persist', saved.message);
       }
     })();
-  }, [active, patientId]);
+  }, [active, patientId, authUserId]);
 
   return { exerciseLogCount, refetchExerciseLogCount };
 }

@@ -35,6 +35,11 @@ function buildWebPlaceholderToken(patientId: string): string {
   return `web-notify:${id}`;
 }
 
+function getVapidPublicKey(): string {
+  const rawKey = import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY;
+  return typeof rawKey === 'string' ? rawKey.trim() : '';
+}
+
 /** VAPID public key (URL-safe base64) → Uint8Array for `applicationServerKey`. */
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -57,8 +62,7 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
     return null;
   }
 
-  const rawKey = import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY;
-  const vapidPublic = typeof rawKey === 'string' ? rawKey.trim() : '';
+  const vapidPublic = getVapidPublicKey();
   if (!vapidPublic) {
     console.warn(
       '[PhysioShield push] VITE_WEB_PUSH_VAPID_PUBLIC_KEY missing — cannot call pushManager.subscribe'
@@ -69,6 +73,10 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
   try {
     await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     const reg = await navigator.serviceWorker.ready;
+    if (!reg.pushManager) {
+      console.warn('[PhysioShield push] pushManager missing on registration');
+      return null;
+    }
 
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
@@ -88,6 +96,20 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
   }
 }
 
+async function subscribeWebPushAfterPermissionGrantedWithRetries(
+  attempts = 4,
+  delayMs = 400
+): Promise<WebPushSubscriptionPayload | null> {
+  for (let i = 0; i < attempts; i++) {
+    const json = await subscribeWebPushAfterPermissionGranted();
+    if (json?.endpoint) return json;
+    if (i + 1 < attempts) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  return null;
+}
+
 export type PushRegisterResult =
   | {
       ok: true;
@@ -98,7 +120,9 @@ export type PushRegisterResult =
   | { ok: false; reason: string };
 
 /**
- * Requests notification permission; when granted on web, registers push subscription (VAPID) or falls back to placeholder token.
+ * Requests notification permission. On web with `VITE_WEB_PUSH_VAPID_PUBLIC_KEY` set and permission granted,
+ * registers the SW, waits for readiness, and requires a real PushSubscription (retries). Without VAPID, may fall back
+ * to a placeholder token when subscribe is unavailable.
  */
 export async function registerPatientPushForSupabase(patientId: string): Promise<PushRegisterResult> {
   const native = getNativeExpoPushTokenSync();
@@ -137,16 +161,30 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
     return { ok: false, reason: 'permission_denied' };
   }
 
+  const vapidPublic = getVapidPublicKey();
+
   let webPushSubscription: WebPushSubscriptionPayload | undefined;
   let token: string;
 
   if (permission === 'granted') {
-    const subJson = await subscribeWebPushAfterPermissionGranted();
-    if (subJson?.endpoint) {
+    if (vapidPublic) {
+      const subJson = await subscribeWebPushAfterPermissionGrantedWithRetries();
+      if (!subJson?.endpoint) {
+        console.warn(
+          '[PhysioShield push] VAPID key is set but pushManager.subscribe did not produce a subscription'
+        );
+        return { ok: false, reason: 'web_push_subscribe_failed' };
+      }
       webPushSubscription = subJson;
       token = subJson.endpoint;
     } else {
-      token = buildWebPlaceholderToken(patientId);
+      const subJson = await subscribeWebPushAfterPermissionGranted();
+      if (subJson?.endpoint) {
+        webPushSubscription = subJson;
+        token = subJson.endpoint;
+      } else {
+        token = buildWebPlaceholderToken(patientId);
+      }
     }
   } else {
     token = buildWebPlaceholderToken(patientId);
@@ -233,14 +271,34 @@ export async function persistPatientPushProfile(params: {
       existing && typeof existing === 'object' && !Array.isArray(existing)
         ? { ...(existing as Record<string, unknown>) }
         : {};
-    base.webPushSubscription = params.webPushSubscription;
+    const incoming = params.webPushSubscription as Record<string, unknown>;
+    const prevSub = base.webPushSubscription;
+    base.webPushSubscription =
+      prevSub && typeof prevSub === 'object' && !Array.isArray(prevSub)
+        ? ({ ...prevSub, ...incoming } as unknown as Patient['webPushSubscription'])
+        : params.webPushSubscription;
     patch.payload = base;
   }
 
-  const { error } = await supabase.from('patients').update(patch).eq('id', params.patientId);
+  const payload = patch.payload ?? patch;
+  console.log('Final Sync: Push Token included in payload', payload);
+
+  const { data: updated, error } = await supabase
+    .from('patients')
+    .update(patch)
+    .eq('id', params.patientId)
+    .select('id')
+    .maybeSingle();
 
   if (error) {
     return { ok: false, message: error.message };
+  }
+  if (!updated?.id) {
+    return {
+      ok: false,
+      message:
+        'patient_update_returned_no_rows (check RLS and patients.auth_user_id matches the signed-in user)',
+    };
   }
   console.log('Push Token Saved!');
   return { ok: true };
