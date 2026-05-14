@@ -56,20 +56,23 @@ function getVapidPublicKey(): string {
 }
 
 /**
- * VAPID / Web Push: URL-safe base64 (RFC 4648 §5, optional padding) → `Uint8Array` for
- * `pushManager.subscribe({ applicationServerKey })`. Must not pass the raw string — browsers require binary.
+ * VAPID / Web Push: URL-safe base64 (RFC 4648 §5) → `Uint8Array` for
+ * `pushManager.subscribe({ applicationServerKey })`.
+ *
+ * Order: strip whitespace → URL-safe → standard base64 (`-`/`_` → `+`/`/`) → pad to multiple of 4 → `atob` → bytes.
  */
 export function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const clean = base64String.replace(/\s+/g, '').trim();
-  const padding = '='.repeat((4 - (clean.length % 4)) % 4);
-  const base64 = (clean + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
+  let base64 = base64String.replace(/\s+/g, '').trim();
+  base64 = base64.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4 !== 0) {
+    base64 += '=';
   }
-  return outputArray;
+  const binary = atob(base64);
+  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
 }
+
+/** Uncompressed P-256 public key for Web Push VAPID (`04 || X || Y`). */
+const VAPID_APPLICATION_SERVER_KEY_LENGTH = 65;
 
 export type WebPushSubscriptionPayload = NonNullable<Patient['webPushSubscription']>;
 
@@ -102,6 +105,17 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
       const applicationServerKey = urlBase64ToUint8Array(vapidPublic);
+      console.log(
+        'Push: applicationServerKey decoded byte length:',
+        applicationServerKey.length,
+        `(expected ${VAPID_APPLICATION_SERVER_KEY_LENGTH} for uncompressed P-256 VAPID public key)`
+      );
+      if (applicationServerKey.length !== VAPID_APPLICATION_SERVER_KEY_LENGTH) {
+        throw new Error(
+          `VAPID public key must decode to exactly ${VAPID_APPLICATION_SERVER_KEY_LENGTH} bytes (uncompressed P-256: 0x04 || X || Y); decoded length is ${applicationServerKey.length}. ` +
+            'Confirm VITE_WEB_PUSH_VAPID_PUBLIC_KEY is the URL-safe base64 **public** key from web-push generateVAPIDKeys (not the private key) and is not truncated.'
+        );
+      }
       try {
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
