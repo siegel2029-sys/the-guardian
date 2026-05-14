@@ -35,15 +35,34 @@ function buildWebPlaceholderToken(patientId: string): string {
   return `web-notify:${id}`;
 }
 
-function getVapidPublicKey(): string {
-  const rawKey = import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY;
-  return typeof rawKey === 'string' ? rawKey.trim() : '';
+/**
+ * Normalize VAPID public key from `import.meta.env`: trim, strip a single pair of wrapping quotes,
+ * and remove stray whitespace/newlines (common when copying from dashboards or multi-line .env).
+ */
+function normalizeVapidPublicKeyString(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  let s = raw.replace(/^\uFEFF/, '').trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s.replace(/\s+/g, '');
 }
 
-/** VAPID public key (URL-safe base64) → Uint8Array for `applicationServerKey`. */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+function getVapidPublicKey(): string {
+  return normalizeVapidPublicKeyString(import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY);
+}
+
+/**
+ * VAPID / Web Push: URL-safe base64 (RFC 4648 §5, optional padding) → `Uint8Array` for
+ * `pushManager.subscribe({ applicationServerKey })`. Must not pass the raw string — browsers require binary.
+ */
+export function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const clean = base64String.replace(/\s+/g, '').trim();
+  const padding = '='.repeat((4 - (clean.length % 4)) % 4);
+  const base64 = (clean + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = atob(base64);
   const outputArray = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; ++i) {
@@ -82,11 +101,11 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
 
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
-      const keyBytes = urlBase64ToUint8Array(vapidPublic);
+      const applicationServerKey = urlBase64ToUint8Array(vapidPublic);
       try {
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: keyBytes as BufferSource,
+          applicationServerKey: applicationServerKey as BufferSource,
         });
       } catch (subscribeErr) {
         console.error('Push: subscribe() threw:', subscribeErr);
