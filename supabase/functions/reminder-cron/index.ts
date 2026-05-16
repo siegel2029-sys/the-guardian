@@ -8,6 +8,9 @@ import { createClient } from "npm:@supabase/supabase-js@2";
  * Unexpected handler errors return HTTP 200 with JSON `{ ok: false, error, stack }`.
  *
  * Reads `patients.push_token` (Expo: `ExponentPushToken[...]`). Sends via Expo Push API with `Authorization: Bearer`.
+ *
+ * **Testing:** POST JSON `{ "test_now": true }` sends one Expo push to the first patient with an Expo token (skips all cron logic).
+ * Time-of-day / quiet-hour checks are temporarily disabled in the main loop (see comments); restore before production if desired.
  */
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
@@ -20,6 +23,8 @@ const corsHeaders: Record<string, string> = {
 const MOMENTUM_BODY =
   "You're already here! Want to complete your exercises now while you're at it?";
 const STANDARD_BODY = "Time for your daily recovery. Let's get moving!";
+/** One-off test push when JSON body has `"test_now": true`. */
+const TEST_NOW_BODY = "[TEST] Physio-Shield reminder-cron ping — you can ignore this.";
 
 type PatientRow = {
   id: string;
@@ -115,6 +120,25 @@ async function sendExpoPush(token: string, body: string): Promise<{ ok: boolean;
   return { ok: true };
 }
 
+/** POST/PATCH/PUT JSON body flags (empty object if none). Consumes the request body once. */
+async function parseCronJsonBody(req: Request): Promise<{ test_now: boolean }> {
+  if (!["POST", "PUT", "PATCH"].includes(req.method)) {
+    return { test_now: false };
+  }
+  const ct = req.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) {
+    return { test_now: false };
+  }
+  try {
+    const raw = await req.text();
+    if (!raw.trim()) return { test_now: false };
+    const j = JSON.parse(raw) as Record<string, unknown>;
+    return { test_now: j.test_now === true };
+  } catch {
+    return { test_now: false };
+  }
+}
+
 Deno.serve(async (req) => {
   console.log("Incoming headers:", Object.fromEntries(req.headers.entries()));
 
@@ -156,6 +180,49 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     );
 
+    const { test_now } = await parseCronJsonBody(req);
+
+    if (test_now) {
+      const { data: testPatients, error: testListErr } = await supabase
+        .from("patients")
+        .select("id, push_token")
+        .not("auth_user_id", "is", null);
+
+      if (testListErr) {
+        return jsonResponse({ ok: false, test_now: true, error: testListErr.message }, 503);
+      }
+
+      let testPatientId: string | null = null;
+      let testToken: string | null = null;
+      for (const row of testPatients ?? []) {
+        const pr = row as { id: string; push_token: string | null };
+        const t = (pr.push_token ?? "").trim();
+        if (t && isExpoPushToken(t)) {
+          testPatientId = pr.id;
+          testToken = t;
+          break;
+        }
+      }
+
+      if (!testToken || !testPatientId) {
+        return jsonResponse({
+          ok: true,
+          test_now: true,
+          sent: false,
+          reason: "no_patient_with_expo_push_token",
+        });
+      }
+
+      const r = await sendExpoPush(testToken, TEST_NOW_BODY);
+      return jsonResponse({
+        ok: true,
+        test_now: true,
+        sent: r.ok,
+        patientId: testPatientId,
+        ...(r.ok ? {} : { expoError: r.detail }),
+      });
+    }
+
     const nowIso = new Date().toISOString();
     const threeHoursMs = 3 * 60 * 60 * 1000;
     const nowMs = Date.now();
@@ -191,7 +258,7 @@ Deno.serve(async (req) => {
         skipped += 1;
         continue;
       }
-      const { ymd: localYmd, hour: localHour } = wall;
+      const { ymd: localYmd /* , hour: localHour */ } = wall;
 
       const { data: sessions, error: shErr } = await supabase
         .from("session_history")
@@ -214,8 +281,7 @@ Deno.serve(async (req) => {
         !hasWorkToday &&
         p.last_activity_timestamp &&
         nowMs - new Date(p.last_activity_timestamp).getTime() <= threeHoursMs &&
-        localHour >= 8 &&
-        localHour <= 20 &&
+        /* TESTING: quiet hours disabled — restore: localHour >= 8 && localHour <= 20 */
         p.last_momentum_reminder_local_date !== localYmd
       ) {
         const r = await sendExpoPush(token, MOMENTUM_BODY);
@@ -234,7 +300,7 @@ Deno.serve(async (req) => {
       if (
         !hasWorkToday &&
         !sentSomething &&
-        localHour === 20 &&
+        /* TESTING: standard reminder hour disabled — restore: localHour === 20 */
         p.last_standard_reminder_local_date !== localYmd
       ) {
         const r = await sendExpoPush(token, STANDARD_BODY);
