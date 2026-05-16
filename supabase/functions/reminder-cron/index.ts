@@ -3,19 +3,18 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 /**
  * Hourly reminder dispatcher: "momentum" (recent activity, no session yet today) vs 8pm local standard.
  *
- * Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (auto in Supabase), CRON_SECRET (set manually).
- * Schedule an HTTP POST to this function every hour with header `x-physioshield-cron: <CRON_SECRET>`
- * (Dashboard → Edge Functions → Schedules, or external cron).
+ * Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (auto), INTERNAL_CRON_SECRET, EXPO_ACCESS_TOKEN (Expo Push API).
+ * With `--no-verify-jwt`, auth requires `INTERNAL_CRON_SECRET` via header `x-cron-secret` **or** query `?secret=`.
+ * Unexpected handler errors return HTTP 200 with JSON `{ ok: false, error, stack }`.
  *
- * Sends via Expo Push API. Client tokens must be `ExponentPushToken[...]` for delivery; the Vite
- * web app persists browser placeholders unless a native bridge sets `globalThis.__EXPO_PUSH_TOKEN__`.
+ * Reads `patients.push_token` (Expo: `ExponentPushToken[...]`). Sends via Expo Push API with `Authorization: Bearer`.
  */
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-physioshield-cron, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-cron-secret, content-type",
 };
 
 const MOMENTUM_BODY =
@@ -79,12 +78,18 @@ function payloadHasWork(payload: unknown): boolean {
 }
 
 async function sendExpoPush(token: string, body: string): Promise<{ ok: boolean; detail?: string }> {
+  const expoAccessToken = Deno.env.get("EXPO_ACCESS_TOKEN")?.trim() ?? "";
+  if (!expoAccessToken) {
+    return { ok: false, detail: "EXPO_ACCESS_TOKEN secret missing or empty" };
+  }
+
   const r = await fetch(EXPO_PUSH_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
       "Accept-encoding": "gzip, deflate",
+      Authorization: `Bearer ${expoAccessToken}`,
     },
     body: JSON.stringify({
       to: token.trim(),
@@ -111,125 +116,152 @@ async function sendExpoPush(token: string, body: string): Promise<{ ok: boolean;
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+  console.log("Incoming headers:", Object.fromEntries(req.headers.entries()));
+
+  const SECRET = Deno.env.get("INTERNAL_CRON_SECRET");
+  const authHeader = req.headers.get("x-cron-secret");
+  const url = new URL(req.url);
+  const urlSecret = url.searchParams.get("secret");
+
+  if (!SECRET || (authHeader !== SECRET && urlSecret !== SECRET)) {
+    console.error("Auth failed");
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
-  const cronSecret = Deno.env.get("CRON_SECRET") ?? "";
-  const hdr = req.headers.get("x-physioshield-cron") ?? "";
-  if (!cronSecret || hdr !== cronSecret) {
-    return jsonResponse({ error: "unauthorized" }, 401);
-  }
-
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  if (!supabaseUrl || !serviceKey) {
-    return jsonResponse({ error: "missing_supabase_env" }, 500);
-  }
-
-  const admin = createClient(supabaseUrl, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const nowIso = new Date().toISOString();
-  const threeHoursMs = 3 * 60 * 60 * 1000;
-  const nowMs = Date.now();
-
-  const { data: patients, error: listErr } = await admin
-    .from("patients")
-    .select(
-      "id, push_token, last_activity_timestamp, reminder_timezone, last_momentum_reminder_local_date, last_standard_reminder_local_date",
-    )
-    .not("auth_user_id", "is", null);
-
-  if (listErr) {
-    return jsonResponse({ error: listErr.message }, 500);
-  }
-
-  let momentumSent = 0;
-  let standardSent = 0;
-  let skipped = 0;
-  const errors: string[] = [];
-
-  for (const row of patients ?? []) {
-    const p = row as PatientRow;
-    const token = (p.push_token ?? "").trim();
-    if (!token || !isExpoPushToken(token)) {
-      skipped += 1;
-      continue;
+  try {
+    if (req.method === "OPTIONS") {
+      return new Response("ok", { headers: corsHeaders });
     }
 
-    const tz = (p.reminder_timezone ?? "UTC").trim() || "UTC";
-    const wall = localWallParts(nowIso, tz);
-    if (!wall) {
-      skipped += 1;
-      continue;
-    }
-    const { ymd: localYmd, hour: localHour } = wall;
-
-    const { data: sessions, error: shErr } = await admin
-      .from("session_history")
-      .select("session_date, payload")
-      .eq("patient_id", p.id)
-      .eq("session_date", localYmd);
-
-    if (shErr) {
-      errors.push(`${p.id}: session_history ${shErr.message}`);
-      continue;
-    }
-
-    const hasWorkToday = (sessions ?? []).some((s: { payload: unknown }) =>
-      payloadHasWork(s.payload)
+    console.log(
+      "Env Check - URL:",
+      !!Deno.env.get("SUPABASE_URL"),
+      "Key:",
+      !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+      "Expo:",
+      !!Deno.env.get("EXPO_ACCESS_TOKEN"),
     );
 
-    let sentSomething = false;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    if (!supabaseUrl || !serviceKey) {
+      return jsonResponse({ ok: false, error: "missing_supabase_env" }, 503);
+    }
 
-    if (
-      !hasWorkToday &&
-      p.last_activity_timestamp &&
-      nowMs - new Date(p.last_activity_timestamp).getTime() <= threeHoursMs &&
-      localHour >= 8 &&
-      localHour <= 20 &&
-      p.last_momentum_reminder_local_date !== localYmd
-    ) {
-      const r = await sendExpoPush(token, MOMENTUM_BODY);
-      if (r.ok) {
-        await admin
-          .from("patients")
-          .update({ last_momentum_reminder_local_date: localYmd })
-          .eq("id", p.id);
-        momentumSent += 1;
-        sentSomething = true;
-      } else {
-        errors.push(`${p.id}: momentum ${r.detail ?? "push failed"}`);
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    );
+
+    const nowIso = new Date().toISOString();
+    const threeHoursMs = 3 * 60 * 60 * 1000;
+    const nowMs = Date.now();
+
+    const { data: patients, error: listErr } = await supabase
+      .from("patients")
+      .select(
+        // DB column is patients.push_token (not expo_push_token).
+        "id, push_token, last_activity_timestamp, reminder_timezone, last_momentum_reminder_local_date, last_standard_reminder_local_date",
+      )
+      .not("auth_user_id", "is", null);
+
+    if (listErr) {
+      return jsonResponse({ ok: false, error: listErr.message }, 503);
+    }
+
+    let momentumSent = 0;
+    let standardSent = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (const row of patients ?? []) {
+      const p = row as PatientRow;
+      const token = (p.push_token ?? "").trim();
+      if (!token || !isExpoPushToken(token)) {
+        skipped += 1;
+        continue;
+      }
+
+      const tz = (p.reminder_timezone ?? "UTC").trim() || "UTC";
+      const wall = localWallParts(nowIso, tz);
+      if (!wall) {
+        skipped += 1;
+        continue;
+      }
+      const { ymd: localYmd, hour: localHour } = wall;
+
+      const { data: sessions, error: shErr } = await supabase
+        .from("session_history")
+        .select("session_date, payload")
+        .eq("patient_id", p.id)
+        .eq("session_date", localYmd);
+
+      if (shErr) {
+        errors.push(`${p.id}: session_history ${shErr.message}`);
+        continue;
+      }
+
+      const hasWorkToday = (sessions ?? []).some((s: { payload: unknown }) =>
+        payloadHasWork(s.payload)
+      );
+
+      let sentSomething = false;
+
+      if (
+        !hasWorkToday &&
+        p.last_activity_timestamp &&
+        nowMs - new Date(p.last_activity_timestamp).getTime() <= threeHoursMs &&
+        localHour >= 8 &&
+        localHour <= 20 &&
+        p.last_momentum_reminder_local_date !== localYmd
+      ) {
+        const r = await sendExpoPush(token, MOMENTUM_BODY);
+        if (r.ok) {
+          await supabase
+            .from("patients")
+            .update({ last_momentum_reminder_local_date: localYmd })
+            .eq("id", p.id);
+          momentumSent += 1;
+          sentSomething = true;
+        } else {
+          errors.push(`${p.id}: momentum ${r.detail ?? "push failed"}`);
+        }
+      }
+
+      if (
+        !hasWorkToday &&
+        !sentSomething &&
+        localHour === 20 &&
+        p.last_standard_reminder_local_date !== localYmd
+      ) {
+        const r = await sendExpoPush(token, STANDARD_BODY);
+        if (r.ok) {
+          await supabase
+            .from("patients")
+            .update({ last_standard_reminder_local_date: localYmd })
+            .eq("id", p.id);
+          standardSent += 1;
+        } else {
+          errors.push(`${p.id}: standard ${r.detail ?? "push failed"}`);
+        }
       }
     }
 
-    if (
-      !hasWorkToday &&
-      !sentSomething &&
-      localHour === 20 &&
-      p.last_standard_reminder_local_date !== localYmd
-    ) {
-      const r = await sendExpoPush(token, STANDARD_BODY);
-      if (r.ok) {
-        await admin
-          .from("patients")
-          .update({ last_standard_reminder_local_date: localYmd })
-          .eq("id", p.id);
-        standardSent += 1;
-      } else {
-        errors.push(`${p.id}: standard ${r.detail ?? "push failed"}`);
-      }
-    }
+    return jsonResponse({
+      ok: true,
+      at: nowIso,
+      momentumSent,
+      standardSent,
+      skippedPatientsWithoutExpoToken: skipped,
+      errors: errors.slice(0, 20),
+    });
+  } catch (error: any) {
+    return new Response(
+      JSON.stringify({ ok: false, error: error.message, stack: error.stack }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
-
-  return jsonResponse({
-    ok: true,
-    at: nowIso,
-    momentumSent,
-    standardSent,
-    skippedPatientsWithoutExpoToken: skipped,
-    errors: errors.slice(0, 20),
-  });
 });
