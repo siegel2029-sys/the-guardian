@@ -1,16 +1,20 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import webPush from "npm:web-push@3.6.7";
 
 /**
  * Hourly reminder dispatcher: "momentum" (recent activity, no session yet today) vs 8pm local standard.
  *
  * Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (auto), INTERNAL_CRON_SECRET, EXPO_ACCESS_TOKEN (Expo Push API).
+ * **Web Push (browser / FCM relay URL):** set `WEB_PUSH_VAPID_PUBLIC_KEY` and `WEB_PUSH_VAPID_PRIVATE_KEY`
+ * (same pair as the web client — public key must match `VITE_WEB_PUSH_VAPID_PUBLIC_KEY`). Optional `WEB_PUSH_VAPID_SUBJECT`
+ * (contact JWT claim), default `mailto:noreply@physioshield.app`. Keys live in `patients.payload.webPushSubscription`.
+ *
  * With `--no-verify-jwt`, auth requires `INTERNAL_CRON_SECRET` via header `x-cron-secret` **or** query `?secret=`.
  * Unexpected handler errors return HTTP 200 with JSON `{ ok: false, error, stack }`.
  *
- * Reads `patients.push_token`: Expo (`ExponentPushToken[...]`) via Expo Push API, or Web Push FCM
- * subscription URLs (`https://fcm.googleapis.com...`) via direct `fetch` POST with Hebrew notification JSON.
+ * Reads `patients.push_token`: Expo via Expo API; FCM-style Web Push URLs via `web-push` (VAPID + encrypted body).
  *
- * **Testing:** POST JSON `{ "test_now": true }` sends one push to the first patient with an Expo or FCM URL token.
+ * **Testing:** POST JSON `{ "test_now": true }` sends one push to the first patient with an Expo or Web Push token.
  * Time-of-day / quiet-hour checks are temporarily disabled in the main loop (see comments); restore before production if desired.
  */
 
@@ -30,6 +34,8 @@ const TEST_NOW_BODY = "[TEST] Physio-Shield reminder-cron ping — you can ignor
 type PatientRow = {
   id: string;
   push_token: string | null;
+  /** Includes `webPushSubscription` (keys) for VAPID Web Push. */
+  payload: unknown;
   last_activity_timestamp: string | null;
   reminder_timezone: string | null;
   last_momentum_reminder_local_date: string | null;
@@ -131,40 +137,101 @@ async function sendExpoPush(token: string, body: string): Promise<{ ok: boolean;
   return { ok: true };
 }
 
-const FCM_WEB_PUSH_JSON_BODY = JSON.stringify({
-  title: "Physio-Shield",
-  body: "גורדי כאן! זמן לתרגל",
-});
+/** Configure once per isolate; signs outbound Web Push with the VAPID private key. */
+let webPushVapidConfigured = false;
 
-/**
- * Direct POST to the browser Web Push endpoint (FCM). Production Web Push normally uses encrypted RFC 8291 payloads;
- * this follows the requested simple JSON shape for testing.
- */
-async function sendFcmWebPushDirect(endpoint: string): Promise<{ ok: boolean; detail?: string }> {
-  const url = endpoint.trim();
+function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
+  if (webPushVapidConfigured) return { ok: true };
+
+  const publicKey = Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY")?.trim() ?? "";
+  const privateKey = Deno.env.get("WEB_PUSH_VAPID_PRIVATE_KEY")?.trim() ?? "";
+  const subject =
+    Deno.env.get("WEB_PUSH_VAPID_SUBJECT")?.trim() || "mailto:noreply@physioshield.app";
+
+  if (!publicKey || !privateKey) {
+    return {
+      ok: false,
+      detail:
+        "Missing WEB_PUSH_VAPID_PUBLIC_KEY or WEB_PUSH_VAPID_PRIVATE_KEY. Public must match VITE_WEB_PUSH_VAPID_PUBLIC_KEY. " +
+        "Generate: npx web-push generate-vapid-keys",
+    };
+  }
+
+  webPush.setVapidDetails(subject, publicKey, privateKey);
+  webPushVapidConfigured = true;
+  return { ok: true };
+}
+
+function parseWebPushSubscriptionFromPayload(
+  patientPayload: unknown,
+  pushTokenEndpoint: string,
+): { endpoint: string; keys: { p256dh: string; auth: string } } | null {
+  const endpoint = pushTokenEndpoint.trim();
+  if (!patientPayload || typeof patientPayload !== "object") return null;
+
+  const raw = (patientPayload as Record<string, unknown>).webPushSubscription;
+  if (!raw || typeof raw !== "object") return null;
+
+  const o = raw as Record<string, unknown>;
+  const keysObj = o.keys;
+  if (!keysObj || typeof keysObj !== "object") return null;
+
+  const k = keysObj as Record<string, unknown>;
+  const p256dh = typeof k.p256dh === "string" ? k.p256dh.trim() : "";
+  const auth = typeof k.auth === "string" ? k.auth.trim() : "";
+  if (!p256dh || !auth) return null;
+
+  const jsonEndpoint = typeof o.endpoint === "string" ? o.endpoint.trim() : "";
+  if (jsonEndpoint && jsonEndpoint !== endpoint) {
+    console.warn(
+      "reminder-cron: push_token URL differs from payload.webPushSubscription.endpoint; using push_token",
+    );
+  }
+
+  return { endpoint, keys: { p256dh, auth } };
+}
+
+async function sendWebPushVapid(
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+  title: string,
+  body: string,
+): Promise<{ ok: boolean; detail?: string }> {
+  const vapid = ensureWebPushVapid();
+  if (!vapid.ok) return vapid;
+
   try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        TTL: "86400",
-      },
-      body: FCM_WEB_PUSH_JSON_BODY,
+    await webPush.sendNotification(subscription, JSON.stringify({ title, body }), {
+      TTL: 86_400,
+      urgency: "high",
     });
-    const text = await r.text();
-    if (!r.ok) return { ok: false, detail: text.slice(0, 500) };
     return { ok: true };
-  } catch (e) {
-    return { ok: false, detail: String(e) };
+  } catch (e: unknown) {
+    let detail = e instanceof Error ? e.message : String(e);
+    if (e && typeof e === "object" && "body" in e) {
+      const b = (e as { body?: string }).body;
+      if (typeof b === "string" && b.length > 0) detail = b.slice(0, 500);
+    }
+    const statusCode = (e as { statusCode?: number }).statusCode;
+    if (typeof statusCode === "number") detail = `HTTP ${statusCode}: ${detail}`;
+    return { ok: false, detail };
   }
 }
 
 async function sendPatientReminder(
   token: string,
   expoBody: string,
+  patientPayload: unknown,
 ): Promise<{ ok: boolean; detail?: string }> {
   if (isFcmWebPushEndpoint(token)) {
-    return sendFcmWebPushDirect(token);
+    const sub = parseWebPushSubscriptionFromPayload(patientPayload, token);
+    if (!sub) {
+      return {
+        ok: false,
+        detail:
+          "Web Push requires patients.payload.webPushSubscription with keys.p256dh and keys.auth (save from web app after subscribe).",
+      };
+    }
+    return sendWebPushVapid(sub, "Physio-Shield", expoBody);
   }
   return sendExpoPush(token, expoBody);
 }
@@ -216,6 +283,10 @@ Deno.serve(async (req) => {
       !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
       "Expo:",
       !!Deno.env.get("EXPO_ACCESS_TOKEN"),
+      "VAPID pub:",
+      !!Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY"),
+      "VAPID prv:",
+      !!Deno.env.get("WEB_PUSH_VAPID_PRIVATE_KEY"),
     );
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
@@ -234,7 +305,7 @@ Deno.serve(async (req) => {
     if (test_now) {
       const { data: testPatients, error: testListErr } = await supabase
         .from("patients")
-        .select("id, push_token")
+        .select("id, push_token, payload")
         .not("auth_user_id", "is", null);
 
       if (testListErr) {
@@ -243,12 +314,14 @@ Deno.serve(async (req) => {
 
       let testPatientId: string | null = null;
       let testToken: string | null = null;
+      let testPayload: unknown = null;
       for (const row of testPatients ?? []) {
-        const pr = row as { id: string; push_token: string | null };
+        const pr = row as { id: string; push_token: string | null; payload: unknown };
         const t = (pr.push_token ?? "").trim();
         if (hasDeliverableReminderToken(t)) {
           testPatientId = pr.id;
           testToken = t;
+          testPayload = pr.payload;
           break;
         }
       }
@@ -262,15 +335,13 @@ Deno.serve(async (req) => {
         });
       }
 
-      const r = isFcmWebPushEndpoint(testToken)
-        ? await sendFcmWebPushDirect(testToken)
-        : await sendExpoPush(testToken, TEST_NOW_BODY);
+      const r = await sendPatientReminder(testToken, TEST_NOW_BODY, testPayload);
       return jsonResponse({
         ok: true,
         test_now: true,
         sent: r.ok,
         patientId: testPatientId,
-        channel: isFcmWebPushEndpoint(testToken) ? "fcm_web_push_url" : "expo",
+        channel: isFcmWebPushEndpoint(testToken) ? "web_push_vapid" : "expo",
         ...(r.ok ? {} : { deliveryError: r.detail }),
       });
     }
@@ -283,7 +354,7 @@ Deno.serve(async (req) => {
       .from("patients")
       .select(
         // DB column is patients.push_token (not expo_push_token).
-        "id, push_token, last_activity_timestamp, reminder_timezone, last_momentum_reminder_local_date, last_standard_reminder_local_date",
+        "id, push_token, payload, last_activity_timestamp, reminder_timezone, last_momentum_reminder_local_date, last_standard_reminder_local_date",
       )
       .not("auth_user_id", "is", null);
 
@@ -336,7 +407,7 @@ Deno.serve(async (req) => {
         /* TESTING: quiet hours disabled — restore: localHour >= 8 && localHour <= 20 */
         p.last_momentum_reminder_local_date !== localYmd
       ) {
-        const r = await sendPatientReminder(token, MOMENTUM_BODY);
+        const r = await sendPatientReminder(token, MOMENTUM_BODY, p.payload);
         if (r.ok) {
           await supabase
             .from("patients")
@@ -355,7 +426,7 @@ Deno.serve(async (req) => {
         /* TESTING: standard reminder hour disabled — restore: localHour === 20 */
         p.last_standard_reminder_local_date !== localYmd
       ) {
-        const r = await sendPatientReminder(token, STANDARD_BODY);
+        const r = await sendPatientReminder(token, STANDARD_BODY, p.payload);
         if (r.ok) {
           await supabase
             .from("patients")
