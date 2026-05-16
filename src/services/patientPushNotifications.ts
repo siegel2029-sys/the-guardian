@@ -173,6 +173,7 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
   console.log('Push: Starting registration...');
   console.log('DEBUG VAPID KEY:', import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY);
   const native = getNativeExpoPushTokenSync();
+  console.log('TOKEN_FOR_NADAV:', native);
   if (native) {
     console.log('Push: Using native Expo token; skipping web subscribe.');
     return { ok: true, token: native, permission: 'granted' };
