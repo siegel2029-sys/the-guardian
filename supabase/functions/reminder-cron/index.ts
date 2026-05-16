@@ -7,9 +7,10 @@ import { createClient } from "npm:@supabase/supabase-js@2";
  * With `--no-verify-jwt`, auth requires `INTERNAL_CRON_SECRET` via header `x-cron-secret` **or** query `?secret=`.
  * Unexpected handler errors return HTTP 200 with JSON `{ ok: false, error, stack }`.
  *
- * Reads `patients.push_token` (Expo: `ExponentPushToken[...]`). Sends via Expo Push API with `Authorization: Bearer`.
+ * Reads `patients.push_token`: Expo (`ExponentPushToken[...]`) via Expo Push API, or Web Push FCM
+ * subscription URLs (`https://fcm.googleapis.com...`) via direct `fetch` POST with Hebrew notification JSON.
  *
- * **Testing:** POST JSON `{ "test_now": true }` sends one Expo push to the first patient with an Expo token (skips all cron logic).
+ * **Testing:** POST JSON `{ "test_now": true }` sends one push to the first patient with an Expo or FCM URL token.
  * Time-of-day / quiet-hour checks are temporarily disabled in the main loop (see comments); restore before production if desired.
  */
 
@@ -45,6 +46,16 @@ function jsonResponse(body: unknown, status = 200): Response {
 function isExpoPushToken(token: string): boolean {
   const t = token.trim();
   return t.startsWith("ExponentPushToken[") || t.startsWith("ExpoPushToken");
+}
+
+/** Web Push subscription endpoint (Chrome → FCM relay); `push_token` may hold this URL on web clients. */
+function isFcmWebPushEndpoint(token: string): boolean {
+  return token.trim().toLowerCase().startsWith("https://fcm.googleapis.com");
+}
+
+function hasDeliverableReminderToken(token: string): boolean {
+  const t = token.trim();
+  return t.length > 0 && (isExpoPushToken(t) || isFcmWebPushEndpoint(t));
 }
 
 function localWallParts(isoUtc: string, tz: string): { ymd: string; hour: number } | null {
@@ -118,6 +129,44 @@ async function sendExpoPush(token: string, body: string): Promise<{ ok: boolean;
     /* ignore */
   }
   return { ok: true };
+}
+
+const FCM_WEB_PUSH_JSON_BODY = JSON.stringify({
+  title: "Physio-Shield",
+  body: "גורדי כאן! זמן לתרגל",
+});
+
+/**
+ * Direct POST to the browser Web Push endpoint (FCM). Production Web Push normally uses encrypted RFC 8291 payloads;
+ * this follows the requested simple JSON shape for testing.
+ */
+async function sendFcmWebPushDirect(endpoint: string): Promise<{ ok: boolean; detail?: string }> {
+  const url = endpoint.trim();
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        TTL: "86400",
+      },
+      body: FCM_WEB_PUSH_JSON_BODY,
+    });
+    const text = await r.text();
+    if (!r.ok) return { ok: false, detail: text.slice(0, 500) };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, detail: String(e) };
+  }
+}
+
+async function sendPatientReminder(
+  token: string,
+  expoBody: string,
+): Promise<{ ok: boolean; detail?: string }> {
+  if (isFcmWebPushEndpoint(token)) {
+    return sendFcmWebPushDirect(token);
+  }
+  return sendExpoPush(token, expoBody);
 }
 
 /** POST/PATCH/PUT JSON body flags (empty object if none). Consumes the request body once. */
@@ -197,7 +246,7 @@ Deno.serve(async (req) => {
       for (const row of testPatients ?? []) {
         const pr = row as { id: string; push_token: string | null };
         const t = (pr.push_token ?? "").trim();
-        if (t && isExpoPushToken(t)) {
+        if (hasDeliverableReminderToken(t)) {
           testPatientId = pr.id;
           testToken = t;
           break;
@@ -209,17 +258,20 @@ Deno.serve(async (req) => {
           ok: true,
           test_now: true,
           sent: false,
-          reason: "no_patient_with_expo_push_token",
+          reason: "no_patient_with_expo_or_fcm_push_token",
         });
       }
 
-      const r = await sendExpoPush(testToken, TEST_NOW_BODY);
+      const r = isFcmWebPushEndpoint(testToken)
+        ? await sendFcmWebPushDirect(testToken)
+        : await sendExpoPush(testToken, TEST_NOW_BODY);
       return jsonResponse({
         ok: true,
         test_now: true,
         sent: r.ok,
         patientId: testPatientId,
-        ...(r.ok ? {} : { expoError: r.detail }),
+        channel: isFcmWebPushEndpoint(testToken) ? "fcm_web_push_url" : "expo",
+        ...(r.ok ? {} : { deliveryError: r.detail }),
       });
     }
 
@@ -247,7 +299,7 @@ Deno.serve(async (req) => {
     for (const row of patients ?? []) {
       const p = row as PatientRow;
       const token = (p.push_token ?? "").trim();
-      if (!token || !isExpoPushToken(token)) {
+      if (!hasDeliverableReminderToken(token)) {
         skipped += 1;
         continue;
       }
@@ -284,7 +336,7 @@ Deno.serve(async (req) => {
         /* TESTING: quiet hours disabled — restore: localHour >= 8 && localHour <= 20 */
         p.last_momentum_reminder_local_date !== localYmd
       ) {
-        const r = await sendExpoPush(token, MOMENTUM_BODY);
+        const r = await sendPatientReminder(token, MOMENTUM_BODY);
         if (r.ok) {
           await supabase
             .from("patients")
@@ -303,7 +355,7 @@ Deno.serve(async (req) => {
         /* TESTING: standard reminder hour disabled — restore: localHour === 20 */
         p.last_standard_reminder_local_date !== localYmd
       ) {
-        const r = await sendExpoPush(token, STANDARD_BODY);
+        const r = await sendPatientReminder(token, STANDARD_BODY);
         if (r.ok) {
           await supabase
             .from("patients")
@@ -321,7 +373,7 @@ Deno.serve(async (req) => {
       at: nowIso,
       momentumSent,
       standardSent,
-      skippedPatientsWithoutExpoToken: skipped,
+      skippedPatientsWithoutDeliverableToken: skipped,
       errors: errors.slice(0, 20),
     });
   } catch (error: any) {
