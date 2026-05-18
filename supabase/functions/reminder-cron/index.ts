@@ -14,7 +14,9 @@ import webPush from "npm:web-push@3.6.7";
  *
  * Reads `patients.push_token`: Expo via Expo API; FCM-style Web Push URLs via `web-push` (VAPID + encrypted body).
  *
- * **Testing:** POST JSON `{ "test_now": true }` sends one push to the first patient with an Expo or Web Push token.
+ * **Testing:** POST JSON `{ "test_now": true }` sends one test push. Optional `{ "patient_id": "<id>" }`
+ * (or `test_patient_id`) targets that row directly — ignores momentum/standard locks and does not require "first in list" ordering.
+ * Optional `{ "verbose_reminders": true }` logs per-patient skip reasons on the normal cron path.
  * Time-of-day / quiet-hour checks are temporarily disabled in the main loop (see comments); restore before production if desired.
  */
 
@@ -33,6 +35,7 @@ const TEST_NOW_BODY = "[TEST] Physio-Shield reminder-cron ping — you can ignor
 
 type PatientRow = {
   id: string;
+  first_name?: string | null;
   push_token: string | null;
   /** Includes `webPushSubscription` (keys) for VAPID Web Push. */
   payload: unknown;
@@ -64,6 +67,11 @@ function hasDeliverableReminderToken(token: string): boolean {
   return t.length > 0 && (isExpoPushToken(t) || isFcmWebPushEndpoint(t));
 }
 
+function patientDisplayName(p: { id: string; first_name?: string | null }): string {
+  const n = typeof p.first_name === "string" ? p.first_name.trim() : "";
+  return n.length > 0 ? n : p.id;
+}
+
 function localWallParts(isoUtc: string, tz: string): { ymd: string; hour: number } | null {
   try {
     const d = new Date(isoUtc);
@@ -86,9 +94,41 @@ function localWallParts(isoUtc: string, tz: string): { ymd: string; hour: number
   }
 }
 
+/**
+ * Some DB exports / legacy writes store JSON columns as **text**.
+ * Unwrap string → object once (or pass through if already a plain object).
+ */
+function coerceJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (!s) return null;
+    try {
+      const parsed = JSON.parse(s) as unknown;
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
+function trimStr(v: unknown): string {
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number" || typeof v === "boolean") return String(v).trim();
+  return "";
+}
+
 function payloadHasWork(payload: unknown): boolean {
-  if (!payload || typeof payload !== "object") return false;
-  const o = payload as Record<string, unknown>;
+  const coerced = coerceJsonRecord(payload);
+  if (!coerced) return false;
+  const o = coerced;
   const c = o.completedIds ?? o.completed_ids;
   if (Array.isArray(c) && c.length > 0) return true;
   const fr = o.finishReports ?? o.finish_reports;
@@ -172,37 +212,6 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
   webPush.setVapidDetails(subject, publicKey, privateKey);
   webPushVapidConfigured = true;
   return { ok: true };
-}
-
-/**
- * Some DB exports / legacy writes store `patients.payload` or nested blobs as JSON **text**.
- * Unwrap string → object once (or pass through if already a plain object).
- */
-function coerceJsonRecord(value: unknown): Record<string, unknown> | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "string") {
-    const s = value.trim();
-    if (!s) return null;
-    try {
-      const parsed = JSON.parse(s) as unknown;
-      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      return null;
-    }
-    return null;
-  }
-  if (typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return null;
-}
-
-function trimStr(v: unknown): string {
-  if (typeof v === "string") return v.trim();
-  if (typeof v === "number" || typeof v === "boolean") return String(v).trim();
-  return "";
 }
 
 function parseWebPushSubscriptionFromPayload(
@@ -294,21 +303,33 @@ async function sendPatientReminder(
 }
 
 /** POST/PATCH/PUT JSON body flags (empty object if none). Consumes the request body once. */
-async function parseCronJsonBody(req: Request): Promise<{ test_now: boolean }> {
+async function parseCronJsonBody(req: Request): Promise<{
+  test_now: boolean;
+  test_patient_id: string | null;
+  verbose_reminders: boolean;
+}> {
+  const empty = { test_now: false, test_patient_id: null, verbose_reminders: false };
   if (!["POST", "PUT", "PATCH"].includes(req.method)) {
-    return { test_now: false };
+    return empty;
   }
   const ct = req.headers.get("content-type") ?? "";
   if (!ct.includes("application/json")) {
-    return { test_now: false };
+    return empty;
   }
   try {
     const raw = await req.text();
-    if (!raw.trim()) return { test_now: false };
+    if (!raw.trim()) return empty;
     const j = JSON.parse(raw) as Record<string, unknown>;
-    return { test_now: j.test_now === true };
+    const pidRaw = j.patient_id ?? j.test_patient_id;
+    const test_patient_id =
+      typeof pidRaw === "string" && pidRaw.trim().length > 0 ? pidRaw.trim() : null;
+    return {
+      test_now: j.test_now === true,
+      test_patient_id,
+      verbose_reminders: j.verbose_reminders === true,
+    };
   } catch {
-    return { test_now: false };
+    return empty;
   }
 }
 
@@ -357,12 +378,78 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     );
 
-    const { test_now } = await parseCronJsonBody(req);
+    const { test_now, test_patient_id, verbose_reminders } = await parseCronJsonBody(req);
 
     if (test_now) {
+      type TestPatientRow = {
+        id: string;
+        push_token: string | null;
+        payload: unknown;
+        first_name?: string | null;
+        auth_user_id?: string | null;
+      };
+
+      if (test_patient_id) {
+        const { data: targeted, error: targetedErr } = await supabase
+          .from("patients")
+          .select("id, push_token, payload, first_name, auth_user_id")
+          .eq("id", test_patient_id)
+          .maybeSingle();
+
+        if (targetedErr) {
+          return jsonResponse({ ok: false, test_now: true, error: targetedErr.message }, 503);
+        }
+
+        if (!targeted) {
+          return jsonResponse({
+            ok: true,
+            test_now: true,
+            sent: false,
+            reason: "patient_not_found",
+            patientId: test_patient_id,
+          });
+        }
+
+        const tp = targeted as TestPatientRow;
+        const label = patientDisplayName(tp);
+        console.log(`[reminder-cron test_now] Checking patient: ${label} (${tp.id})`);
+        if (!tp.auth_user_id) {
+          console.warn(
+            `[reminder-cron test_now] Patient ${tp.id} has null auth_user_id — still sending test push (targeted mode).`,
+          );
+        }
+
+        const tt = (tp.push_token ?? "").trim();
+        if (!hasDeliverableReminderToken(tt)) {
+          console.log(
+            `[reminder-cron test_now] Reason for skipping: no_expo_or_fcm_deliverable_push_token`,
+          );
+          return jsonResponse({
+            ok: true,
+            test_now: true,
+            sent: false,
+            reason: "no_deliverable_push_token_expo_or_fcm",
+            patientId: tp.id,
+            patientLabel: label,
+          });
+        }
+
+        console.log(`[reminder-cron test_now] Sending test push (targeted; ignores daily locks).`);
+        const r = await sendPatientReminder(tt, TEST_NOW_BODY, tp.payload);
+        return jsonResponse({
+          ok: true,
+          test_now: true,
+          sent: r.ok,
+          patientId: tp.id,
+          patientLabel: label,
+          channel: isFcmWebPushEndpoint(tt) ? "web_push_vapid" : "expo",
+          ...(r.ok ? {} : { deliveryError: r.detail }),
+        });
+      }
+
       const { data: testPatients, error: testListErr } = await supabase
         .from("patients")
-        .select("id, push_token, payload")
+        .select("id, push_token, payload, first_name")
         .not("auth_user_id", "is", null);
 
       if (testListErr) {
@@ -372,32 +459,42 @@ Deno.serve(async (req) => {
       let testPatientId: string | null = null;
       let testToken: string | null = null;
       let testPayload: unknown = null;
+      let testLabel = "";
       for (const row of testPatients ?? []) {
-        const pr = row as { id: string; push_token: string | null; payload: unknown };
+        const pr = row as TestPatientRow;
         const t = (pr.push_token ?? "").trim();
         if (hasDeliverableReminderToken(t)) {
           testPatientId = pr.id;
           testToken = t;
           testPayload = pr.payload;
+          testLabel = patientDisplayName(pr);
           break;
         }
       }
 
       if (!testToken || !testPatientId) {
+        console.log(
+          "[reminder-cron test_now] Reason: no_patient_with_expo_or_fcm_push_token (scoped to auth_user_id not null). Tip: pass patient_id to target PI.",
+        );
         return jsonResponse({
           ok: true,
           test_now: true,
           sent: false,
           reason: "no_patient_with_expo_or_fcm_push_token",
+          hint: "POST {\"test_now\":true,\"patient_id\":\"<id>\"} to target a specific row (no auth_user_id filter).",
         });
       }
 
+      console.log(
+        `[reminder-cron test_now] Checking patient: ${testLabel} (${testPatientId}) — first row with deliverable token.`,
+      );
       const r = await sendPatientReminder(testToken, TEST_NOW_BODY, testPayload);
       return jsonResponse({
         ok: true,
         test_now: true,
         sent: r.ok,
         patientId: testPatientId,
+        patientLabel: testLabel,
         channel: isFcmWebPushEndpoint(testToken) ? "web_push_vapid" : "expo",
         ...(r.ok ? {} : { deliveryError: r.detail }),
       });
@@ -411,7 +508,7 @@ Deno.serve(async (req) => {
       .from("patients")
       .select(
         // DB column is patients.push_token (not expo_push_token).
-        "id, push_token, payload, last_activity_timestamp, reminder_timezone, last_momentum_reminder_local_date, last_standard_reminder_local_date",
+        "id, first_name, push_token, payload, last_activity_timestamp, reminder_timezone, last_momentum_reminder_local_date, last_standard_reminder_local_date",
       )
       .not("auth_user_id", "is", null);
 
@@ -424,11 +521,27 @@ Deno.serve(async (req) => {
     let skipped = 0;
     const errors: string[] = [];
 
+    if (verbose_reminders) {
+      console.log(
+        "[reminder-cron] verbose_reminders=true — logging each patient (normal cron path; not test_now).",
+      );
+    }
+
     for (const row of patients ?? []) {
       const p = row as PatientRow;
       const token = (p.push_token ?? "").trim();
+      const label = patientDisplayName(p);
+
+      console.log(`[reminder-cron] Checking patient: ${label} (${p.id})`);
+
       if (!hasDeliverableReminderToken(token)) {
         skipped += 1;
+        if (verbose_reminders) {
+          console.log(`[reminder-cron]   Activity status: n/a (no deliverable token)`);
+          console.log(
+            `[reminder-cron]   Reason for skipping: no_expo_or_fcm_deliverable_push_token`,
+          );
+        }
         continue;
       }
 
@@ -436,9 +549,33 @@ Deno.serve(async (req) => {
       const wall = localWallParts(nowIso, tz);
       if (!wall) {
         skipped += 1;
+        if (verbose_reminders) {
+          console.log(`[reminder-cron]   Activity status: unknown (timezone)`);
+          console.log(
+            `[reminder-cron]   Reason for skipping: invalid_reminder_timezone_wall_clock (${tz})`,
+          );
+        }
         continue;
       }
       const { ymd: localYmd /* , hour: localHour */ } = wall;
+
+      const msSinceActivity = p.last_activity_timestamp
+        ? nowMs - new Date(p.last_activity_timestamp).getTime()
+        : Number.POSITIVE_INFINITY;
+      const activeRecent =
+        p.last_activity_timestamp != null &&
+        Number.isFinite(msSinceActivity) &&
+        msSinceActivity <= threeHoursMs &&
+        msSinceActivity >= 0;
+
+      if (verbose_reminders) {
+        console.log(
+          `[reminder-cron]   Activity status: ${activeRecent ? "active" : "inactive"} (momentum uses last_activity within 3h; stale/missing = inactive)`,
+        );
+        console.log(
+          `[reminder-cron]   Context: reminder_timezone=${tz} localYmd=${localYmd} localHour=${wall.hour} last_activity_timestamp=${p.last_activity_timestamp ?? "null"} last_momentum_date=${p.last_momentum_reminder_local_date ?? "null"} last_standard_date=${p.last_standard_reminder_local_date ?? "null"}`,
+        );
+      }
 
       const { data: sessions, error: shErr } = await supabase
         .from("session_history")
@@ -448,6 +585,11 @@ Deno.serve(async (req) => {
 
       if (shErr) {
         errors.push(`${p.id}: session_history ${shErr.message}`);
+        if (verbose_reminders) {
+          console.log(
+            `[reminder-cron]   Reason for skipping sends: session_history_query_failed — ${shErr.message}`,
+          );
+        }
         continue;
       }
 
@@ -455,7 +597,45 @@ Deno.serve(async (req) => {
         payloadHasWork(s.payload)
       );
 
+      if (verbose_reminders && hasWorkToday) {
+        console.log(
+          `[reminder-cron]   Reason for skipping sends: already_completed_work_today (session_history for ${localYmd})`,
+        );
+      }
+
+      let momentumDelivered = false;
+      /** True only after momentum succeeded — suppresses standard in same iteration (original behavior). */
       let sentSomething = false;
+      let standardDelivered = false;
+
+      const momentumBlockedReasons: string[] = [];
+      if (hasWorkToday) momentumBlockedReasons.push("has_work_today");
+      if (!p.last_activity_timestamp) momentumBlockedReasons.push("missing_last_activity_timestamp");
+      if (p.last_activity_timestamp && !activeRecent) {
+        momentumBlockedReasons.push(
+          `last_activity_older_than_3h (${Math.round(msSinceActivity / 60000)} min ago)`,
+        );
+      }
+      if (p.last_momentum_reminder_local_date === localYmd) {
+        momentumBlockedReasons.push(`already_sent_momentum_today (${localYmd})`);
+      }
+
+      const momentumEligible =
+        !hasWorkToday &&
+        Boolean(p.last_activity_timestamp) &&
+        activeRecent &&
+        p.last_momentum_reminder_local_date !== localYmd;
+
+      if (
+        verbose_reminders &&
+        !hasWorkToday &&
+        hasDeliverableReminderToken(token) &&
+        !momentumEligible
+      ) {
+        console.log(
+          `[reminder-cron]   Momentum not sent; blocking factors: ${momentumBlockedReasons.join("; ") || "none listed"}`,
+        );
+      }
 
       if (
         !hasWorkToday &&
@@ -465,16 +645,39 @@ Deno.serve(async (req) => {
         p.last_momentum_reminder_local_date !== localYmd
       ) {
         const r = await sendPatientReminder(token, MOMENTUM_BODY, p.payload);
+        if (verbose_reminders) {
+          console.log(`[reminder-cron]   Momentum send result: ${r.ok ? "sent_ok" : r.detail ?? "failed"}`);
+        }
         if (r.ok) {
           await supabase
             .from("patients")
             .update({ last_momentum_reminder_local_date: localYmd })
             .eq("id", p.id);
           momentumSent += 1;
+          momentumDelivered = true;
           sentSomething = true;
         } else {
           errors.push(`${p.id}: momentum ${r.detail ?? "push failed"}`);
         }
+      }
+
+      const standardBlockedReasons: string[] = [];
+      if (hasWorkToday) standardBlockedReasons.push("has_work_today");
+      if (sentSomething) standardBlockedReasons.push("momentum_already_sent_this_pass");
+      if (p.last_standard_reminder_local_date === localYmd) {
+        standardBlockedReasons.push(`already_sent_standard_today (${localYmd})`);
+      }
+
+      const standardEligible =
+        !hasWorkToday &&
+        !sentSomething &&
+        /* TESTING: standard reminder hour disabled — restore: localHour === 20 */
+        p.last_standard_reminder_local_date !== localYmd;
+
+      if (verbose_reminders && !standardEligible && !sentSomething && !hasWorkToday) {
+        console.log(
+          `[reminder-cron]   Standard not sent; blocking factors: ${standardBlockedReasons.join("; ") || "unknown"}`,
+        );
       }
 
       if (
@@ -484,15 +687,30 @@ Deno.serve(async (req) => {
         p.last_standard_reminder_local_date !== localYmd
       ) {
         const r = await sendPatientReminder(token, STANDARD_BODY, p.payload);
+        if (verbose_reminders) {
+          console.log(`[reminder-cron]   Standard send result: ${r.ok ? "sent_ok" : r.detail ?? "failed"}`);
+        }
         if (r.ok) {
           await supabase
             .from("patients")
             .update({ last_standard_reminder_local_date: localYmd })
             .eq("id", p.id);
           standardSent += 1;
+          standardDelivered = true;
         } else {
           errors.push(`${p.id}: standard ${r.detail ?? "push failed"}`);
         }
+      }
+
+      if (
+        verbose_reminders &&
+        !hasWorkToday &&
+        !momentumDelivered &&
+        !standardDelivered
+      ) {
+        console.log(
+          `[reminder-cron]   Outcome: no push delivered this iteration (see momentum/standard blocking logs above).`,
+        );
       }
     }
 
