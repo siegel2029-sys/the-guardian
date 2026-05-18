@@ -2,6 +2,8 @@ import { supabase } from '../lib/supabase';
 import type { Patient } from '../types';
 
 const PUSH_PROMPT_KEY = 'physioshield_push_permission_prompted_v1';
+/** Last VAPID public key used for a successful `pushManager.subscribe` (normalized). Used when `subscription.options.applicationServerKey` is unavailable. */
+const VAPID_PUBLIC_KEY_STORAGE_KEY = 'physioshield_web_push_vapid_public_key_v1';
 
 function getNativeExpoPushTokenSync(): string | null {
   try {
@@ -52,7 +54,9 @@ function normalizeVapidPublicKeyString(raw: unknown): string {
 }
 
 function getVapidPublicKey(): string {
-  return normalizeVapidPublicKeyString(import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY);
+  const raw =
+    import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY ?? import.meta.env.VITE_VAPID_PUBLIC_KEY;
+  return normalizeVapidPublicKeyString(raw);
 }
 
 /**
@@ -74,6 +78,37 @@ export function urlBase64ToUint8Array(base64String: string): Uint8Array {
 /** Uncompressed P-256 public key for Web Push VAPID (`04 || X || Y`). */
 const VAPID_APPLICATION_SERVER_KEY_LENGTH = 65;
 
+function uint8ArraysEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((v, i) => v === b[i]);
+}
+
+/**
+ * Returns true if this subscription was created with the same VAPID applicationServerKey
+ * as we use now. If the key pair was rotated server-side but the browser kept an old
+ * subscription, this is false → caller should unsubscribe and subscribe again (avoids HTTP 403).
+ */
+function subscriptionMatchesCurrentVapid(
+  sub: PushSubscription,
+  expectedApplicationServerKey: Uint8Array,
+  normalizedPublicKey: string,
+): boolean {
+  const rawOpt = sub.options?.applicationServerKey;
+  if (rawOpt != null && typeof rawOpt !== 'undefined') {
+    const actual = new Uint8Array(rawOpt as ArrayBuffer);
+    if (actual.length === expectedApplicationServerKey.length) {
+      return uint8ArraysEqual(actual, expectedApplicationServerKey);
+    }
+    return false;
+  }
+  try {
+    const stored = localStorage.getItem(VAPID_PUBLIC_KEY_STORAGE_KEY);
+    return Boolean(stored && stored === normalizedPublicKey);
+  } catch {
+    return false;
+  }
+}
+
 export type WebPushSubscriptionPayload = NonNullable<Patient['webPushSubscription']>;
 
 /**
@@ -88,7 +123,7 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
   const vapidPublic = getVapidPublicKey();
   if (!vapidPublic) {
     console.warn(
-      '[PhysioShield push] VITE_WEB_PUSH_VAPID_PUBLIC_KEY missing — cannot call pushManager.subscribe'
+      '[PhysioShield push] Set VITE_WEB_PUSH_VAPID_PUBLIC_KEY (or VITE_VAPID_PUBLIC_KEY) — cannot call pushManager.subscribe'
     );
     return null;
   }
@@ -102,20 +137,38 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
       return null;
     }
 
-    let sub = await reg.pushManager.getSubscription();
-    if (!sub) {
-      const applicationServerKey = urlBase64ToUint8Array(vapidPublic);
-      console.log(
-        'Push: applicationServerKey decoded byte length:',
-        applicationServerKey.length,
-        `(expected ${VAPID_APPLICATION_SERVER_KEY_LENGTH} for uncompressed P-256 VAPID public key)`
+    const applicationServerKey = urlBase64ToUint8Array(vapidPublic);
+    console.log(
+      'Push: applicationServerKey decoded byte length:',
+      applicationServerKey.length,
+      `(expected ${VAPID_APPLICATION_SERVER_KEY_LENGTH} for uncompressed P-256 VAPID public key)`
+    );
+    if (applicationServerKey.length !== VAPID_APPLICATION_SERVER_KEY_LENGTH) {
+      throw new Error(
+        `VAPID public key must decode to exactly ${VAPID_APPLICATION_SERVER_KEY_LENGTH} bytes (uncompressed P-256: 0x04 || X || Y); decoded length is ${applicationServerKey.length}. ` +
+          'Confirm VITE_WEB_PUSH_VAPID_PUBLIC_KEY (or VITE_VAPID_PUBLIC_KEY) is the URL-safe base64 **public** key from web-push generateVAPIDKeys (not the private key) and is not truncated.'
       );
-      if (applicationServerKey.length !== VAPID_APPLICATION_SERVER_KEY_LENGTH) {
-        throw new Error(
-          `VAPID public key must decode to exactly ${VAPID_APPLICATION_SERVER_KEY_LENGTH} bytes (uncompressed P-256: 0x04 || X || Y); decoded length is ${applicationServerKey.length}. ` +
-            'Confirm VITE_WEB_PUSH_VAPID_PUBLIC_KEY is the URL-safe base64 **public** key from web-push generateVAPIDKeys (not the private key) and is not truncated.'
-        );
+    }
+
+    let sub = await reg.pushManager.getSubscription();
+    if (sub && !subscriptionMatchesCurrentVapid(sub, applicationServerKey, vapidPublic)) {
+      console.warn(
+        '[PhysioShield push] Existing subscription does not match current VAPID public key — unsubscribing and re-subscribing.'
+      );
+      try {
+        await sub.unsubscribe();
+      } catch (unsubErr) {
+        console.warn('[PhysioShield push] unsubscribe() failed:', unsubErr);
       }
+      sub = null;
+      try {
+        localStorage.removeItem(VAPID_PUBLIC_KEY_STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (!sub) {
       try {
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
@@ -125,6 +178,12 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
         console.error('Push: subscribe() threw:', subscribeErr);
         throw subscribeErr;
       }
+    }
+
+    try {
+      localStorage.setItem(VAPID_PUBLIC_KEY_STORAGE_KEY, vapidPublic);
+    } catch {
+      /* ignore */
     }
 
     const json = sub.toJSON() as WebPushSubscriptionPayload | undefined;
@@ -171,7 +230,6 @@ export type PushRegisterResult =
  */
 export async function registerPatientPushForSupabase(patientId: string): Promise<PushRegisterResult> {
   console.log('Push: Starting registration...');
-  console.log('DEBUG VAPID KEY:', import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY);
   const native = getNativeExpoPushTokenSync();
   console.log('TOKEN_FOR_NADAV:', native);
   if (native) {

@@ -137,14 +137,26 @@ async function sendExpoPush(token: string, body: string): Promise<{ ok: boolean;
   return { ok: true };
 }
 
+/** Strip BOM/quotes/whitespace so dashboard-copied secrets match `web-push` expectations. */
+function normalizeVapidKeyEnv(raw: string): string {
+  let s = raw.replace(/^\uFEFF/, "").trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s.replace(/\s+/g, "");
+}
+
 /** Configure once per isolate; signs outbound Web Push with the VAPID private key. */
 let webPushVapidConfigured = false;
 
 function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
   if (webPushVapidConfigured) return { ok: true };
 
-  const publicKey = Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY")?.trim() ?? "";
-  const privateKey = Deno.env.get("WEB_PUSH_VAPID_PRIVATE_KEY")?.trim() ?? "";
+  const publicKey = normalizeVapidKeyEnv(Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY") ?? "");
+  const privateKey = normalizeVapidKeyEnv(Deno.env.get("WEB_PUSH_VAPID_PRIVATE_KEY") ?? "");
   const subject =
     Deno.env.get("WEB_PUSH_VAPID_SUBJECT")?.trim() || "mailto:noreply@physioshield.app";
 

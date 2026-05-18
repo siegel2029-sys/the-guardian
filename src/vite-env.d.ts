@@ -30,6 +30,13 @@ interface ImportMetaEnv {
   readonly VITE_DEMO_THERAPIST_B_PASSWORD?: string;
   /** סיסמת ברירת מחדל לחשבונות פורטל PT-… שנוצרים אוטומטית (legacy auth בלבד). */
   readonly VITE_DEMO_SEED_PATIENT_PORTAL_PASSWORD?: string;
+  /**
+   * מפתח VAPID ציבורי ל-Web Push (כמו מ־`npx web-push generate-vapid-keys`).
+   * חייב להיות זוגי עם `WEB_PUSH_VAPID_*` ב-Supabase Edge Functions.
+   */
+  readonly VITE_WEB_PUSH_VAPID_PUBLIC_KEY?: string;
+  /** Alias לתאימות לאחור אם ב-Vercel הוגדר השם הקצר בלבד. עדיף `VITE_WEB_PUSH_VAPID_PUBLIC_KEY`. */
+  readonly VITE_VAPID_PUBLIC_KEY?: string;
 }
 
 interface ImportMeta {
