@@ -174,27 +174,72 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
   return { ok: true };
 }
 
+/**
+ * Some DB exports / legacy writes store `patients.payload` or nested blobs as JSON **text**.
+ * Unwrap string → object once (or pass through if already a plain object).
+ */
+function coerceJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (!s) return null;
+    try {
+      const parsed = JSON.parse(s) as unknown;
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
+function trimStr(v: unknown): string {
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number" || typeof v === "boolean") return String(v).trim();
+  return "";
+}
+
 function parseWebPushSubscriptionFromPayload(
   patientPayload: unknown,
   pushTokenEndpoint: string,
 ): { endpoint: string; keys: { p256dh: string; auth: string } } | null {
-  const endpoint = pushTokenEndpoint.trim();
-  if (!patientPayload || typeof patientPayload !== "object") return null;
+  const tokenEndpoint = pushTokenEndpoint.trim();
 
-  const raw = (patientPayload as Record<string, unknown>).webPushSubscription;
-  if (!raw || typeof raw !== "object") return null;
+  const root = coerceJsonRecord(patientPayload);
+  if (!root) return null;
 
-  const o = raw as Record<string, unknown>;
-  const keysObj = o.keys;
-  if (!keysObj || typeof keysObj !== "object") return null;
+  const rawSub =
+    root.webPushSubscription ??
+    root.web_push_subscription ??
+    root.WebPushSubscription;
 
-  const k = keysObj as Record<string, unknown>;
-  const p256dh = typeof k.p256dh === "string" ? k.p256dh.trim() : "";
-  const auth = typeof k.auth === "string" ? k.auth.trim() : "";
+  const sub = coerceJsonRecord(rawSub);
+  if (!sub) return null;
+
+  const rawKeys = sub.keys ?? sub.Keys;
+  const keysObj = coerceJsonRecord(rawKeys);
+  if (!keysObj) return null;
+
+  const p256dh =
+    trimStr(keysObj.p256dh) ||
+    trimStr(keysObj.P256DH);
+  const auth =
+    trimStr(keysObj.auth) ||
+    trimStr(keysObj.Auth);
   if (!p256dh || !auth) return null;
 
-  const jsonEndpoint = typeof o.endpoint === "string" ? o.endpoint.trim() : "";
-  if (jsonEndpoint && jsonEndpoint !== endpoint) {
+  const jsonEndpoint = trimStr(sub.endpoint);
+  /** `push_token` is usually the subscription URL; fall back to payload if column is empty. */
+  const endpoint = tokenEndpoint || jsonEndpoint;
+  if (!endpoint) return null;
+
+  if (jsonEndpoint && tokenEndpoint && jsonEndpoint !== tokenEndpoint) {
     console.warn(
       "reminder-cron: push_token URL differs from payload.webPushSubscription.endpoint; using push_token",
     );
@@ -240,7 +285,7 @@ async function sendPatientReminder(
       return {
         ok: false,
         detail:
-          "Web Push requires patients.payload.webPushSubscription with keys.p256dh and keys.auth (save from web app after subscribe).",
+          "Web Push requires patients.payload (json/object or JSON string) with webPushSubscription.keys.p256dh and keys.auth. If payload is stored as text, it must parse to an object.",
       };
     }
     return sendWebPushVapid(sub, "Physio-Shield", expoBody);
