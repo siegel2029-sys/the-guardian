@@ -22,11 +22,11 @@ function pushSubscriptionJsonLacksKeys(json: unknown): boolean {
   return !p256 || !auth;
 }
 
-/** Serialize PushSubscription for storage + Supabase: guarantees plain object with `keys` (p256dh, auth). */
+/** Serialize PushSubscription for storage + Supabase: `JSON.stringify` ensures a portable plain object with `keys`. */
 function subscriptionToPlainPushJson(sub: PushSubscription): WebPushSubscriptionPayload | null {
   try {
-    const raw = sub.toJSON() as unknown;
-    const json = JSON.parse(JSON.stringify(raw)) as WebPushSubscriptionPayload;
+    const wire = JSON.stringify(sub.toJSON());
+    const json = JSON.parse(wire) as WebPushSubscriptionPayload;
     if (pushSubscriptionJsonLacksKeys(json)) {
       console.warn('[PhysioShield push] PushSubscription.toJSON() missing keys — cannot send encrypted Web Push');
       return null;
@@ -63,6 +63,85 @@ function writeWebPushSnapshot(json: WebPushSubscriptionPayload): void {
   } catch {
     /* ignore */
   }
+}
+
+function coercePatientPayloadRoot(payload: unknown): Record<string, unknown> | null {
+  if (payload == null) return null;
+  let p: unknown = payload;
+  if (typeof payload === 'string') {
+    const s = payload.trim();
+    if (!s) return null;
+    try {
+      p = JSON.parse(s) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof p !== 'object' || p === null || Array.isArray(p)) return null;
+  return p as Record<string, unknown>;
+}
+
+function isPatientWebPushHttpsToken(token: string): boolean {
+  return token.trim().toLowerCase().startsWith('https://');
+}
+
+/**
+ * If the DB row has an HTTPS Web Push endpoint but `patients.payload.webPushSubscription` lacks `keys`,
+ * refresh from the live `PushSubscription` or run the same path as `forceReregisterPatientWebPush`.
+ */
+export async function syncWebPushDatabasePayloadIfStale(patientId: string): Promise<void> {
+  if (!supabase || typeof window === 'undefined') return;
+  if (getNativeExpoPushTokenSync()) return;
+
+  const { data: row, error } = await supabase
+    .from('patients')
+    .select('payload, push_token')
+    .eq('id', patientId)
+    .maybeSingle();
+
+  if (error || !row) return;
+
+  const token = typeof row.push_token === 'string' ? row.push_token.trim() : '';
+  if (!isPatientWebPushHttpsToken(token)) return;
+
+  const root = coercePatientPayloadRoot(row.payload);
+  const rawSub = root?.webPushSubscription;
+  const dbSub =
+    rawSub && typeof rawSub === 'object' && !Array.isArray(rawSub) ? rawSub : null;
+  if (!pushSubscriptionJsonLacksKeys(dbSub)) return;
+
+  console.warn(
+    '[PhysioShield push] patients.payload.webPushSubscription missing encryption keys — repairing for Web Push',
+  );
+
+  try {
+    const sw = await navigator.serviceWorker.ready;
+    const live = await sw.pushManager.getSubscription();
+    if (live) {
+      const plain = subscriptionToPlainPushJson(live);
+      if (plain) {
+        await persistPatientPushProfile({
+          patientId,
+          token: plain.endpoint,
+          webPushSubscription: plain,
+        });
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('[PhysioShield push] DB repair from live subscription failed:', e);
+  }
+
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  if (!getVapidPublicKey()) return;
+
+  const regResult = await forceReregisterPatientWebPush(patientId);
+  if (!regResult.ok) return;
+  await persistPatientPushProfile({
+    patientId,
+    token: regResult.token,
+    webPushSubscription: regResult.webPushSubscription,
+  });
 }
 
 function getNativeExpoPushTokenSync(): string | null {
@@ -510,7 +589,7 @@ export async function persistPatientPushProfile(params: {
       prevSub && typeof prevSub === 'object' && !Array.isArray(prevSub)
         ? ({ ...prevSub, ...incoming } as Record<string, unknown>)
         : incoming;
-    /** Deep plain object so JSONB always includes `keys` (p256dh, auth), not only endpoint. */
+    /** Same shape as `JSON.parse(JSON.stringify(subscription))` for JSONB `patients.payload.webPushSubscription`. */
     base.webPushSubscription = JSON.parse(JSON.stringify(merged)) as Patient['webPushSubscription'];
     patch.payload = base;
   }
@@ -553,8 +632,4 @@ export async function touchPatientLastActivityThrottled(
   const prev = lastActivityWriteByPatient.get(patientId) ?? 0;
   if (now - prev < minIntervalMs) return;
   lastActivityWriteByPatient.set(patientId, now);
-  await supabase
-    .from('patients')
-    .update({ last_activity_timestamp: new Date().toISOString() })
-    .eq('id', patientId);
-}
+export { registerPatientPushForSupabase as registerPushNotification };

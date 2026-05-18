@@ -16,8 +16,8 @@ import {
 } from '../../services/patientPushNotifications';
 
 /**
- * פאנל דיבוג — רק ב־development (מוצג מההורה).
- * God mode: היסטוריה, XP מצטבר, איפוס מלא.
+ * Floating tools for the patient portal. **Web Push / VAPID** controls are always available;
+ * gamification / time-machine cheats require `import.meta.env.DEV`.
  */
 export default function PortalPatientDebugPanel() {
   const {
@@ -71,32 +71,36 @@ export default function PortalPatientDebugPanel() {
     >
       <button
         type="button"
+        aria-expanded={open}
+        aria-label={open ? 'סגור פאנל דיבוג ו-Web Push' : 'פתח פאנל דיבוג ו-Web Push'}
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-[10px] font-bold border shadow-md"
+        className="flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-[10px] font-bold border shadow-md pointer-events-auto"
         style={{
           background: 'rgba(15,23,42,0.88)',
           borderColor: '#475569',
           color: '#e2e8f0',
         }}
       >
-        <Bug className="w-3.5 h-3.5" />
-        דיבוג
+        <Bug className="w-3.5 h-3.5" aria-hidden="true" />
+        דיבוג · Web Push
       </button>
       {open && (
         <div
-          className="mt-2 rounded-xl border p-2.5 space-y-2 shadow-xl max-h-[min(70vh,520px)] overflow-y-auto"
+          className="mt-2 rounded-xl border p-2.5 space-y-2 shadow-xl max-h-[min(70vh,520px)] overflow-y-auto pointer-events-auto"
           style={{
             background: 'rgba(15,23,42,0.95)',
             borderColor: '#64748b',
           }}
         >
-          <p className="text-[9px] text-slate-400 leading-snug">
-            רק dev — נשמר ב־localStorage. XP בשדה = סה״כ מצטבר (כל הרמות).
-          </p>
-
-          {import.meta.env.DEV && (
-            <div className="rounded-lg border border-sky-700/50 bg-sky-950/40 px-2 py-1.5 space-y-1">
-              <p className="text-[9px] font-bold text-sky-200 uppercase tracking-wide">התראות (בדיקה)</p>
+          <div className="rounded-lg border-2 border-amber-500/80 bg-amber-950/35 px-2 py-2 space-y-1.5">
+            <p className="text-[10px] font-bold text-amber-100 uppercase tracking-wide">
+              Web Push — תיקון VAPID / מפתחות
+            </p>
+            <p className="text-[9px] text-amber-50/90 leading-snug">
+              אם Edge Functions מדווחות על חוסר במפתחות או VapidPkHashMismatch — לחצו כאן ואז ודאו ב-Supabase
+              ש־<span className="font-mono">patients.payload.webPushSubscription.keys</span> מלא.
+            </p>
+            {import.meta.env.DEV && (
               <button
                 type="button"
                 className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-sky-800 text-sky-50 hover:bg-sky-700 border border-sky-600/60"
@@ -104,39 +108,43 @@ export default function PortalPatientDebugPanel() {
               >
                 Test Push (מיידי בדפדפן)
               </button>
-              <button
-                type="button"
-                className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-amber-900/90 text-amber-50 hover:bg-amber-800 border border-amber-600/60"
-                onClick={() => {
-                  setPushReregisterStatus(null);
-                  void (async () => {
-                    const reg = await forceReregisterPatientWebPush(pid);
-                    if (!reg.ok) {
-                      setPushReregisterStatus(`לא נרשם: ${reg.reason}`);
-                      return;
-                    }
-                    const saved = await persistPatientPushProfile({
-                      patientId: pid,
-                      token: reg.token,
-                      webPushSubscription: reg.webPushSubscription,
-                    });
-                    setPushReregisterStatus(
-                      saved.ok
-                        ? 'נרשם מחדש ונשמר ל-Supabase (כולל מפתחות הצפנה).'
-                        : `שגיאת שמירה: ${saved.message ?? 'unknown'}`,
-                    );
-                  })();
-                }}
-              >
-                אילץ מחדש Web Push + DB (VAPID / keys)
-              </button>
-              {pushReregisterStatus && (
-                <p className="text-[9px] text-amber-100/90 leading-snug whitespace-pre-wrap">
-                  {pushReregisterStatus}
-                </p>
-              )}
-            </div>
-          )}
+            )}
+            <button
+              type="button"
+              className="w-full text-[11px] font-bold py-2.5 rounded-lg bg-amber-600 text-amber-950 hover:bg-amber-500 border border-amber-400 shadow-md"
+              onClick={() => {
+                setPushReregisterStatus(null);
+                void (async () => {
+                  const reg = await forceReregisterPatientWebPush(pid);
+                  if (!reg.ok) {
+                    setPushReregisterStatus(`לא נרשם: ${reg.reason}`);
+                    return;
+                  }
+                  const saved = await persistPatientPushProfile({
+                    patientId: pid,
+                    token: reg.token,
+                    webPushSubscription: reg.webPushSubscription,
+                  });
+                  setPushReregisterStatus(
+                    saved.ok
+                      ? 'נרשם מחדש ונשמר ל-Supabase (endpoint + keys.p256dh + keys.auth).'
+                      : `שגיאת שמירה: ${saved.message ?? 'unknown'}`,
+                  );
+                })();
+              }}
+            >
+              אילץ מחדש Web Push + DB
+            </button>
+            {pushReregisterStatus && (
+              <p className="text-[9px] text-amber-100 leading-snug whitespace-pre-wrap">{pushReregisterStatus}</p>
+            )}
+          </div>
+
+          {import.meta.env.DEV && (
+            <>
+              <p className="text-[9px] text-slate-400 leading-snug">
+                כלי דיבוג נוספים (dev) — נשמר ב־localStorage. XP בשדה = סה״כ מצטבר.
+              </p>
 
           <p className="text-[9px] font-bold text-slate-300 uppercase tracking-wide">היסטוריה</p>
           <button
@@ -372,6 +380,8 @@ export default function PortalPatientDebugPanel() {
           >
             {supabaseSyncStatus === 'saving' ? 'שומר…' : 'שמירה ל-Supabase (כל המטופלים)'}
           </button>
+            </>
+          )}
         </div>
       )}
     </div>

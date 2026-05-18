@@ -230,6 +230,10 @@ export async function sendPatientReminder(
   if (isWebPushEndpoint(token)) {
     const parsedPayload = coerceJsonRecord(patientPayload);
     console.log("Payload keys detected:", !!parsedPayload?.keys);
+    const wpsRoot = parsedPayload
+      ? coerceJsonRecord(parsedPayload.webPushSubscription as unknown)
+      : null;
+    console.log("webPushSubscription.keys detected:", !!(wpsRoot && coerceJsonRecord(wpsRoot.keys)));
 
     const sub = parseWebPushSubscriptionFromPayload(patientPayload, token);
     if (!sub) {

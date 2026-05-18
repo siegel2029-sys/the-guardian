@@ -3,6 +3,7 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
   persistPatientPushProfile,
   registerPatientPushForSupabase,
+  syncWebPushDatabasePayloadIfStale,
   touchPatientLastActivityThrottled,
 } from '../services/patientPushNotifications';
 
@@ -107,6 +108,7 @@ export function usePatientReminderInfrastructure(opts: {
     console.log('[Push hook] invoking registerPatientPushForSupabase', { patientId });
 
     void (async () => {
+      await syncWebPushDatabasePayloadIfStale(patientId);
       const reg = await registerPatientPushForSupabase(patientId);
       console.log('[Push hook] registerPatientPushForSupabase result', reg);
       if (!reg.ok) {

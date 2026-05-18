@@ -1741,7 +1741,8 @@ export default function PatientDailyView() {
         </footer>
       </div>
 
-      {import.meta.env.DEV && <PortalPatientDebugPanel />}
+      {/* Web Push debug/repair tools — shown in all builds; other dev cheats stay inside the panel. */}
+      <PortalPatientDebugPanel />
       {selectedPatient && isPilot11GamificationDebugPatient(selectedPatient) && (
         <Pilot11GamificationDebugPanel />
       )}
