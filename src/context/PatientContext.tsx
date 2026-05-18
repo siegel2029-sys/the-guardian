@@ -96,6 +96,7 @@ import {
   mergeKnowledgeFactsHydrateFromTherapistCloud,
   fetchTherapistAppKbWithLegacyGlobalFallback,
   resolveStableAuthUserIdForKb,
+  resolveTherapistIdForSupabaseRls,
   exercisePlanExercisesComparableSignature,
 } from '../services/clinicalService';
 import {
@@ -110,7 +111,6 @@ import { pushPersistedStateToSupabase, type PushPersistedStateOptions, type Supa
 import { useAuth } from './AuthContext';
 import { normalizeKnowledgeFactsList, tryBuildManualKnowledgeFactRow } from '../utils/knowledgeFactNormalize';
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
-import { syncChatMessageToSupabase } from '../services/chatMessagesService';
 import type {
   GearPurchaseResult,
   PatientRewardFeedback,
@@ -2266,22 +2266,32 @@ export function PatientProvider({
       ]);
       const patient = allPatients.find((p) => p.id === patientId);
       const therapistKey = patient?.therapistId?.trim();
-      if (
-        supabase &&
-        isSupabaseConfigured &&
-        isSupabaseAuthEnabled() &&
-        isAuthenticated &&
-        therapistKey
-      ) {
-        void syncChatMessageToSupabase(supabase, {
-          patientId,
-          patientTherapistId: therapistKey,
-          content,
-          fromPatient: false,
+      if (!supabase || !isSupabaseConfigured || !therapistKey) return;
+
+      void (async () => {
+        const pid = patientId.trim();
+        const body = content.trim();
+        if (!pid || !body) return;
+        let therapistRowId = therapistKey;
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user?.id) {
+          therapistRowId = resolveTherapistIdForSupabaseRls(therapistKey, user) ?? user.id;
+        }
+        const { error } = await supabase.from('chat_messages').insert({
+          patient_id: pid,
+          therapist_id: therapistRowId,
+          content: body,
+          from_patient: false,
+          ai_clinical_alert: false,
         });
-      }
+        if (error) {
+          console.warn('[chat_messages] insert failed:', error.message, { patientId: pid });
+        }
+      })();
     },
-    [allPatients, supabase, isAuthenticated]
+    [allPatients, supabase]
   );
 
   const sendPatientMessage = useCallback(
@@ -2307,25 +2317,28 @@ export function PatientProvider({
       );
       const patient = allPatients.find((p) => p.id === patientId);
       const therapistKey = patient?.therapistId?.trim();
-      if (
-        supabase &&
-        isSupabaseConfigured &&
-        isSupabaseAuthEnabled() &&
-        isAuthenticated &&
-        therapistKey
-      ) {
-        void syncChatMessageToSupabase(supabase, {
-          patientId,
-          patientTherapistId: therapistKey,
-          content: trimmed,
-          fromPatient: true,
-        });
+      if (supabase && isSupabaseConfigured && therapistKey) {
+        void (async () => {
+          const pid = patientId.trim();
+          const body = trimmed;
+          if (!pid || !body) return;
+          const { error } = await supabase.from('chat_messages').insert({
+            patient_id: pid,
+            therapist_id: therapistKey,
+            content: body,
+            from_patient: true,
+            ai_clinical_alert: false,
+          });
+          if (error) {
+            console.warn('[chat_messages] insert failed:', error.message, { patientId: pid });
+          }
+        })();
       }
       if (em.isEmergency) {
         applyEmergencyProtocol(patientId, trimmed, em, 'הודעה למטפל');
       }
     },
-    [applyEmergencyProtocol, allPatients, supabase, isAuthenticated]
+    [applyEmergencyProtocol, allPatients, supabase]
   );
 
   const sendAiClinicalAlert = useCallback(
