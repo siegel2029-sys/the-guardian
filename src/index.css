@@ -519,6 +519,27 @@
     animation: guardi-assistant-image-fade-in 0.38s ease-out forwards;
   }
 
+  /* Gordy / Guardi mascot — fixed square frame, centered image (no tilt from parent transforms). */
+  .guardi-avatar-frame {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .guardi-avatar-frame > img {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    object-position: center center;
+    transform: none;
+  }
+
   @keyframes guardi-assistant-content-swap {
     0% {
       opacity: 0.65;

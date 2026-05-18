@@ -83,11 +83,11 @@ export default function GuardiVictorySequence({
         style={{ top: 'min(34vh, 280px)' }}
       >
         <div className="relative guardi-victory-hop guardi-victory-aura">
-          <div className="mx-auto flex items-center justify-center w-[5.5rem] h-[5.5rem] sm:w-28 sm:h-28 rounded-2xl overflow-hidden border-2 border-amber-200/90 shadow-lg bg-white">
+          <div className="guardi-avatar-frame mx-auto w-[5.5rem] sm:w-28 rounded-2xl border-2 border-amber-200/90 shadow-lg bg-white">
             <img
               src={imgCelebration}
               alt=""
-              className="h-full w-full object-contain object-bottom animate-guardi-assistant-image-fade-in"
+              className="animate-guardi-assistant-image-fade-in"
               decoding="async"
               draggable={false}
             />

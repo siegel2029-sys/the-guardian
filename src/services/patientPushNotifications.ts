@@ -275,7 +275,6 @@ function subscriptionMatchesCurrentVapid(
  */
 export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushSubscriptionPayload | null> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
-    console.log('Push: subscribeWebPush — unsupported (no window / serviceWorker / PushManager)');
     return null;
   }
 
@@ -288,8 +287,7 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
   }
 
   try {
-    const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-    console.log('Push: Service Worker registration status:', registration);
+    await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     const reg = await navigator.serviceWorker.ready;
     if (!reg.pushManager) {
       console.warn('[PhysioShield push] pushManager missing on registration');
@@ -297,11 +295,6 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
     }
 
     const applicationServerKey = urlBase64ToUint8Array(vapidPublic);
-    console.log(
-      'Push: applicationServerKey decoded byte length:',
-      applicationServerKey.length,
-      `(expected ${VAPID_APPLICATION_SERVER_KEY_LENGTH} for uncompressed P-256 VAPID public key)`
-    );
     if (applicationServerKey.length !== VAPID_APPLICATION_SERVER_KEY_LENGTH) {
       throw new Error(
         `VAPID public key must decode to exactly ${VAPID_APPLICATION_SERVER_KEY_LENGTH} bytes (uncompressed P-256: 0x04 || X || Y); decoded length is ${applicationServerKey.length}. ` +
@@ -386,7 +379,6 @@ async function subscribeWebPushAfterPermissionGrantedWithRetries(
   delayMs = 400
 ): Promise<WebPushSubscriptionPayload | null> {
   for (let i = 0; i < attempts; i++) {
-    console.log(`Push: subscribe attempt ${i + 1}/${attempts}`);
     const json = await subscribeWebPushAfterPermissionGranted();
     if (json?.endpoint) return json;
     if (i + 1 < attempts) {
@@ -412,20 +404,14 @@ export type PushRegisterResult =
  * to a placeholder token when subscribe is unavailable.
  */
 export async function registerPatientPushForSupabase(patientId: string): Promise<PushRegisterResult> {
-  console.log('Push: Starting registration...');
   const native = getNativeExpoPushTokenSync();
-  console.log('TOKEN_FOR_NADAV:', native);
   if (native) {
-    console.log('Push: Using native Expo token; skipping web subscribe.');
     return { ok: true, token: native, permission: 'granted' };
   }
 
   if (typeof window === 'undefined' || typeof Notification === 'undefined') {
-    console.log('Push: Abort — notifications unsupported (no window / Notification API).');
     return { ok: false, reason: 'notifications_unsupported' };
   }
-
-  console.log('Push: Permission status:', Notification.permission);
 
   let prompted = false;
   try {
@@ -450,10 +436,7 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
     }
   }
 
-  console.log('Push: Permission status (after prompt handling):', permission);
-
   if (permission === 'denied') {
-    console.log('Push: Abort — permission denied.');
     return { ok: false, reason: 'permission_denied' };
   }
 
@@ -464,7 +447,6 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
 
   if (permission === 'granted') {
     if (vapidPublic) {
-      console.log('Push: VAPID present — subscribing via PushManager (with retries).');
       const subJson = await subscribeWebPushAfterPermissionGrantedWithRetries();
       if (!subJson?.endpoint) {
         console.warn(
@@ -475,7 +457,6 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
       webPushSubscription = subJson;
       token = subJson.endpoint;
     } else {
-      console.log('Push: No VAPID — attempting subscribe or placeholder.');
       const subJson = await subscribeWebPushAfterPermissionGranted();
       if (subJson?.endpoint) {
         webPushSubscription = subJson;
@@ -485,14 +466,8 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
       }
     }
   } else {
-    console.log('Push: Permission still default — placeholder token only.');
     token = buildWebPlaceholderToken(patientId);
   }
-
-  console.log('Push: Registration finished OK.', {
-    hasWebPushSubscription: Boolean(webPushSubscription?.endpoint),
-    tokenPrefix: token.slice(0, 48),
-  });
 
   return {
     ok: true,
@@ -548,7 +523,6 @@ export async function clearPatientWebPushFieldsInDatabase(patientId: string): Pr
         'patient_update_returned_no_rows (check RLS and patients.auth_user_id matches the signed-in user)',
     };
   }
-  console.log('[PhysioShield push] Cleared push_token and webPush* fields on server before re-register.');
   return { ok: true };
 }
 
@@ -603,16 +577,11 @@ export async function forceReregisterPatientWebPush(patientId: string): Promise<
 export async function showPhysioshieldTestNotification(): Promise<void> {
   if (typeof window === 'undefined') return;
 
-  const loc = window.location;
-  const host = loc.hostname;
-
   globalThis.alert('Button Clicked!');
-  console.log('[Physio-Shield Test Push] hostname:', host);
 
   if (!('Notification' in globalThis)) {
     console.warn('[Physio-Shield Test Push] Notification API unavailable — likely browser restriction');
     globalThis.alert('Notification API not available in this context.');
-    console.log('[Physio-Shield Test Push] hostname:', host);
     return;
   }
 
@@ -624,14 +593,11 @@ export async function showPhysioshieldTestNotification(): Promise<void> {
     try {
       // eslint-disable-next-line no-new
       new Notification('Test', { body: 'It works!' });
-      console.log('[Physio-Shield Test Push] new Notification("Test") sent');
     } catch (e) {
       console.error('[Physio-Shield Test Push] new Notification() failed — browser/OS restriction?', e);
-      console.log('[Physio-Shield Test Push] hostname:', host);
     }
   } else {
     console.warn('[Physio-Shield Test Push] permission not granted');
-    console.log('[Physio-Shield Test Push] hostname:', host);
   }
 }
 
@@ -677,9 +643,6 @@ export async function persistPatientPushProfile(params: {
     patch.payload = base;
   }
 
-  const payload = patch.payload ?? patch;
-  console.log('Final Sync: Push Token included in payload', payload);
-
   const { data: updated, error } = await supabase
     .from('patients')
     .update(patch)
@@ -697,7 +660,6 @@ export async function persistPatientPushProfile(params: {
         'patient_update_returned_no_rows (check RLS and patients.auth_user_id matches the signed-in user)',
     };
   }
-  console.log('Push Token Saved!');
   return { ok: true };
 }
 

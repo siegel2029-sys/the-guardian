@@ -345,10 +345,10 @@ export default function GuardiAssistantModal({
     >
       <div
         key={swapKey}
-        className="animate-guardi-assistant-content-swap flex flex-col gap-2 sm:flex-1 sm:min-w-0 sm:flex-row sm:items-end sm:gap-3 w-full"
+        className="flex flex-col gap-2 sm:flex-1 sm:min-w-0 sm:flex-row sm:items-end sm:gap-3 w-full"
       >
         <div
-          className="relative rounded-2xl border-2 px-3.5 py-2.5 pointer-events-auto cursor-pointer"
+          className="animate-guardi-assistant-content-swap relative rounded-2xl border-2 px-3.5 py-2.5 pointer-events-auto cursor-pointer"
           style={{
             borderColor: bubbleProtective ? '#fecaca' : '#a7f3d0',
             background: bubbleProtective
@@ -416,12 +416,12 @@ export default function GuardiAssistantModal({
             <X className="h-4 w-4" strokeWidth={2.5} aria-hidden />
           </button>
 
-          <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-50 to-white w-[min(240px,calc(100vw-4rem))] aspect-square shrink-0 mx-auto">
+          <div className="guardi-avatar-frame rounded-2xl bg-gradient-to-b from-slate-50 to-white w-[min(240px,calc(100vw-4rem))] mx-auto">
             <img
               key={imageSrc}
               src={imageSrc}
               alt=""
-              className="h-full w-full object-contain object-bottom animate-guardi-assistant-image-fade-in"
+              className="animate-guardi-assistant-image-fade-in"
               decoding="async"
               draggable={false}
             />

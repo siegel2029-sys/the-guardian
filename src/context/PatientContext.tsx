@@ -2685,8 +2685,8 @@ export function PatientProvider({
             next.currentStreak = 0;
           }
           if (typeof next.coins === 'number' && next.coins < 0) next.coins = 0;
-          if (typeof next.xpForNextLevel === 'number' && next.xpForNextLevel < 1) {
-            next.xpForNextLevel = 100;
+          if (typeof next.xpForNextLevel !== 'number' || next.xpForNextLevel < 1) {
+            next.xpForNextLevel = xpRequiredToReachNextLevel(next.level);
           }
           return next;
         });

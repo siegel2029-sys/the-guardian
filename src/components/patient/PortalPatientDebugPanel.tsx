@@ -15,8 +15,8 @@ import {
 } from '../../services/patientPushNotifications';
 
 /**
- * Floating tools for the patient portal. **Web Push / VAPID** controls are always available;
- * gamification / time-machine cheats require `import.meta.env.DEV`.
+ * Floating dev tools for the patient portal (Web Push / VAPID repair, gamification cheats).
+ * Rendered only when `import.meta.env.DEV` (see PatientDailyView).
  */
 export default function PortalPatientDebugPanel() {
   const {
