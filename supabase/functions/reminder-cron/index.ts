@@ -14,15 +14,18 @@ import webPush from "npm:web-push@3.6.7";
  *
  * Reads `patients.push_token`: Expo via Expo API; HTTPS Web Push subscription URLs (FCM, Apple `web.push.apple.com`, Mozilla, etc.) via `web-push` (VAPID + encrypted body).
  *
- * **Testing:** `test_now=true` via JSON body **or** URL query (`?test_now=true`) runs the **main dispatch loop** with
- * **test bypass**: ignores the 3-hour activity window and daily momentum/standard locks; sends `TEST_NOW_BODY` once per
- * eligible patient (still skips if `session_history` shows work today). Optional `patient_id` / `test_patient_id` in body
- * **or** query targets one row with an immediate test push (early return; does not touch daily lock columns).
- * Optional `{ "verbose_reminders": true }` adds extra diagnostic lines on the normal path.
- * Time-of-day / quiet-hour checks are temporarily disabled in the main loop (see comments); restore before production if desired.
+ * **Testing:** `test_now=true` (URL or JSON body) runs the main loop with **full bypass**: local hour, quiet hours,
+ * 3-hour activity window, and daily lock columns are ignored; sends `TEST_NOW_BODY` per eligible patient (still skips if
+ * `session_history` shows work today). Targeted `patient_id` returns immediately with one test send.
+ * Optional `{ "verbose_reminders": true }` adds extra diagnostic lines on the production path.
  */
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+
+/** Standard reminder fires only at this local hour (24h), using each patient's `reminder_timezone`. */
+const STANDARD_REMINDER_LOCAL_HOUR = 20;
+/** Momentum nudges allowed from this hour (inclusive) until `STANDARD_REMINDER_LOCAL_HOUR` (exclusive). */
+const MOMENTUM_WINDOW_START_HOUR = 8;
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -392,7 +395,7 @@ async function runReminderDispatch(params: {
 
   if (reminderTestBypass) {
     console.log(
-      "[reminder-cron] test_now=true main loop: bypassing 3-hour activity window + daily momentum/standard locks; sending TEST_NOW_BODY per eligible patient (skips if session work exists today).",
+      "[reminder-cron] test_now=true main loop: bypassing local hour, quiet hours, 3-hour activity window, and daily lock columns; sending TEST_NOW_BODY per eligible patient (still skips if session work exists today).",
     );
   }
 
@@ -424,7 +427,7 @@ async function runReminderDispatch(params: {
       );
       continue;
     }
-    const { ymd: localYmd } = wall;
+    const { ymd: localYmd, hour: localHour } = wall;
 
     const msSinceActivity = p.last_activity_timestamp
       ? nowMs - new Date(p.last_activity_timestamp).getTime()
@@ -463,6 +466,17 @@ async function runReminderDispatch(params: {
     );
 
     console.log(`[reminder-cron]   Has work today? ${hasWorkToday}`);
+
+    if (reminderTestBypass) {
+      console.log(
+        `[reminder-cron] Patient ${label}: Local hour is ${localHour}. test_now active — bypassing schedule & daily locks; session gate only.`,
+      );
+    } else {
+      console.log(
+        `[reminder-cron] Patient ${label}: Local hour is ${localHour}. Checking eligibility for Standard/Momentum...`,
+      );
+    }
+
     console.log(
       `[reminder-cron]   Momentum check: Last activity was ${
         hoursSinceActivity === null ? "unknown (no timestamp)" : `${hoursSinceActivity.toFixed(2)}`
@@ -480,7 +494,7 @@ async function runReminderDispatch(params: {
         continue;
       }
       console.log(
-        `[reminder-cron]   Test bypass: sending TEST_NOW_BODY (ignoring 3h window + daily locks; not updating lock columns).`,
+        `[reminder-cron]   Test bypass: sending TEST_NOW_BODY (ignoring schedule, 3h window, daily locks; not updating lock columns).`,
       );
       const r = await sendPatientReminder(token, TEST_NOW_BODY, p.payload);
       console.log(
@@ -498,6 +512,17 @@ async function runReminderDispatch(params: {
     let sentSomething = false;
     let standardDelivered = false;
 
+    const inMomentumDayWindow =
+      localHour >= MOMENTUM_WINDOW_START_HOUR &&
+      localHour < STANDARD_REMINDER_LOCAL_HOUR;
+
+    console.log(
+      `[reminder-cron]   Momentum quiet-hours: local hour ${localHour} must be in [${MOMENTUM_WINDOW_START_HOUR}, ${STANDARD_REMINDER_LOCAL_HOUR}) → ${inMomentumDayWindow ? "eligible window" : "outside window (no momentum nudge)"}.`,
+    );
+    console.log(
+      `[reminder-cron]   Standard schedule: sends only when local hour === ${STANDARD_REMINDER_LOCAL_HOUR} (currently ${localHour}).`,
+    );
+
     const momentumBlockedReasons: string[] = [];
     if (hasWorkToday) momentumBlockedReasons.push("has_work_today");
     if (!p.last_activity_timestamp) momentumBlockedReasons.push("missing_last_activity_timestamp");
@@ -509,12 +534,18 @@ async function runReminderDispatch(params: {
     if (p.last_momentum_reminder_local_date === localYmd) {
       momentumBlockedReasons.push(`already_sent_momentum_today (${localYmd})`);
     }
+    if (!inMomentumDayWindow) {
+      momentumBlockedReasons.push(
+        `outside_momentum_quiet_window (hour ${localHour}; need ${MOMENTUM_WINDOW_START_HOUR}≤H<${STANDARD_REMINDER_LOCAL_HOUR})`,
+      );
+    }
 
     const momentumEligible =
       !hasWorkToday &&
       Boolean(p.last_activity_timestamp) &&
       within3h &&
-      p.last_momentum_reminder_local_date !== localYmd;
+      p.last_momentum_reminder_local_date !== localYmd &&
+      inMomentumDayWindow;
 
     if (verboseReminders && !hasWorkToday && !momentumEligible) {
       console.log(
@@ -526,9 +557,12 @@ async function runReminderDispatch(params: {
       !hasWorkToday &&
       p.last_activity_timestamp &&
       nowMs - new Date(p.last_activity_timestamp).getTime() <= THREE_HOURS_MS &&
-      p.last_momentum_reminder_local_date !== localYmd
+      p.last_momentum_reminder_local_date !== localYmd &&
+      inMomentumDayWindow
     ) {
-      console.log(`[reminder-cron]   Branch: attempting momentum reminder (production rules).`);
+      console.log(
+        `[reminder-cron]   Branch: attempting momentum reminder (within 3h + quiet-hours window + daily lock OK).`,
+      );
       const r = await sendPatientReminder(token, MOMENTUM_BODY, p.payload);
       console.log(
         `[reminder-cron]   Momentum send result: ${r.ok ? "sent_ok" : r.detail ?? "failed"}`,
@@ -544,8 +578,10 @@ async function runReminderDispatch(params: {
       } else {
         errors.push(`${p.id}: momentum ${r.detail ?? "push failed"}`);
       }
-    } else if (!hasWorkToday && verboseReminders) {
-      console.log(`[reminder-cron]   Branch: momentum criteria not met — falling through to standard check.`);
+    } else if (!hasWorkToday) {
+      console.log(
+        `[reminder-cron]   Branch: momentum skipped — falling through to standard eligibility check.`,
+      );
     }
 
     const standardBlockedReasons: string[] = [];
@@ -554,10 +590,16 @@ async function runReminderDispatch(params: {
     if (p.last_standard_reminder_local_date === localYmd) {
       standardBlockedReasons.push(`already_sent_standard_today (${localYmd})`);
     }
+    if (localHour !== STANDARD_REMINDER_LOCAL_HOUR) {
+      standardBlockedReasons.push(
+        `standard_only_at_local_hour_${STANDARD_REMINDER_LOCAL_HOUR}_current_${localHour}`,
+      );
+    }
 
     const standardEligible =
       !hasWorkToday &&
       !sentSomething &&
+      localHour === STANDARD_REMINDER_LOCAL_HOUR &&
       p.last_standard_reminder_local_date !== localYmd;
 
     if (verboseReminders && !standardEligible && !sentSomething && !hasWorkToday) {
@@ -566,8 +608,15 @@ async function runReminderDispatch(params: {
       );
     }
 
-    if (!hasWorkToday && !sentSomething && p.last_standard_reminder_local_date !== localYmd) {
-      console.log(`[reminder-cron]   Branch: attempting standard reminder (production rules).`);
+    if (
+      !hasWorkToday &&
+      !sentSomething &&
+      localHour === STANDARD_REMINDER_LOCAL_HOUR &&
+      p.last_standard_reminder_local_date !== localYmd
+    ) {
+      console.log(
+        `[reminder-cron]   Branch: attempting standard reminder (local hour ${STANDARD_REMINDER_LOCAL_HOUR}).`,
+      );
       const r = await sendPatientReminder(token, STANDARD_BODY, p.payload);
       console.log(
         `[reminder-cron]   Standard send result: ${r.ok ? "sent_ok" : r.detail ?? "failed"}`,
@@ -704,7 +753,7 @@ Deno.serve(async (req) => {
         console.log(`[reminder-cron] Patient ${label} has a valid Web Push endpoint: ${tt}`);
       }
 
-      console.log(`[reminder-cron test_now] Sending test push (targeted; ignores daily locks).`);
+      console.log(`[reminder-cron test_now] Sending test push (targeted; ignores schedule, quiet hours, daily locks).`);
       const r = await sendPatientReminder(tt, TEST_NOW_BODY, tp.payload);
       return jsonResponse({
         ok: true,
@@ -719,7 +768,7 @@ Deno.serve(async (req) => {
 
     const nowIso = new Date().toISOString();
     const nowMs = Date.now();
-    /** When `test_now` without `patient_id`, run full loop and bypass time/daily locks (see runReminderDispatch). */
+    /** When `test_now` without `patient_id`: main loop bypasses local hour, quiet hours, 3h window, and daily locks. */
     const reminderTestBypass = test_now;
 
     const { data: patients, error: listErr } = await supabase
