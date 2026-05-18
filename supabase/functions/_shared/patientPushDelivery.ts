@@ -98,6 +98,36 @@ function collectNestedSubscriptionRaws(root: Record<string, unknown>): unknown[]
   return out;
 }
 
+/** Depth-first search for `webPushSubscription` (or aliases) anywhere in a JSON tree. */
+function findWebPushSubscriptionDeep(
+  value: unknown,
+  depth = 0,
+  seen = new Set<unknown>(),
+): Record<string, unknown> | null {
+  if (depth > 6 || value == null) return null;
+  if (seen.has(value)) return null;
+  seen.add(value);
+
+  const rec = coerceJsonRecord(value);
+  if (!rec) return null;
+
+  for (const key of ["webPushSubscription", "web_push_subscription", "WebPushSubscription"] as const) {
+    const raw = rec[key];
+    const sub = coerceJsonRecord(raw);
+    if (sub && (sub.keys != null || sub.Keys != null || sub.p256dh != null || sub.P256DH != null)) {
+      return sub;
+    }
+  }
+
+  for (const v of Object.values(rec)) {
+    if (v != null && typeof v === "object") {
+      const found = findWebPushSubscriptionDeep(v, depth + 1, seen);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 async function sendExpoPush(
   token: string,
   body: string,
@@ -211,7 +241,7 @@ export function parseWebPushSubscriptionFromPayload(
   const root = coerceJsonRecord(patientPayload);
   if (!root) return null;
 
-  // (1) Prefer nested `webPushSubscription` (canonical) so we never use an unrelated root `keys` by mistake.
+  // (1) Prefer nested `webPushSubscription` (canonical).
   for (const raw of collectNestedSubscriptionRaws(root)) {
     const sub = coerceJsonRecord(raw);
     if (!sub) continue;
@@ -224,6 +254,13 @@ export function parseWebPushSubscriptionFromPayload(
       }
       return { endpoint: tokenEndpoint, keys: built.keys };
     }
+  }
+
+  // (1b) Deep search — catches webPushSubscription nested under arbitrary patient JSONB keys.
+  const deepSub = findWebPushSubscriptionDeep(root);
+  if (deepSub) {
+    const built = subscriptionObjectFromRecord(deepSub, tokenEndpoint);
+    if (built) return { endpoint: tokenEndpoint, keys: built.keys };
   }
 
   // (2) Root-level `payload.keys` + optional `payload.endpoint` (legacy mirror).
@@ -268,37 +305,6 @@ export function tryParseWebPushSubscription(
   return null;
 }
 
-async function sendWebPushJsonPayload(
-  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
-  payload: Record<string, unknown>,
-): Promise<{ ok: boolean; detail?: string }> {
-  const vapid = ensureWebPushVapid();
-  if (!vapid.ok) return vapid;
-
-  const pushSub = toWebPushLibrarySubscription(subscription);
-
-  try {
-    console.log(
-      "FINAL_CHECK: Key p256dh is:",
-      pushSub.keys?.p256dh ? "FOUND" : "MISSING",
-    );
-    await webPush.sendNotification(pushSub, JSON.stringify(payload), {
-      TTL: 86_400,
-      urgency: "high",
-    });
-    return { ok: true };
-  } catch (e: unknown) {
-    let detail = e instanceof Error ? e.message : String(e);
-    if (e && typeof e === "object" && "body" in e) {
-      const b = (e as { body?: string }).body;
-      if (typeof b === "string" && b.length > 0) detail = b.slice(0, 500);
-    }
-    const statusCode = (e as { statusCode?: number }).statusCode;
-    if (typeof statusCode === "number") detail = `HTTP ${statusCode}: ${detail}`;
-    return { ok: false, detail };
-  }
-}
-
 export type SendPatientPushOptions = {
   expoTitle?: string;
   /** Merged into Web Push JSON body alongside `title` and `body` (e.g. `{ data: { url: '/patient-portal/messages' } }`). */
@@ -312,23 +318,61 @@ export async function sendPatientReminder(
   opts?: SendPatientPushOptions,
 ): Promise<{ ok: boolean; detail?: string }> {
   const title = opts?.expoTitle ?? "Physio-Shield";
+  const endpoint = token.trim();
 
-  if (isWebPushEndpoint(token)) {
-    const parsedSub = tryParseWebPushSubscription(patientPayload, token);
-    if (!parsedSub || !parsedSub.keys?.p256dh) {
+  if (isWebPushEndpoint(endpoint)) {
+    // Single parse — `parsedSub` is the ONLY subscription source for this send (never `patientPayload`).
+    const parsedSub = tryParseWebPushSubscription(patientPayload, endpoint);
+    if (!parsedSub?.keys?.p256dh || !parsedSub.keys.auth) {
+      console.log(
+        "patient-push: parse miss endpoint=",
+        endpoint.slice(0, 48),
+        "payloadType=",
+        typeof patientPayload,
+      );
       return { ok: false, detail: "No valid subscription keys found after parsing" };
     }
 
-    const webPushSubscriptionForSend = toWebPushLibrarySubscription(parsedSub);
-    const wpPayload: Record<string, unknown> = {
+    const pushSub = toWebPushLibrarySubscription(parsedSub);
+    console.log(
+      "patient-push: using parsedSub endpoint=",
+      pushSub.endpoint.slice(0, 48),
+      "p256dh=",
+      pushSub.keys.p256dh ? "FOUND" : "MISSING",
+    );
+    console.log(
+      "FINAL_CHECK: Key p256dh is:",
+      pushSub.keys?.p256dh ? "FOUND" : "MISSING",
+    );
+
+    const vapid = ensureWebPushVapid();
+    if (!vapid.ok) return vapid;
+
+    const notificationBody: Record<string, unknown> = {
       title,
       body: expoBody,
       ...(opts?.webPushPayloadExtras ?? {}),
     };
-    return await sendWebPushJsonPayload(webPushSubscriptionForSend, wpPayload);
+
+    try {
+      await webPush.sendNotification(pushSub, JSON.stringify(notificationBody), {
+        TTL: 86_400,
+        urgency: "high",
+      });
+      return { ok: true };
+    } catch (e: unknown) {
+      let detail = e instanceof Error ? e.message : String(e);
+      if (e && typeof e === "object" && "body" in e) {
+        const b = (e as { body?: string }).body;
+        if (typeof b === "string" && b.length > 0) detail = b.slice(0, 500);
+      }
+      const statusCode = (e as { statusCode?: number }).statusCode;
+      if (typeof statusCode === "number") detail = `HTTP ${statusCode}: ${detail}`;
+      return { ok: false, detail };
+    }
   }
 
-  const r = await sendExpoPush(token, expoBody, title);
+  const r = await sendExpoPush(endpoint, expoBody, title);
   if (!r.ok && r.detail && !r.detail.startsWith("[expo_push]")) {
     return { ok: false, detail: `[expo_push] ${r.detail}` };
   }
