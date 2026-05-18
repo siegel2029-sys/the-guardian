@@ -632,4 +632,10 @@ export async function touchPatientLastActivityThrottled(
   const prev = lastActivityWriteByPatient.get(patientId) ?? 0;
   if (now - prev < minIntervalMs) return;
   lastActivityWriteByPatient.set(patientId, now);
+  await supabase
+    .from('patients')
+    .update({ last_activity_timestamp: new Date().toISOString() })
+    .eq('id', patientId);
+}
+
 export { registerPatientPushForSupabase as registerPushNotification };
