@@ -46,10 +46,55 @@ export function coerceJsonRecord(value: unknown): Record<string, unknown> | null
   return null;
 }
 
+/**
+ * Resolve the PushSubscription-like object from a patient JSONB `payload` (or any record that may nest it).
+ * Handles: top-level `webPushSubscription`, snake_case / PascalCase aliases, and an extra `{ payload: { webPushSubscription } }` wrap.
+ */
+function pickWebPushSubscriptionRecord(root: Record<string, unknown>): Record<string, unknown> | null {
+  const candidates: unknown[] = [
+    root.webPushSubscription,
+    root.web_push_subscription,
+    root.WebPushSubscription,
+  ];
+  const innerPayload = coerceJsonRecord(root.payload);
+  if (innerPayload) {
+    candidates.push(
+      innerPayload.webPushSubscription,
+      innerPayload.web_push_subscription,
+      innerPayload.WebPushSubscription,
+    );
+  }
+  for (const c of candidates) {
+    const sub = coerceJsonRecord(c);
+    if (sub) return sub;
+  }
+  return null;
+}
+
 function trimStr(v: unknown): string {
   if (typeof v === "string") return v.trim();
   if (typeof v === "number" || typeof v === "boolean") return String(v).trim();
   return "";
+}
+
+function subscriptionRecordHasUsableKeys(sub: Record<string, unknown>): boolean {
+  const nested = coerceJsonRecord(sub.keys ?? sub.Keys);
+  if (nested) {
+    const p256 =
+      trimStr(nested.p256dh) ||
+      trimStr(nested.P256DH);
+    const auth =
+      trimStr(nested.auth) ||
+      trimStr(nested.Auth);
+    return Boolean(p256 && auth);
+  }
+  const p256 =
+    trimStr(sub.p256dh) ||
+    trimStr(sub.P256DH);
+  const auth =
+    trimStr(sub.auth) ||
+    trimStr(sub.Auth);
+  return Boolean(p256 && auth);
 }
 
 async function sendExpoPush(
@@ -139,12 +184,7 @@ export function parseWebPushSubscriptionFromPayload(
   const root = coerceJsonRecord(patientPayload);
   if (!root) return null;
 
-  const rawSub =
-    root.webPushSubscription ??
-    root.web_push_subscription ??
-    root.WebPushSubscription;
-
-  let sub = coerceJsonRecord(rawSub);
+  let sub = pickWebPushSubscriptionRecord(root);
 
   /** Legacy / mis-synced rows: full PushSubscription JSON stored at payload root (endpoint + keys). */
   if (!sub) {
@@ -164,7 +204,19 @@ export function parseWebPushSubscriptionFromPayload(
   if (!sub) return null;
 
   const rawKeys = sub.keys ?? sub.Keys;
-  const keysObj = coerceJsonRecord(rawKeys);
+  let keysObj = coerceJsonRecord(rawKeys);
+  /** Some clients store p256dh/auth flat on the subscription object instead of under `keys`. */
+  if (!keysObj) {
+    const flatP256 =
+      trimStr(sub.p256dh) ||
+      trimStr(sub.P256DH);
+    const flatAuth =
+      trimStr(sub.auth) ||
+      trimStr(sub.Auth);
+    if (flatP256 && flatAuth) {
+      keysObj = { p256dh: flatP256, auth: flatAuth };
+    }
+  }
   if (!keysObj) return null;
 
   const p256dh =
@@ -229,11 +281,12 @@ export async function sendPatientReminder(
 
   if (isWebPushEndpoint(token)) {
     const parsedPayload = coerceJsonRecord(patientPayload);
+    const wpsResolved = parsedPayload ? pickWebPushSubscriptionRecord(parsedPayload) : null;
     console.log("Payload keys detected:", !!parsedPayload?.keys);
-    const wpsRoot = parsedPayload
-      ? coerceJsonRecord(parsedPayload.webPushSubscription as unknown)
-      : null;
-    console.log("webPushSubscription.keys detected:", !!(wpsRoot && coerceJsonRecord(wpsRoot.keys)));
+    console.log(
+      "webPushSubscription.keys detected:",
+      !!(wpsResolved && subscriptionRecordHasUsableKeys(wpsResolved)),
+    );
 
     const sub = parseWebPushSubscriptionFromPayload(patientPayload, token);
     if (!sub) {
