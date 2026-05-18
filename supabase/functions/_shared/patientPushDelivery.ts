@@ -314,39 +314,18 @@ export async function sendPatientReminder(
   const title = opts?.expoTitle ?? "Physio-Shield";
 
   if (isWebPushEndpoint(token)) {
-    const parsedSubscription = tryParseWebPushSubscription(patientPayload, token);
-    const root = coerceJsonRecord(patientPayload);
-    console.log("Payload keys detected:", !!(root && parseKeysMaterial(root.keys)));
-    console.log(
-      "webPushSubscription.keys detected:",
-      !!(parsedSubscription?.keys?.p256dh && parsedSubscription.keys.auth),
-    );
-
-    if (parsedSubscription == null) {
-      return {
-        ok: false,
-        detail:
-          "[web_push_vapid] Web Push requires patients.payload (json/object or JSON string) with webPushSubscription.keys.p256dh and keys.auth. If payload is stored as text, it must parse to an object.",
-      };
+    const parsedSub = tryParseWebPushSubscription(patientPayload, token);
+    if (!parsedSub || !parsedSub.keys?.p256dh) {
+      return { ok: false, detail: "No valid subscription keys found after parsing" };
     }
 
-    /** Only this minimal object is passed to `web-push` — never `patientPayload`. */
-    const webPushSubscriptionForSend = toWebPushLibrarySubscription(parsedSubscription);
-    console.log(
-      "patient-push: send target endpoint prefix:",
-      webPushSubscriptionForSend.endpoint.slice(0, 48),
-    );
-
+    const webPushSubscriptionForSend = toWebPushLibrarySubscription(parsedSub);
     const wpPayload: Record<string, unknown> = {
       title,
       body: expoBody,
       ...(opts?.webPushPayloadExtras ?? {}),
     };
-    const r = await sendWebPushJsonPayload(webPushSubscriptionForSend, wpPayload);
-    if (!r.ok && r.detail && !r.detail.startsWith("[web_push_vapid]")) {
-      return { ok: false, detail: `[web_push_vapid] ${r.detail}` };
-    }
-    return r;
+    return await sendWebPushJsonPayload(webPushSubscriptionForSend, wpPayload);
   }
 
   const r = await sendExpoPush(token, expoBody, title);
