@@ -243,6 +243,31 @@ export function parseWebPushSubscriptionFromPayload(
   return null;
 }
 
+/**
+ * Try several shapes callers may pass (column JSON, `{ payload: ... }` wrapper, double-nested payload).
+ * Sending uses **only** a successful parse — never raw `patientPayload` for encryption.
+ */
+export function tryParseWebPushSubscription(
+  patientPayload: unknown,
+  pushTokenEndpoint: string,
+): { endpoint: string; keys: { p256dh: string; auth: string } } | null {
+  const candidates: unknown[] = [patientPayload];
+  const root = coerceJsonRecord(patientPayload);
+  if (root && root.payload !== undefined) {
+    candidates.push(root.payload);
+  }
+  const inner = root ? coerceJsonRecord(root.payload) : null;
+  if (inner && inner.payload !== undefined) {
+    candidates.push(inner.payload);
+  }
+
+  for (const cand of candidates) {
+    const p = parseWebPushSubscriptionFromPayload(cand, pushTokenEndpoint);
+    if (p != null) return p;
+  }
+  return null;
+}
+
 async function sendWebPushJsonPayload(
   subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
   payload: Record<string, unknown>,
@@ -289,15 +314,15 @@ export async function sendPatientReminder(
   const title = opts?.expoTitle ?? "Physio-Shield";
 
   if (isWebPushEndpoint(token)) {
+    const parsedSubscription = tryParseWebPushSubscription(patientPayload, token);
     const root = coerceJsonRecord(patientPayload);
-    const parsedSubscription = parseWebPushSubscriptionFromPayload(patientPayload, token);
     console.log("Payload keys detected:", !!(root && parseKeysMaterial(root.keys)));
     console.log(
       "webPushSubscription.keys detected:",
       !!(parsedSubscription?.keys?.p256dh && parsedSubscription.keys.auth),
     );
 
-    if (!parsedSubscription) {
+    if (parsedSubscription == null) {
       return {
         ok: false,
         detail:
