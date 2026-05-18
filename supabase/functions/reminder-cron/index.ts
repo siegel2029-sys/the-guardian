@@ -5,14 +5,14 @@ import webPush from "npm:web-push@3.6.7";
  * Hourly reminder dispatcher: "momentum" (recent activity, no session yet today) vs 8pm local standard.
  *
  * Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (auto), INTERNAL_CRON_SECRET, EXPO_ACCESS_TOKEN (Expo Push API).
- * **Web Push (browser / FCM relay URL):** set `WEB_PUSH_VAPID_PUBLIC_KEY` and `WEB_PUSH_VAPID_PRIVATE_KEY`
+ * **Web Push (HTTPS subscription URLs — FCM, Apple Safari, Firefox, etc.):** set `WEB_PUSH_VAPID_PUBLIC_KEY` and `WEB_PUSH_VAPID_PRIVATE_KEY`
  * (same pair as the web client — public key must match `VITE_WEB_PUSH_VAPID_PUBLIC_KEY`). Optional `WEB_PUSH_VAPID_SUBJECT`
  * (contact JWT claim), default `mailto:noreply@physioshield.app`. Keys live in `patients.payload.webPushSubscription`.
  *
  * With `--no-verify-jwt`, auth requires `INTERNAL_CRON_SECRET` via header `x-cron-secret` **or** query `?secret=`.
  * Unexpected handler errors return HTTP 200 with JSON `{ ok: false, error, stack }`.
  *
- * Reads `patients.push_token`: Expo via Expo API; FCM-style Web Push URLs via `web-push` (VAPID + encrypted body).
+ * Reads `patients.push_token`: Expo via Expo API; HTTPS Web Push subscription URLs (FCM, Apple `web.push.apple.com`, Mozilla, etc.) via `web-push` (VAPID + encrypted body).
  *
  * **Testing:** `test_now=true` via JSON body **or** URL query (`?test_now=true`) runs the **main dispatch loop** with
  * **test bypass**: ignores the 3-hour activity window and daily momentum/standard locks; sends `TEST_NOW_BODY` once per
@@ -59,14 +59,14 @@ function isExpoPushToken(token: string): boolean {
   return t.startsWith("ExponentPushToken[") || t.startsWith("ExpoPushToken");
 }
 
-/** Web Push subscription endpoint (Chrome → FCM relay); `push_token` may hold this URL on web clients. */
-function isFcmWebPushEndpoint(token: string): boolean {
-  return token.trim().toLowerCase().startsWith("https://fcm.googleapis.com");
+/** Any HTTPS subscription endpoint (Chrome/FCM, Safari/iOS `web.push.apple.com`, Firefox autopush, etc.). */
+function isWebPushEndpoint(token: string): boolean {
+  return token.trim().toLowerCase().startsWith("https://");
 }
 
 function hasDeliverableReminderToken(token: string): boolean {
   const t = token.trim();
-  return t.length > 0 && (isExpoPushToken(t) || isFcmWebPushEndpoint(t));
+  return t.length > 0 && (isExpoPushToken(t) || isWebPushEndpoint(t));
 }
 
 function patientDisplayName(p: { id: string; first_name?: string | null }): string {
@@ -290,7 +290,7 @@ async function sendPatientReminder(
   expoBody: string,
   patientPayload: unknown,
 ): Promise<{ ok: boolean; detail?: string }> {
-  if (isFcmWebPushEndpoint(token)) {
+  if (isWebPushEndpoint(token)) {
     const sub = parseWebPushSubscriptionFromPayload(patientPayload, token);
     if (!sub) {
       return {
@@ -408,7 +408,7 @@ async function runReminderDispatch(params: {
     if (!hasDeliverableReminderToken(token)) {
       skipped += 1;
       if (verboseReminders) {
-        console.log(`[reminder-cron] Skipping patient ${label} (${p.id}): no_expo_or_fcm_deliverable_push_token`);
+        console.log(`[reminder-cron] Skipping patient ${label} (${p.id}): no_deliverable_push_token`);
       }
       continue;
     }
@@ -440,6 +440,10 @@ async function runReminderDispatch(params: {
       msSinceActivity >= 0;
 
     console.log(`[reminder-cron] Checking patient: ${label} (${p.id})`);
+
+    if (reminderTestBypass && isWebPushEndpoint(token)) {
+      console.log(`[reminder-cron] Patient ${label} has a valid Web Push endpoint: ${token}`);
+    }
 
     const { data: sessions, error: shErr } = await supabase
       .from("session_history")
@@ -684,16 +688,20 @@ Deno.serve(async (req) => {
       const tt = (tp.push_token ?? "").trim();
       if (!hasDeliverableReminderToken(tt)) {
         console.log(
-          `[reminder-cron test_now] Reason for skipping: no_expo_or_fcm_deliverable_push_token`,
+          `[reminder-cron test_now] Reason for skipping: no_deliverable_push_token (Expo or HTTPS Web Push URL required)`,
         );
         return jsonResponse({
           ok: true,
           test_now: true,
           sent: false,
-          reason: "no_deliverable_push_token_expo_or_fcm",
+          reason: "no_deliverable_push_token",
           patientId: tp.id,
           patientLabel: label,
         });
+      }
+
+      if (isWebPushEndpoint(tt)) {
+        console.log(`[reminder-cron] Patient ${label} has a valid Web Push endpoint: ${tt}`);
       }
 
       console.log(`[reminder-cron test_now] Sending test push (targeted; ignores daily locks).`);
@@ -704,7 +712,7 @@ Deno.serve(async (req) => {
         sent: r.ok,
         patientId: tp.id,
         patientLabel: label,
-        channel: isFcmWebPushEndpoint(tt) ? "web_push_vapid" : "expo",
+        channel: isWebPushEndpoint(tt) ? "web_push" : "expo",
         ...(r.ok ? {} : { deliveryError: r.detail }),
       });
     }
