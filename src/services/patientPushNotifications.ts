@@ -3,6 +3,24 @@ import type { Patient } from '../types';
 
 export type WebPushSubscriptionPayload = NonNullable<Patient['webPushSubscription']>;
 
+/**
+ * Canonical `{ endpoint, keys: { p256dh, auth } }` for `patients.payload.webPushSubscription`.
+ * Subscribe with `VITE_WEB_PUSH_VAPID_PUBLIC_KEY` from the active build (.env at `vite` dev/build time).
+ */
+export function normalizeCanonicalWebPushSubscription(
+  sub: WebPushSubscriptionPayload,
+): WebPushSubscriptionPayload {
+  const p256 = (sub.keys?.p256dh ?? '').toString().trim();
+  const auth = (sub.keys?.auth ?? '').toString().trim();
+  const endpoint = (sub.endpoint ?? '').toString().trim();
+  return JSON.parse(
+    JSON.stringify({
+      endpoint,
+      keys: { p256dh: p256, auth: auth },
+    }),
+  ) as WebPushSubscriptionPayload;
+}
+
 const PUSH_PROMPT_KEY = 'physioshield_push_permission_prompted_v1';
 /** Last VAPID public key used for a successful `pushManager.subscribe` (normalized). Used when `subscription.options.applicationServerKey` is unavailable. */
 const VAPID_PUBLIC_KEY_STORAGE_KEY = 'physioshield_web_push_vapid_public_key_v1';
@@ -32,7 +50,7 @@ function subscriptionToPlainPushJson(sub: PushSubscription): WebPushSubscription
       return null;
     }
     if (!json?.endpoint || typeof json.endpoint !== 'string') return null;
-    return json;
+    return normalizeCanonicalWebPushSubscription(json);
   } catch (e) {
     console.warn('[PhysioShield push] subscriptionToPlainPushJson failed:', e);
     return null;
@@ -480,8 +498,79 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
     ok: true,
     token,
     permission: permission === 'granted' ? 'granted' : 'default',
-    webPushSubscription,
+    webPushSubscription: webPushSubscription
+      ? normalizeCanonicalWebPushSubscription(webPushSubscription)
+      : undefined,
   };
+}
+
+/**
+ * Clears `push_token` and all Web Push fragments from `patients.payload` (other payload keys preserved).
+ * Call before force re-register so no stale subscription JSON remains in Supabase.
+ */
+export async function clearPatientWebPushFieldsInDatabase(patientId: string): Promise<{
+  ok: boolean;
+  message?: string;
+}> {
+  if (!supabase) {
+    return { ok: false, message: 'supabase_not_configured' };
+  }
+  const { data: row, error: fetchErr } = await supabase
+    .from('patients')
+    .select('payload')
+    .eq('id', patientId)
+    .maybeSingle();
+
+  if (fetchErr) return { ok: false, message: fetchErr.message };
+  if (!row) return { ok: false, message: 'patient_not_found_or_unauthorized' };
+
+  const existing = row.payload;
+  const base =
+    existing && typeof existing === 'object' && !Array.isArray(existing)
+      ? { ...(existing as Record<string, unknown>) }
+      : {};
+  delete base.webPushSubscription;
+  delete base.web_push_subscription;
+  delete base.WebPushSubscription;
+
+  const { data: updated, error } = await supabase
+    .from('patients')
+    .update({ push_token: null, payload: base })
+    .eq('id', patientId)
+    .select('id')
+    .maybeSingle();
+
+  if (error) return { ok: false, message: error.message };
+  if (!updated?.id) {
+    return {
+      ok: false,
+      message:
+        'patient_update_returned_no_rows (check RLS and patients.auth_user_id matches the signed-in user)',
+    };
+  }
+  console.log('[PhysioShield push] Cleared push_token and webPush* fields on server before re-register.');
+  return { ok: true };
+}
+
+/**
+ * Clears DB push row + local SW subscription, then re-subscribes and persists canonical `webPushSubscription`.
+ */
+export async function forceReregisterPatientWebPushClearStaleAndPersist(patientId: string): Promise<{
+  register: PushRegisterResult;
+  persist: { ok: boolean; message?: string };
+  clear: { ok: boolean; message?: string };
+}> {
+  const clear = await clearPatientWebPushFieldsInDatabase(patientId);
+  const register = await forceReregisterPatientWebPush(patientId);
+  if (!register.ok) {
+    return { clear, register, persist: { ok: false, message: 'register_failed' } };
+  }
+  const persist = await persistPatientPushProfile({
+    patientId,
+    token: register.token,
+    webPushSubscription: register.webPushSubscription,
+  });
+  return { clear, register, persist };
 }
 
 /**
@@ -583,14 +672,8 @@ export async function persistPatientPushProfile(params: {
       existing && typeof existing === 'object' && !Array.isArray(existing)
         ? { ...(existing as Record<string, unknown>) }
         : {};
-    const incoming = params.webPushSubscription as Record<string, unknown>;
-    const prevSub = base.webPushSubscription;
-    const merged =
-      prevSub && typeof prevSub === 'object' && !Array.isArray(prevSub)
-        ? ({ ...prevSub, ...incoming } as Record<string, unknown>)
-        : incoming;
-    /** Same shape as `JSON.parse(JSON.stringify(subscription))` for JSONB `patients.payload.webPushSubscription`. */
-    base.webPushSubscription = JSON.parse(JSON.stringify(merged)) as Patient['webPushSubscription'];
+    const canonical = normalizeCanonicalWebPushSubscription(params.webPushSubscription);
+    base.webPushSubscription = JSON.parse(JSON.stringify(canonical)) as Patient['webPushSubscription'];
     patch.payload = base;
   }
 

@@ -10,8 +10,7 @@ import {
 } from '../../utils/debugMockDate';
 import { formatLocalYmd } from '../../utils/dailyKnowledgeFact';
 import {
-  forceReregisterPatientWebPush,
-  persistPatientPushProfile,
+  forceReregisterPatientWebPushClearStaleAndPersist,
   showPhysioshieldTestNotification,
 } from '../../services/patientPushNotifications';
 
@@ -115,20 +114,19 @@ export default function PortalPatientDebugPanel() {
               onClick={() => {
                 setPushReregisterStatus(null);
                 void (async () => {
-                  const reg = await forceReregisterPatientWebPush(pid);
-                  if (!reg.ok) {
-                    setPushReregisterStatus(`לא נרשם: ${reg.reason}`);
+                  const result = await forceReregisterPatientWebPushClearStaleAndPersist(pid);
+                  if (!result.clear.ok) {
+                    setPushReregisterStatus(`ניקוי שרת נכשל: ${result.clear.message ?? 'unknown'}`);
                     return;
                   }
-                  const saved = await persistPatientPushProfile({
-                    patientId: pid,
-                    token: reg.token,
-                    webPushSubscription: reg.webPushSubscription,
-                  });
+                  if (!result.register.ok) {
+                    setPushReregisterStatus(`לא נרשם: ${result.register.reason}`);
+                    return;
+                  }
                   setPushReregisterStatus(
-                    saved.ok
-                      ? 'נרשם מחדש ונשמר ל-Supabase (endpoint + keys.p256dh + keys.auth).'
-                      : `שגיאת שמירה: ${saved.message ?? 'unknown'}`,
+                    result.persist.ok
+                      ? 'נוקו push_token וה־payload הישן, נרשם מחדש ונשמר (endpoint + keys).'
+                      : `שגיאת שמירה: ${result.persist.message ?? 'unknown'}`,
                   );
                 })();
               }}

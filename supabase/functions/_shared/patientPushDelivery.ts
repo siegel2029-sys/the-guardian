@@ -46,55 +46,56 @@ export function coerceJsonRecord(value: unknown): Record<string, unknown> | null
   return null;
 }
 
-/**
- * Resolve the PushSubscription-like object from a patient JSONB `payload` (or any record that may nest it).
- * Handles: top-level `webPushSubscription`, snake_case / PascalCase aliases, and an extra `{ payload: { webPushSubscription } }` wrap.
- */
-function pickWebPushSubscriptionRecord(root: Record<string, unknown>): Record<string, unknown> | null {
-  const candidates: unknown[] = [
-    root.webPushSubscription,
-    root.web_push_subscription,
-    root.WebPushSubscription,
-  ];
-  const innerPayload = coerceJsonRecord(root.payload);
-  if (innerPayload) {
-    candidates.push(
-      innerPayload.webPushSubscription,
-      innerPayload.web_push_subscription,
-      innerPayload.WebPushSubscription,
-    );
-  }
-  for (const c of candidates) {
-    const sub = coerceJsonRecord(c);
-    if (sub) return sub;
-  }
-  return null;
-}
-
 function trimStr(v: unknown): string {
   if (typeof v === "string") return v.trim();
   if (typeof v === "number" || typeof v === "boolean") return String(v).trim();
   return "";
 }
 
-function subscriptionRecordHasUsableKeys(sub: Record<string, unknown>): boolean {
-  const nested = coerceJsonRecord(sub.keys ?? sub.Keys);
-  if (nested) {
-    const p256 =
-      trimStr(nested.p256dh) ||
-      trimStr(nested.P256DH);
-    const auth =
-      trimStr(nested.auth) ||
-      trimStr(nested.Auth);
-    return Boolean(p256 && auth);
+/** `keys` object (handles JSON string via {@link coerceJsonRecord}). */
+function parseKeysMaterial(rawKeys: unknown): { p256dh: string; auth: string } | null {
+  const obj = coerceJsonRecord(rawKeys);
+  if (!obj) return null;
+  const p256dh = trimStr(obj.p256dh) || trimStr(obj.P256DH);
+  const auth = trimStr(obj.auth) || trimStr(obj.Auth);
+  if (!p256dh || !auth) return null;
+  return { p256dh, auth };
+}
+
+function subscriptionObjectFromRecord(
+  sub: Record<string, unknown>,
+  pushTokenEndpoint: string,
+): { endpoint: string; keys: { p256dh: string; auth: string } } | null {
+  const token = pushTokenEndpoint.trim();
+  const jsonEp = trimStr(sub.endpoint);
+  const endpoint = (token && isWebPushEndpoint(token)) ? token : jsonEp;
+  if (!endpoint || !isWebPushEndpoint(endpoint)) return null;
+
+  const nested = parseKeysMaterial(sub.keys ?? sub.Keys);
+  if (nested) return { endpoint, keys: nested };
+
+  const flatP256 = trimStr(sub.p256dh) || trimStr(sub.P256DH);
+  const flatAuth = trimStr(sub.auth) || trimStr(sub.Auth);
+  if (flatP256 && flatAuth) return { endpoint, keys: { p256dh: flatP256, auth: flatAuth } };
+
+  return null;
+}
+
+function collectNestedSubscriptionRaws(root: Record<string, unknown>): unknown[] {
+  const out: unknown[] = [
+    root.webPushSubscription,
+    root.web_push_subscription,
+    root.WebPushSubscription,
+  ];
+  const innerPayload = coerceJsonRecord(root.payload);
+  if (innerPayload) {
+    out.push(
+      innerPayload.webPushSubscription,
+      innerPayload.web_push_subscription,
+      innerPayload.WebPushSubscription,
+    );
   }
-  const p256 =
-    trimStr(sub.p256dh) ||
-    trimStr(sub.P256DH);
-  const auth =
-    trimStr(sub.auth) ||
-    trimStr(sub.Auth);
-  return Boolean(p256 && auth);
+  return out;
 }
 
 async function sendExpoPush(
@@ -172,6 +173,12 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
 
   webPush.setVapidDetails(subject, publicKey, privateKey);
   webPushVapidConfigured = true;
+  console.log(
+    "patient-push: WEB_PUSH_VAPID_PUBLIC_KEY loaded:",
+    "length=" + publicKey.length,
+    "prefix=" + publicKey.slice(0, 8),
+    "(must match browser VITE_WEB_PUSH_VAPID_PUBLIC_KEY bytes)",
+  );
   return { ok: true };
 }
 
@@ -180,64 +187,42 @@ export function parseWebPushSubscriptionFromPayload(
   pushTokenEndpoint: string,
 ): { endpoint: string; keys: { p256dh: string; auth: string } } | null {
   const tokenEndpoint = pushTokenEndpoint.trim();
+  if (!tokenEndpoint || !isWebPushEndpoint(tokenEndpoint)) return null;
 
+  /** `coerceJsonRecord` already applies `JSON.parse` when `patients.payload` is stored as a string. */
   const root = coerceJsonRecord(patientPayload);
   if (!root) return null;
 
-  let sub = pickWebPushSubscriptionRecord(root);
+  // (1) Root-level `payload.keys` + `payload.endpoint` (canonical mirror on patient JSONB).
+  const rootKeys = parseKeysMaterial(root.keys);
+  const rootEp = trimStr(root.endpoint);
+  if (rootKeys) {
+    if (rootEp && isWebPushEndpoint(rootEp)) {
+      return { endpoint: tokenEndpoint || rootEp, keys: rootKeys };
+    }
+    return { endpoint: tokenEndpoint, keys: rootKeys };
+  }
 
-  /** Legacy / mis-synced rows: full PushSubscription JSON stored at payload root (endpoint + keys). */
-  if (!sub) {
-    const epRoot = trimStr(root.endpoint);
-    const keysAtRoot = coerceJsonRecord(root.keys);
-    const p256Root =
-      keysAtRoot ? trimStr(keysAtRoot.p256dh) || trimStr(keysAtRoot.P256DH) : "";
-    const authRoot =
-      keysAtRoot ? trimStr(keysAtRoot.auth) || trimStr(keysAtRoot.Auth) : "";
-    if (
-      epRoot && p256Root && authRoot && isWebPushEndpoint(epRoot)
-    ) {
-      sub = { endpoint: epRoot, keys: { p256dh: p256Root, auth: authRoot } };
+  // (2) Nested `webPushSubscription` (+ snake / Pascal / `payload.webPushSubscription` wrap); value may be string JSON.
+  for (const raw of collectNestedSubscriptionRaws(root)) {
+    const sub = coerceJsonRecord(raw);
+    if (!sub) continue;
+    const built = subscriptionObjectFromRecord(sub, tokenEndpoint);
+    if (built) {
+      if (trimStr(sub.endpoint) && trimStr(sub.endpoint) !== tokenEndpoint) {
+        console.warn(
+          "patient-push: push_token endpoint differs from payload.webPushSubscription.endpoint; using push_token",
+        );
+      }
+      return { endpoint: tokenEndpoint, keys: built.keys };
     }
   }
 
-  if (!sub) return null;
+  // (3) Legacy: subscription-shaped object at root without `webPushSubscription` wrapper.
+  const rootAsSub = subscriptionObjectFromRecord(root, tokenEndpoint);
+  if (rootAsSub) return { endpoint: tokenEndpoint, keys: rootAsSub.keys };
 
-  const rawKeys = sub.keys ?? sub.Keys;
-  let keysObj = coerceJsonRecord(rawKeys);
-  /** Some clients store p256dh/auth flat on the subscription object instead of under `keys`. */
-  if (!keysObj) {
-    const flatP256 =
-      trimStr(sub.p256dh) ||
-      trimStr(sub.P256DH);
-    const flatAuth =
-      trimStr(sub.auth) ||
-      trimStr(sub.Auth);
-    if (flatP256 && flatAuth) {
-      keysObj = { p256dh: flatP256, auth: flatAuth };
-    }
-  }
-  if (!keysObj) return null;
-
-  const p256dh =
-    trimStr(keysObj.p256dh) ||
-    trimStr(keysObj.P256DH);
-  const auth =
-    trimStr(keysObj.auth) ||
-    trimStr(keysObj.Auth);
-  if (!p256dh || !auth) return null;
-
-  const jsonEndpoint = trimStr(sub.endpoint);
-  const endpoint = tokenEndpoint || jsonEndpoint;
-  if (!endpoint) return null;
-
-  if (jsonEndpoint && tokenEndpoint && jsonEndpoint !== tokenEndpoint) {
-    console.warn(
-      "patient-push: push_token URL differs from payload.webPushSubscription.endpoint; using push_token",
-    );
-  }
-
-  return { endpoint, keys: { p256dh, auth } };
+  return null;
 }
 
 async function sendWebPushJsonPayload(
@@ -248,6 +233,10 @@ async function sendWebPushJsonPayload(
   if (!vapid.ok) return vapid;
 
   try {
+    console.log(
+      "FINAL_CHECK: Key p256dh is:",
+      subscription.keys?.p256dh ? "FOUND" : "MISSING",
+    );
     await webPush.sendNotification(subscription, JSON.stringify(payload), {
       TTL: 86_400,
       urgency: "high",
@@ -280,16 +269,15 @@ export async function sendPatientReminder(
   const title = opts?.expoTitle ?? "Physio-Shield";
 
   if (isWebPushEndpoint(token)) {
-    const parsedPayload = coerceJsonRecord(patientPayload);
-    const wpsResolved = parsedPayload ? pickWebPushSubscriptionRecord(parsedPayload) : null;
-    console.log("Payload keys detected:", !!parsedPayload?.keys);
+    const root = coerceJsonRecord(patientPayload);
+    const subParsed = parseWebPushSubscriptionFromPayload(patientPayload, token);
+    console.log("Payload keys detected:", !!(root && parseKeysMaterial(root.keys)));
     console.log(
       "webPushSubscription.keys detected:",
-      !!(wpsResolved && subscriptionRecordHasUsableKeys(wpsResolved)),
+      !!(subParsed?.keys?.p256dh && subParsed.keys.auth),
     );
 
-    const sub = parseWebPushSubscriptionFromPayload(patientPayload, token);
-    if (!sub) {
+    if (!subParsed) {
       return {
         ok: false,
         detail:
@@ -301,7 +289,7 @@ export async function sendPatientReminder(
       body: expoBody,
       ...(opts?.webPushPayloadExtras ?? {}),
     };
-    const r = await sendWebPushJsonPayload(sub, wpPayload);
+    const r = await sendWebPushJsonPayload(subParsed, wpPayload);
     if (!r.ok && r.detail && !r.detail.startsWith("[web_push_vapid]")) {
       return { ok: false, detail: `[web_push_vapid] ${r.detail}` };
     }
