@@ -182,6 +182,24 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
   return { ok: true };
 }
 
+/**
+ * Minimal plain object for `web-push.sendNotification` — only `endpoint` and `keys`.
+ * Never pass the whole patient `payload` / `patientPayload` here.
+ */
+export function toWebPushLibrarySubscription(
+  parsed: { endpoint: string; keys: { p256dh: string; auth: string } },
+): { endpoint: string; keys: { p256dh: string; auth: string } } {
+  return JSON.parse(
+    JSON.stringify({
+      endpoint: String(parsed.endpoint).trim(),
+      keys: {
+        p256dh: String(parsed.keys.p256dh).trim(),
+        auth: String(parsed.keys.auth).trim(),
+      },
+    }),
+  );
+}
+
 export function parseWebPushSubscriptionFromPayload(
   patientPayload: unknown,
   pushTokenEndpoint: string,
@@ -193,17 +211,7 @@ export function parseWebPushSubscriptionFromPayload(
   const root = coerceJsonRecord(patientPayload);
   if (!root) return null;
 
-  // (1) Root-level `payload.keys` + `payload.endpoint` (canonical mirror on patient JSONB).
-  const rootKeys = parseKeysMaterial(root.keys);
-  const rootEp = trimStr(root.endpoint);
-  if (rootKeys) {
-    if (rootEp && isWebPushEndpoint(rootEp)) {
-      return { endpoint: tokenEndpoint || rootEp, keys: rootKeys };
-    }
-    return { endpoint: tokenEndpoint, keys: rootKeys };
-  }
-
-  // (2) Nested `webPushSubscription` (+ snake / Pascal / `payload.webPushSubscription` wrap); value may be string JSON.
+  // (1) Prefer nested `webPushSubscription` (canonical) so we never use an unrelated root `keys` by mistake.
   for (const raw of collectNestedSubscriptionRaws(root)) {
     const sub = coerceJsonRecord(raw);
     if (!sub) continue;
@@ -216,6 +224,16 @@ export function parseWebPushSubscriptionFromPayload(
       }
       return { endpoint: tokenEndpoint, keys: built.keys };
     }
+  }
+
+  // (2) Root-level `payload.keys` + optional `payload.endpoint` (legacy mirror).
+  const rootKeys = parseKeysMaterial(root.keys);
+  const rootEp = trimStr(root.endpoint);
+  if (rootKeys) {
+    if (rootEp && isWebPushEndpoint(rootEp)) {
+      return { endpoint: tokenEndpoint || rootEp, keys: rootKeys };
+    }
+    return { endpoint: tokenEndpoint, keys: rootKeys };
   }
 
   // (3) Legacy: subscription-shaped object at root without `webPushSubscription` wrapper.
@@ -232,12 +250,14 @@ async function sendWebPushJsonPayload(
   const vapid = ensureWebPushVapid();
   if (!vapid.ok) return vapid;
 
+  const pushSub = toWebPushLibrarySubscription(subscription);
+
   try {
     console.log(
       "FINAL_CHECK: Key p256dh is:",
-      subscription.keys?.p256dh ? "FOUND" : "MISSING",
+      pushSub.keys?.p256dh ? "FOUND" : "MISSING",
     );
-    await webPush.sendNotification(subscription, JSON.stringify(payload), {
+    await webPush.sendNotification(pushSub, JSON.stringify(payload), {
       TTL: 86_400,
       urgency: "high",
     });
@@ -270,26 +290,34 @@ export async function sendPatientReminder(
 
   if (isWebPushEndpoint(token)) {
     const root = coerceJsonRecord(patientPayload);
-    const subParsed = parseWebPushSubscriptionFromPayload(patientPayload, token);
+    const parsedSubscription = parseWebPushSubscriptionFromPayload(patientPayload, token);
     console.log("Payload keys detected:", !!(root && parseKeysMaterial(root.keys)));
     console.log(
       "webPushSubscription.keys detected:",
-      !!(subParsed?.keys?.p256dh && subParsed.keys.auth),
+      !!(parsedSubscription?.keys?.p256dh && parsedSubscription.keys.auth),
     );
 
-    if (!subParsed) {
+    if (!parsedSubscription) {
       return {
         ok: false,
         detail:
           "[web_push_vapid] Web Push requires patients.payload (json/object or JSON string) with webPushSubscription.keys.p256dh and keys.auth. If payload is stored as text, it must parse to an object.",
       };
     }
+
+    /** Only this minimal object is passed to `web-push` — never `patientPayload`. */
+    const webPushSubscriptionForSend = toWebPushLibrarySubscription(parsedSubscription);
+    console.log(
+      "patient-push: send target endpoint prefix:",
+      webPushSubscriptionForSend.endpoint.slice(0, 48),
+    );
+
     const wpPayload: Record<string, unknown> = {
       title,
       body: expoBody,
       ...(opts?.webPushPayloadExtras ?? {}),
     };
-    const r = await sendWebPushJsonPayload(subParsed, wpPayload);
+    const r = await sendWebPushJsonPayload(webPushSubscriptionForSend, wpPayload);
     if (!r.ok && r.detail && !r.detail.startsWith("[web_push_vapid]")) {
       return { ok: false, detail: `[web_push_vapid] ${r.detail}` };
     }
