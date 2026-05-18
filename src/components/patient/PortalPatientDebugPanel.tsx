@@ -9,7 +9,11 @@ import {
   getDevCalendarOffsetDays,
 } from '../../utils/debugMockDate';
 import { formatLocalYmd } from '../../utils/dailyKnowledgeFact';
-import { showPhysioshieldTestNotification } from '../../services/patientPushNotifications';
+import {
+  forceReregisterPatientWebPush,
+  persistPatientPushProfile,
+  showPhysioshieldTestNotification,
+} from '../../services/patientPushNotifications';
 
 /**
  * פאנל דיבוג — רק ב־development (מוצג מההורה).
@@ -37,6 +41,7 @@ export default function PortalPatientDebugPanel() {
   const [open, setOpen] = useState(false);
   const [lifetimeXpInput, setLifetimeXpInput] = useState('');
   const [mockDateUiRev, setMockDateUiRev] = useState(0);
+  const [pushReregisterStatus, setPushReregisterStatus] = useState<string | null>(null);
 
   useEffect(() => {
     const onMock = () => setMockDateUiRev((n) => n + 1);
@@ -99,6 +104,37 @@ export default function PortalPatientDebugPanel() {
               >
                 Test Push (מיידי בדפדפן)
               </button>
+              <button
+                type="button"
+                className="w-full text-[10px] font-semibold py-1.5 rounded-lg bg-amber-900/90 text-amber-50 hover:bg-amber-800 border border-amber-600/60"
+                onClick={() => {
+                  setPushReregisterStatus(null);
+                  void (async () => {
+                    const reg = await forceReregisterPatientWebPush(pid);
+                    if (!reg.ok) {
+                      setPushReregisterStatus(`לא נרשם: ${reg.reason}`);
+                      return;
+                    }
+                    const saved = await persistPatientPushProfile({
+                      patientId: pid,
+                      token: reg.token,
+                      webPushSubscription: reg.webPushSubscription,
+                    });
+                    setPushReregisterStatus(
+                      saved.ok
+                        ? 'נרשם מחדש ונשמר ל-Supabase (כולל מפתחות הצפנה).'
+                        : `שגיאת שמירה: ${saved.message ?? 'unknown'}`,
+                    );
+                  })();
+                }}
+              >
+                אילץ מחדש Web Push + DB (VAPID / keys)
+              </button>
+              {pushReregisterStatus && (
+                <p className="text-[9px] text-amber-100/90 leading-snug whitespace-pre-wrap">
+                  {pushReregisterStatus}
+                </p>
+              )}
             </div>
           )}
 

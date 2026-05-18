@@ -1,9 +1,69 @@
 import { supabase } from '../lib/supabase';
 import type { Patient } from '../types';
 
+export type WebPushSubscriptionPayload = NonNullable<Patient['webPushSubscription']>;
+
 const PUSH_PROMPT_KEY = 'physioshield_push_permission_prompted_v1';
 /** Last VAPID public key used for a successful `pushManager.subscribe` (normalized). Used when `subscription.options.applicationServerKey` is unavailable. */
 const VAPID_PUBLIC_KEY_STORAGE_KEY = 'physioshield_web_push_vapid_public_key_v1';
+/**
+ * Last successful PushSubscription JSON (endpoint + keys). If this exists but omits `keys`, we force
+ * `unsubscribe` so a fresh `subscribe` repopulates encryption keys for the server.
+ */
+const WEB_PUSH_SUBSCRIPTION_SNAPSHOT_KEY = 'physioshield_web_push_subscription_snapshot_v1';
+
+function pushSubscriptionJsonLacksKeys(json: unknown): boolean {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return true;
+  const keys = (json as { keys?: unknown }).keys;
+  if (!keys || typeof keys !== 'object' || Array.isArray(keys)) return true;
+  const k = keys as { p256dh?: unknown; auth?: unknown };
+  const p256 = typeof k.p256dh === 'string' ? k.p256dh.trim() : '';
+  const auth = typeof k.auth === 'string' ? k.auth.trim() : '';
+  return !p256 || !auth;
+}
+
+/** Serialize PushSubscription for storage + Supabase: guarantees plain object with `keys` (p256dh, auth). */
+function subscriptionToPlainPushJson(sub: PushSubscription): WebPushSubscriptionPayload | null {
+  try {
+    const raw = sub.toJSON() as unknown;
+    const json = JSON.parse(JSON.stringify(raw)) as WebPushSubscriptionPayload;
+    if (pushSubscriptionJsonLacksKeys(json)) {
+      console.warn('[PhysioShield push] PushSubscription.toJSON() missing keys — cannot send encrypted Web Push');
+      return null;
+    }
+    if (!json?.endpoint || typeof json.endpoint !== 'string') return null;
+    return json;
+  } catch (e) {
+    console.warn('[PhysioShield push] subscriptionToPlainPushJson failed:', e);
+    return null;
+  }
+}
+
+function readWebPushSnapshotLacksKeys(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    const raw = localStorage.getItem(WEB_PUSH_SUBSCRIPTION_SNAPSHOT_KEY);
+    if (raw === null) return false;
+    let parsed: unknown = raw;
+    try {
+      parsed = JSON.parse(raw) as unknown;
+    } catch {
+      return true;
+    }
+    return pushSubscriptionJsonLacksKeys(parsed);
+  } catch {
+    return false;
+  }
+}
+
+function writeWebPushSnapshot(json: WebPushSubscriptionPayload): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(WEB_PUSH_SUBSCRIPTION_SNAPSHOT_KEY, JSON.stringify(json));
+  } catch {
+    /* ignore */
+  }
+}
 
 function getNativeExpoPushTokenSync(): string | null {
   try {
@@ -53,6 +113,10 @@ function normalizeVapidPublicKeyString(raw: unknown): string {
   return s.replace(/\s+/g, '');
 }
 
+/**
+ * Browser env: `VITE_WEB_PUSH_VAPID_PUBLIC_KEY` (or `VITE_VAPID_PUBLIC_KEY`) must be the **same**
+ * public key bytes as Edge Function secret `WEB_PUSH_VAPID_PUBLIC_KEY` (pair with `WEB_PUSH_VAPID_PRIVATE_KEY`).
+ */
 function getVapidPublicKey(): string {
   const raw =
     import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY ?? import.meta.env.VITE_VAPID_PUBLIC_KEY;
@@ -109,8 +173,6 @@ function subscriptionMatchesCurrentVapid(
   }
 }
 
-export type WebPushSubscriptionPayload = NonNullable<Patient['webPushSubscription']>;
-
 /**
  * After notification permission is granted: register SW + `pushManager.subscribe` (VAPID).
  */
@@ -151,6 +213,29 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
     }
 
     let sub = await reg.pushManager.getSubscription();
+
+    const snapshotStale = readWebPushSnapshotLacksKeys();
+    const liveJson = sub ? subscriptionToPlainPushJson(sub) : null;
+    if (snapshotStale || (sub && !liveJson)) {
+      console.warn(
+        '[PhysioShield push] Stored subscription snapshot missing encryption keys and/or live subscription incomplete — forcing unsubscribe + re-subscribe.',
+      );
+      if (sub) {
+        try {
+          await sub.unsubscribe();
+        } catch (unsubErr) {
+          console.warn('[PhysioShield push] unsubscribe() (key refresh) failed:', unsubErr);
+        }
+      }
+      sub = null;
+      try {
+        localStorage.removeItem(WEB_PUSH_SUBSCRIPTION_SNAPSHOT_KEY);
+        localStorage.removeItem(VAPID_PUBLIC_KEY_STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+
     if (sub && !subscriptionMatchesCurrentVapid(sub, applicationServerKey, vapidPublic)) {
       console.warn(
         '[PhysioShield push] Existing subscription does not match current VAPID public key — unsubscribing and re-subscribing.'
@@ -186,11 +271,12 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
       /* ignore */
     }
 
-    const json = sub.toJSON() as WebPushSubscriptionPayload | undefined;
-    if (!json?.endpoint) {
-      console.warn('Push: subscription JSON missing endpoint', json);
+    const json = subscriptionToPlainPushJson(sub);
+    if (!json) {
+      console.warn('Push: subscription JSON missing endpoint or encryption keys', sub?.toJSON?.());
       return null;
     }
+    writeWebPushSnapshot(json);
     return json;
   } catch (e) {
     console.error('Push: subscribe flow failed (exact error):', e);
@@ -319,6 +405,32 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
   };
 }
 
+/**
+ * Dev / migration: drop SW push subscription + local snapshot so the next subscribe persists
+ * full JSON (endpoint + keys) to `patients.payload.webPushSubscription`.
+ */
+export async function forceReregisterPatientWebPush(patientId: string): Promise<PushRegisterResult> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return { ok: false, reason: 'notifications_unsupported' };
+  }
+  try {
+    localStorage.removeItem(WEB_PUSH_SUBSCRIPTION_SNAPSHOT_KEY);
+    localStorage.removeItem(VAPID_PUBLIC_KEY_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) {
+      await existing.unsubscribe();
+    }
+  } catch (e) {
+    console.warn('[PhysioShield push] forceReregister: unsubscribe failed', e);
+  }
+  return registerPatientPushForSupabase(patientId);
+}
+
 /** Dev / debug: sequential alerts + Notification (isolates wiring vs browser policy). */
 export async function showPhysioshieldTestNotification(): Promise<void> {
   if (typeof window === 'undefined') return;
@@ -394,10 +506,12 @@ export async function persistPatientPushProfile(params: {
         : {};
     const incoming = params.webPushSubscription as Record<string, unknown>;
     const prevSub = base.webPushSubscription;
-    base.webPushSubscription =
+    const merged =
       prevSub && typeof prevSub === 'object' && !Array.isArray(prevSub)
-        ? ({ ...prevSub, ...incoming } as unknown as Patient['webPushSubscription'])
-        : params.webPushSubscription;
+        ? ({ ...prevSub, ...incoming } as Record<string, unknown>)
+        : incoming;
+    /** Deep plain object so JSONB always includes `keys` (p256dh, auth), not only endpoint. */
+    base.webPushSubscription = JSON.parse(JSON.stringify(merged)) as Patient['webPushSubscription'];
     patch.payload = base;
   }
 

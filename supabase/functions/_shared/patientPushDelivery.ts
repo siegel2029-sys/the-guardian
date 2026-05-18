@@ -144,7 +144,23 @@ export function parseWebPushSubscriptionFromPayload(
     root.web_push_subscription ??
     root.WebPushSubscription;
 
-  const sub = coerceJsonRecord(rawSub);
+  let sub = coerceJsonRecord(rawSub);
+
+  /** Legacy / mis-synced rows: full PushSubscription JSON stored at payload root (endpoint + keys). */
+  if (!sub) {
+    const epRoot = trimStr(root.endpoint);
+    const keysAtRoot = coerceJsonRecord(root.keys);
+    const p256Root =
+      keysAtRoot ? trimStr(keysAtRoot.p256dh) || trimStr(keysAtRoot.P256DH) : "";
+    const authRoot =
+      keysAtRoot ? trimStr(keysAtRoot.auth) || trimStr(keysAtRoot.Auth) : "";
+    if (
+      epRoot && p256Root && authRoot && isWebPushEndpoint(epRoot)
+    ) {
+      sub = { endpoint: epRoot, keys: { p256dh: p256Root, auth: authRoot } };
+    }
+  }
+
   if (!sub) return null;
 
   const rawKeys = sub.keys ?? sub.Keys;
@@ -212,6 +228,9 @@ export async function sendPatientReminder(
   const title = opts?.expoTitle ?? "Physio-Shield";
 
   if (isWebPushEndpoint(token)) {
+    const parsedPayload = coerceJsonRecord(patientPayload);
+    console.log("Payload keys detected:", !!parsedPayload?.keys);
+
     const sub = parseWebPushSubscriptionFromPayload(patientPayload, token);
     if (!sub) {
       return {
