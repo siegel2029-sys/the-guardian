@@ -1,8 +1,8 @@
 /**
- * Database Webhook target: INSERT on `public.messages`.
+ * Database Webhook target: INSERT on `public.chat_messages` (legacy alias: `messages` if you rename later).
  *
- * Expects Supabase webhook JSON (`type`, `table`, `record`, …). Resolves the recipient patient and sends a push
- * (Expo or Web Push — same delivery stack as `reminder-cron` via `_shared/patientPushDelivery.ts`).
+ * Expects Supabase webhook JSON (`type`, `table`, `record`, …). Sends push to the **patient** when the therapist
+ * posts a normal chat row (`from_patient = false`, `ai_clinical_alert = false`).
  *
  * **Auth:** Set secret `INTERNAL_MESSAGES_WEBHOOK_SECRET` (recommended), or reuse `INTERNAL_CRON_SECRET`.
  * Send the same value as header `x-webhook-secret` **or** query `?secret=` (same pattern as reminder-cron).
@@ -10,12 +10,13 @@
  * **Secrets:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `EXPO_ACCESS_TOKEN` (Expo), `WEB_PUSH_VAPID_PUBLIC_KEY`,
  * `WEB_PUSH_VAPID_PRIVATE_KEY` (Web Push / Safari / Chrome).
  *
- * **Patient resolution:** Reads `record.recipient_id` (also accepts `patient_id`, `recipientId`, `patientId`).
+ * **Patient resolution:** Reads `record.patient_id`, `record.recipient_id`, `recipientId`, `patientId`, etc.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   hasDeliverableReminderToken,
+  isWebPushEndpoint,
   sendPatientReminder,
 } from "../_shared/patientPushDelivery.ts";
 
@@ -54,14 +55,41 @@ function extractRecord(payload: unknown): Record<string, unknown> | null {
   return null;
 }
 
+function coerceBool(v: unknown): boolean {
+  if (v === true) return true;
+  if (v === false || v === null || v === undefined) return false;
+  if (typeof v === "string") return v.toLowerCase() === "true" || v === "1";
+  return Boolean(v);
+}
+
 function pickRecipientPatientId(record: Record<string, unknown> | null): string | null {
   if (!record) return null;
-  const keys = ["recipient_id", "recipientId", "patient_id", "patientId", "to_patient_id"];
+  const keys = [
+    "patient_id",
+    "recipient_id",
+    "recipientId",
+    "patientId",
+    "to_patient_id",
+  ];
   for (const k of keys) {
     const v = record[k];
     if (typeof v === "string" && v.trim().length > 0) return v.trim();
   }
   return null;
+}
+
+function describeSender(record: Record<string, unknown>): string {
+  const fromPatient = coerceBool(record.from_patient);
+  const tid = typeof record.therapist_id === "string" ? record.therapist_id.trim() : "";
+  if (fromPatient) return "patient";
+  if (tid.length > 0) return `therapist(${tid})`;
+  return "therapist";
+}
+
+/** Push copy targets patients only when the row is a therapist → patient chat line. */
+function shouldSendPatientPush(record: Record<string, unknown> | null): boolean {
+  if (!record) return false;
+  return !coerceBool(record.from_patient) && !coerceBool(record.ai_clinical_alert);
 }
 
 Deno.serve(async (req) => {
@@ -95,7 +123,7 @@ Deno.serve(async (req) => {
     if (req.method === "GET" || req.method === "HEAD") {
       return jsonResponse({
         ok: true,
-        hint: "POST JSON body from Database Webhook (INSERT messages)",
+        hint: "POST JSON body from Database Webhook (INSERT on public.chat_messages)",
       });
     }
     payload = await req.json();
@@ -103,26 +131,43 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, error: "invalid_json_body" }, 400);
   }
 
+  const payloadObj = payload as Record<string, unknown>;
+  const tableName = typeof payloadObj.table === "string" ? payloadObj.table : "(unknown)";
   const record = extractRecord(payload);
   const recipientId = pickRecipientPatientId(record);
 
   if (!recipientId) {
     console.warn("[notify-new-message] No recipient patient id on payload", {
-      table: (payload as Record<string, unknown>)?.table,
-      type: (payload as Record<string, unknown>)?.type,
+      table: tableName,
+      type: payloadObj.type,
     });
     return jsonResponse({
       ok: false,
       error: "missing_recipient_id",
-      hint: "messages row should include recipient_id (or patient_id) for the patient",
+      hint: "chat_messages row should include patient_id for the patient thread",
     }, 200);
   }
 
-  console.log("[notify-new-message] Incoming message for patient:", recipientId);
+  const senderLabel = describeSender(record ?? {});
+  console.log(
+    `[notify-new-message] New message in table ${tableName} from ${senderLabel} to patient(${recipientId})`,
+  );
+
+  if (!shouldSendPatientPush(record)) {
+    console.log(
+      `[notify-new-message] Skip push (from_patient or ai_clinical_alert row — patient-targeted notify only).`,
+    );
+    return jsonResponse({
+      ok: true,
+      sent: false,
+      skipped: "not_therapist_chat_notify_target",
+      patientId: recipientId,
+    });
+  }
 
   const { data: patient, error: patientErr } = await supabase
     .from("patients")
-    .select("id, push_token, payload")
+    .select("id, push_token, payload, first_name")
     .eq("id", recipientId)
     .maybeSingle();
 
@@ -139,15 +184,26 @@ Deno.serve(async (req) => {
     }, 200);
   }
 
+  const friendly =
+    typeof patient.first_name === "string" && patient.first_name.trim().length > 0
+      ? patient.first_name.trim()
+      : recipientId;
+
   const token = (patient.push_token as string | null | undefined)?.trim() ?? "";
   if (!hasDeliverableReminderToken(token)) {
-    console.log("[notify-new-message] Patient has no Expo/Web Push token:", recipientId);
+    console.log(
+      `[notify-new-message] Patient ${friendly} (${recipientId}) has no Expo/Web Push token`,
+    );
     return jsonResponse({
       ok: true,
       sent: false,
       patientId: recipientId,
       reason: "no_deliverable_push_token",
     });
+  }
+
+  if (isWebPushEndpoint(token)) {
+    console.log(`[notify-new-message] Patient ${friendly} (${recipientId}) has Web Push endpoint`);
   }
 
   const pushResult = await sendPatientReminder(token, CHAT_NOTIFY_BODY, patient.payload, {
@@ -167,7 +223,7 @@ Deno.serve(async (req) => {
     }, 200);
   }
 
-  console.log("[notify-new-message] Push sent OK:", recipientId);
+  console.log("[notify-new-message] Push sent OK:", recipientId, friendly);
 
   return jsonResponse({
     ok: true,

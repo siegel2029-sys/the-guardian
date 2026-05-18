@@ -110,6 +110,7 @@ import { pushPersistedStateToSupabase, type PushPersistedStateOptions, type Supa
 import { useAuth } from './AuthContext';
 import { normalizeKnowledgeFactsList, tryBuildManualKnowledgeFactRow } from '../utils/knowledgeFactNormalize';
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
+import { syncChatMessageToSupabase } from '../services/chatMessagesService';
 import type {
   GearPurchaseResult,
   PatientRewardFeedback,
@@ -2250,19 +2251,38 @@ export function PatientProvider({
     setEmergencyModalPatientId((cur) => (cur === patientId ? null : cur));
   }, []);
 
-  const sendTherapistReply = useCallback((patientId: string, content: string) => {
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `msg-${Date.now()}`,
-        patientId,
-        content,
-        timestamp: new Date().toISOString(),
-        isRead: false,
-        fromPatient: false,
-      },
-    ]);
-  }, []);
+  const sendTherapistReply = useCallback(
+    (patientId: string, content: string) => {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}`,
+          patientId,
+          content,
+          timestamp: new Date().toISOString(),
+          isRead: false,
+          fromPatient: false,
+        },
+      ]);
+      const patient = allPatients.find((p) => p.id === patientId);
+      const therapistKey = patient?.therapistId?.trim();
+      if (
+        supabase &&
+        isSupabaseConfigured &&
+        isSupabaseAuthEnabled() &&
+        isAuthenticated &&
+        therapistKey
+      ) {
+        void syncChatMessageToSupabase(supabase, {
+          patientId,
+          patientTherapistId: therapistKey,
+          content,
+          fromPatient: false,
+        });
+      }
+    },
+    [allPatients, supabase, isAuthenticated]
+  );
 
   const sendPatientMessage = useCallback(
     (patientId: string, content: string) => {
@@ -2285,11 +2305,27 @@ export function PatientProvider({
           p.id === patientId ? { ...p, pendingMessages: p.pendingMessages + 1 } : p
         )
       );
+      const patient = allPatients.find((p) => p.id === patientId);
+      const therapistKey = patient?.therapistId?.trim();
+      if (
+        supabase &&
+        isSupabaseConfigured &&
+        isSupabaseAuthEnabled() &&
+        isAuthenticated &&
+        therapistKey
+      ) {
+        void syncChatMessageToSupabase(supabase, {
+          patientId,
+          patientTherapistId: therapistKey,
+          content: trimmed,
+          fromPatient: true,
+        });
+      }
       if (em.isEmergency) {
         applyEmergencyProtocol(patientId, trimmed, em, 'הודעה למטפל');
       }
     },
-    [applyEmergencyProtocol]
+    [applyEmergencyProtocol, allPatients, supabase, isAuthenticated]
   );
 
   const sendAiClinicalAlert = useCallback(
