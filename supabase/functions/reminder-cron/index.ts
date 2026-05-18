@@ -1,5 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
-import webPush from "npm:web-push@3.6.7";
+import {
+  coerceJsonRecord,
+  hasDeliverableReminderToken,
+  isWebPushEndpoint,
+  sendPatientReminder,
+} from "../_shared/patientPushDelivery.ts";
 
 /**
  * Hourly reminder dispatcher: "momentum" (recent activity, no session yet today) vs 8pm local standard.
@@ -20,8 +25,6 @@ import webPush from "npm:web-push@3.6.7";
  * Optional `{ "verbose_reminders": true }` adds extra diagnostic lines on the production path.
  */
 
-const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
-
 /** Standard reminder fires only at this local hour (24h), using each patient's `reminder_timezone`. */
 const STANDARD_REMINDER_LOCAL_HOUR = 20;
 /** Momentum nudges allowed from this hour (inclusive) until `STANDARD_REMINDER_LOCAL_HOUR` (exclusive). */
@@ -34,7 +37,8 @@ const corsHeaders: Record<string, string> = {
 
 const MOMENTUM_BODY =
   "You're already here! Want to complete your exercises now while you're at it?";
-const STANDARD_BODY = "Time for your daily recovery. Let's get moving!";
+const STANDARD_BODY =
+  "הגיע הזמן לאימון היום, הדרך לשיקום מתחיל מצעד קטן";
 /** One-off test push when JSON body has `"test_now": true`. */
 const TEST_NOW_BODY = "[TEST] Physio-Shield reminder-cron ping — you can ignore this.";
 
@@ -55,21 +59,6 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-function isExpoPushToken(token: string): boolean {
-  const t = token.trim();
-  return t.startsWith("ExponentPushToken[") || t.startsWith("ExpoPushToken");
-}
-
-/** Any HTTPS subscription endpoint (Chrome/FCM, Safari/iOS `web.push.apple.com`, Firefox autopush, etc.). */
-function isWebPushEndpoint(token: string): boolean {
-  return token.trim().toLowerCase().startsWith("https://");
-}
-
-function hasDeliverableReminderToken(token: string): boolean {
-  const t = token.trim();
-  return t.length > 0 && (isExpoPushToken(t) || isWebPushEndpoint(t));
 }
 
 function patientDisplayName(p: { id: string; first_name?: string | null }): string {
@@ -99,37 +88,6 @@ function localWallParts(isoUtc: string, tz: string): { ymd: string; hour: number
   }
 }
 
-/**
- * Some DB exports / legacy writes store JSON columns as **text**.
- * Unwrap string → object once (or pass through if already a plain object).
- */
-function coerceJsonRecord(value: unknown): Record<string, unknown> | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "string") {
-    const s = value.trim();
-    if (!s) return null;
-    try {
-      const parsed = JSON.parse(s) as unknown;
-      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      return null;
-    }
-    return null;
-  }
-  if (typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return null;
-}
-
-function trimStr(v: unknown): string {
-  if (typeof v === "string") return v.trim();
-  if (typeof v === "number" || typeof v === "boolean") return String(v).trim();
-  return "";
-}
-
 function payloadHasWork(payload: unknown): boolean {
   const coerced = coerceJsonRecord(payload);
   if (!coerced) return false;
@@ -142,177 +100,6 @@ function payloadHasWork(payload: unknown): boolean {
   if (typeof xp === "number" && xp > 0) return true;
   if (typeof xp === "string" && Number.parseFloat(xp) > 0) return true;
   return false;
-}
-
-async function sendExpoPush(token: string, body: string): Promise<{ ok: boolean; detail?: string }> {
-  const expoAccessToken = Deno.env.get("EXPO_ACCESS_TOKEN")?.trim() ?? "";
-  if (!expoAccessToken) {
-    return { ok: false, detail: "EXPO_ACCESS_TOKEN secret missing or empty" };
-  }
-
-  const r = await fetch(EXPO_PUSH_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      "Accept-encoding": "gzip, deflate",
-      Authorization: `Bearer ${expoAccessToken}`,
-    },
-    body: JSON.stringify({
-      to: token.trim(),
-      title: "Physio-Shield",
-      body,
-      sound: "default",
-      priority: "high",
-    }),
-  });
-  const text = await r.text();
-  if (!r.ok) {
-    return { ok: false, detail: text.slice(0, 500) };
-  }
-  try {
-    const j = JSON.parse(text) as { data?: { status?: string } };
-    const st = j.data?.status;
-    if (st && st !== "ok") {
-      return { ok: false, detail: text.slice(0, 500) };
-    }
-  } catch {
-    /* ignore */
-  }
-  return { ok: true };
-}
-
-/** Strip BOM/quotes/whitespace so dashboard-copied secrets match `web-push` expectations. */
-function normalizeVapidKeyEnv(raw: string): string {
-  let s = raw.replace(/^\uFEFF/, "").trim();
-  if (
-    (s.startsWith('"') && s.endsWith('"')) ||
-    (s.startsWith("'") && s.endsWith("'"))
-  ) {
-    s = s.slice(1, -1).trim();
-  }
-  return s.replace(/\s+/g, "");
-}
-
-/** Configure once per isolate; signs outbound Web Push with the VAPID private key. */
-let webPushVapidConfigured = false;
-
-function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
-  if (webPushVapidConfigured) return { ok: true };
-
-  const publicKey = normalizeVapidKeyEnv(Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY") ?? "");
-  const privateKey = normalizeVapidKeyEnv(Deno.env.get("WEB_PUSH_VAPID_PRIVATE_KEY") ?? "");
-  const subject =
-    Deno.env.get("WEB_PUSH_VAPID_SUBJECT")?.trim() || "mailto:noreply@physioshield.app";
-
-  if (!publicKey || !privateKey) {
-    return {
-      ok: false,
-      detail:
-        "Missing WEB_PUSH_VAPID_PUBLIC_KEY or WEB_PUSH_VAPID_PRIVATE_KEY. Public must match VITE_WEB_PUSH_VAPID_PUBLIC_KEY. " +
-        "Generate: npx web-push generate-vapid-keys",
-    };
-  }
-
-  webPush.setVapidDetails(subject, publicKey, privateKey);
-  webPushVapidConfigured = true;
-  return { ok: true };
-}
-
-function parseWebPushSubscriptionFromPayload(
-  patientPayload: unknown,
-  pushTokenEndpoint: string,
-): { endpoint: string; keys: { p256dh: string; auth: string } } | null {
-  const tokenEndpoint = pushTokenEndpoint.trim();
-
-  const root = coerceJsonRecord(patientPayload);
-  if (!root) return null;
-
-  const rawSub =
-    root.webPushSubscription ??
-    root.web_push_subscription ??
-    root.WebPushSubscription;
-
-  const sub = coerceJsonRecord(rawSub);
-  if (!sub) return null;
-
-  const rawKeys = sub.keys ?? sub.Keys;
-  const keysObj = coerceJsonRecord(rawKeys);
-  if (!keysObj) return null;
-
-  const p256dh =
-    trimStr(keysObj.p256dh) ||
-    trimStr(keysObj.P256DH);
-  const auth =
-    trimStr(keysObj.auth) ||
-    trimStr(keysObj.Auth);
-  if (!p256dh || !auth) return null;
-
-  const jsonEndpoint = trimStr(sub.endpoint);
-  /** `push_token` is usually the subscription URL; fall back to payload if column is empty. */
-  const endpoint = tokenEndpoint || jsonEndpoint;
-  if (!endpoint) return null;
-
-  if (jsonEndpoint && tokenEndpoint && jsonEndpoint !== tokenEndpoint) {
-    console.warn(
-      "reminder-cron: push_token URL differs from payload.webPushSubscription.endpoint; using push_token",
-    );
-  }
-
-  return { endpoint, keys: { p256dh, auth } };
-}
-
-async function sendWebPushVapid(
-  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
-  title: string,
-  body: string,
-): Promise<{ ok: boolean; detail?: string }> {
-  const vapid = ensureWebPushVapid();
-  if (!vapid.ok) return vapid;
-
-  try {
-    await webPush.sendNotification(subscription, JSON.stringify({ title, body }), {
-      TTL: 86_400,
-      urgency: "high",
-    });
-    return { ok: true };
-  } catch (e: unknown) {
-    let detail = e instanceof Error ? e.message : String(e);
-    if (e && typeof e === "object" && "body" in e) {
-      const b = (e as { body?: string }).body;
-      if (typeof b === "string" && b.length > 0) detail = b.slice(0, 500);
-    }
-    const statusCode = (e as { statusCode?: number }).statusCode;
-    if (typeof statusCode === "number") detail = `HTTP ${statusCode}: ${detail}`;
-    return { ok: false, detail };
-  }
-}
-
-async function sendPatientReminder(
-  token: string,
-  expoBody: string,
-  patientPayload: unknown,
-): Promise<{ ok: boolean; detail?: string }> {
-  if (isWebPushEndpoint(token)) {
-    const sub = parseWebPushSubscriptionFromPayload(patientPayload, token);
-    if (!sub) {
-      return {
-        ok: false,
-        detail:
-          "[web_push_vapid] Web Push requires patients.payload (json/object or JSON string) with webPushSubscription.keys.p256dh and keys.auth. If payload is stored as text, it must parse to an object.",
-      };
-    }
-    const r = await sendWebPushVapid(sub, "Physio-Shield", expoBody);
-    if (!r.ok && r.detail && !r.detail.startsWith("[web_push_vapid]")) {
-      return { ok: false, detail: `[web_push_vapid] ${r.detail}` };
-    }
-    return r;
-  }
-  const r = await sendExpoPush(token, expoBody);
-  if (!r.ok && r.detail && !r.detail.startsWith("[expo_push]")) {
-    return { ok: false, detail: `[expo_push] ${r.detail}` };
-  }
-  return r;
 }
 
 /** POST/PATCH/PUT JSON body flags (empty object if none). Consumes the request body once. */
