@@ -48,7 +48,11 @@ import { getClinicalDate, getClinicalYesterday, addClinicalDays } from '../utils
 import { addDevCalendarOffsetDays, bumpDevCalendarOffsetDays } from '../utils/debugMockDate';
 import { canPilot11DebugMutatePatient } from '../utils/pilot11GamificationDebug';
 import { mergeHistoryFromSessions } from '../utils/dailyHistory';
-import { pickCanonicalExercisePlan, mergeFetchedExercisePlanWithLocal } from '../utils/exercisePlanCanonical';
+import {
+  pickCanonicalExercisePlan,
+  mergeFetchedExercisePlanWithLocal,
+  normalizeCachedPatientExercises,
+} from '../utils/exercisePlanCanonical';
 import {
   savePersistedPatientState,
   PATIENT_STATE_STORAGE_KEY,
@@ -391,7 +395,7 @@ interface PatientContextValue {
     updates: Partial<
       Pick<
         PatientExercise,
-        'patientReps' | 'patientSets' | 'patientWeightKg' | 'isOptional' | 'customInstructions'
+        'patientReps' | 'patientSets' | 'patientWeightKg' | 'isOptional' | 'customInstructions' | 'instructions'
       >
     >
   ) => void;
@@ -629,6 +633,13 @@ interface PatientContextValue {
     exercises: PatientExercise[],
     options?: { changeSummary?: string }
   ) => Promise<{ ok: true } | { ok: false; message: string }>;
+  /** עדכון `patients.payload._exercisePlanCache` בלבד (ללא `exercise_plans`) — למסלול תוכנית ידנית / RLS */
+  persistExercisePlanCacheForPatient: (
+    patientId: string,
+    exercises: PatientExercise[]
+  ) => Promise<{ ok: true } | { ok: false; message: string }>;
+  /** החלפת רשימת תרגילים בזיכרון (דשבורד מטפל) */
+  replaceExercisePlanForPatient: (patientId: string, exercises: PatientExercise[]) => void;
 
   /** בסיס ידע "הידעת?" — אישור מטפל וסנכרון */
   knowledgeFacts: KnowledgeFact[];
@@ -1353,9 +1364,27 @@ export function PatientProvider({
             '[PatientContext] fetchActiveExercisePlanForPatient failed — using baseline plan so session_history hydration can still run',
             { patientId: pid, reason: planRes.message }
           );
-          return [...rest, mergeFetchedExercisePlanWithLocal(localPlan, null, pid)];
+          const patientRow = allPatientsRef.current.find((p) => p.id === pid);
+          return [
+            ...rest,
+            mergeFetchedExercisePlanWithLocal(
+              localPlan,
+              null,
+              pid,
+              patientRow?._exercisePlanCache
+            ),
+          ];
         }
-        return [...rest, mergeFetchedExercisePlanWithLocal(localPlan, planRes.exercisePlan, pid)];
+        const patientRow = allPatientsRef.current.find((p) => p.id === pid);
+        return [
+          ...rest,
+          mergeFetchedExercisePlanWithLocal(
+            localPlan,
+            planRes.exercisePlan,
+            pid,
+            patientRow?._exercisePlanCache
+          ),
+        ];
       });
     })();
     return () => {
@@ -2733,6 +2762,66 @@ export function PatientProvider({
     getLatestDailySession: getLatestDailySessionSnapshot,
   });
 
+  const persistExercisePlanCacheForPatient = useCallback(
+    async (
+      patientId: string,
+      exercises: PatientExercise[]
+    ): Promise<{ ok: true } | { ok: false; message: string }> => {
+      const fail = (message: string): { ok: false; message: string } => ({ ok: false, message });
+
+      const normalized = normalizeCachedPatientExercises(exercises);
+      exercise.replaceExercisePlanForPatient(patientId, normalized);
+
+      if (!isSupabaseConfigured || !supabase) {
+        setAllPatients((prev) =>
+          prev.map((p) =>
+            p.id === patientId ? { ...p, _exercisePlanCache: normalized } : p
+          )
+        );
+        return { ok: true };
+      }
+      if (restrictPatientSessionId || sessionRole !== 'therapist' || !isAuthenticated) {
+        return fail('אין הרשאת מטפל לשמירת תוכנית');
+      }
+
+      const patientForCache = allPatientsRef.current.find((p) => p.id === patientId);
+      if (!patientForCache) {
+        return fail('מטופל לא נמצא');
+      }
+
+      const now = new Date().toISOString();
+      const clinicalDayMerge = getClinicalDate();
+      const patientWithCache = mergePatientPayloadForUpsert(
+        patientForCache,
+        { ...patientForCache, _exercisePlanCache: normalized },
+        { clinicalToday: clinicalDayMerge }
+      );
+
+      setAllPatients((prev) =>
+        prev.map((p) => (p.id === patientId ? patientWithCache : p))
+      );
+
+      const cacheResult = await upsertPatientRecords(supabase, [patientWithCache], now);
+      if (cacheResult.ok === false) {
+        console.warn('[Exercise cache save] עדכון _exercisePlanCache נכשל', {
+          patientId,
+          message: cacheResult.message,
+        });
+        return fail(cacheResult.message);
+      }
+
+      return { ok: true };
+    },
+    [
+      exercise,
+      isSupabaseConfigured,
+      supabase,
+      restrictPatientSessionId,
+      sessionRole,
+      isAuthenticated,
+    ]
+  );
+
   const clinical = useClinicalData({
     allPatients,
     setAllPatients,
@@ -3168,6 +3257,8 @@ export function PatientProvider({
         savePersistedStateToCloud,
         saveSinglePatientPayloadToCloud,
         saveExercisePlanForPatientToCloud,
+        persistExercisePlanCacheForPatient,
+        replaceExercisePlanForPatient: exercise.replaceExercisePlanForPatient,
         knowledgeFacts: gamification.knowledgeFacts,
         addManualKnowledgeFact: addManualKnowledgeFactAndForceCloudSave,
         deleteKnowledgeFactAndForceCloudSave,

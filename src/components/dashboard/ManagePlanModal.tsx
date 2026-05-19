@@ -357,6 +357,7 @@ function CustomExerciseForm({
 
 // ── Inline editor for a current-plan exercise ─────────────────────
 const CUSTOM_NOTE_MAX_LEN = 500;
+const INSTRUCTIONS_MAX_LEN = 400;
 const TEXTAREA_MIN_PX = 72; // ≈ 3 שורות
 
 function normalizeCustomInstructionsForStore(raw: string): string | undefined {
@@ -375,12 +376,14 @@ function PlanExerciseRow({
     updates: Partial<
       Pick<
         PatientExercise,
-        'patientReps' | 'patientSets' | 'isOptional' | 'customInstructions'
+        'patientReps' | 'patientSets' | 'isOptional' | 'customInstructions' | 'instructions'
       >
     >
   ) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [editingInstructions, setEditingInstructions] = useState(false);
+  const [instructionsDraft, setInstructionsDraft] = useState(exercise.instructions ?? '');
   const [editSets, setEditSets] = useState(exercise.patientSets);
   const [editReps, setEditReps] = useState(exercise.patientReps);
   const [therapistNotesOpen, setTherapistNotesOpen] = useState(
@@ -422,6 +425,22 @@ function PlanExerciseRow({
   useEffect(() => {
     setTherapistNotesDraft(exercise.customInstructions ?? '');
   }, [exercise.customInstructions, exercise.id]);
+
+  useEffect(() => {
+    setInstructionsDraft(exercise.instructions ?? '');
+  }, [exercise.instructions, exercise.id]);
+
+  const saveInstructions = () => {
+    const capped = instructionsDraft.slice(0, INSTRUCTIONS_MAX_LEN).trim();
+    onUpdate({ instructions: capped });
+    setInstructionsDraft(capped);
+    setEditingInstructions(false);
+  };
+
+  const cancelInstructionsEdit = () => {
+    setInstructionsDraft(exercise.instructions ?? '');
+    setEditingInstructions(false);
+  };
 
   useLayoutEffect(() => {
     const el = notesTaRef.current;
@@ -580,11 +599,35 @@ function PlanExerciseRow({
                 </button>
                 <button
                   type="button"
+                  onClick={() => {
+                    setEditingInstructions((v) => !v);
+                    if (editingInstructions) cancelInstructionsEdit();
+                  }}
+                  aria-label={editingInstructions ? 'סגור עריכת הוראות' : 'ערוך הוראות תרגיל'}
+                  aria-expanded={editingInstructions}
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
+                    editingInstructions || exercise.instructions?.trim()
+                      ? 'bg-teal-50 hover:bg-teal-100'
+                      : 'hover:bg-slate-100'
+                  }`}
+                >
+                  <Pencil
+                    className={`w-3.5 h-3.5 ${
+                      editingInstructions || exercise.instructions?.trim()
+                        ? 'text-teal-600'
+                        : 'text-slate-400'
+                    }`}
+                    aria-hidden
+                  />
+                </button>
+                <button
+                  type="button"
                   onClick={() => setEditing(true)}
                   aria-label="ערוך סטים וחזרות"
-                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-teal-50 transition-colors"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-slate-100 transition-colors"
+                  title="סטים וחזרות"
                 >
-                  <Pencil className="w-3.5 h-3.5 text-slate-400 hover:text-teal-600" aria-hidden />
+                  <RotateCcw className="w-3.5 h-3.5 text-slate-400 hover:text-teal-600" aria-hidden />
                 </button>
                 <button
                   type="button"
@@ -599,6 +642,58 @@ function PlanExerciseRow({
           </div>
         </div>
       </div>
+      {(editingInstructions || exercise.instructions?.trim()) && !editing && (
+        <div className="px-3 pb-3 pt-2 border-t border-slate-100 bg-slate-50/80 w-full min-w-0">
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <span className="text-[10px] font-bold text-slate-600">הוראות ביצוע</span>
+            {!editingInstructions && (
+              <button
+                type="button"
+                onClick={() => setEditingInstructions(true)}
+                className="text-[10px] font-semibold text-teal-700 hover:text-teal-800 px-2 py-0.5 rounded-lg hover:bg-teal-50"
+              >
+                עריכה
+              </button>
+            )}
+          </div>
+          {editingInstructions ? (
+            <>
+              <textarea
+                value={instructionsDraft}
+                onChange={(e) => setInstructionsDraft(e.target.value.slice(0, INSTRUCTIONS_MAX_LEN))}
+                rows={4}
+                maxLength={INSTRUCTIONS_MAX_LEN}
+                placeholder="הוראות לביצוע התרגיל — יוצגו למטופל"
+                className="w-full min-w-0 px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-400/25 resize-none bg-white text-slate-800"
+              />
+              <div className="flex items-center justify-between mt-1.5 gap-2">
+                <p className="text-[9px] text-slate-400 tabular-nums">
+                  {instructionsDraft.length}/{INSTRUCTIONS_MAX_LEN}
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={cancelInstructionsEdit}
+                    className="px-2.5 py-1 rounded-lg text-[10px] font-medium text-slate-600 border border-slate-200 hover:bg-white"
+                  >
+                    ביטול
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveInstructions}
+                    className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-white"
+                    style={{ background: 'linear-gradient(135deg,#0d9488,#10b981)' }}
+                  >
+                    שמור
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-slate-600 leading-relaxed line-clamp-3">{exercise.instructions}</p>
+          )}
+        </div>
+      )}
       {therapistNotesOpen && (
         <div className="px-3 pb-3 pt-2 border-t border-slate-100 bg-white/90 w-full min-w-0">
           <label htmlFor={notesFieldId} className="text-[10px] font-bold text-slate-600 block mb-1.5">
@@ -749,6 +844,8 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     addExerciseToPlan,
     removeExerciseFromPlan,
     updateExerciseInPlan,
+    persistExercisePlanCacheForPatient,
+    replaceExercisePlanForPatient,
     saveExercisePlanForPatientToCloud,
     supabaseConfigured,
     supabaseSyncStatus,
@@ -803,13 +900,31 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
 
   if (!selectedPatient) return null;
 
+  const handlePlanExerciseUpdate = (
+    exerciseId: string,
+    updates: Partial<
+      Pick<
+        PatientExercise,
+        'patientReps' | 'patientSets' | 'isOptional' | 'customInstructions' | 'instructions'
+      >
+    >
+  ) => {
+    updateExerciseInPlan(selectedPatient.id, exerciseId, updates);
+    if (!Object.prototype.hasOwnProperty.call(updates, 'instructions')) return;
+
+    const nextExercises = currentExercises.map((e) =>
+      e.id === exerciseId ? { ...e, ...updates } : e
+    );
+    void persistExercisePlanCacheForPatient(selectedPatient.id, nextExercises);
+  };
+
   const handleAddCustom = (data: CustomFormData) => {
     const xpReward = data.difficulty * 8 + 12;
     const computedHoldSeconds =
       data.mode === 'time' ? data.minutes * 60 + data.seconds : undefined;
-
-    addExerciseToPlan(selectedPatient.id, {
-      id: `custom-${Date.now()}`,
+    const customId = `patient-${selectedPatient.id}-custom-${Date.now()}`;
+    const newEntry: PatientExercise = {
+      id: customId,
       name: data.name.trim(),
       muscleGroup: data.muscleGroup,
       targetArea: data.targetArea,
@@ -824,15 +939,19 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
       isOptional: data.isOptional,
       videoPlaceholder: `${data.name} – הדגמה`,
       videoUrl: DEFAULT_EXERCISE_DEMO_VIDEO_URL,
-    });
+      patientSets: data.sets,
+      patientReps: data.mode === 'reps' ? data.reps ?? 10 : 0,
+      addedAt: new Date().toISOString(),
+    };
+
+    const nextExercises = [...currentExercises, newEntry];
+    replaceExercisePlanForPatient(selectedPatient.id, nextExercises);
+    void persistExercisePlanCacheForPatient(selectedPatient.id, nextExercises);
 
     setShowCustomForm(false);
+    setPlanOpen(true);
     setSuccessMsg(`התרגיל נוסף בהצלחה: ${data.name.trim()}`);
-    // Auto-close modal after 1.4 s so user sees the toast then the updated exercise list
-    setTimeout(() => {
-      setSuccessMsg(null);
-      onClose();
-    }, 1400);
+    window.setTimeout(() => setSuccessMsg(null), 2800);
   };
 
   return (
@@ -985,7 +1104,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                       key={ex.id}
                       exercise={ex}
                       onRemove={() => removeExerciseFromPlan(selectedPatient.id, ex.id)}
-                      onUpdate={(updates) => updateExerciseInPlan(selectedPatient.id, ex.id, updates)}
+                      onUpdate={(updates) => handlePlanExerciseUpdate(ex.id, updates)}
                     />
                   ))
                 )}
@@ -1060,6 +1179,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
             onClose={() => setShowCustomForm(false)}
             triggerRef={customTriggerRef as RefObject<HTMLElement | null>}
             centered
+            nestedInModal
           >
             <CustomExerciseForm
               onAdd={handleAddCustom}

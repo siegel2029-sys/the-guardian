@@ -7,6 +7,9 @@ import { ChevronDown, Check } from 'lucide-react';
 
 /** Absolute maximum height of a floating panel in px. */
 export const PANEL_MAX_H = 280;
+/** Centred overlay: backdrop sits below the panel so content stays sharp and clickable. */
+const CENTERED_BACKDROP_Z = 99998;
+const CENTERED_PANEL_Z = 99999;
 /** Minimum gap between the panel edge and the viewport edge on narrow screens. */
 const MOBILE_EDGE_GAP = 8;
 /**
@@ -103,6 +106,7 @@ export function PortalDropdown({
   panelMaxHeight,
   panelScrollable = true,
   centered = false,
+  nestedInModal = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -121,6 +125,11 @@ export function PortalDropdown({
    * trigger — ideal for large forms that need more than dropdown space.
    */
   centered?: boolean;
+  /**
+   * When `centered` and opened inside another modal: skip the extra dimmed/blurred
+   * backdrop so the parent overlay is not stacked (avoids heavy blur / freeze).
+   */
+  nestedInModal?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
@@ -168,13 +177,14 @@ export function PortalDropdown({
   if (centered) {
     return createPortal(
       <>
-        {/* Backdrop */}
-        <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-          style={{ zIndex: 99998 }}
-          onClick={onClose}
-          aria-hidden
-        />
+        {!nestedInModal && (
+          <div
+            className="fixed inset-0 bg-black/50"
+            style={{ zIndex: CENTERED_BACKDROP_Z }}
+            onClick={onClose}
+            aria-hidden
+          />
+        )}
         {/* Panel */}
         <div
           ref={panelRef}
@@ -185,7 +195,7 @@ export function PortalDropdown({
             transform: 'translate(-50%, -50%)',
             width: 'min(92vw, 520px)',
             maxHeight: panelMaxHeight ? `${panelMaxHeight}px` : '85vh',
-            zIndex: 40000,
+            zIndex: CENTERED_PANEL_Z,
             overflowY: 'auto',
           }}
           className="rounded-xl border-2 border-slate-200 bg-white shadow-2xl"

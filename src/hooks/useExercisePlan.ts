@@ -52,7 +52,11 @@ import {
 import { logSupabaseCallError } from '../lib/supabaseSessionGuard';
 import { defaultPatientGear, type PatientGearState } from '../context/patientGearUtils';
 import { buildEmptySession, clampPain, clampEffort } from '../context/patientDomainHelpers';
-import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
+import {
+  exercisePlanFromPatientCache,
+  normalizeCachedPatientExercises,
+  pickCanonicalExercisePlan,
+} from '../utils/exercisePlanCanonical';
 import { canPilot11DebugMutatePatient } from '../utils/pilot11GamificationDebug';
 import { completeExerciseSafe } from '../services/exerciseCompletionRpc';
 
@@ -165,8 +169,43 @@ export function useExercisePlan(params: UseExercisePlanParams) {
   } = params;
   // ── Exercise plan CRUD ─────────────────────────────────────────
   const getExercisePlan = useCallback(
-    (patientId: string) => pickCanonicalExercisePlan(exercisePlans, patientId),
-    [exercisePlans]
+    (patientId: string) => {
+      const fromPlans = pickCanonicalExercisePlan(exercisePlans, patientId);
+      if (fromPlans && fromPlans.exercises.length > 0) {
+        return fromPlans;
+      }
+      const patient =
+        patients.find((p) => p.id === patientId) ??
+        allPatients.find((p) => p.id === patientId);
+      const fromCache = exercisePlanFromPatientCache(
+        patientId,
+        patient?._exercisePlanCache,
+        {
+          planRowId: fromPlans?.planRowId,
+          versionNumber: fromPlans?.versionNumber,
+          isActive: fromPlans?.isActive,
+        }
+      );
+      if (fromCache) return fromCache;
+      return fromPlans;
+    },
+    [exercisePlans, patients, allPatients]
+  );
+
+  const replaceExercisePlanForPatient = useCallback(
+    (patientId: string, exercises: PatientExercise[]) => {
+      const normalized = normalizeCachedPatientExercises(exercises);
+      setExercisePlans((prev) => {
+        const existing = prev.find((ep) => ep.patientId === patientId);
+        if (existing) {
+          return prev.map((ep) =>
+            ep.patientId === patientId ? { ...ep, exercises: normalized } : ep
+          );
+        }
+        return [...prev, { patientId, exercises: normalized }];
+      });
+    },
+    []
   );
 
   const addExerciseToPlan = useCallback((patientId: string, exercise: Exercise) => {
@@ -222,7 +261,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       updates: Partial<
         Pick<
           PatientExercise,
-          'patientReps' | 'patientSets' | 'patientWeightKg' | 'isOptional' | 'customInstructions'
+          'patientReps' | 'patientSets' | 'patientWeightKg' | 'isOptional' | 'customInstructions' | 'instructions'
         >
       >
     ) => {
@@ -1434,6 +1473,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
 
   return {
     getExercisePlan,
+    replaceExercisePlanForPatient,
     addExerciseToPlan,
     removeExerciseFromPlan,
     updateExerciseInPlan,

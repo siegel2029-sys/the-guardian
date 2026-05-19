@@ -11,6 +11,7 @@ import type {
   Therapist,
 } from '../types';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
+import { mergeExercisePlansWithPatientPayloadCache } from '../utils/exercisePlanCanonical';
 import { computeStreakForPatient } from '../utils/exerciseStreak';
 import {
   isSupabaseAuthEnabled,
@@ -1773,7 +1774,10 @@ export async function fetchPatients(client: SupabaseClient): Promise<FetchPatien
   return {
     ok: true,
     patients: base.patients,
-    exercisePlans: plans.exercisePlans,
+    exercisePlans: mergeExercisePlansWithPatientPayloadCache(
+      base.patients,
+      plans.exercisePlans
+    ),
   };
 }
 
