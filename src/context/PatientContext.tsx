@@ -111,6 +111,17 @@ import { pushPersistedStateToSupabase, type PushPersistedStateOptions, type Supa
 import { useAuth } from './AuthContext';
 import { normalizeKnowledgeFactsList, tryBuildManualKnowledgeFactRow } from '../utils/knowledgeFactNormalize';
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
+import {
+  fetchChatMessages,
+  insertPatientChatMessage,
+  insertTherapistChatMessage,
+  mergeChatMessage,
+  mergeChatMessages,
+  countUnreadForTherapist,
+  subscribeChatMessages,
+  sendPushNotification,
+  type ChatViewerRole,
+} from '../services/chatMessages';
 import type {
   GearPurchaseResult,
   PatientRewardFeedback,
@@ -1153,6 +1164,15 @@ export function PatientProvider({
           message: e instanceof Error ? e.message : String(e),
         });
       }
+
+      const chatRes = await fetchChatMessages(supabaseClient, {
+        patientId: restrictPatientSessionId,
+      });
+      if (!cancelled && chatRes.ok) {
+        setMessages((prev) => mergeChatMessages(prev, chatRes.messages, 'patient'));
+      } else if (!cancelled && chatRes.ok === false && import.meta.env.DEV) {
+        console.warn('[PatientPortal] fetchChatMessages', chatRes.message);
+      }
     })();
     return () => { cancelled = true; };
   }, [restrictPatientSessionId, authLoading, isAuthenticated, supabase]);
@@ -1275,6 +1295,19 @@ export function PatientProvider({
       void fetchUnlinkedPortalPatientIds(supabaseClient).then(({ patientIds }) => {
         if (!cancelled) setUnlinkedPortalPatientIds(patientIds);
       });
+
+      const chatRes = await fetchChatMessages(supabaseClient);
+      if (!cancelled && chatRes.ok) {
+        setMessages((prev) => mergeChatMessages(prev, chatRes.messages, 'therapist'));
+        setAllPatients((prev) =>
+          prev.map((p) => ({
+            ...p,
+            pendingMessages: countUnreadForTherapist(chatRes.messages, p.id),
+          }))
+        );
+      } else if (!cancelled && chatRes.ok === false && import.meta.env.DEV) {
+        console.warn('[PatientContext] fetchChatMessages (therapist)', chatRes.message);
+      }
     })();
     return () => {
       cancelled = true;
@@ -2150,6 +2183,53 @@ export function PatientProvider({
     [restrictPatientSessionId, therapistScopeIds, allPatients]
   );
 
+  /** Realtime chat: therapist dashboard (all patients) or patient portal (single thread). */
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    if (authLoading || !isAuthenticated) return;
+
+    let viewer: ChatViewerRole | null = null;
+    if (restrictPatientSessionId) {
+      viewer = 'patient';
+    } else if (sessionRole === 'therapist') {
+      viewer = 'therapist';
+    }
+    if (!viewer) return;
+
+    const supabaseClient = supabase;
+    const patientFilter = restrictPatientSessionId?.trim() || undefined;
+
+    const sub = subscribeChatMessages(supabaseClient, {
+      patientId: patientFilter,
+      viewer,
+      onInsert: (msg) => {
+        setMessages((prev) => {
+          const next = mergeChatMessage(prev, msg, viewer!);
+          if (viewer === 'therapist' && (msg.fromPatient || msg.aiClinicalAlert)) {
+            setAllPatients((patients) =>
+              patients.map((p) =>
+                p.id === msg.patientId
+                  ? { ...p, pendingMessages: countUnreadForTherapist(next, p.id) }
+                  : p
+              )
+            );
+          }
+          return next;
+        });
+      },
+    });
+
+    return () => {
+      sub.unsubscribe();
+    };
+  }, [
+    supabase,
+    authLoading,
+    isAuthenticated,
+    sessionRole,
+    restrictPatientSessionId,
+  ]);
+
   // ── Messages ───────────────────────────────────────────────────
   const getPatientMessages = useCallback(
     (patientId: string) => messages.filter((m) => m.patientId === patientId),
@@ -2253,46 +2333,29 @@ export function PatientProvider({
 
   const sendTherapistReply = useCallback(
     (patientId: string, content: string) => {
-      console.log('Chat: Send initiated. Checking Supabase config...');
-      const patient = allPatients.find((p) => p.id === patientId);
-      console.log(
-        'Chat Debug: { hasSupabase: ' +
-          !!supabase +
-          ', isConfigured: ' +
-          isSupabaseConfigured +
-          ', hasTherapistId: ' +
-          !!(patient?.therapistId?.trim()) +
-          ' }'
-      );
-      if (!patient) {
-        console.warn('Chat: No patient row in context for patientId — insert skipped.', {
-          patientId,
-        });
-      } else if (!patient.therapistId?.trim()) {
-        console.warn(
-          'Chat: Patient is missing therapistId (maps to DB patients.therapist_id) — insert skipped.',
-          { patientId, patientKeys: Object.keys(patient) }
-        );
-      }
+      const body = content.trim();
+      if (!body) return;
 
-      setMessages((prev) => [
-        ...prev,
-        {
+      const patient = allPatients.find((p) => p.id === patientId);
+      const therapistKey = patient?.therapistId?.trim();
+
+      const appendLocal = (msg: Message) => {
+        setMessages((prev) => mergeChatMessage(prev, msg, 'therapist'));
+      };
+
+      if (!supabase || !isSupabaseConfigured || !therapistKey) {
+        appendLocal({
           id: `msg-${Date.now()}`,
           patientId,
-          content,
+          content: body,
           timestamp: new Date().toISOString(),
-          isRead: false,
+          isRead: true,
           fromPatient: false,
-        },
-      ]);
-      const therapistKey = patient?.therapistId?.trim();
-      if (!supabase || !isSupabaseConfigured || !therapistKey) return;
+        });
+        return;
+      }
 
       void (async () => {
-        const pid = patientId.trim();
-        const body = content.trim();
-        if (!pid || !body) return;
         let therapistRowId = therapistKey;
         const {
           data: { user },
@@ -2300,19 +2363,28 @@ export function PatientProvider({
         if (user?.id) {
           therapistRowId = resolveTherapistIdForSupabaseRls(therapistKey, user) ?? user.id;
         }
-        console.log('Chat: Attempting to insert message to Supabase...');
-        const { data, error } = await supabase
-          .from('chat_messages')
-          .insert({
-            patient_id: pid,
-            therapist_id: therapistRowId,
-            content: body,
-            from_patient: false,
-            ai_clinical_alert: false,
-          })
-          .select();
-        if (error) console.error('Chat Error (Supabase):', error);
-        else console.log('Chat Success: Message saved!', data);
+
+        const res = await insertTherapistChatMessage(supabase, {
+          patientId,
+          therapistId: therapistRowId,
+          content: body,
+        });
+
+        if (res.ok) {
+          appendLocal(res.message);
+          void sendPushNotification(patientId, body);
+          return;
+        }
+
+        console.error('[Chat] insertTherapistChatMessage failed:', res.message);
+        appendLocal({
+          id: `msg-local-${Date.now()}`,
+          patientId,
+          content: body,
+          timestamp: new Date().toISOString(),
+          isRead: true,
+          fromPatient: false,
+        });
       })();
     },
     [allPatients, supabase]
@@ -2320,70 +2392,67 @@ export function PatientProvider({
 
   const sendPatientMessage = useCallback(
     (patientId: string, content: string) => {
-      console.log('Chat: Send initiated. Checking Supabase config...');
-      const patient = allPatients.find((p) => p.id === patientId);
-      console.log(
-        'Chat Debug: { hasSupabase: ' +
-          !!supabase +
-          ', isConfigured: ' +
-          isSupabaseConfigured +
-          ', hasTherapistId: ' +
-          !!(patient?.therapistId?.trim()) +
-          ' }'
-      );
       const trimmed = content.trim();
       if (!trimmed) return;
-      if (!patient) {
-        console.warn('Chat: No patient row in context for patientId — insert skipped.', {
-          patientId,
-        });
-      } else if (!patient.therapistId?.trim()) {
-        console.warn(
-          'Chat: Patient is missing therapistId (maps to DB patients.therapist_id) — insert skipped.',
-          { patientId, patientKeys: Object.keys(patient) }
-        );
-      }
+
+      const patient = allPatients.find((p) => p.id === patientId);
+      const therapistKey = patient?.therapistId?.trim();
       const em = screenPatientFreeTextForEmergency(trimmed);
-      setMessages((prev) => [
-        ...prev,
-        {
+
+      const appendLocalPatientMessage = (msg: Message) => {
+        setMessages((prev) => mergeChatMessage(prev, msg, 'patient'));
+        setAllPatients((prev) =>
+          prev.map((p) =>
+            p.id === patientId ? { ...p, pendingMessages: p.pendingMessages + 1 } : p
+          )
+        );
+      };
+
+      if (!supabase || !isSupabaseConfigured || !therapistKey) {
+        appendLocalPatientMessage({
           id: `msg-${Date.now()}`,
           patientId,
           content: trimmed,
           timestamp: new Date().toISOString(),
-          isRead: false,
+          isRead: true,
           fromPatient: true,
-        },
-      ]);
-      setAllPatients((prev) =>
-        prev.map((p) =>
-          p.id === patientId ? { ...p, pendingMessages: p.pendingMessages + 1 } : p
-        )
-      );
-      const therapistKey = patient?.therapistId?.trim();
-      if (!supabase || !isSupabaseConfigured || !therapistKey) return;
+        });
+        if (em.isEmergency) {
+          applyEmergencyProtocol(patientId, trimmed, em, 'הודעה למטפל');
+        }
+        return;
+      }
 
       void (async () => {
-        const pid = patientId.trim();
-        const body = trimmed;
-        if (!pid || !body) return;
-        console.log('Chat: Attempting to insert message to Supabase...');
-        const { data, error } = await supabase
-          .from('chat_messages')
-          .insert({
-            patient_id: pid,
-            therapist_id: therapistKey,
-            content: body,
-            from_patient: true,
-            ai_clinical_alert: false,
-          })
-          .select();
-        if (error) console.error('Chat Error (Supabase):', error);
-        else console.log('Chat Success: Message saved!', data);
+        const res = await insertPatientChatMessage(supabase, {
+          patientId,
+          therapistId: therapistKey,
+          content: trimmed,
+        });
+
+        if (res.ok) {
+          setMessages((prev) => mergeChatMessage(prev, res.message, 'patient'));
+          setAllPatients((prev) =>
+            prev.map((p) =>
+              p.id === patientId ? { ...p, pendingMessages: p.pendingMessages + 1 } : p
+            )
+          );
+        } else {
+          console.error('[Chat] insertPatientChatMessage failed:', res.message);
+          appendLocalPatientMessage({
+            id: `msg-local-${Date.now()}`,
+            patientId,
+            content: trimmed,
+            timestamp: new Date().toISOString(),
+            isRead: true,
+            fromPatient: true,
+          });
+        }
+
+        if (em.isEmergency) {
+          applyEmergencyProtocol(patientId, trimmed, em, 'הודעה למטפל');
+        }
       })();
-      if (em.isEmergency) {
-        applyEmergencyProtocol(patientId, trimmed, em, 'הודעה למטפל');
-      }
     },
     [applyEmergencyProtocol, allPatients, supabase]
   );
