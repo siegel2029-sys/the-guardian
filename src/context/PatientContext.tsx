@@ -419,6 +419,8 @@ interface PatientContextValue {
       optionalPoolNoReward?: boolean;
       /** Supabase exercise_plans.id — sent to complete_exercise_safe when is_active row is missing */
       planRowId?: string;
+      /** Portal uses patients.payload._exercisePlanCache when exercise_plans has no row */
+      isManualPlan?: boolean;
     }
   ) => boolean | Promise<boolean>;
 

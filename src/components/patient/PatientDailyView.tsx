@@ -374,8 +374,11 @@ export default function PatientDailyView() {
   type PendingTrainingSession = NonNullable<typeof exerciseVideoModal> & {
     patientId: string;
     planRowId?: string;
+    isManualPlan?: boolean;
   };
   const pendingTrainingSessionRef = useRef<PendingTrainingSession | null>(null);
+  const [pendingTrainingSession, setPendingTrainingSession] =
+    useState<PendingTrainingSession | null>(null);
   const [trainingFeedbackOpen, setTrainingFeedbackOpen] = useState(false);
   const [trainingSubmitError, setTrainingSubmitError] = useState<string | null>(null);
   const [redFlagOpen, setRedFlagOpen] = useState(false);
@@ -431,6 +434,53 @@ export default function PatientDailyView() {
   }, [dailySessions, selectedPatient?.id, clinicalToday]);
   const exercises = plan?.exercises ?? [];
 
+  const capturePendingTrainingSession = useCallback(
+    (modal: NonNullable<typeof exerciseVideoModal>): PendingTrainingSession | null => {
+      if (!selectedPatient) return null;
+      const activePlan = getExercisePlan(selectedPatient.id);
+      const hasCachedPlan =
+        (selectedPatient._exercisePlanCache?.length ?? 0) > 0 ||
+        (activePlan?.exercises.length ?? 0) > 0;
+      const session: PendingTrainingSession = {
+        ...modal,
+        patientId: selectedPatient.id,
+        planRowId: activePlan?.planRowId,
+        isManualPlan: !activePlan?.planRowId && hasCachedPlan,
+      };
+      pendingTrainingSessionRef.current = session;
+      setPendingTrainingSession(session);
+      if (import.meta.env.DEV) {
+        console.log('[TrainingSession] captured pending context:', {
+          patientId: session.patientId,
+          exerciseId: session.exercise.id,
+          planRowId: session.planRowId ?? null,
+          isManualPlan: session.isManualPlan ?? false,
+          kind: session.kind,
+        });
+      }
+      return session;
+    },
+    [selectedPatient, getExercisePlan]
+  );
+
+  const openExerciseTrainingModal = useCallback(
+    (modal: NonNullable<typeof exerciseVideoModal>) => {
+      capturePendingTrainingSession(modal);
+      setTrainingFeedbackOpen(false);
+      setTrainingSubmitError(null);
+      setExerciseVideoModal(modal);
+    },
+    [capturePendingTrainingSession]
+  );
+
+  const clearTrainingSession = useCallback(() => {
+    pendingTrainingSessionRef.current = null;
+    setPendingTrainingSession(null);
+    setTrainingFeedbackOpen(false);
+    setTrainingSubmitError(null);
+    setExerciseVideoModal(null);
+  }, []);
+
   const activeAreas = useMemo(
     () => [...new Set(exercises.map((e) => e.targetArea))],
     [exercises]
@@ -474,8 +524,8 @@ export default function PatientDailyView() {
   const exercisesLocked = exerciseSafetyLocked || redFlagPortalLock;
 
   useEffect(() => {
-    if (exercisesLocked) setExerciseVideoModal(null);
-  }, [exercisesLocked]);
+    if (exercisesLocked) clearTrainingSession();
+  }, [exercisesLocked, clearTrainingSession]);
 
   /** Green zones (excludes clinical); synced with 3D picks + context. */
   const selectedZones = selectedPatient ? getSelfCareZones(selectedPatient.id) : [];
@@ -645,9 +695,9 @@ export default function PatientDailyView() {
     if (nextId === mid) return;
     const wasInOptionalPool = fullOptionalPool.some((p) => getOptionalPoolExerciseId(p) === mid);
     if (wasInOptionalPool) {
-      setExerciseVideoModal(null);
+      clearTrainingSession();
     }
-  }, [sessionNextOptionalPoolItem?.poolKey, fullOptionalPool, exerciseVideoModal]);
+  }, [sessionNextOptionalPoolItem?.poolKey, fullOptionalPool, exerciseVideoModal, clearTrainingSession]);
 
   const combinedMissionItems = useMemo((): MissionRow[] => {
     const rehab: MissionRow[] = clinicalRehabExercises.map((exercise) => ({
@@ -931,7 +981,19 @@ export default function PatientDailyView() {
   const handleTrainingComplete = async (
     payload: ExerciseTrainingFeedbackPayload
   ): Promise<boolean> => {
-    const m = pendingTrainingSessionRef.current;
+    const m = pendingTrainingSession ?? pendingTrainingSessionRef.current;
+    if (import.meta.env.DEV) {
+      console.log('[TrainingComplete] submitting with pending session:', {
+        hasPendingState: Boolean(pendingTrainingSession),
+        hasPendingRef: Boolean(pendingTrainingSessionRef.current),
+        patientId: m?.patientId ?? null,
+        exerciseId: m?.exercise.id ?? null,
+        planRowId: m?.planRowId ?? null,
+        isManualPlan: m?.isManualPlan ?? false,
+        kind: m?.kind ?? null,
+        payload,
+      });
+    }
     if (!selectedPatient || !m || m.patientId !== selectedPatient.id) {
       setTrainingSubmitError('לא נמצאו פרטי התרגיל. סגרו ופתחו את האימון מחדש.');
       return false;
@@ -1006,6 +1068,7 @@ export default function PatientDailyView() {
         optionalPoolNoReward:
           m.exercise.isOptional && exerciseInOptionalPool && optionalPoolCompletionCount >= 1,
         planRowId: m.planRowId,
+        isManualPlan: m.isManualPlan,
       }
     );
     if (!saved) return false;
@@ -1033,15 +1096,10 @@ export default function PatientDailyView() {
 
   const handleFinishPractice = useCallback(() => {
     if (!exerciseVideoModal || !selectedPatient) return;
-    const activePlan = getExercisePlan(selectedPatient.id);
-    pendingTrainingSessionRef.current = {
-      ...exerciseVideoModal,
-      patientId: selectedPatient.id,
-      planRowId: activePlan?.planRowId,
-    };
+    capturePendingTrainingSession(exerciseVideoModal);
     setTrainingSubmitError(null);
     setTrainingFeedbackOpen(true);
-  }, [exerciseVideoModal, selectedPatient, getExercisePlan]);
+  }, [exerciseVideoModal, selectedPatient, capturePendingTrainingSession]);
 
   const handleAvatarZoneClick = (area: BodyArea) => {
     if (!selectedPatient) return;
@@ -1361,7 +1419,9 @@ export default function PatientDailyView() {
       </header>
 
       <div className="flex-1 px-4 py-4 pb-36">
-        {(portalTab === 'home' || portalTab === 'activity') && <PatientDidYouKnowAnchorButton />}
+        {(portalTab === 'home' || portalTab === 'activity') &&
+          !exerciseVideoModal &&
+          !trainingFeedbackOpen && <PatientDidYouKnowAnchorButton />}
         {portalTab === 'home' && !!selectedPatient && (
           <section className="mb-5">
             <div className="relative mx-auto w-full max-w-md touch-pan-y">
@@ -1731,7 +1791,7 @@ export default function PatientDailyView() {
                           xpReward={ex.xpReward}
                           videoUrl={ex.videoUrl ?? null}
                           onOpenTraining={() =>
-                            setExerciseVideoModal({
+                            openExerciseTrainingModal({
                               kind: 'rehab',
                               exercise: ex,
                               xpAward: exerciseBaseXp(ex.xpReward),
@@ -1756,7 +1816,7 @@ export default function PatientDailyView() {
                 pool={optionalPool}
                 selectedPatient={selectedPatient}
                 exercisesLocked={exercisesLocked}
-                setExerciseVideoModal={setExerciseVideoModal}
+                openExerciseTrainingModal={openExerciseTrainingModal}
                 setSelfCareStrengthTier={setSelfCareStrengthTier}
               />
             )}
@@ -1988,17 +2048,12 @@ export default function PatientDailyView() {
           xpAward={exerciseVideoModal.xpAward}
           coinsAward={exerciseVideoModal.coinsAward}
           primeSeconds={30}
-          onClose={() => {
-            setExerciseVideoModal(null);
-            setTrainingFeedbackOpen(false);
-            pendingTrainingSessionRef.current = null;
-            setTrainingSubmitError(null);
-          }}
+          onClose={clearTrainingSession}
           onFinishPractice={handleFinishPractice}
         />
       )}
 
-      {exerciseVideoModal != null && (
+      {pendingTrainingSession != null && (
         <ExerciseTrainingFeedbackModal
           open={trainingFeedbackOpen}
           submitError={trainingSubmitError}
@@ -2010,10 +2065,7 @@ export default function PatientDailyView() {
             setTrainingSubmitError(null);
             const ok = await handleTrainingComplete(payload);
             if (!ok) return false;
-            pendingTrainingSessionRef.current = null;
-            setTrainingFeedbackOpen(false);
-            setExerciseVideoModal(null);
-            setTrainingSubmitError(null);
+            clearTrainingSession();
             return true;
           }}
         />

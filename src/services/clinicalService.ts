@@ -1846,7 +1846,15 @@ export async function getPatientById(
         patientId: id,
         cachedCount: cached.length,
       });
-      exercisePlan = { patientId: id, exercises: cached as PatientExercise[] };
+      exercisePlan = {
+        patientId: id,
+        exercises: cached as PatientExercise[],
+        planRowId: activePlanResult.ok ? activePlanResult.exercisePlan?.planRowId : undefined,
+        versionNumber: activePlanResult.ok
+          ? activePlanResult.exercisePlan?.versionNumber
+          : undefined,
+        isActive: activePlanResult.ok ? activePlanResult.exercisePlan?.isActive : undefined,
+      };
     } else {
       console.warn('[getPatientById] exercise_plans ריק וגם אין _exercisePlanCache — ייתכן שה-RLS חוסם את המטופל מטבלת exercise_plans', {
         patientId: id,

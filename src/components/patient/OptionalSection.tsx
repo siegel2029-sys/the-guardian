@@ -1,4 +1,3 @@
-import type { Dispatch, SetStateAction } from 'react';
 import type { BodyArea, Patient, PatientExercise } from '../../types';
 import type { StrengthExerciseLevelDef } from '../../data/strengthExerciseDatabase';
 import ExerciseCard from './ExerciseCard';
@@ -31,7 +30,7 @@ export interface OptionalSectionProps {
   pool: UseOptionalRehabPoolResult;
   selectedPatient: Patient;
   exercisesLocked: boolean;
-  setExerciseVideoModal: Dispatch<SetStateAction<ExerciseVideoModalState>>;
+  openExerciseTrainingModal: (state: Exclude<ExerciseVideoModalState, null>) => void;
   setSelfCareStrengthTier: (patientId: string, area: BodyArea, tier: 0 | 1 | 2) => void;
 }
 
@@ -39,7 +38,7 @@ export default function OptionalSection({
   pool,
   selectedPatient,
   exercisesLocked,
-  setExerciseVideoModal,
+  openExerciseTrainingModal,
   setSelfCareStrengthTier,
 }: OptionalSectionProps) {
   const {
@@ -134,7 +133,7 @@ export default function OptionalSection({
                       const displayCoins = optionalPoolRewardsAreZero
                         ? 0
                         : applyOptionalTierToHalfCoins(baseHalfCoins, tier);
-                      setExerciseVideoModal({
+                      openExerciseTrainingModal({
                         kind: 'rehab',
                         exercise: ex,
                         xpAward: displayXp,
@@ -200,7 +199,7 @@ export default function OptionalSection({
                       const displayCoins = optionalPoolRewardsAreZero
                         ? 0
                         : applyOptionalTierToHalfCoins(baseHalfCoins, strengthTier);
-                      setExerciseVideoModal({
+                      openExerciseTrainingModal({
                         kind: 'selfCare',
                         bodyArea: item.area,
                         exercise: ex,

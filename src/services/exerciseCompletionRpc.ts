@@ -11,6 +11,13 @@ export async function completeExerciseSafe(
   sessionData: Record<string, unknown>
 ): Promise<CompleteExerciseSafeResult> {
   try {
+    if (import.meta.env.DEV) {
+      console.log('[complete_exercise_safe] RPC invoke:', {
+        p_exercise_id: exerciseId,
+        p_session_data: sessionData,
+      });
+    }
+
     const { data, error } = await client.rpc('complete_exercise_safe', {
       p_exercise_id: exerciseId,
       p_session_data: sessionData,

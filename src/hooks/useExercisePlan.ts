@@ -44,7 +44,7 @@ import {
   normalizePortalUsername,
   isValidPortalUsername,
 } from '../lib/patientPortalAuth';
-import { mergeSessionCompletionByDateMaps, upsertPatientRecords } from '../services/clinicalService';
+import { mergeSessionCompletionByDateMaps, upsertPatientRecords, fetchActiveExercisePlanForPatient } from '../services/clinicalService';
 import {
   upsertDailySessionRowMerged,
   persistPatientFinishReportToCloud,
@@ -294,6 +294,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         optionalPoolNoReward?: boolean;
         /** Supabase exercise_plans.id — sent to complete_exercise_safe when is_active row is missing */
         planRowId?: string;
+        /** Portal uses patients.payload._exercisePlanCache when exercise_plans has no row */
+        isManualPlan?: boolean;
       }
     ): Promise<boolean> => {
       const clinicalDay = getClinicalDate();
@@ -679,15 +681,50 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       if (supabaseClient && patientPortalPatientId && patientId === patientPortalPatientId) {
         try {
           if (options?.completionSource === 'rehab' && rehabEx) {
-            const rpc = await completeExerciseSafe(supabaseClient, exerciseId, {
+            let resolvedPlanRowId = options?.planRowId ?? plan?.planRowId ?? null;
+            if (!resolvedPlanRowId && supabaseClient) {
+              const freshPlan = await fetchActiveExercisePlanForPatient(supabaseClient, patientId);
+              if (freshPlan.ok && freshPlan.exercisePlan?.planRowId) {
+                resolvedPlanRowId = freshPlan.exercisePlan.planRowId;
+              }
+            }
+
+            const cacheFromPatient = patientBefore._exercisePlanCache;
+            const exerciseInCache =
+              Array.isArray(cacheFromPatient) &&
+              cacheFromPatient.some((e) => e.id === exerciseId);
+            const isManualPlan =
+              !resolvedPlanRowId &&
+              (options?.isManualPlan === true ||
+                exerciseInCache ||
+                (plan?.exercises.some((e) => e.id === exerciseId) ?? false));
+
+            const rpcSessionData: Record<string, unknown> = {
               pain_level: pain,
               effort_rating: effort,
               clinical_date: clinicalDay,
               optional_pool_no_reward: options?.optionalPoolNoReward ?? false,
               session_body_area: options?.sessionBodyArea ?? null,
-              plan_row_id: options?.planRowId ?? plan?.planRowId ?? null,
+              plan_row_id: resolvedPlanRowId,
               patient_id: patientId,
-            });
+            };
+            if (isManualPlan) {
+              rpcSessionData.is_manual_plan = true;
+            }
+
+            if (import.meta.env.DEV) {
+              console.log('[complete_exercise_safe] Payload being sent to server:', {
+                p_exercise_id: exerciseId,
+                p_session_data: rpcSessionData,
+                planRowIdFromOptions: options?.planRowId ?? null,
+                planRowIdFromLocalPlan: plan?.planRowId ?? null,
+                resolvedPlanRowId,
+                isManualPlan,
+                exerciseInCache,
+              });
+            }
+
+            const rpc = await completeExerciseSafe(supabaseClient, exerciseId, rpcSessionData);
             if (!rpc.ok) {
               const detail = rpc.message ?? rpc.reason ?? 'complete_exercise_safe';
               onExerciseCloudSyncError?.(
