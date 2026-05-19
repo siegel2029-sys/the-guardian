@@ -1,13 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { X, Play } from 'lucide-react';
-
-const EFFORT_LABELS: Record<number, string> = {
-  1: 'קל מאוד',
-  2: 'קל',
-  3: 'בינוני',
-  4: 'קשה',
-  5: 'קשה מאוד (מקסימום)',
-};
+import { X, Check } from 'lucide-react';
 
 function getYoutubeEmbedUrl(url: string): string | null {
   try {
@@ -56,18 +48,16 @@ function useVideoPresentation(videoUrl: string) {
 
 export type ModalPainLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
-export interface ExerciseTrainingCompletePayload {
-  effort: 1 | 2 | 3 | 4 | 5;
-  /** רמת כאב לדיווח למטפל (1–10) */
-  painLevel: ModalPainLevel;
-}
-
 export interface ExerciseVideoTimerModalProps {
   open: boolean;
   title: string;
   /** קישור YouTube / Vimeo / קובץ MP4 — מגיע מ־exercise.videoUrl במסד */
   videoUrl: string;
   description?: string | null;
+  /** מספר סטים יעד */
+  targetSets: number;
+  /** תצוגת חזרות / זמן יעד */
+  repsLabel: string;
   variant: 'rehab' | 'selfCare';
   /** XP שיוצג בסיום — התשלום בפועל מחושב ב־submitExerciseReport (כולל רצף / ציוד) */
   xpAward: number;
@@ -75,12 +65,8 @@ export interface ExerciseVideoTimerModalProps {
   primeSeconds?: number;
   /** סגירה ב-X — ללא ענקת XP */
   onClose: () => void;
-  /** לחיצה על «סיים תרגול» אחרי טיימר 0 — מעדכן PatientContext */
-  onComplete: (payload: ExerciseTrainingCompletePayload) => void | Promise<void>;
-  /** מזהה תרגיל שיקום — נשלח ל־onTimerStarted כשמפעילים טיימר */
-  timerArmExerciseId?: string;
-  /** נקרא כשהמשתמש מפעיל את הטיימר («התחל תרגול») */
-  onTimerStarted?: (exerciseId: string) => void;
+  /** לחיצה על «סיים תרגול» אחרי טיימר 0 וסימון כל הסטים — פותח מודאל משוב */
+  onFinishPractice: () => void;
 }
 
 export default function ExerciseVideoTimerModal({
@@ -88,24 +74,24 @@ export default function ExerciseVideoTimerModal({
   title,
   videoUrl,
   description,
+  targetSets,
+  repsLabel,
   variant,
   xpAward: _xpAward,
   coinsAward: _coinsAward,
   primeSeconds = 30,
   onClose,
-  onComplete,
-  timerArmExerciseId,
-  onTimerStarted,
+  onFinishPractice,
 }: ExerciseVideoTimerModalProps) {
+  const safeTargetSets = Math.max(1, targetSets);
   const [remaining, setRemaining] = useState(primeSeconds);
   const [timerStarted, setTimerStarted] = useState(false);
-  const [effort, setEffort] = useState<1 | 2 | 3 | 4 | 5>(3);
-  const [painLevel, setPainLevel] = useState<ModalPainLevel>(3);
+  const [checkedSets, setCheckedSets] = useState<boolean[]>(() =>
+    Array.from({ length: safeTargetSets }, () => false)
+  );
   const videoRef = useRef<HTMLVideoElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const successTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
 
   const presentation = useVideoPresentation(videoUrl);
 
@@ -117,6 +103,9 @@ export default function ExerciseVideoTimerModal({
     }
     return base;
   }, [presentation]);
+
+  const allSetsChecked = checkedSets.length === safeTargetSets && checkedSets.every(Boolean);
+  const completedSetCount = checkedSets.filter(Boolean).length;
 
   const clearTimer = useCallback(() => {
     if (intervalRef.current) {
@@ -158,14 +147,15 @@ export default function ExerciseVideoTimerModal({
     if (!open) {
       clearTimer();
       clearSuccessTimers();
+      setTimerStarted(false);
       return;
     }
-    setEffort(3);
-    setPainLevel(3);
-    setTimerStarted(false);
-    setRemaining(primeSeconds);
-    clearTimer();
+
+    setCheckedSets(Array.from({ length: safeTargetSets }, () => false));
     clearSuccessTimers();
+    setTimerStarted(true);
+    startTimer();
+
     const v = videoRef.current;
     if (v) {
       try {
@@ -175,7 +165,20 @@ export default function ExerciseVideoTimerModal({
         /* ignore */
       }
     }
-  }, [open, clearTimer, clearSuccessTimers, primeSeconds, videoUrl]);
+
+    if (presentation.kind === 'mp4') {
+      const playId = window.setTimeout(() => tryPlayVideo(), 80);
+      return () => clearTimeout(playId);
+    }
+  }, [
+    open,
+    clearTimer,
+    clearSuccessTimers,
+    safeTargetSets,
+    startTimer,
+    presentation.kind,
+    tryPlayVideo,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -190,46 +193,35 @@ export default function ExerciseVideoTimerModal({
     onClose();
   }, [clearTimer, clearSuccessTimers, onClose]);
 
-  const handleStartExercise = useCallback(() => {
-    setTimerStarted(true);
-    startTimer();
-    if (timerArmExerciseId && onTimerStarted) {
-      onTimerStarted(timerArmExerciseId);
-    }
-    if (presentation.kind === 'mp4') {
-      window.setTimeout(() => tryPlayVideo(), 80);
-    }
-  }, [startTimer, tryPlayVideo, presentation.kind, timerArmExerciseId, onTimerStarted]);
+  const toggleSetChecked = useCallback((index: number) => {
+    setCheckedSets((prev) => {
+      const next = [...prev];
+      next[index] = !next[index];
+      return next;
+    });
+  }, []);
 
-  const handleRestartTimer = useCallback(() => {
-    setTimerStarted(true);
-    startTimer();
-    if (presentation.kind === 'mp4') tryPlayVideo();
-  }, [startTimer, tryPlayVideo, presentation.kind]);
-
-  const handleFinish = useCallback(async () => {
-    if (remaining > 0 || !timerStarted) return;
-    try {
-      await Promise.resolve(
-        onComplete({
-          effort,
-          painLevel,
-        })
-      );
-    } finally {
-      clearTimer();
-      clearSuccessTimers();
-      onCloseRef.current();
-    }
-  }, [remaining, timerStarted, effort, painLevel, onComplete, clearSuccessTimers, clearTimer]);
+  const handleFinish = useCallback(() => {
+    if (remaining > 0 || !timerStarted || !allSetsChecked) return;
+    clearTimer();
+    clearSuccessTimers();
+    onFinishPractice();
+  }, [
+    remaining,
+    timerStarted,
+    allSetsChecked,
+    onFinishPractice,
+    clearTimer,
+    clearSuccessTimers,
+  ]);
 
   if (!open) return null;
 
-  const canFinish = timerStarted && remaining === 0;
-  const finishButtonLabel =
-    timerStarted && remaining > 0
-      ? `סיים תרגול (${remaining} שניות נותרו)`
-      : 'סיים תרגול';
+  const timerRunning = timerStarted && remaining > 0;
+  const canFinish = timerStarted && remaining === 0 && allSetsChecked;
+  const finishButtonLabel = timerRunning
+    ? `סיים תרגול (${remaining} שניות נותרו)`
+    : 'סיים תרגול';
 
   return (
     <div
@@ -296,103 +288,72 @@ export default function ExerciseVideoTimerModal({
           </div>
 
           <div className="px-3 sm:px-4 pt-6 pb-4 space-y-6 flex flex-col min-h-0">
-            <div className="space-y-4">
-              {description ? (
-                <div>
-                  <h3 className="text-xs sm:text-sm font-bold text-slate-200 mb-2">
-                    הנחיות התרגול
-                  </h3>
-                  <div
-                    className="rounded-xl px-3 py-3 text-xs sm:text-sm leading-relaxed"
-                    style={{
-                      background: 'rgba(30, 41, 59, 0.9)',
-                      color: '#e2e8f0',
-                      border: '1px solid #475569',
-                    }}
-                  >
-                    {description}
-                  </div>
+            {description ? (
+              <div>
+                <h3 className="text-xs sm:text-sm font-bold text-slate-200 mb-2">
+                  הנחיות התרגול
+                </h3>
+                <div
+                  className="rounded-xl px-3 py-3 text-xs sm:text-sm leading-relaxed"
+                  style={{
+                    background: 'rgba(30, 41, 59, 0.9)',
+                    color: '#e2e8f0',
+                    border: '1px solid #475569',
+                  }}
+                >
+                  {description}
                 </div>
-              ) : null}
+              </div>
+            ) : null}
 
-              {!timerStarted || (timerStarted && remaining > 0) ? (
-                <div>
-                  {!timerStarted ? (
+            <div
+              className="rounded-xl px-3 py-3 space-y-3"
+              style={{
+                background: 'rgba(30, 41, 59, 0.95)',
+                border: '1px solid #475569',
+              }}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-xs sm:text-sm font-bold text-slate-200">סטים וחזרות</h3>
+                <p className="text-xs sm:text-sm text-teal-300 font-semibold tabular-nums">
+                  {safeTargetSets} × {repsLabel}
+                </p>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                סמנו V לכל סט שהושלם ({completedSetCount}/{safeTargetSets})
+              </p>
+              <ul className="space-y-2" aria-label="רשימת סטים">
+                {checkedSets.map((checked, index) => (
+                  <li key={index}>
                     <button
                       type="button"
-                      onClick={handleStartExercise}
-                      className="w-full inline-flex items-center justify-center gap-2.5 px-5 py-4 rounded-xl text-base font-black text-white transition-all active:scale-[0.99]"
-                      style={{
-                        background: 'linear-gradient(135deg, #0d9488, #059669)',
-                        boxShadow: '0 6px 22px rgba(13, 148, 136, 0.5)',
-                      }}
+                      onClick={() => toggleSetChecked(index)}
+                      className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border transition-all touch-manipulation ${
+                        checked
+                          ? 'border-emerald-500/60 bg-emerald-950/40'
+                          : 'border-slate-600 bg-slate-800/50 hover:border-slate-500'
+                      }`}
+                      aria-pressed={checked}
+                      aria-label={`סט ${index + 1}${checked ? ' — הושלם' : ''}`}
                     >
-                      <Play className="w-5 h-5 shrink-0 fill-current" />
-                      התחל תרגול
+                      <span className="text-sm font-semibold text-slate-200">
+                        סט {index + 1}
+                        <span className="text-slate-400 font-normal mr-2">· {repsLabel}</span>
+                      </span>
+                      <span
+                        className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border-2 transition-colors ${
+                          checked
+                            ? 'border-emerald-400 bg-emerald-500 text-white'
+                            : 'border-slate-500 bg-slate-700/80 text-slate-500'
+                        }`}
+                        aria-hidden
+                      >
+                        <Check className="w-4 h-4" strokeWidth={3} />
+                      </span>
                     </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleRestartTimer}
-                      className="w-full inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl text-sm font-bold text-white transition-all border border-slate-600 active:scale-[0.99]"
-                      style={{
-                        background: 'rgba(30, 41, 59, 0.95)',
-                        boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-                      }}
-                    >
-                      <Play className="w-4 h-4 shrink-0 fill-current" />
-                      התחל מחדש
-                    </button>
-                  )}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-slate-300">
-                רמת כאב · {painLevel}/10
-              </label>
-              <input
-                type="range"
-                min={1}
-                max={10}
-                step={1}
-                value={painLevel}
-                onChange={(e) =>
-                  setPainLevel(Number(e.target.value) as ModalPainLevel)
-                }
-                className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-rose-500"
-                style={{ background: '#334155' }}
-              />
-              <div className="flex justify-between text-[10px] text-slate-500 px-0.5">
-                <span>1</span>
-                <span>10</span>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-slate-300">
-                מאמץ (Borg / RPE) · {effort}/5 — {EFFORT_LABELS[effort]}
-              </label>
-              <input
-                type="range"
-                min={1}
-                max={5}
-                step={1}
-                value={effort}
-                onChange={(e) =>
-                  setEffort(Number(e.target.value) as 1 | 2 | 3 | 4 | 5)
-                }
-                className="w-full h-2.5 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                style={{ background: '#334155' }}
-              />
-              <div className="flex justify-between text-[10px] text-slate-500 px-0.5">
-                <span>1</span>
-                <span>2</span>
-                <span>3</span>
-                <span>4</span>
-                <span>5</span>
-              </div>
+                  </li>
+                ))}
+              </ul>
             </div>
 
             <button

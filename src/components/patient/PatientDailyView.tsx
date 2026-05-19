@@ -23,13 +23,13 @@ import BodyMap3D from '../body-map/BodyMap3D';
 import GuardiVictorySequence from './GordyVictorySequence';
 import GuardiCompanion, { type GuardiTransientAppearance } from './GordyCompanion';
 import GuardiFullScreenCelebration from './GordyFullScreenCelebration';
-import ExerciseReportModal from './ExerciseReportModal';
 import ExerciseCard from './ExerciseCard';
 import OptionalSection from './OptionalSection';
 import { useOptionalRehabPool } from './useOptionalRehabPool';
-import ExerciseVideoTimerModal, {
-  type ExerciseTrainingCompletePayload,
-} from './ExerciseVideoTimerModal';
+import ExerciseVideoTimerModal from './ExerciseVideoTimerModal';
+import ExerciseTrainingFeedbackModal, {
+  type ExerciseTrainingFeedbackPayload,
+} from './ExerciseTrainingFeedbackModal';
 import GuardianAssistantFAB from './GuardianAssistantFAB';
 import { PatientDidYouKnowAnchorButton } from './PatientDidYouKnowPortal';
 import { formatTime } from '../dashboard/ManagePlanModal';
@@ -244,10 +244,6 @@ export default function PatientDailyView() {
     return getGuardiMountainAmbientLine(clinicalToday, selectedPatient.level);
   }, [guardiFlowerBloomLine, clinicalToday, selectedPatient, getGuardiMountainAmbientLine]);
 
-  const [reportFor, setReportFor] = useState<PatientExercise | null>(null);
-  const [reportInitialEffort, setReportInitialEffort] = useState<
-    1 | 2 | 3 | 4 | 5 | undefined
-  >(undefined);
   const [messageText, setMessageText] = useState('');
   const [painAnalyticsOpen, setPainAnalyticsOpen] = useState(false);
   const [loadSafetyNudge, setLoadSafetyNudge] = useState<string | null>(null);
@@ -375,6 +371,7 @@ export default function PatientDailyView() {
         coinsAward: number;
       }
   >(null);
+  const [trainingFeedbackOpen, setTrainingFeedbackOpen] = useState(false);
   const [redFlagOpen, setRedFlagOpen] = useState(false);
   const [redFlagSirenAssetFailed, setRedFlagSirenAssetFailed] = useState(false);
   const [trainingAiPlanModalOpen, setTrainingAiPlanModalOpen] = useState(false);
@@ -576,11 +573,8 @@ export default function PatientDailyView() {
   );
 
   const [optionalGlowBoost, setOptionalGlowBoost] = useState(0);
-  /** אחרי «התחל תרגול» במודאל — מפעיל «סימון הושלמה» בכרטיס */
-  const [timerArmedExerciseIds, setTimerArmedExerciseIds] = useState<string[]>([]);
   useEffect(() => {
     setOptionalGlowBoost(0);
-    setTimerArmedExerciseIds([]);
   }, [selectedPatient?.id, clinicalToday]);
 
   useEffect(() => {
@@ -635,10 +629,6 @@ export default function PatientDailyView() {
     sessionNextOptionalPoolItem,
     signalOptionalReveal,
   } = optionalPool;
-
-  useEffect(() => {
-    setTimerArmedExerciseIds([]);
-  }, [sessionNextOptionalPoolItem?.poolKey, selectedPatient?.id, clinicalToday]);
 
   useEffect(() => {
     if (!exerciseVideoModal) return;
@@ -896,8 +886,8 @@ export default function PatientDailyView() {
     !patientMustChangePassword &&
     !!selectedPatient &&
     missionListHasAny &&
-    !reportFor &&
     !exerciseVideoModal &&
+    !trainingFeedbackOpen &&
     !trainingAiPlanModalOpen;
 
   /** מסך אימונים: הקשר מוזן כ־undefined כדי להציג ענף «הידעת?» עם תמונת למידה (ללא תנועות GLB Exercise1). */
@@ -932,7 +922,7 @@ export default function PatientDailyView() {
     });
   };
 
-  const handleTrainingComplete = async (payload: ExerciseTrainingCompletePayload) => {
+  const handleTrainingComplete = async (payload: ExerciseTrainingFeedbackPayload) => {
     const m = exerciseVideoModal;
     if (!selectedPatient || !m) return;
 
@@ -1009,7 +999,6 @@ export default function PatientDailyView() {
       }
       if (m.exercise.isOptional) {
         setOptionalGlowBoost((n) => Math.min(5, n + 1));
-        setTimerArmedExerciseIds([]);
       }
       pushExerciseCompleteMilestone(pain);
       if (pain >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
@@ -1029,45 +1018,6 @@ export default function PatientDailyView() {
   };
 
   const lastPainRecord = selectedPatient?.analytics.painHistory.slice(-1)[0];
-
-  /** Reports flow through {@link submitExerciseReport}; in the patient portal, Supabase stores rehab completion via `complete_exercise_safe` (no direct `exercise_plans` updates). */
-  const handleReportSubmit = async (painLevel: number, effortRating: number) => {
-    if (!reportFor || !selectedPatient) return;
-    const ex = reportFor;
-    if (ex.isOptional) {
-      const nextAfterOptional = getNextOptionalAfterAddingId(ex.id);
-      await submitExerciseReport(selectedPatient.id, ex.id, painLevel, effortRating, ex.xpReward, {
-        completionSource: 'rehab',
-        sessionBodyArea: ex.targetArea,
-        optionalPoolNoReward: optionalPoolCompletionCount >= 1,
-      });
-      setReportFor(null);
-      setReportInitialEffort(undefined);
-      setTimerArmedExerciseIds([]);
-      if (nextAfterOptional) {
-        signalOptionalReveal(true);
-      }
-      setOptionalGlowBoost((n) => Math.min(5, n + 1));
-    } else {
-      await submitExerciseReport(
-        selectedPatient.id,
-        ex.id,
-        painLevel,
-        effortRating,
-        ex.xpReward,
-        {
-          completionSource: 'rehab',
-          sessionBodyArea: ex.targetArea,
-        }
-      );
-      setReportFor(null);
-      setReportInitialEffort(undefined);
-    }
-    if (painLevel >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
-    else if (effortRating === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
-    else setLoadSafetyNudge(null);
-    pushExerciseCompleteMilestone(painLevel);
-  };
 
   const submitPasswordChange = async () => {
     setPwFormError(null);
@@ -1752,8 +1702,6 @@ export default function PatientDailyView() {
                               coinsAward: PATIENT_REWARDS.EXERCISE_COMPLETE.coins,
                             })
                           }
-                          onMarkComplete={() => setReportFor(ex)}
-                          markCompleteAllowed={timerArmedExerciseIds.includes(ex.id)}
                           disabled={exercisesLocked}
                           typeKey={ex.type}
                           isCustomExercise={ex.isCustom}
@@ -1772,9 +1720,7 @@ export default function PatientDailyView() {
                 pool={optionalPool}
                 selectedPatient={selectedPatient}
                 exercisesLocked={exercisesLocked}
-                timerArmedExerciseIds={timerArmedExerciseIds}
                 setExerciseVideoModal={setExerciseVideoModal}
-                setReportFor={setReportFor}
                 setSelfCareStrengthTier={setSelfCareStrengthTier}
               />
             )}
@@ -1931,8 +1877,8 @@ export default function PatientDailyView() {
           })
         }
         hidden={
-          !!reportFor ||
           !!exerciseVideoModal ||
+          trainingFeedbackOpen ||
           exercisesLocked ||
           patientMustChangePassword ||
           sessionCelebrationBurst > 0 ||
@@ -1969,16 +1915,6 @@ export default function PatientDailyView() {
         clinicalToday={clinicalToday}
       />
 
-      <ExerciseReportModal
-        exercise={reportFor}
-        onClose={() => {
-          setReportFor(null);
-          setReportInitialEffort(undefined);
-        }}
-        onSubmit={handleReportSubmit}
-        initialEffort={reportInitialEffort}
-      />
-
       {exerciseVideoModal != null && (
         <ExerciseVideoTimerModal
           key={`${exerciseVideoModal.kind}-${exerciseVideoModal.exercise.id}-${
@@ -1992,17 +1928,46 @@ export default function PatientDailyView() {
               : exerciseVideoModal.exercise.videoUrl
           }
           description={patientFacingExerciseInstructions(exerciseVideoModal.exercise)}
+          targetSets={
+            exerciseVideoModal.kind === 'rehab'
+              ? exerciseVideoModal.exercise.patientSets
+              : exerciseVideoModal.exercise.sets
+          }
+          repsLabel={
+            exerciseVideoModal.kind === 'rehab'
+              ? (() => {
+                  const ex = exerciseVideoModal.exercise;
+                  const displayReps = ex.patientReps;
+                  if (ex.holdSeconds && displayReps === 0) return formatTime(ex.holdSeconds);
+                  if (ex.holdSeconds && displayReps > 0) {
+                    return `${displayReps}+${formatTime(ex.holdSeconds)}`;
+                  }
+                  return `${displayReps}`;
+                })()
+              : exerciseVideoModal.exercise.repsAreSeconds
+                ? `${exerciseVideoModal.exercise.reps} ש״`
+                : String(exerciseVideoModal.exercise.reps)
+          }
           variant={exerciseVideoModal.kind === 'rehab' ? 'rehab' : 'selfCare'}
           xpAward={exerciseVideoModal.xpAward}
           coinsAward={exerciseVideoModal.coinsAward}
           primeSeconds={30}
-          onClose={() => setExerciseVideoModal(null)}
-          onComplete={handleTrainingComplete}
-          timerArmExerciseId={
-            exerciseVideoModal.kind === 'rehab' ? exerciseVideoModal.exercise.id : undefined
-          }
-          onTimerStarted={(id) => {
-            setTimerArmedExerciseIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+          onClose={() => {
+            setExerciseVideoModal(null);
+            setTrainingFeedbackOpen(false);
+          }}
+          onFinishPractice={() => setTrainingFeedbackOpen(true)}
+        />
+      )}
+
+      {exerciseVideoModal != null && (
+        <ExerciseTrainingFeedbackModal
+          open={trainingFeedbackOpen}
+          onClose={() => setTrainingFeedbackOpen(false)}
+          onSubmit={async (payload) => {
+            await handleTrainingComplete(payload);
+            setTrainingFeedbackOpen(false);
+            setExerciseVideoModal(null);
           }}
         />
       )}

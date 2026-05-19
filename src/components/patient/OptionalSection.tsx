@@ -31,9 +31,7 @@ export interface OptionalSectionProps {
   pool: UseOptionalRehabPoolResult;
   selectedPatient: Patient;
   exercisesLocked: boolean;
-  timerArmedExerciseIds: readonly string[];
   setExerciseVideoModal: Dispatch<SetStateAction<ExerciseVideoModalState>>;
-  setReportFor: Dispatch<SetStateAction<PatientExercise | null>>;
   setSelfCareStrengthTier: (patientId: string, area: BodyArea, tier: 0 | 1 | 2) => void;
 }
 
@@ -41,9 +39,7 @@ export default function OptionalSection({
   pool,
   selectedPatient,
   exercisesLocked,
-  timerArmedExerciseIds,
   setExerciseVideoModal,
-  setReportFor,
   setSelfCareStrengthTier,
 }: OptionalSectionProps) {
   const {
@@ -145,8 +141,6 @@ export default function OptionalSection({
                         coinsAward: displayCoins,
                       });
                     }}
-                    onMarkComplete={() => setReportFor(item.exercise)}
-                    markCompleteAllowed={timerArmedExerciseIds.includes(item.exercise.id)}
                     disabled={exercisesLocked}
                     typeKey={item.exercise.type}
                     isCustomExercise={item.exercise.isCustom}

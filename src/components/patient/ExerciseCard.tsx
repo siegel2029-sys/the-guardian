@@ -55,8 +55,6 @@ export interface ExerciseCardProps {
   onAdvance?: () => void;
   selfCareStrengthTier?: 0 | 1 | 2;
   onSelfCareStrengthTierChange?: (tier: 0 | 1 | 2) => void;
-  onMarkComplete?: () => void;
-  markCompleteAllowed?: boolean;
   rehabTier?: 'core' | 'optional';
   /** תרגילי שיקום לבחירה — סרגל קושי בכרטיס (לא בחובה) */
   optionalRehabDifficultyTier?: 0 | 1 | 2;
@@ -86,8 +84,6 @@ export default function ExerciseCard({
   onAdvance,
   selfCareStrengthTier,
   onSelfCareStrengthTierChange,
-  onMarkComplete,
-  markCompleteAllowed = false,
   rehabTier = 'core',
   optionalRehabDifficultyTier,
   onOptionalRehabDifficultyTierChange,
@@ -129,13 +125,6 @@ export default function ExerciseCard({
 
   const tierLabels: Record<0 | 1 | 2, string> = { 0: 'קל', 1: 'בינוני', 2: 'קשה' };
 
-  const showCompleteCta =
-    variant === 'rehab' &&
-    onMarkComplete &&
-    markCompleteAllowed &&
-    !isCompleted &&
-    !disabled;
-
   const showRewards = rewardLabelXp != null || rewardLabelCoins != null;
   const xpDisplay = rewardLabelXp ?? 0;
   const coinsDisplay = rewardLabelCoins ?? 0;
@@ -151,7 +140,10 @@ export default function ExerciseCard({
 
   const showWeightColumn =
     variant === 'selfCare' ||
-    (Boolean(weightLabel?.trim()) && weightLabel!.trim() !== 'ללא משקל');
+    (Boolean(weightLabel?.trim()) &&
+      weightLabel!.trim() !== 'ללא משקל' &&
+      weightLabel!.trim() !== '0' &&
+      weightLabel!.trim() !== '0 ק״ג');
 
   const optionalRehabSlider =
     variant === 'rehab' &&
@@ -310,18 +302,6 @@ export default function ExerciseCard({
             : 'gap-1.5 px-2 sm:px-2.5 pt-1.5'
         } ${showRewards ? (showDifficultySlider ? 'pb-11' : 'pb-9') : ''}`}
       >
-        {showCompleteCta && (
-          <button
-            type="button"
-            onClick={onMarkComplete}
-            className="w-full min-h-[2.75rem] flex items-center justify-center gap-1.5 rounded-lg py-2 px-3 text-sm font-bold text-center text-white bg-medical-success border border-emerald-600/20 active:scale-[0.99] motion-safe:transition-transform touch-manipulation"
-            style={{ boxShadow: '0 2px 10px rgba(16, 185, 129, 0.22)' }}
-          >
-            <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden />
-            סימון הושלמה
-          </button>
-        )}
-
         {showDifficultySlider &&
           difficultyTier !== undefined &&
           setDifficultyTier != null && (
