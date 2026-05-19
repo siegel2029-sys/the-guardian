@@ -1730,7 +1730,7 @@ export default function PatientDailyView() {
                           : `${displayReps}`;
                     const w = ex.patientWeightKg;
                     const weightLabel =
-                      w != null && w > 0 ? `${w} ק״ג` : 'ללא משקל';
+                      w != null && w > 0 ? `${w} ק״ג` : undefined;
                     return (
                       <li key={`rehab-core-${ex.id}`} className="w-full">
                         <ExerciseCard
@@ -1992,16 +1992,6 @@ export default function PatientDailyView() {
               : exerciseVideoModal.exercise.videoUrl
           }
           description={patientFacingExerciseInstructions(exerciseVideoModal.exercise)}
-          clinicalRegressionHint={
-            exerciseVideoModal.kind === 'rehab'
-              ? exerciseVideoModal.exercise.clinicalRegressionHint ?? undefined
-              : exerciseVideoModal.exercise.regressionHint
-          }
-          clinicalProgressionHint={
-            exerciseVideoModal.kind === 'rehab'
-              ? exerciseVideoModal.exercise.clinicalProgressionHint ?? undefined
-              : exerciseVideoModal.exercise.progressionHint
-          }
           variant={exerciseVideoModal.kind === 'rehab' ? 'rehab' : 'selfCare'}
           xpAward={exerciseVideoModal.xpAward}
           coinsAward={exerciseVideoModal.coinsAward}

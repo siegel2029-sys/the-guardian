@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { X, Play, ChevronDown } from 'lucide-react';
+import { X, Play } from 'lucide-react';
 
 const EFFORT_LABELS: Record<number, string> = {
   1: 'קל מאוד',
@@ -62,20 +62,12 @@ export interface ExerciseTrainingCompletePayload {
   painLevel: ModalPainLevel;
 }
 
-const DEFAULT_CLINICAL_REGRESSION =
-  'אם קשה מדי: הקטינו טווח תנועה, האטו, או הפחיתו חזרות/סטים. אם כאב מעל 4/10 — העדיפו הקלה מובנית.';
-const DEFAULT_CLINICAL_PROGRESSION =
-  'אם קל מדי: תאמו עם המטפל להגדלת זמן החזקה, טווח, נפח או התנגדות.';
-
 export interface ExerciseVideoTimerModalProps {
   open: boolean;
   title: string;
   /** קישור YouTube / Vimeo / קובץ MP4 — מגיע מ־exercise.videoUrl במסד */
   videoUrl: string;
   description?: string | null;
-  /** רגרסיה / התקדמות — מתוך המסד או ברירת מחדל */
-  clinicalRegressionHint?: string | null;
-  clinicalProgressionHint?: string | null;
   variant: 'rehab' | 'selfCare';
   /** XP שיוצג בסיום — התשלום בפועל מחושב ב־submitExerciseReport (כולל רצף / ציוד) */
   xpAward: number;
@@ -96,8 +88,6 @@ export default function ExerciseVideoTimerModal({
   title,
   videoUrl,
   description,
-  clinicalRegressionHint,
-  clinicalProgressionHint,
   variant,
   xpAward: _xpAward,
   coinsAward: _coinsAward,
@@ -111,8 +101,6 @@ export default function ExerciseVideoTimerModal({
   const [timerStarted, setTimerStarted] = useState(false);
   const [effort, setEffort] = useState<1 | 2 | 3 | 4 | 5>(3);
   const [painLevel, setPainLevel] = useState<ModalPainLevel>(3);
-  /** עצה קלינית — אקורדיון, סגור כברירת מחדל */
-  const [clinicalAdviceOpen, setClinicalAdviceOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const successTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -120,17 +108,6 @@ export default function ExerciseVideoTimerModal({
   onCloseRef.current = onClose;
 
   const presentation = useVideoPresentation(videoUrl);
-
-  const regressionText = useMemo(
-    () =>
-      (clinicalRegressionHint && clinicalRegressionHint.trim()) || DEFAULT_CLINICAL_REGRESSION,
-    [clinicalRegressionHint]
-  );
-  const progressionText = useMemo(
-    () =>
-      (clinicalProgressionHint && clinicalProgressionHint.trim()) || DEFAULT_CLINICAL_PROGRESSION,
-    [clinicalProgressionHint]
-  );
 
   const iframeSrc = useMemo(() => {
     if (presentation.kind !== 'iframe') return '';
@@ -185,7 +162,6 @@ export default function ExerciseVideoTimerModal({
     }
     setEffort(3);
     setPainLevel(3);
-    setClinicalAdviceOpen(false);
     setTimerStarted(false);
     setRemaining(primeSeconds);
     clearTimer();
@@ -250,6 +226,10 @@ export default function ExerciseVideoTimerModal({
   if (!open) return null;
 
   const canFinish = timerStarted && remaining === 0;
+  const finishButtonLabel =
+    timerStarted && remaining > 0
+      ? `סיים תרגול (${remaining} שניות נותרו)`
+      : 'סיים תרגול';
 
   return (
     <div
@@ -313,42 +293,15 @@ export default function ExerciseVideoTimerModal({
                 </div>
               )}
             </div>
-            {!timerStarted || (timerStarted && remaining > 0) ? (
-              <div className="px-3 sm:px-4 py-3 border-t border-slate-700/60 bg-[#0f172a]">
-                {!timerStarted ? (
-                  <button
-                    type="button"
-                    onClick={handleStartExercise}
-                    className="w-full inline-flex items-center justify-center gap-2.5 px-5 py-4 rounded-xl text-base font-black text-white transition-all active:scale-[0.99]"
-                    style={{
-                      background: 'linear-gradient(135deg, #0d9488, #059669)',
-                      boxShadow: '0 6px 22px rgba(13, 148, 136, 0.5)',
-                    }}
-                  >
-                    <Play className="w-5 h-5 shrink-0 fill-current" />
-                    התחל תרגול
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleRestartTimer}
-                    className="w-full inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl text-sm font-bold text-white transition-all border border-slate-600 active:scale-[0.99]"
-                    style={{
-                      background: 'rgba(30, 41, 59, 0.95)',
-                      boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-                    }}
-                  >
-                    <Play className="w-4 h-4 shrink-0 fill-current" />
-                    התחל מחדש
-                  </button>
-                )}
-              </div>
-            ) : null}
           </div>
 
           <div className="px-3 sm:px-4 pt-6 pb-4 space-y-6 flex flex-col min-h-0">
-              <div className="space-y-4">
-                {description ? (
+            <div className="space-y-4">
+              {description ? (
+                <div>
+                  <h3 className="text-xs sm:text-sm font-bold text-slate-200 mb-2">
+                    הנחיות התרגול
+                  </h3>
                   <div
                     className="rounded-xl px-3 py-3 text-xs sm:text-sm leading-relaxed"
                     style={{
@@ -359,132 +312,105 @@ export default function ExerciseVideoTimerModal({
                   >
                     {description}
                   </div>
-                ) : null}
+                </div>
+              ) : null}
 
-                <div
-                  className="rounded-xl overflow-hidden text-[11px] sm:text-xs leading-relaxed"
-                  style={{
-                    background: 'rgba(15, 23, 42, 0.92)',
-                    border: '1px solid rgba(56, 189, 248, 0.35)',
-                  }}
-                >
-                  <button
-                    type="button"
-                    id="clinical-advice-toggle"
-                    onClick={() => setClinicalAdviceOpen((o) => !o)}
-                    className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-start hover:bg-slate-800/35 transition-colors"
-                    aria-expanded={clinicalAdviceOpen}
-                  >
-                    <span className="font-semibold text-sky-200/95 text-xs sm:text-sm">
-                      עצה קלינית (רגרסיה / התקדמות)
-                    </span>
-                    <ChevronDown
-                      className={`w-4 h-4 shrink-0 text-sky-300/90 transition-transform duration-200 ${
-                        clinicalAdviceOpen ? 'rotate-180' : ''
-                      }`}
-                      aria-hidden
-                    />
-                  </button>
-                  {clinicalAdviceOpen ? (
-                    <div
-                      className="px-3 pb-3 pt-0 space-y-2 border-t border-slate-600/50"
-                      role="region"
-                      aria-labelledby="clinical-advice-toggle"
+              {!timerStarted || (timerStarted && remaining > 0) ? (
+                <div>
+                  {!timerStarted ? (
+                    <button
+                      type="button"
+                      onClick={handleStartExercise}
+                      className="w-full inline-flex items-center justify-center gap-2.5 px-5 py-4 rounded-xl text-base font-black text-white transition-all active:scale-[0.99]"
+                      style={{
+                        background: 'linear-gradient(135deg, #0d9488, #059669)',
+                        boxShadow: '0 6px 22px rgba(13, 148, 136, 0.5)',
+                      }}
                     >
-                      {painLevel > 4 ? (
-                        <p className="text-amber-200/90 font-semibold border-b border-slate-600/60 pb-2 pt-2">
-                          לפי רמת הכאב שבחרתם: מעל 4/10 מומלץ לשקול רגרסיה, הקטנת טווח, ומנוחה קצרה לפני
-                          המשך.
-                        </p>
-                      ) : null}
-                      <div>
-                        <p className="font-semibold text-emerald-200/90 mb-0.5">אם קשה מדי (רגרסיה)</p>
-                        <p className="text-slate-300">{regressionText}</p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-teal-200/90 mb-0.5">אם קל מדי (התקדמות)</p>
-                        <p className="text-slate-300">{progressionText}</p>
-                      </div>
-                    </div>
-                  ) : null}
+                      <Play className="w-5 h-5 shrink-0 fill-current" />
+                      התחל תרגול
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleRestartTimer}
+                      className="w-full inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl text-sm font-bold text-white transition-all border border-slate-600 active:scale-[0.99]"
+                      style={{
+                        background: 'rgba(30, 41, 59, 0.95)',
+                        boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+                      }}
+                    >
+                      <Play className="w-4 h-4 shrink-0 fill-current" />
+                      התחל מחדש
+                    </button>
+                  )}
                 </div>
-              </div>
+              ) : null}
+            </div>
 
-              <div
-                className="rounded-xl px-3 py-3 text-center"
-                style={{
-                  background: 'rgba(30, 41, 59, 0.95)',
-                  border: '1px solid #475569',
-                }}
-              >
-                <span className="tabular-nums text-2xl sm:text-3xl font-black text-teal-300">
-                  {remaining}
-                </span>
-                <span className="text-slate-400 mr-2 text-sm">שניות נותרו</span>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300">
+                רמת כאב · {painLevel}/10
+              </label>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                step={1}
+                value={painLevel}
+                onChange={(e) =>
+                  setPainLevel(Number(e.target.value) as ModalPainLevel)
+                }
+                className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                style={{ background: '#334155' }}
+              />
+              <div className="flex justify-between text-[10px] text-slate-500 px-0.5">
+                <span>1</span>
+                <span>10</span>
               </div>
+            </div>
 
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-300">
-                  רמת כאב · {painLevel}/10
-                </label>
-                <input
-                  type="range"
-                  min={1}
-                  max={10}
-                  step={1}
-                  value={painLevel}
-                  onChange={(e) =>
-                    setPainLevel(Number(e.target.value) as ModalPainLevel)
-                  }
-                  className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-rose-500"
-                  style={{ background: '#334155' }}
-                />
-                <div className="flex justify-between text-[10px] text-slate-500 px-0.5">
-                  <span>1</span>
-                  <span>10</span>
-                </div>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300">
+                מאמץ (Borg / RPE) · {effort}/5 — {EFFORT_LABELS[effort]}
+              </label>
+              <input
+                type="range"
+                min={1}
+                max={5}
+                step={1}
+                value={effort}
+                onChange={(e) =>
+                  setEffort(Number(e.target.value) as 1 | 2 | 3 | 4 | 5)
+                }
+                className="w-full h-2.5 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                style={{ background: '#334155' }}
+              />
+              <div className="flex justify-between text-[10px] text-slate-500 px-0.5">
+                <span>1</span>
+                <span>2</span>
+                <span>3</span>
+                <span>4</span>
+                <span>5</span>
               </div>
+            </div>
 
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-300">
-                  מאמץ (Borg / RPE) · {effort}/5 — {EFFORT_LABELS[effort]}
-                </label>
-                <input
-                  type="range"
-                  min={1}
-                  max={5}
-                  step={1}
-                  value={effort}
-                  onChange={(e) =>
-                    setEffort(Number(e.target.value) as 1 | 2 | 3 | 4 | 5)
-                  }
-                  className="w-full h-2.5 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                  style={{ background: '#334155' }}
-                />
-                <div className="flex justify-between text-[10px] text-slate-500 px-0.5">
-                  <span>1</span>
-                  <span>2</span>
-                  <span>3</span>
-                  <span>4</span>
-                  <span>5</span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                disabled={!canFinish}
-                onClick={handleFinish}
-                className="w-full py-3.5 rounded-xl text-sm font-black transition-all disabled:opacity-35 disabled:cursor-not-allowed disabled:grayscale"
-                style={{
-                  background: canFinish
-                    ? 'linear-gradient(135deg, #059669, #0d9488)'
-                    : '#475569',
-                  color: '#fff',
-                  boxShadow: canFinish ? '0 4px 18px rgba(13, 148, 136, 0.4)' : 'none',
-                }}
-              >
-                סיים תרגול
-              </button>
+            <button
+              type="button"
+              disabled={!canFinish}
+              onClick={handleFinish}
+              className="w-full py-3.5 rounded-xl text-sm font-black transition-all disabled:opacity-35 disabled:cursor-not-allowed disabled:grayscale"
+              style={{
+                background: canFinish
+                  ? 'linear-gradient(135deg, #059669, #0d9488)'
+                  : '#475569',
+                color: '#fff',
+                boxShadow: canFinish ? '0 4px 18px rgba(13, 148, 136, 0.4)' : 'none',
+              }}
+              aria-live="polite"
+            >
+              {finishButtonLabel}
+            </button>
           </div>
         </div>
       </div>

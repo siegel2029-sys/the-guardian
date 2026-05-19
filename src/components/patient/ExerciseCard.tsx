@@ -37,7 +37,8 @@ export interface ExerciseCardProps {
   subtitle?: string;
   setsLabel: string;
   repsLabel: string;
-  weightLabel: string;
+  /** ריק / «ללא משקל» — העמודה לא מוצגת (שיקום). בכוח — תמיד מוצג «עומס». */
+  weightLabel?: string;
   /** הערות מטפל — תצוגה קומפקטית בכרטיס */
   notesLine?: string | null;
   xpReward: number;
@@ -147,6 +148,10 @@ export default function ExerciseCard({
         : '';
 
   const notesTrimmed = stripPortalTherapistNotesPrefix((notesLine ?? '').trim());
+
+  const showWeightColumn =
+    variant === 'selfCare' ||
+    (Boolean(weightLabel?.trim()) && weightLabel!.trim() !== 'ללא משקל');
 
   const optionalRehabSlider =
     variant === 'rehab' &&
@@ -259,9 +264,9 @@ export default function ExerciseCard({
           </div>
 
           <div
-            className={`grid grid-cols-3 gap-1 text-center rounded-md border border-slate-100/90 bg-slate-50/70 px-1 ${
-              variant === 'rehab' ? 'py-0.5' : 'py-1'
-            }`}
+            className={`grid gap-1 text-center rounded-md border border-slate-100/90 bg-slate-50/70 px-1 ${
+              showWeightColumn ? 'grid-cols-3' : 'grid-cols-2'
+            } ${variant === 'rehab' ? 'py-0.5' : 'py-1'}`}
           >
             <div>
               <p className="text-[9px] font-bold text-slate-400 mb-0.5">סטים</p>
@@ -271,12 +276,14 @@ export default function ExerciseCard({
               <p className="text-[9px] font-bold text-slate-400 mb-0.5">חזרות</p>
               <p className="text-xs font-bold text-slate-800 tabular-nums leading-none">{repsLabel}</p>
             </div>
-            <div>
-              <p className="text-[9px] font-bold text-slate-400 mb-0.5">
-                {variant === 'selfCare' ? 'עומס' : 'משקל'}
-              </p>
-              <p className="text-xs font-bold text-slate-800 tabular-nums leading-none">{weightLabel}</p>
-            </div>
+            {showWeightColumn && (
+              <div>
+                <p className="text-[9px] font-bold text-slate-400 mb-0.5">
+                  {variant === 'selfCare' ? 'עומס' : 'משקל'}
+                </p>
+                <p className="text-xs font-bold text-slate-800 tabular-nums leading-none">{weightLabel}</p>
+              </div>
+            )}
           </div>
 
           {variant !== 'rehab' && notesTrimmed.length > 0 && (

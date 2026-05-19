@@ -114,7 +114,7 @@ export default function OptionalSection({
                     weightLabel={
                       item.exercise.patientWeightKg != null && item.exercise.patientWeightKg > 0
                         ? `${item.exercise.patientWeightKg} ק״ג`
-                        : 'ללא משקל'
+                        : undefined
                     }
                     xpReward={item.exercise.xpReward}
                     videoUrl={item.exercise.videoUrl ?? null}
