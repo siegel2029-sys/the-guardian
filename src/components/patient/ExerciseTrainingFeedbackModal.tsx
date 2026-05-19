@@ -9,8 +9,9 @@ export interface ExerciseTrainingFeedbackPayload {
 
 interface ExerciseTrainingFeedbackModalProps {
   open: boolean;
+  submitError?: string | null;
   onClose: () => void;
-  onSubmit: (payload: ExerciseTrainingFeedbackPayload) => void | Promise<void>;
+  onSubmit: (payload: ExerciseTrainingFeedbackPayload) => boolean | Promise<boolean>;
 }
 
 const PAIN_TICKS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
@@ -25,6 +26,7 @@ function tealTrackFill(value: number, min: number, max: number): CSSProperties {
 
 export default function ExerciseTrainingFeedbackModal({
   open,
+  submitError,
   onClose,
   onSubmit,
 }: ExerciseTrainingFeedbackModalProps) {
@@ -49,7 +51,8 @@ export default function ExerciseTrainingFeedbackModal({
     if (submitting) return;
     setSubmitting(true);
     try {
-      await Promise.resolve(onSubmit({ painLevel: pain, effort }));
+      const ok = await Promise.resolve(onSubmit({ painLevel: pain, effort }));
+      if (!ok) return;
     } finally {
       setSubmitting(false);
     }
@@ -92,6 +95,12 @@ export default function ExerciseTrainingFeedbackModal({
         <p className="px-5 pt-4 text-sm font-bold text-red-600 leading-snug">
           חשוב למלא למעקב ודיוק התרגול
         </p>
+
+        {submitError ? (
+          <p className="px-5 pt-2 text-sm font-semibold text-red-700 leading-snug" role="alert">
+            {submitError}
+          </p>
+        ) : null}
 
         <form onSubmit={handleSubmit} className="px-5 pb-6 pt-4 space-y-6">
           <div className="space-y-2">

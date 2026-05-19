@@ -417,8 +417,10 @@ interface PatientContextValue {
       /** אזור תרגול (כוח) או יעד שיקום — לזיהוי שרשרת */
       sessionBodyArea?: BodyArea;
       optionalPoolNoReward?: boolean;
+      /** Supabase exercise_plans.id — sent to complete_exercise_safe when is_active row is missing */
+      planRowId?: string;
     }
-  ) => void | Promise<void>;
+  ) => boolean | Promise<boolean>;
 
   // AI suggestions (מטופל מאשר → awaiting_therapist; מטפל מאשר → עדכון תוכנית)
   aiSuggestions: AiSuggestion[];

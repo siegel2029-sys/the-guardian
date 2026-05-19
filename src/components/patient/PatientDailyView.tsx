@@ -371,7 +371,13 @@ export default function PatientDailyView() {
         coinsAward: number;
       }
   >(null);
+  type PendingTrainingSession = NonNullable<typeof exerciseVideoModal> & {
+    patientId: string;
+    planRowId?: string;
+  };
+  const pendingTrainingSessionRef = useRef<PendingTrainingSession | null>(null);
   const [trainingFeedbackOpen, setTrainingFeedbackOpen] = useState(false);
+  const [trainingSubmitError, setTrainingSubmitError] = useState<string | null>(null);
   const [redFlagOpen, setRedFlagOpen] = useState(false);
   const [redFlagSirenAssetFailed, setRedFlagSirenAssetFailed] = useState(false);
   const [trainingAiPlanModalOpen, setTrainingAiPlanModalOpen] = useState(false);
@@ -922,9 +928,14 @@ export default function PatientDailyView() {
     });
   };
 
-  const handleTrainingComplete = async (payload: ExerciseTrainingFeedbackPayload) => {
-    const m = exerciseVideoModal;
-    if (!selectedPatient || !m) return;
+  const handleTrainingComplete = async (
+    payload: ExerciseTrainingFeedbackPayload
+  ): Promise<boolean> => {
+    const m = pendingTrainingSessionRef.current;
+    if (!selectedPatient || !m || m.patientId !== selectedPatient.id) {
+      setTrainingSubmitError('לא נמצאו פרטי התרגיל. סגרו ופתחו את האימון מחדש.');
+      return false;
+    }
 
     const exerciseInOptionalPool = fullOptionalPool.some(
       (p) => getOptionalPoolExerciseId(p) === m.exercise.id
@@ -939,12 +950,20 @@ export default function PatientDailyView() {
       const planXpForSelfCare = Math.max(1, Math.floor(m.exercise.xpReward * 0.5));
       const nextAfterOptional =
         exerciseInOptionalPool ? getNextOptionalAfterAddingId(m.exercise.id) : null;
-      await submitExerciseReport(selectedPatient.id, m.exercise.id, payload.painLevel, payload.effort, planXpForSelfCare, {
-        skipPainHistory: true,
-        completionSource: 'self-care',
-        sessionBodyArea: m.bodyArea,
-        optionalPoolNoReward,
-      });
+      const saved = await submitExerciseReport(
+        selectedPatient.id,
+        m.exercise.id,
+        payload.painLevel,
+        payload.effort,
+        planXpForSelfCare,
+        {
+          skipPainHistory: true,
+          completionSource: 'self-care',
+          sessionBodyArea: m.bodyArea,
+          optionalPoolNoReward,
+        }
+      );
+      if (!saved) return false;
       await appendPatientExerciseFinishReport(selectedPatient.id, {
         exerciseId: m.exercise.id,
         exerciseName: m.exercise.name,
@@ -967,45 +986,62 @@ export default function PatientDailyView() {
       if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
       else setLoadSafetyNudge(null);
       pushExerciseCompleteMilestone(payload.painLevel);
-    } else {
-      const pain = payload.painLevel;
-      const nextAfterOptional =
-        m.exercise.isOptional && exerciseInOptionalPool
-          ? getNextOptionalAfterAddingId(m.exercise.id)
-          : null;
-      await submitExerciseReport(
-        selectedPatient.id,
-        m.exercise.id,
-        pain,
-        payload.effort,
-        m.exercise.xpReward,
-        {
-          completionSource: 'rehab',
-          sessionBodyArea: m.exercise.targetArea,
-          optionalPoolNoReward:
-            m.exercise.isOptional && exerciseInOptionalPool && optionalPoolCompletionCount >= 1,
-        }
-      );
-      await appendPatientExerciseFinishReport(selectedPatient.id, {
-        exerciseId: m.exercise.id,
-        exerciseName: m.exercise.name,
-        zone: bodyAreaLabels[m.exercise.targetArea],
-        difficultyScore: payload.effort,
-        painLevel: payload.painLevel,
-        source: 'therapist',
-      });
-      if (nextAfterOptional) {
-        signalOptionalReveal(true);
-      }
-      if (m.exercise.isOptional) {
-        setOptionalGlowBoost((n) => Math.min(5, n + 1));
-      }
-      pushExerciseCompleteMilestone(pain);
-      if (pain >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
-      else if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
-      else setLoadSafetyNudge(null);
+      return true;
     }
+
+    const pain = payload.painLevel;
+    const nextAfterOptional =
+      m.exercise.isOptional && exerciseInOptionalPool
+        ? getNextOptionalAfterAddingId(m.exercise.id)
+        : null;
+    const saved = await submitExerciseReport(
+      selectedPatient.id,
+      m.exercise.id,
+      pain,
+      payload.effort,
+      m.exercise.xpReward,
+      {
+        completionSource: 'rehab',
+        sessionBodyArea: m.exercise.targetArea,
+        optionalPoolNoReward:
+          m.exercise.isOptional && exerciseInOptionalPool && optionalPoolCompletionCount >= 1,
+        planRowId: m.planRowId,
+      }
+    );
+    if (!saved) return false;
+
+    await appendPatientExerciseFinishReport(selectedPatient.id, {
+      exerciseId: m.exercise.id,
+      exerciseName: m.exercise.name,
+      zone: bodyAreaLabels[m.exercise.targetArea],
+      difficultyScore: payload.effort,
+      painLevel: payload.painLevel,
+      source: 'therapist',
+    });
+    if (nextAfterOptional) {
+      signalOptionalReveal(true);
+    }
+    if (m.exercise.isOptional) {
+      setOptionalGlowBoost((n) => Math.min(5, n + 1));
+    }
+    pushExerciseCompleteMilestone(pain);
+    if (pain >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
+    else if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
+    else setLoadSafetyNudge(null);
+    return true;
   };
+
+  const handleFinishPractice = useCallback(() => {
+    if (!exerciseVideoModal || !selectedPatient) return;
+    const activePlan = getExercisePlan(selectedPatient.id);
+    pendingTrainingSessionRef.current = {
+      ...exerciseVideoModal,
+      patientId: selectedPatient.id,
+      planRowId: activePlan?.planRowId,
+    };
+    setTrainingSubmitError(null);
+    setTrainingFeedbackOpen(true);
+  }, [exerciseVideoModal, selectedPatient, getExercisePlan]);
 
   const handleAvatarZoneClick = (area: BodyArea) => {
     if (!selectedPatient) return;
@@ -1955,19 +1991,30 @@ export default function PatientDailyView() {
           onClose={() => {
             setExerciseVideoModal(null);
             setTrainingFeedbackOpen(false);
+            pendingTrainingSessionRef.current = null;
+            setTrainingSubmitError(null);
           }}
-          onFinishPractice={() => setTrainingFeedbackOpen(true)}
+          onFinishPractice={handleFinishPractice}
         />
       )}
 
       {exerciseVideoModal != null && (
         <ExerciseTrainingFeedbackModal
           open={trainingFeedbackOpen}
-          onClose={() => setTrainingFeedbackOpen(false)}
+          submitError={trainingSubmitError}
+          onClose={() => {
+            setTrainingFeedbackOpen(false);
+            setTrainingSubmitError(null);
+          }}
           onSubmit={async (payload) => {
-            await handleTrainingComplete(payload);
+            setTrainingSubmitError(null);
+            const ok = await handleTrainingComplete(payload);
+            if (!ok) return false;
+            pendingTrainingSessionRef.current = null;
             setTrainingFeedbackOpen(false);
             setExerciseVideoModal(null);
+            setTrainingSubmitError(null);
+            return true;
           }}
         />
       )}

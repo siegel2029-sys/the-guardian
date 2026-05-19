@@ -5,10 +5,6 @@ export type CompleteExerciseSafeResult =
   | { ok: true }
   | { ok: false; reason?: string; message?: string };
 
-/**
- * Records rehab exercise completion on the server without allowing the client to PATCH exercise_plans.
- * Self-care / strength IDs that are not present in the plan return `ok: false` with a soft reason.
- */
 export async function completeExerciseSafe(
   client: SupabaseClient,
   exerciseId: string,

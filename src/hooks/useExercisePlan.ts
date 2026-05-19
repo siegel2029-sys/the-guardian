@@ -292,14 +292,16 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         sessionBodyArea?: BodyArea;
         /** 2nd+ optional pool exercise today — no XP/coins (anti-farming). */
         optionalPoolNoReward?: boolean;
+        /** Supabase exercise_plans.id — sent to complete_exercise_safe when is_active row is missing */
+        planRowId?: string;
       }
-    ): Promise<void> => {
+    ): Promise<boolean> => {
       const clinicalDay = getClinicalDate();
       const prior = dailySessions.find((s) => s.patientId === patientId && s.date === clinicalDay);
       const wasRepeatCompletion = prior?.completedIds.includes(exerciseId) ?? false;
 
       const patientBefore = allPatients.find((x) => x.id === patientId);
-      if (!patientBefore) return;
+      if (!patientBefore) return false;
 
       const pain = clampPain(painLevel);
       const effort = clampEffort(effortRating);
@@ -683,13 +685,15 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               clinical_date: clinicalDay,
               optional_pool_no_reward: options?.optionalPoolNoReward ?? false,
               session_body_area: options?.sessionBodyArea ?? null,
+              plan_row_id: options?.planRowId ?? plan?.planRowId ?? null,
+              patient_id: patientId,
             });
             if (!rpc.ok) {
               const detail = rpc.message ?? rpc.reason ?? 'complete_exercise_safe';
               onExerciseCloudSyncError?.(
                 `לא נשמרה השלמת התרגיל בשרת. נסו שוב או פנו למטפל.\n\n${detail}`
               );
-              return;
+              return false;
             }
           }
 
@@ -723,7 +727,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           });
           if (!sRes.ok) {
             onExerciseCloudSyncError?.(`שמירת סשן יומי נכשלה: ${sRes.message}`);
-            return;
+            return false;
           }
 
           const latestPatient = getLatestPatient?.(patientId);
@@ -733,6 +737,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               onExerciseCloudSyncError?.(
                 'התקדמותכם (נקודות ומטבעות) לא נשמרה לענן. בדקו חיבור או התחברו מחדש.'
               );
+              return false;
             }
           }
         } catch (e) {
@@ -751,8 +756,11 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               ? `שגיאת סנכרון לענן: ${e.message}`
               : 'שגיאת סנכרון לענן — בדקו חיבור או התחברו מחדש.'
           );
+          return false;
         }
       }
+
+      return true;
     },
     [
       exercisePlans,
