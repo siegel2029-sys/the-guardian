@@ -1,6 +1,7 @@
 import type { KnowledgeFact } from '../types';
 import { useEffect, useState } from 'react';
-import { DEV_MOCK_DATE_CHANGED_EVENT, getAppDate } from './debugMockDate';
+import { getClinicalDate } from './clinicalCalendar';
+import { DEV_MOCK_DATE_CHANGED_EVENT } from './debugMockDate';
 
 /** Local calendar YYYY-MM-DD — used as a stable daily key for all users on the same local date. */
 export function formatLocalYmd(d: Date): string {
@@ -21,23 +22,16 @@ export function getLocalDayOfYearForYmd(ymd: string): number {
   return Math.round((d.getTime() - start.getTime()) / 86_400_000) + 1;
 }
 
-/**
- * Fingerprints catalog id order — when the KB set stays the same but the calendar advances,
- * the daily index mixes day + catalog so neighboring days rarely stick to only adjacent facts.
- */
-function catalogFingerprint(sortedIds: string[]): number {
-  let h = 2166136261;
-  const joined = sortedIds.join('\x1e');
-  for (let i = 0; i < joined.length; i++) {
-    h ^= joined.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
+/** Non-negative modulo — JS `%` can be negative for large sums. */
+function positiveMod(n: number, modulus: number): number {
+  if (modulus <= 0) return 0;
+  const m = n % modulus;
+  return m < 0 ? m + modulus : m;
 }
 
 /**
- * One approved fact per calendar day: stable for all users on that local date (not random per visit).
- * With multiple facts, cycles through the catalog in a well-mixed order as the date changes.
+ * One approved fact per clinical calendar day (YYYY-MM-DD): stable for all users that day,
+ * not random per visit. Cycles through the sorted catalog as the date advances.
  */
 export function selectDailyApprovedKnowledgeFact(
   approvedFacts: KnowledgeFact[],
@@ -48,29 +42,22 @@ export function selectDailyApprovedKnowledgeFact(
   if (sorted.length === 1) return sorted[0];
 
   const dayOfYear = getLocalDayOfYearForYmd(calendarDayYmd);
-  const fp = catalogFingerprint(sorted.map((f) => f.id));
-
-  let h = 2166136261;
-  for (let i = 0; i < calendarDayYmd.length; i++) {
-    h ^= calendarDayYmd.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  const dayHash = h >>> 0;
-
-  const index = (dayHash + dayOfYear * 1103515245 + fp) % sorted.length;
-  return sorted[index] ?? null;
+  const year = parseInt(calendarDayYmd.slice(0, 4), 10) || 0;
+  // year * 367 + dayOfYear changes every clinical day and avoids identical slots each Jan 1
+  const index = positiveMod(year * 367 + dayOfYear, sorted.length);
+  return sorted[index] ?? sorted[0];
 }
 
 /**
- * Re-renders when the local calendar date changes (midnight), including if the tab
- * was backgrounded across midnight or the machine wakes from sleep.
+ * Re-renders when the clinical calendar day changes (04:00 local rollover), including if the tab
+ * was backgrounded across rollover or the machine wakes from sleep.
  */
 export function useLocalCalendarDayKey(): string {
-  const [key, setKey] = useState(() => formatLocalYmd(getAppDate()));
+  const [key, setKey] = useState(() => getClinicalDate());
 
   useEffect(() => {
     const sync = () => {
-      const next = formatLocalYmd(getAppDate());
+      const next = getClinicalDate();
       setKey((prev) => (prev !== next ? next : prev));
     };
 

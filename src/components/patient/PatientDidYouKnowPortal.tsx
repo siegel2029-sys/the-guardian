@@ -17,10 +17,7 @@ import type { KnowledgeFact, Patient } from '../../types';
 import { KNOWLEDGE_ENRICHMENT_DISCLAIMER_HE } from '../../config/clinicalDisclaimers';
 import { PATIENT_REWARDS } from '../../config/patientRewards';
 import { getKnowledgeSourceBadgeText } from '../../utils/knowledgeSourceBadge';
-import {
-  selectDailyApprovedKnowledgeFact,
-  useLocalCalendarDayKey,
-} from '../../utils/dailyKnowledgeFact';
+import { selectDailyApprovedKnowledgeFact } from '../../utils/dailyKnowledgeFact';
 import { RewardLabel } from '../ui/RewardLabel';
 import PhysioshieldPortal from '../ui/PhysioshieldPortal';
 
@@ -302,9 +299,10 @@ export function PatientDidYouKnowProvider({ children }: { children: ReactNode })
     hasReadArticle,
     getDidYouKnowTipOpenedLocalYmd,
     recordDidYouKnowTipOpened,
+    clinicalToday,
   } = usePatient();
 
-  const dykLocalCalendarDayKey = useLocalCalendarDayKey();
+  const dykCalendarDayKey = clinicalToday;
   const isMobile = useIsMobileViewport();
 
   const approvedFacts = useMemo(
@@ -314,7 +312,7 @@ export function PatientDidYouKnowProvider({ children }: { children: ReactNode })
 
   const tipAlreadyOpenedToday = Boolean(
     selectedPatient &&
-      getDidYouKnowTipOpenedLocalYmd(selectedPatient.id) === dykLocalCalendarDayKey
+      getDidYouKnowTipOpenedLocalYmd(selectedPatient.id) === dykCalendarDayKey
   );
 
   const show =
@@ -326,16 +324,10 @@ export function PatientDidYouKnowProvider({ children }: { children: ReactNode })
 
   const patient: Patient | null = selectedPatient ?? null;
 
-  const factFromPicker = useMemo(
-    () =>
-      show && patient ? selectDailyApprovedKnowledgeFact(approvedFacts, dykLocalCalendarDayKey) : null,
-    [approvedFacts, dykLocalCalendarDayKey, show, patient]
-  );
-
-  const fact =
-    show && patient
-      ? factFromPicker ?? (approvedFacts.length > 0 ? approvedFacts[0] : null)
-      : null;
+  const fact = useMemo(() => {
+    if (!show || !patient || approvedFacts.length === 0) return null;
+    return selectDailyApprovedKnowledgeFact(approvedFacts, dykCalendarDayKey);
+  }, [approvedFacts, dykCalendarDayKey, show, patient]);
 
   const [expanded, setExpanded] = useState(false);
   const [successBurst, setSuccessBurst] = useState(false);
@@ -430,8 +422,8 @@ export function PatientDidYouKnowProvider({ children }: { children: ReactNode })
 
   const onDidYouKnowTriggerOpen = useCallback(() => {
     if (!patient) return;
-    recordDidYouKnowTipOpened(patient.id, dykLocalCalendarDayKey);
-  }, [patient, recordDidYouKnowTipOpened, dykLocalCalendarDayKey]);
+    recordDidYouKnowTipOpened(patient.id, dykCalendarDayKey);
+  }, [patient, recordDidYouKnowTipOpened, dykCalendarDayKey]);
 
   const openFromTrigger = useCallback(() => {
     onDidYouKnowTriggerOpen();
@@ -457,10 +449,10 @@ export function PatientDidYouKnowProvider({ children }: { children: ReactNode })
       if (!patient) return false;
       return markArticleAsRead(patient.id, articleId, {
         ...options,
-        didYouKnowLocalCalendarYmd: dykLocalCalendarDayKey,
+        didYouKnowLocalCalendarYmd: dykCalendarDayKey,
       });
     },
-    [patient, markArticleAsRead, dykLocalCalendarDayKey]
+    [patient, markArticleAsRead, dykCalendarDayKey]
   );
 
   const anchorValue = useMemo<PatientDidYouKnowAnchorContextValue | null>(() => {
