@@ -135,7 +135,6 @@ export function mergeFetchedExercisePlanWithLocal(
   patientId: string,
   patientCache?: PatientExercise[]
 ): ExercisePlan {
-  const empty: ExercisePlan = { patientId, exercises: [] };
   const loc = local?.patientId === patientId ? local : undefined;
   const remote = fetched && fetched.patientId === patientId ? fetched : null;
 
