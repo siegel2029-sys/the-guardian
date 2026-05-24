@@ -59,7 +59,6 @@ export function isProlongedAbsence(
 
 export function buildProlongedAbsenceQueueItems(
   patient: Patient,
-  clinicalToday: string,
   plan: ExercisePlan | undefined,
   daysSince: number
 ): { safetyAlert: SafetyAlert; aiSuggestion: AiSuggestion } {
@@ -143,7 +142,7 @@ export function mergeProactiveAbsenceIntoClinicalQueue(
     if (days == null || days <= PROLONGED_ABSENCE_THRESHOLD_DAYS) continue;
 
     const plan = pickCanonicalExercisePlan(exercisePlans, patient.id);
-    const built = buildProlongedAbsenceQueueItems(patient, clinicalToday, plan, days);
+    const built = buildProlongedAbsenceQueueItems(patient, plan, days);
     const alertId = built.safetyAlert.id;
     const sugId = built.aiSuggestion.id;
 

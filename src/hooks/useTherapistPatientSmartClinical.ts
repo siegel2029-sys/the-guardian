@@ -128,7 +128,7 @@ export function useTherapistPatientSmartClinical(
   const sessionHistoryLen = safePatient?.analytics.sessionHistory.length ?? 0;
   const therapistNotes = safePatient?.therapistNotes ?? '';
 
-  const [isLoading, setIsLoading] = useState(Boolean(patientId));
+  const [isLoading, setIsLoading] = useState(false);
   const [geminiNarrative, setGeminiNarrative] = useState<UnifiedClinicalNarrative | null>(null);
   const [geminiLoading, setGeminiLoading] = useState(false);
   const [geminiError, setGeminiError] = useState<string | null>(null);
@@ -228,14 +228,12 @@ export function useTherapistPatientSmartClinical(
       }));
   }, [patientId, aiSuggestions]);
 
-  /** Clear base loading once synchronous evaluation finishes (success or empty). */
+  /** Clear loading after synchronous evaluation (success, empty, or caught error). */
   useEffect(() => {
     if (!patientId) {
       setIsLoading(false);
       return;
     }
-
-    setIsLoading(true);
 
     if (!safePatient) {
       console.warn(`[SmartClinical] Patient data not found yet for ID: ${patientId}`);
@@ -244,15 +242,7 @@ export function useTherapistPatientSmartClinical(
     }
 
     setIsLoading(false);
-  }, [
-    patientId,
-    safePatient,
-    clinicalToday,
-    painHistoryLen,
-    sessionHistoryLen,
-    aggregatedKey,
-    progressInsightKey,
-  ]);
+  }, [patientId, safePatient, aggregatedKey, progressInsightKey]);
 
   /** Reset Gemini slice when switching patients. */
   useEffect(() => {
