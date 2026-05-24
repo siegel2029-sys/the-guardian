@@ -268,6 +268,10 @@ export interface Patient {
     expirationTime?: number | null;
     keys?: { p256dh: string; auth: string };
   };
+  /** Supabase `patients.push_token` — not stored inside JSON payload on upsert. */
+  pushToken?: string | null;
+  /** Supabase `patients.last_activity_timestamp` — portal heartbeat / last open. */
+  lastActivityTimestamp?: string | null;
 }
 
 /** תובנות AI לסשן טיפול — נשמרות ברשומת התיעוד (payload מטופל → Supabase) */

@@ -29,6 +29,7 @@ import ManagePainAreasModal from './clinical/ManagePainAreasModal';
 import TherapistPatientGrid, { type RosterFilterKey } from './TherapistPatientGrid';
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
+import { patientRosterStatusBadge } from '../../utils/patientPortalMeta';
 
 function AccessibilityFooterLink() {
   return (
@@ -42,17 +43,6 @@ function AccessibilityFooterLink() {
     </footer>
   );
 }
-
-const statusLabels: Record<string, string> = {
-  active: 'פעיל',
-  pending: 'ממתין',
-  paused: 'מושהה',
-};
-const statusStyles: Record<string, { bg: string; text: string; dot: string }> = {
-  active: { bg: '#dbeafe', text: '#1e40af', dot: '#2563eb' },
-  pending: { bg: '#fef9c3', text: '#854d0e', dot: '#ca8a04' },
-  paused: { bg: '#f1f5f9', text: '#475569', dot: '#94a3b8' },
-};
 
 export default function PatientOverview() {
   const [portalBannerDismissed, setPortalBannerDismissed] = useState(false);
@@ -202,7 +192,6 @@ export default function PatientOverview() {
   }
 
   const p = selectedPatient;
-  const style = statusStyles[p.status];
   const plan = getExercisePlan(p.id);
   const exerciseCount = plan?.exercises.length ?? 0;
   const portalUsernameDisplay =
@@ -437,13 +426,17 @@ export default function PatientOverview() {
 
             <div className="flex-1 min-w-0 flex flex-col gap-5">
               <div className="flex flex-wrap items-center gap-2">
-                <span
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold"
-                  style={{ background: style.bg, color: style.text }}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: style.dot }} />
-                  {statusLabels[p.status]}
-                </span>
+                {(() => {
+                  const rosterBadge = patientRosterStatusBadge(p);
+                  if (!rosterBadge) return null;
+                  return (
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${rosterBadge.className}`}
+                    >
+                      {rosterBadge.label}
+                    </span>
+                  );
+                })()}
                 {p.hasRedFlag && (
                   <span
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border"

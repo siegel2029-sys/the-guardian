@@ -1616,7 +1616,13 @@ export function PatientProvider({
         const byId = new Map(synced.map((s) => [s.id, s]));
         return prev.map((p) => {
           const server = byId.get(p.id);
-          return server ? { ...p, ...server } : p;
+          if (!server) return p;
+          return {
+            ...p,
+            ...server,
+            pushToken: server.pushToken ?? p.pushToken,
+            lastActivityTimestamp: server.lastActivityTimestamp ?? p.lastActivityTimestamp,
+          };
         });
       });
     });

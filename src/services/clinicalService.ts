@@ -1609,7 +1609,7 @@ export async function fetchPatientPayloadsForTherapist(
   // so a misconfigured RLS policy cannot return another therapist's patients.
   const { data, error } = await client
     .from('patients')
-    .select('payload')
+    .select('payload, push_token, last_activity_timestamp')
     .eq('therapist_id', user.id)
     .order('updated_at', { ascending: false });
 
@@ -1624,14 +1624,23 @@ export async function fetchPatientPayloadsForTherapist(
 
   const out: Patient[] = [];
   for (const row of data ?? []) {
-    const payload = (row as { payload?: unknown }).payload;
+    const typed = row as {
+      payload?: unknown;
+      push_token?: string | null;
+      last_activity_timestamp?: string | null;
+    };
+    const payload = typed.payload;
     if (
       payload &&
       typeof payload === 'object' &&
       'id' in payload &&
       typeof (payload as Patient).id === 'string'
     ) {
-      out.push(payload as Patient);
+      out.push({
+        ...(payload as Patient),
+        pushToken: typed.push_token ?? null,
+        lastActivityTimestamp: typed.last_activity_timestamp ?? null,
+      });
     }
   }
   return { ok: true, patients: out };
