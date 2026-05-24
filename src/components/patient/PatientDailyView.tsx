@@ -77,41 +77,17 @@ import { usePatientReminderInfrastructure } from '../../hooks/usePatientReminder
 import { forceReregisterPatientWebPushClearStaleAndPersist } from '../../services/patientPushNotifications';
 
 /** TEMP: iOS requires user gesture for push + SW register (remove after patients sync). */
-const TEMP_PUSH_SYNC_YO_PATIENT_ID = 'patient-mpcqx9d0-dzssqu';
+const TEMP_PUSH_SYNC_PATIENT_IDS = [
+  'patient-mpcqx9d0-dzssqu', // yo
+  'patient-mpcr41c8-t50dlk', // tc
+] as const;
 
 function tempPushSyncDoneKey(patientId: string): string {
   return `physioshield_force_push_reregister_${patientId}_v1`;
 }
 
-function patientNeedsTempPushSync(
-  patient: { id: string; portalUsername?: string },
-  opts?: { portalPatientLabel?: string; patientLoginId?: string | null },
-): boolean {
-  if (patient.id === TEMP_PUSH_SYNC_YO_PATIENT_ID) {
-    return true;
-  }
-
-  const idLower = patient.id.toLowerCase();
-  if (idLower.includes('tc')) {
-    return true;
-  }
-
-  const portalUsername = patient.portalUsername?.trim().toLowerCase();
-  if (portalUsername === 'tc') {
-    return true;
-  }
-
-  const loginId = opts?.patientLoginId?.trim().toLowerCase();
-  if (loginId === 'tc') {
-    return true;
-  }
-
-  const label = opts?.portalPatientLabel?.trim().toLowerCase();
-  if (label != null && label.length > 0 && label.includes('tc')) {
-    return true;
-  }
-
-  return false;
+function patientNeedsTempPushSync(patient: { id: string }): boolean {
+  return (TEMP_PUSH_SYNC_PATIENT_IDS as readonly string[]).includes(patient.id);
 }
 
 type PortalTab = 'home' | 'activity' | 'gear' | 'messages';
@@ -1206,10 +1182,7 @@ export default function PatientDailyView() {
   const showPortalFrozenOverlay = portalFrozenUiLock && portalTab !== 'messages';
 
   const showTempPushSyncBanner =
-    patientNeedsTempPushSync(selectedPatient, {
-      portalPatientLabel,
-      patientLoginId,
-    }) && !tempPushSyncDone;
+    patientNeedsTempPushSync(selectedPatient) && !tempPushSyncDone;
 
   const tempPushSyncBannerText = portalPatientLabel
     ? `היי ${portalPatientLabel}, לצורך סינכרון מערכת הודעות הקליניקה באייפון, אנא לחץ כאן פעם אחת:`
