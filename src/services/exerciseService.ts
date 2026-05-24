@@ -444,6 +444,7 @@ export async function upsertDailySessionRowMerged(
     if (isSupabaseAuthEnabled()) {
       const guard = await ensureSupabaseSessionReady(client, {
         context: 'שמירת session_history',
+        alertUser: false,
       });
       if (!guard.ok) {
         return { ok: false, message: guard.message };
@@ -702,6 +703,7 @@ export async function upsertSessionHistory(
     if (isSupabaseAuthEnabled()) {
       const guard = await ensureSupabaseSessionReady(client, {
         context: 'שמירת session_history (אצווה)',
+        alertUser: false,
       });
       if (!guard.ok) {
         return { ok: false, message: `session_history: ${guard.message}` };

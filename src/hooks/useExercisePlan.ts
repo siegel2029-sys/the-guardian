@@ -172,7 +172,10 @@ export function useExercisePlan(params: UseExercisePlanParams) {
     (patientId: string) => {
       const fromPlans = pickCanonicalExercisePlan(exercisePlans, patientId);
       if (fromPlans && fromPlans.exercises.length > 0) {
-        return fromPlans;
+        return {
+          ...fromPlans,
+          exercises: normalizeCachedPatientExercises(fromPlans.exercises),
+        };
       }
       const patient =
         patients.find((p) => p.id === patientId) ??
@@ -187,6 +190,12 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         }
       );
       if (fromCache) return fromCache;
+      if (fromPlans) {
+        return {
+          ...fromPlans,
+          exercises: normalizeCachedPatientExercises(fromPlans.exercises),
+        };
+      }
       return fromPlans;
     },
     [exercisePlans, patients, allPatients]

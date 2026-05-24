@@ -76,7 +76,7 @@ import { computeStreakForPatient } from '../utils/exerciseStreak';
 import { type GearEquipSlot } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
-import { ensureSupabaseSessionReady } from '../lib/supabaseSessionGuard';
+import { ensureSupabaseSessionReady, isAuthSessionMissingMessage } from '../lib/supabaseSessionGuard';
 import {
   getAppKbHydratedFromCloud,
   resetAppKbHydrationGate,
@@ -315,6 +315,10 @@ function normalizePatientGear(v: Partial<PatientGearState> | undefined): Patient
 
 /** Immediate feedback for PostgREST auth / validation failures during cloud save. */
 function alertIfSupabaseClientFailure(message: string, httpStatus?: number, cause?: unknown) {
+  if (isAuthSessionMissingMessage(message)) {
+    console.warn('[PatientContext] Skipping cloud save alert — auth session not ready:', message);
+    return;
+  }
   const st =
     httpStatus ??
     postgrestHttpStatus(cause) ??
@@ -1155,7 +1159,13 @@ export function PatientProvider({
         const rest = prev.filter((ep) => ep.patientId !== pid);
         const planSlice: ExercisePlan =
           exercisePlan ?? { patientId: pid, exercises: [] };
-        return [...rest, planSlice];
+        return [
+          ...rest,
+          {
+            ...planSlice,
+            exercises: normalizeCachedPatientExercises(planSlice.exercises),
+          },
+        ];
       });
 
       // Fetch the global knowledge base so the 💡 "Did you know?" bubble is visible
@@ -1620,6 +1630,14 @@ export function PatientProvider({
       return false;
     }
 
+    if (isSupabaseConfigured && isSupabaseAuthEnabled() && (authLoading || !isAuthenticated)) {
+      cloudSaveMutexRef.current = null;
+      cloudSaveInFlightRef.current = false;
+      setSupabaseSyncStatus('idle');
+      console.warn('[performCloudPersistPush] Skipping database persistence: auth not ready yet.');
+      return false;
+    }
+
     if (cloudSaveMutexRef.current) {
       try {
         await cloudSaveMutexRef.current;
@@ -1662,12 +1680,13 @@ export function PatientProvider({
     if (isSupabaseConfigured && isSupabaseAuthEnabled()) {
       const guard = await ensureSupabaseSessionReady(supabaseClient, {
         context: 'שמירה מלאה לענן (דשבורד / פורטל)',
+        alertUser: false,
       });
       if (guard.ok === false) {
         cloudSaveMutexRef.current = null;
         cloudSaveInFlightRef.current = false;
-        setSupabaseSyncStatus('error');
-        setSupabaseSyncError(guard.message);
+        setSupabaseSyncStatus('idle');
+        setSupabaseSyncError(null);
         return false;
       }
     }
@@ -1742,6 +1761,8 @@ export function PatientProvider({
     isSupabaseConfigured,
     mergeServerPatientsIntoState,
     restrictPatientSessionId,
+    authLoading,
+    isAuthenticated,
   ]);
 
   const savePersistedStateToCloud = useCallback(
@@ -1766,7 +1787,7 @@ export function PatientProvider({
         return false;
       }
       /** Therapist/patient cloud writes require a real JWT — anon key cannot upsert profiles (400 / RLS). */
-      if (isSupabaseConfigured && !isAuthenticated) {
+      if (isSupabaseConfigured && (authLoading || !isAuthenticated)) {
         setSupabaseSyncStatus('idle');
         return false;
       }
@@ -1859,7 +1880,7 @@ export function PatientProvider({
         }, CLOUD_SAVE_DEBOUNCE_MS);
       });
     },
-    [performCloudPersistPush, isAuthenticated, supabase, isSupabaseConfigured]
+    [performCloudPersistPush, isAuthenticated, authLoading, supabase, isSupabaseConfigured]
   );
 
   const saveSinglePatientPayloadToCloud = useCallback(
@@ -1870,13 +1891,17 @@ export function PatientProvider({
         );
         return false;
       }
-      if (isSupabaseConfigured && !isAuthenticated) {
+      if (isSupabaseConfigured && (authLoading || !isAuthenticated)) {
+        console.warn(
+          '[saveSinglePatientPayloadToCloud] Skipping database persistence: auth not ready yet.'
+        );
         return false;
       }
       const supabaseClient = supabase;
       if (isSupabaseConfigured) {
         const guard = await ensureSupabaseSessionReady(supabaseClient, {
           context: 'שמירת מטופל בודד לענן',
+          alertUser: false,
         });
         if (!guard.ok) return false;
       }
@@ -1908,7 +1933,7 @@ export function PatientProvider({
           if (import.meta.env.DEV) {
             console.warn('[saveSinglePatientPayloadToCloud] נכשל', result.message);
           }
-          if (restrictPatientSessionId) {
+          if (restrictPatientSessionId && !isAuthSessionMissingMessage(result.message)) {
             window.alert(`שמירת התקדמות לענן נכשלה:\n\n${result.message}`);
           }
           return false;
@@ -1926,15 +1951,19 @@ export function PatientProvider({
     },
     [
       isAuthenticated,
+      authLoading,
       isSupabaseConfigured,
       mergeServerPatientsIntoState,
       restrictPatientSessionId,
       supabase,
-      ensureSupabaseSessionReady,
     ]
   );
 
   const notifyExerciseCloudSyncError = useCallback((message: string) => {
+    if (isAuthSessionMissingMessage(message)) {
+      console.warn('[PatientContext] Exercise cloud sync skipped — auth session not ready:', message);
+      return;
+    }
     window.alert(message);
   }, []);
 
@@ -2036,9 +2065,15 @@ export function PatientProvider({
           });
         }
 
-        const upd = await updatePatientExercises(supabaseClient, patientId, exercises, undefined, {
-          changeSummary: options?.changeSummary,
-        });
+        const upd = await updatePatientExercises(
+          supabaseClient,
+          patientId,
+          normalizeCachedPatientExercises(exercises),
+          undefined,
+          {
+            changeSummary: options?.changeSummary,
+          }
+        );
         if (upd.ok === false) {
           failureMessage = upd.message;
           alertIfSupabaseClientFailure(upd.message, upd.httpStatus);

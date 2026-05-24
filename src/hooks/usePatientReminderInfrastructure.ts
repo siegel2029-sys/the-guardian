@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
   persistPatientPushProfile,
@@ -16,32 +17,18 @@ export function usePatientReminderInfrastructure(opts: {
   refetchExerciseLogCount: () => Promise<void>;
 } {
   const { patientId, active, portalTab } = opts;
+  const { isLoading: authLoading, isAuthenticated } = useAuth();
   const [exerciseLogCount, setExerciseLogCount] = useState<number | null>(null);
-  const [authUserId, setAuthUserId] = useState<string | null>(null);
   const pushInitDone = useRef(false);
 
-  useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) {
-      setAuthUserId(null);
-      return;
-    }
-    void supabase.auth.getSession().then(({ data: { session } }) => {
-      setAuthUserId(session?.user?.id ?? null);
-    });
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthUserId(session?.user?.id ?? null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+  const authReady = !authLoading && isAuthenticated;
 
   useEffect(() => {
     pushInitDone.current = false;
-  }, [patientId, authUserId]);
+  }, [patientId, authReady]);
 
   const refetchExerciseLogCount = useCallback(async () => {
-    if (!patientId || !isSupabaseConfigured || !supabase) {
+    if (!patientId || !isSupabaseConfigured || !supabase || !authReady) {
       setExerciseLogCount(null);
       return;
     }
@@ -55,14 +42,14 @@ export function usePatientReminderInfrastructure(opts: {
       return;
     }
     setExerciseLogCount(count ?? 0);
-  }, [patientId]);
+  }, [patientId, authReady]);
 
   useEffect(() => {
     void refetchExerciseLogCount();
   }, [refetchExerciseLogCount, portalTab]);
 
   useEffect(() => {
-    if (!active || !patientId || !isSupabaseConfigured || !supabase) return;
+    if (!active || !patientId || !isSupabaseConfigured || !supabase || !authReady) return;
 
     const onVis = () => {
       if (document.visibilityState === 'visible') {
@@ -81,13 +68,10 @@ export function usePatientReminderInfrastructure(opts: {
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('pointerdown', onPointer);
     };
-  }, [active, patientId]);
+  }, [active, patientId, authReady]);
 
   useEffect(() => {
-    if (!active || !patientId || !isSupabaseConfigured || !supabase) {
-      return;
-    }
-    if (!authUserId) {
+    if (!active || !patientId || !isSupabaseConfigured || !supabase || !authReady) {
       return;
     }
     if (pushInitDone.current) {
@@ -111,7 +95,7 @@ export function usePatientReminderInfrastructure(opts: {
         console.warn('[usePatientReminderInfrastructure] push persist', saved.message);
       }
     })();
-  }, [active, patientId, authUserId]);
+  }, [active, patientId, authReady]);
 
   return { exerciseLogCount, refetchExerciseLogCount };
 }

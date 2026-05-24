@@ -11,6 +11,7 @@ import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../../data/exerciseVideoDefault
 import type { PatientExercise, BodyArea, ExerciseDifficulty } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
+import { normalizeCachedPatientExercises, pickCanonicalExercisePlan } from '../../utils/exercisePlanCanonical';
 import { PortalDropdown, PortalSelect } from '../ui/PortalDropdown';
 
 interface ManagePlanModalProps {
@@ -841,6 +842,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     persistExercisePlanCacheForPatient,
     replaceExercisePlanForPatient,
     saveExercisePlanForPatientToCloud,
+    exercisePlans,
     supabaseConfigured,
     supabaseSyncStatus,
     supabaseSyncError,
@@ -860,6 +862,19 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
   const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
   const currentExercises = useMemo(() => plan?.exercises ?? [], [plan]);
   const patientId = selectedPatient?.id ?? '';
+
+  /** Sync library video URLs into in-memory plan when opening (legacy DB rows → EXERCISE_LIBRARY). */
+  useEffect(() => {
+    if (!selectedPatient) return;
+    const rawPlan = pickCanonicalExercisePlan(exercisePlans, selectedPatient.id);
+    if (!rawPlan?.exercises.length) return;
+    const merged = normalizeCachedPatientExercises(rawPlan.exercises);
+    const videoUrlsChanged = merged.some(
+      (ex, i) => ex.videoUrl !== (rawPlan.exercises[i]?.videoUrl ?? '')
+    );
+    if (!videoUrlsChanged) return;
+    replaceExercisePlanForPatient(selectedPatient.id, merged);
+  }, [selectedPatient?.id, exercisePlans, replaceExercisePlanForPatient]);
 
   const currentIds = useMemo(() => {
     if (!patientId) return new Set<string>();
@@ -1233,7 +1248,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                   setSuccessMsg(null);
                   const res = await saveExercisePlanForPatientToCloud(
                     selectedPatient.id,
-                    currentExercises,
+                    normalizeCachedPatientExercises(currentExercises),
                     { changeSummary: changeSummary.trim() }
                   );
                   if (res.ok) {

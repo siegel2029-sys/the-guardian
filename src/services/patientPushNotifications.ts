@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { getSupabaseAuthSession } from '../lib/supabaseSessionGuard';
 import type { Patient } from '../types';
 
 export type WebPushSubscriptionPayload = NonNullable<Patient['webPushSubscription']>;
@@ -24,6 +25,16 @@ export function normalizeCanonicalWebPushSubscription(
 const PUSH_PROMPT_KEY = 'physioshield_push_permission_prompted_v1';
 /** Last VAPID public key used for a successful `pushManager.subscribe` (normalized). Used when `subscription.options.applicationServerKey` is unavailable. */
 const VAPID_PUBLIC_KEY_STORAGE_KEY = 'physioshield_web_push_vapid_public_key_v1';
+
+async function requireSupabaseAuthSessionForWrite(scope: string): Promise<boolean> {
+  if (!supabase) return false;
+  const session = await getSupabaseAuthSession(supabase);
+  if (!session) {
+    console.warn(`[PhysioShield push] Skipping database persistence (${scope}): no active auth session.`);
+    return false;
+  }
+  return true;
+}
 /**
  * Last successful PushSubscription JSON (endpoint + keys). If this exists but omits `keys`, we force
  * `unsubscribe` so a fresh `subscribe` repopulates encryption keys for the server.
@@ -109,6 +120,7 @@ function isPatientWebPushHttpsToken(token: string): boolean {
  */
 export async function syncWebPushDatabasePayloadIfStale(patientId: string): Promise<void> {
   if (!supabase || typeof window === 'undefined') return;
+  if (!(await requireSupabaseAuthSessionForWrite('syncWebPushDatabasePayloadIfStale'))) return;
   if (getNativeExpoPushTokenSync()) return;
 
   const { data: row, error } = await supabase
@@ -490,6 +502,9 @@ export async function clearPatientWebPushFieldsInDatabase(patientId: string): Pr
   if (!supabase) {
     return { ok: false, message: 'supabase_not_configured' };
   }
+  if (!(await requireSupabaseAuthSessionForWrite('clearPatientWebPushFieldsInDatabase'))) {
+    return { ok: false, message: 'auth_session_missing' };
+  }
   const { data: row, error: fetchErr } = await supabase
     .from('patients')
     .select('payload')
@@ -609,6 +624,9 @@ export async function persistPatientPushProfile(params: {
   if (!supabase) {
     return { ok: false, message: 'supabase_not_configured' };
   }
+  if (!(await requireSupabaseAuthSessionForWrite('persistPatientPushProfile'))) {
+    return { ok: false, message: 'auth_session_missing' };
+  }
   const tz =
     typeof Intl !== 'undefined'
       ? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC'
@@ -673,6 +691,7 @@ export async function touchPatientLastActivityThrottled(
   minIntervalMs = 120_000
 ): Promise<void> {
   if (!supabase) return;
+  if (!(await requireSupabaseAuthSessionForWrite('touchPatientLastActivity'))) return;
   const now = Date.now();
   const prev = lastActivityWriteByPatient.get(patientId) ?? 0;
   if (now - prev < minIntervalMs) return;

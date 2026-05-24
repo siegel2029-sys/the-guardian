@@ -11,7 +11,10 @@ import type {
   Therapist,
 } from '../types';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
-import { mergeExercisePlansWithPatientPayloadCache } from '../utils/exercisePlanCanonical';
+import {
+  mergeExercisePlansWithPatientPayloadCache,
+  normalizeCachedPatientExercises,
+} from '../utils/exercisePlanCanonical';
 import { computeStreakForPatient } from '../utils/exerciseStreak';
 import {
   isSupabaseAuthEnabled,
@@ -802,6 +805,7 @@ export async function upsertPatientRecords(
   if (isSupabaseAuthEnabled()) {
     const guard = await ensureSupabaseSessionReady(client, {
       context: isPatientPortal ? 'שמירת מטופל (פורטל)' : 'שמירת מטופל (דשבורד מטפל)',
+      alertUser: false,
     });
     if (!guard.ok) {
       return { ok: false, message: `patients: ${guard.message}` };
@@ -1394,7 +1398,8 @@ export async function upsertExercisePlans(
     const changeSummaryByPatientId = options?.changeSummaryByPatientId ?? {};
 
     for (const plan of exercisePlans) {
-      const { patientId: rawPatientId, exercises } = plan;
+      const { patientId: rawPatientId } = plan;
+      const exercises = normalizeCachedPatientExercises(plan.exercises);
 
       // ── Validate patient_id ──────────────────────────────────────────────
       if (typeof rawPatientId !== 'string' || !rawPatientId.trim()) {

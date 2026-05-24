@@ -1,5 +1,68 @@
 import type { ExercisePlan, Patient, PatientExercise } from '../types';
-import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../data/exerciseVideoDefaults';
+import { EXERCISE_LIBRARY } from '../data/mockData';
+import {
+  DEFAULT_EXERCISE_DEMO_VIDEO_URL,
+  DEMO_VIDEO_URL_L1,
+  DEMO_VIDEO_URL_L2,
+  DEMO_VIDEO_URL_L3,
+} from '../data/exerciseVideoDefaults';
+
+const LIBRARY_EXERCISE_ID_RE = /lib-[a-z]{2}-\d{2}/;
+
+const EXERCISE_LIBRARY_BY_ID = new Map(EXERCISE_LIBRARY.map((ex) => [ex.id, ex]));
+
+const LEGACY_DEMO_VIDEO_URLS = new Set([
+  DEFAULT_EXERCISE_DEMO_VIDEO_URL,
+  DEMO_VIDEO_URL_L1,
+  DEMO_VIDEO_URL_L2,
+  DEMO_VIDEO_URL_L3,
+]);
+
+const SUPABASE_EXERCISE_VIDEO_PREFIX =
+  'supabase.co/storage/v1/object/public/exercise-videos/';
+
+/** Extract `lib-xx-01` from plan exercise ids (`lib-sh-01`, `{patientId}-lib-sh-01-{ts}`, …). */
+export function resolveLibraryExerciseId(exerciseId: string): string | null {
+  const direct = exerciseId.match(/^(lib-[a-z]{2}-\d{2})$/);
+  if (direct) return direct[1];
+  const embedded = exerciseId.match(LIBRARY_EXERCISE_ID_RE);
+  return embedded ? embedded[0] : null;
+}
+
+export function isOutdatedExerciseVideoUrl(url: string | undefined | null): boolean {
+  const trimmed = (url ?? '').trim();
+  if (!trimmed) return true;
+  if (LEGACY_DEMO_VIDEO_URLS.has(trimmed)) return true;
+  if (trimmed.includes('interactive-examples.mdn.mozilla.net')) return true;
+  return false;
+}
+
+/** Prefer EXERCISE_LIBRARY videoUrl when the stored row is empty or still on legacy demo links. */
+export function resolveExerciseVideoUrl(
+  exercise: Pick<PatientExercise, 'id' | 'videoUrl'>
+): string {
+  const stored = (exercise.videoUrl ?? '').trim();
+  const libId = resolveLibraryExerciseId(exercise.id);
+  const libEntry = libId ? EXERCISE_LIBRARY_BY_ID.get(libId) : undefined;
+  const libraryUrl = libEntry?.videoUrl?.trim() ?? '';
+
+  if (libraryUrl) {
+    const libraryIsHosted =
+      libraryUrl.includes(SUPABASE_EXERCISE_VIDEO_PREFIX) ||
+      libraryUrl.includes('youtu') ||
+      libraryUrl.includes('vimeo.com');
+    const storedIsLegacy = isOutdatedExerciseVideoUrl(stored);
+    const storedMissingHostedAsset =
+      libraryUrl.includes(SUPABASE_EXERCISE_VIDEO_PREFIX) &&
+      !stored.includes(SUPABASE_EXERCISE_VIDEO_PREFIX);
+
+    if (storedIsLegacy || (libraryIsHosted && storedMissingHostedAsset && stored !== libraryUrl)) {
+      return libraryUrl;
+    }
+  }
+
+  return stored || libraryUrl || DEFAULT_EXERCISE_DEMO_VIDEO_URL;
+}
 
 /** Prefer the active plan when multiple slices share the same patientId (versioned Supabase rows). */
 export function pickCanonicalExercisePlan(
@@ -53,7 +116,7 @@ export function normalizeCachedPatientExercise(raw: PatientExercise): PatientExe
     difficulty: raw.difficulty ?? 3,
     type: raw.type ?? 'standard',
     xpReward: typeof raw.xpReward === 'number' ? raw.xpReward : 20,
-    videoUrl: raw.videoUrl?.trim() ? raw.videoUrl : DEFAULT_EXERCISE_DEMO_VIDEO_URL,
+    videoUrl: resolveExerciseVideoUrl(raw),
   };
 }
 

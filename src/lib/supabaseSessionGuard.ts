@@ -6,6 +6,21 @@ import { isSupabaseAuthEnabled } from './patientPortalAuth';
 
 export type SupabaseSessionGuardResult = { ok: true } | { ok: false; message: string };
 
+/** True when the error text indicates a missing or expired JWT (not a user-facing save failure). */
+export function isAuthSessionMissingMessage(message: string): boolean {
+  return /auth session missing|no active auth session|אין סשן פעיל/i.test(message);
+}
+
+/** Fast read — no refresh attempt. Use before background DB writes. */
+export async function getSupabaseAuthSession(client: SupabaseClient) {
+  const {
+    data: { session },
+    error,
+  } = await client.auth.getSession();
+  if (error || !session?.user?.id) return null;
+  return session;
+}
+
 /** Log the full PostgREST / Auth error for RLS / policy debugging. */
 export function logSupabaseCallError(
   scope: string,
@@ -29,7 +44,8 @@ export function logSupabaseCallError(
 
 /**
  * Ensures a usable session when app auth is enabled: `getSession`, then `refreshSession` if needed.
- * Optionally alerts the user so data is not “silently” discarded.
+ * Background / auto-save callers should leave `alertUser` false (default) — only explicit user actions
+ * should pass `alertUser: true`.
  */
 export async function ensureSupabaseSessionReady(
   client: SupabaseClient,
@@ -40,7 +56,7 @@ export async function ensureSupabaseSessionReady(
   }
 
   const ctx = opts?.context ?? 'סנכרון לענן';
-  const alertUser = opts?.alertUser !== false;
+  const alertUser = opts?.alertUser === true;
 
   try {
     const {
@@ -77,6 +93,11 @@ export async function ensureSupabaseSessionReady(
       window.alert(
         `[PHYSIOSHIELD] ${ctx}\n\n${message}\n\nהשמירה לא הושלמה — ייתכן אובדן נתונים אם תצאו מהאפליקציה.`
       );
+    } else {
+      console.warn(
+        `[ensureSupabaseSessionReady] Skipping database persistence (${ctx}): no active auth session.`,
+        message
+      );
     }
     return { ok: false, message };
   } catch (e) {
@@ -84,6 +105,11 @@ export async function ensureSupabaseSessionReady(
     const message = e instanceof Error ? e.message : String(e);
     if (alertUser) {
       window.alert(`[PHYSIOSHIELD] ${ctx}\n\nשגיאת אימות: ${message}`);
+    } else {
+      console.warn(
+        `[ensureSupabaseSessionReady] Skipping database persistence (${ctx}): auth error.`,
+        message
+      );
     }
     return { ok: false, message };
   }
