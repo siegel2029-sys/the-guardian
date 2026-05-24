@@ -62,7 +62,7 @@ import {
 import type { GuardiSemanticKind } from '../../utils/guardiSemanticKinds';
 import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
 import PatientPortalSettingsModal from './PatientPortalSettingsModal';
-import { fetchAiPlanAdjustmentSuggestion } from '../../ai/geminiAiPlanAdjustment';
+import { fetchAiPlanAdjustmentSuggestion } from '../../ai/clinicalRecommendationEngine';
 import { evaluateAiProgramLongitudinalGate } from '../../ai/aiProgramLongitudinalGate';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
 import { getOptionalPoolExerciseId } from '../../utils/optionalExerciseUnlock';
@@ -856,6 +856,8 @@ export default function PatientDailyView() {
         patient,
         clinicalExercises: clinical,
         longitudinalGate: gate,
+        clinicalToday,
+        dayMap: patientDayMap,
       });
       if (cancelled) return;
       setTrainingAiPlanModalLoading(false);

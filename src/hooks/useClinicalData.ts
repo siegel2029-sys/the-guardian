@@ -1,7 +1,11 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
-import type { AiSuggestion, BodyArea, ExercisePlan, Message, Patient } from '../types';
+import type { AiSuggestion, BodyArea, DailyHistoryEntry, ExercisePlan, Message, Patient } from '../types';
 import { bodyAreaBlocksSelfCare } from '../body/bodyPickMapping';
 import { computeClinicalProgressInsight } from '../ai/clinicalCommandInsight';
+import {
+  consolidateClinicalTracking,
+  generateClinicalRecommendation,
+} from '../ai/clinicalRecommendationEngine';
 import {
   upsertPatientRecords,
   upsertTherapistProfilesForPatients,
@@ -43,8 +47,11 @@ export type UseClinicalDataParams = {
   exercisePlans: ExercisePlan[];
   setAiSuggestions: React.Dispatch<React.SetStateAction<AiSuggestion[]>>;
   clinicalToday: string;
+  dailyHistoryByPatient?: Record<string, Record<string, DailyHistoryEntry>>;
   /** Patient portal — skip `profiles` upsert; only own `patients` row. */
   restrictPatientSessionId?: string | null;
+  /** Called after new AI queue items are added (e.g. immediate cloud shard push). */
+  onClinicalQueueUpdated?: () => void;
 };
 
 export function useClinicalData({
@@ -55,7 +62,9 @@ export function useClinicalData({
   exercisePlans,
   setAiSuggestions,
   clinicalToday,
+  dailyHistoryByPatient = {},
   restrictPatientSessionId = null,
+  onClinicalQueueUpdated,
 }: UseClinicalDataParams) {
   const resolveRedFlag = useCallback((patientId: string) => {
     setAllPatients((prev) =>
@@ -120,64 +129,126 @@ export function useClinicalData({
     (patientId: string, notes: string) => {
       const patient = allPatients.find((p) => p.id === patientId);
       if (!patient) return;
+
       const plan = pickCanonicalExercisePlan(exercisePlans, patientId);
+      const exercises = plan?.exercises ?? [];
+      const dayMap = dailyHistoryByPatient?.[patientId];
       const insight = computeClinicalProgressInsight(patient, clinicalToday);
 
-      setAllPatients((prev) =>
-        prev.map((p) => (p.id === patientId ? { ...p, therapistNotes: notes } : p))
-      );
-
-      setAiSuggestions((prev) => {
-        const withoutStale = prev.filter(
-          (s) =>
-            !(
-              s.patientId === patientId &&
-              s.source === 'therapist_note' &&
-              s.status === 'pending'
-            )
+      const trimmedNotes = notes.trim();
+      if (trimmedNotes.length > 0 && (patient.therapistNotes ?? '').trim() !== trimmedNotes) {
+        setAllPatients((prev) =>
+          prev.map((p) => (p.id === patientId ? { ...p, therapistNotes: trimmedNotes } : p))
         );
+      }
 
-        if (
-          insight.category !== 'load_increase' &&
-          insight.category !== 'load_decrease' &&
-          insight.category !== 'escalate_care'
-        ) {
-          return withoutStale;
-        }
+      void (async () => {
+        const tracking = consolidateClinicalTracking({
+          patient,
+          clinicalToday,
+          dayMap,
+          rehabExerciseCount: exercises.length,
+        });
 
-        const ex = plan?.exercises.find((e) => (e.patientReps ?? 0) > 0);
-        if (!ex) return withoutStale;
+        const gate = tracking.longitudinalGate;
+        const shouldGenerate =
+          exercises.length > 0 &&
+          (gate.shouldSuggest ||
+            tracking.recommendationIntent === 'progression' ||
+            tracking.recommendationIntent === 'regression' ||
+            insight.category === 'load_increase' ||
+            insight.category === 'load_decrease' ||
+            insight.category === 'escalate_care');
 
-        const currentValue = ex.patientReps;
-        const isReduce = insight.category === 'load_decrease' || insight.category === 'escalate_care';
-        const suggestedValue = isReduce
-          ? Math.max(1, currentValue - 3)
-          : currentValue + 2;
-        if (suggestedValue === currentValue) return withoutStale;
+        if (!shouldGenerate) return;
 
-        const noteRef =
-          notes.trim().length > 0
-            ? ` סינתזה לאחר עדכון ההערכה הקלינית («${notes.trim().slice(0, 80)}${notes.trim().length > 80 ? '…' : ''}»).`
-            : '';
+        const engineRec = await generateClinicalRecommendation({
+          patient,
+          clinicalExercises: exercises,
+          clinicalToday,
+          dayMap,
+          longitudinalGate: gate,
+          defaultStatus: 'awaiting_therapist',
+        });
 
-        const newSug: AiSuggestion = {
-          id: `ai-tn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-          patientId,
-          exerciseId: ex.id,
-          exerciseName: ex.name,
-          type: isReduce ? 'reduce_reps' : 'increase_reps',
-          field: 'reps',
-          currentValue,
-          suggestedValue,
-          reason: `${insight.nextStepHe}${noteRef}`,
-          createdAt: new Date().toISOString(),
-          status: 'pending',
-          source: 'therapist_note',
-        };
-        return [...withoutStale, newSug];
-      });
+        let added = false;
+
+        setAiSuggestions((prev) => {
+          const withoutStaleEngine = prev.filter(
+            (s) =>
+              !(
+                s.patientId === patientId &&
+                s.source === 'clinical_recommendation_engine' &&
+                s.status === 'awaiting_therapist' &&
+                s.id.startsWith('ai-assess-')
+              )
+          );
+
+          if (engineRec) {
+            const rec: AiSuggestion = {
+              ...engineRec,
+              id: `ai-assess-${patientId}-${Date.now()}`,
+              status: 'awaiting_therapist',
+              source: 'clinical_recommendation_engine',
+              reason:
+                notes.trim().length > 0
+                  ? `${engineRec.reason}\n\nהערת מטפל: «${notes.trim().slice(0, 120)}${notes.trim().length > 120 ? '…' : ''}»`
+                  : engineRec.reason,
+            };
+            added = true;
+            return [...withoutStaleEngine, rec];
+          }
+
+          if (
+            insight.category !== 'load_increase' &&
+            insight.category !== 'load_decrease' &&
+            insight.category !== 'escalate_care'
+          ) {
+            return withoutStaleEngine;
+          }
+
+          const ex = exercises.find((e) => (e.patientReps ?? 0) > 0);
+          if (!ex) return withoutStaleEngine;
+
+          const currentValue = ex.patientReps;
+          const isReduce =
+            insight.category === 'load_decrease' || insight.category === 'escalate_care';
+          const suggestedValue = isReduce
+            ? Math.max(1, Math.floor(currentValue * 0.75))
+            : Math.max(currentValue + 1, Math.round(currentValue * 1.1));
+
+          if (suggestedValue === currentValue) return withoutStaleEngine;
+
+          added = true;
+          const newSug: AiSuggestion = {
+            id: `ai-assess-${patientId}-${Date.now()}`,
+            patientId,
+            exerciseId: ex.id,
+            exerciseName: ex.name,
+            type: isReduce ? 'reduce_reps' : 'increase_reps',
+            field: 'reps',
+            currentValue,
+            suggestedValue,
+            reason: `${insight.nextStepHe}\n\n${insight.basisHe}`,
+            createdAt: new Date().toISOString(),
+            status: 'awaiting_therapist',
+            source: 'clinical_recommendation_engine',
+          };
+          return [...withoutStaleEngine, newSug];
+        });
+
+        if (added) onClinicalQueueUpdated?.();
+      })();
     },
-    [allPatients, exercisePlans, clinicalToday, setAiSuggestions, setAllPatients]
+    [
+      allPatients,
+      exercisePlans,
+      clinicalToday,
+      dailyHistoryByPatient,
+      setAiSuggestions,
+      setAllPatients,
+      onClinicalQueueUpdated,
+    ]
   );
 
   const resetPatientPainReports = useCallback(
@@ -256,7 +327,6 @@ export function useClinicalData({
     [setAllPatients, setSelfCareZonesByPatientId]
   );
 
-  /** מפת כאב מטפל — עדכון שלושת השדות + ניקוי נעילות מקטע + סינון פרהאב */
   const applyTherapistPainFields = useCallback(
     (
       patientId: string,
@@ -287,10 +357,6 @@ export function useClinicalData({
     [setAllPatients, setSelfCareZonesByPatientId]
   );
 
-  /**
-   * דחיפה נקודתית של שורות קליניות (profiles מטפל + payload מטופל) — משמש לסנכרון ייעודי;
-   * השמירה המלאה נשארת ב־savePersistedStateToCloud דרך supabaseSync.
-   */
   const syncClinicalPatientsToSupabase = useCallback(async () => {
     if (!supabase) return { ok: false as const, message: 'Supabase לא מוגדר' };
     const now = new Date().toISOString();

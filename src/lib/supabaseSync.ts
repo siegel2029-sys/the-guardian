@@ -5,12 +5,20 @@ import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
 import {
   resolveTherapistIdForSupabaseRls,
   type ClinicalPushResult,
+  fetchPatientPayloadsForTherapist,
+  getPatientById,
   upsertPatientRecords,
   upsertTherapistProfilesForPatients,
   upsertGlobalAppKnowledgeBaseWithTipSyncLog,
 } from '../services/clinicalService';
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
 import { upsertExercisePlans, upsertSessionHistory } from '../services/exerciseService';
+import {
+  embedClinicalInsightsIntoPatients,
+  mergeClinicalInsightsSnapshots,
+  pullClinicalInsightsFromPatientPayloads,
+  type ClinicalInsightsSnapshot,
+} from '../utils/clinicalInsightsPayload';
 
 async function therapistIdByPatientIdForClinicalSync(
   client: SupabaseClient,
@@ -53,16 +61,56 @@ export type PushPersistedStateOptions = {
   appendKnowledgeDeletedSeedIds?: string[];
 };
 
+export type PullPersistedStateResult =
+  | { ok: true; clinicalInsights: ClinicalInsightsSnapshot }
+  | { ok: false; message: string };
+
+/**
+ * Pulls `aiSuggestions` and `safetyAlerts` from `patients.payload.clinicalInsightsQueue` in Supabase.
+ */
+export async function pullPersistedState(
+  client: SupabaseClient,
+  options?: { onlyPatientId?: string }
+): Promise<PullPersistedStateResult> {
+  const onlyId = options?.onlyPatientId?.trim();
+  if (onlyId) {
+    const row = await getPatientById(client, onlyId);
+    if (!row.ok) return { ok: false, message: row.message };
+    return {
+      ok: true,
+      clinicalInsights: pullClinicalInsightsFromPatientPayloads([row.patient]),
+    };
+  }
+
+  const base = await fetchPatientPayloadsForTherapist(client);
+  if (!base.ok) return { ok: false, message: base.message };
+  return {
+    ok: true,
+    clinicalInsights: pullClinicalInsightsFromPatientPayloads(base.patients),
+  };
+}
+
+/**
+ * Merges remote clinical insights (from {@link pullPersistedState}) with local snapshot.
+ */
+export function mergePulledClinicalInsights(
+  local: ClinicalInsightsSnapshot,
+  remote: ClinicalInsightsSnapshot
+): ClinicalInsightsSnapshot {
+  return mergeClinicalInsightsSnapshots(local, remote);
+}
+
 /**
  * Pushes core clinical entities to Supabase (upsert).
  * Mirrors {@link PersistedPatientStateV1} slices: patients, exercise plans, daily sessions,
  * plus therapist {@link profiles} rows derived from patient.therapistId.
  *
+ * Embeds `aiSuggestions` and `safetyAlerts` into each patient's `payload.clinicalInsightsQueue`
+ * so recommendations are visible from any therapist device.
+ *
  * **Patient sessions** (`sessionRole === 'patient'`): only the `patients` row for
  * {@link PushPersistedStateOptions.patientSessionId} is upserted — no `profiles`, exercise plans,
  * session_history, or app_knowledge_base (RLS).
- *
- * Reads remain localStorage-first in the app; this is the first step toward full sync.
  */
 export async function pushPersistedStateToSupabase(
   client: SupabaseClient,
@@ -74,25 +122,41 @@ export async function pushPersistedStateToSupabase(
     const isPatient = options?.sessionRole === 'patient';
     const ownPatientId = options?.patientSessionId?.trim() ?? '';
 
+    const patientsWithClinicalQueue = embedClinicalInsightsIntoPatients(
+      state.patients,
+      state.aiSuggestions ?? [],
+      state.safetyAlerts ?? [],
+      now
+    );
+
     if (isPatient) {
       if (!ownPatientId) {
         return { ok: false, message: 'patient sync: missing patientSessionId' };
       }
-      return await upsertPatientRecords(client, state.patients, now, {
+      const ownPatients =
+        patientsWithClinicalQueue.filter((p) => p.id === ownPatientId).length > 0
+          ? patientsWithClinicalQueue.filter((p) => p.id === ownPatientId)
+          : embedClinicalInsightsIntoPatients(
+              state.patients.filter((p) => p.id === ownPatientId),
+              (state.aiSuggestions ?? []).filter((s) => s.patientId === ownPatientId),
+              (state.safetyAlerts ?? []).filter((a) => a.patientId === ownPatientId),
+              now
+            );
+      return await upsertPatientRecords(client, ownPatients, now, {
         onlyPatientId: ownPatientId,
       });
     }
 
     let result: SupabasePushResult = await upsertTherapistProfilesForPatients(
       client,
-      state.patients,
+      patientsWithClinicalQueue,
       now
     );
     if (!result.ok) return result;
 
     const kb = normalizeKnowledgeFactsList(state.knowledgeFacts ?? []);
     /** תמיד יוצרים עותק עם הרשימה הקנונית — גם כשהמאגר ריק, כדי לא לדחוף ghost `knowledgeFacts` מתוך אובייקטי מטופל ישנים. */
-    const patientsForUpsert = state.patients.map((p) => ({
+    const patientsForUpsert = patientsWithClinicalQueue.map((p) => ({
       ...p,
       knowledgeFacts: kb.length > 0 ? kb : undefined,
     }));
@@ -110,6 +174,8 @@ export async function pushPersistedStateToSupabase(
       patientsCount: state.patients.length,
       exercisePlansCount: state.exercisePlans.length,
       knowledgeFactsCount: kbLen,
+      aiSuggestionsCount: state.aiSuggestions?.length ?? 0,
+      safetyAlertsCount: state.safetyAlerts?.length ?? 0,
     });
 
     const changeMap = options?.exercisePlanChangeSummaryByPatientId;

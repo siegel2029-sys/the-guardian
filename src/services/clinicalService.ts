@@ -1,5 +1,6 @@
 import type { PostgrestError, SupabaseClient, User } from '@supabase/supabase-js';
 import type {
+  AiSuggestion,
   BodyArea,
   DailyHistoryEntry,
   ExercisePlan,
@@ -743,8 +744,8 @@ async function insertClinicalAuditLog(
   row: {
     therapistId: string;
     patientId: string;
-    entityType: 'plan' | 'patient_info';
-    action: 'create' | 'update';
+    entityType: 'plan' | 'patient_info' | 'recommendation';
+    action: 'create' | 'update' | 'approve' | 'decline';
     oldValue: unknown;
     newValue: unknown;
   }
@@ -759,6 +760,30 @@ async function insertClinicalAuditLog(
   });
   if (error) return clinicalPushFail(`clinical_audit_logs: ${error.message}`, error);
   return { ok: true };
+}
+
+/** Logs therapist approval of an AI clinical recommendation to `clinical_audit_logs`. */
+export async function logRecommendationApprovalAudit(
+  client: SupabaseClient,
+  row: {
+    therapistId: string;
+    patientId: string;
+    suggestion: AiSuggestion;
+    appliedPlanUpdates: Record<string, unknown>;
+  }
+): Promise<ClinicalPushResult> {
+  return insertClinicalAuditLog(client, {
+    therapistId: row.therapistId,
+    patientId: row.patientId,
+    entityType: 'recommendation',
+    action: 'approve',
+    oldValue: row.suggestion,
+    newValue: {
+      suggestionId: row.suggestion.id,
+      appliedPlanUpdates: row.appliedPlanUpdates,
+      approvedAt: new Date().toISOString(),
+    },
+  });
 }
 
 export type UpsertPatientRecordsOptions = {

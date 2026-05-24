@@ -15,6 +15,7 @@ const typeConfig: Record<string, { label: string; icon: LucideIcon; color: strin
 function fieldLabel(field: AiSuggestion['field']): string {
   if (field === 'reps') return 'חזרות';
   if (field === 'sets') return 'סטים';
+  if (field === 'holdSeconds') return 'זמן החזקה (שנ׳)';
   return 'משקל';
 }
 

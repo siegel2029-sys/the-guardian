@@ -147,12 +147,15 @@ export function aggregateClinicalInsights(params: {
   const { patient, clinicalToday, plan, dailyHistoryForPatient, selfSelectedZones, selfCareReports, finishReports } =
     params;
 
+  const painHistory = patient.analytics?.painHistory ?? [];
+  const sessionHistoryRaw = patient.analytics?.sessionHistory ?? [];
+
   const start7 = addClinicalDays(clinicalToday, -6);
-  const exerciseHistory = [...patient.analytics.sessionHistory].sort((a, b) =>
+  const exerciseHistory = [...sessionHistoryRaw].sort((a, b) =>
     a.date.localeCompare(b.date)
   );
 
-  const painInWindow = patient.analytics.painHistory.filter(
+  const painInWindow = painHistory.filter(
     (r) => r.date >= start7 && r.date <= clinicalToday
   );
 
@@ -199,7 +202,7 @@ export function aggregateClinicalInsights(params: {
   const effortVals: number[] = [];
   for (let i = 0; i < 7; i++) {
     const ymd = addClinicalDays(start7, i);
-    const pain = painForDayPrimary(ymd, patient.analytics.painHistory, primary);
+    const pain = painForDayPrimary(ymd, painHistory, primary);
     const effort1to5 = effortRaw1to5ForClinicalDay(ymd, exerciseHistory, patientFinishes, patientSelfCare);
     if (effort1to5 != null) effortVals.push(effort1to5);
     daySeries7.push({
@@ -223,7 +226,7 @@ export function aggregateClinicalInsights(params: {
   let highPainLowCompletionDays = 0;
   for (let i = 0; i < 7; i++) {
     const ymd = addClinicalDays(start7, i);
-    const pains = patient.analytics.painHistory.filter((r) => r.date === ymd && r.bodyArea === primary);
+    const pains = painHistory.filter((r) => r.date === ymd && r.bodyArea === primary);
     const maxP = pains.length ? Math.max(...pains.map((p) => p.painLevel)) : 0;
     const entry = dailyHistoryForPatient?.[ymd];
     const planned = plannedPerDay;

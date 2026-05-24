@@ -15,8 +15,8 @@ export type ClinicalProgressInsight = {
   compliance3d: number | null;
 };
 
-function sortByDate<T extends { date: string }>(rows: T[]): T[] {
-  return [...rows].sort((a, b) => a.date.localeCompare(b.date));
+function sortByDate<T extends { date: string }>(rows: T[] | null | undefined): T[] {
+  return [...(rows ?? [])].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /** ממוצע כאב ברשומות שתאריכן בטווח [startYmd, endYmd] כולל */
@@ -32,7 +32,7 @@ export function averagePainInRange(
 
 /** ממוצע השלמה (0–1) ל־N הסשנים האחרונים */
 export function averageComplianceLastSessions(
-  sessionHistory: ExerciseSession[],
+  sessionHistory: ExerciseSession[] | null | undefined,
   count: number
 ): number | null {
   const sorted = sortByDate(sessionHistory);
@@ -62,14 +62,16 @@ export function computeClinicalProgressInsight(
   patient: Patient,
   clinicalToday: string
 ): ClinicalProgressInsight {
-  const painSorted = sortByDate(patient.analytics.painHistory);
+  const painHistory = patient.analytics?.painHistory ?? [];
+  const sessionHistory = patient.analytics?.sessionHistory ?? [];
+  const painSorted = sortByDate(painHistory);
   const { avgPain7d, todayPain, lastKnownPain } = getPainMetricsFromReports(patient, clinicalToday);
   /** לתצוגה: כאב היום בלבד; אם אין דיווח היום — null (״אין נתונים״) */
   const currentPain = todayPain;
   /** להחלטות קליניות במערכת: נסיון כאב אחרון אם אין דיווח היום */
   const decisionPain = todayPain ?? lastKnownPain;
 
-  const compliance3d = averageComplianceLastSessions(patient.analytics.sessionHistory, 3);
+  const compliance3d = averageComplianceLastSessions(sessionHistory, 3);
   const delta = painTrendDelta(painSorted);
 
   const painHigh = decisionPain != null && decisionPain >= 6;

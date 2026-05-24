@@ -21,6 +21,7 @@ import PendingApprovalsPanel from './PendingApprovalsPanel';
 import ManagePlanModal from './ManagePlanModal';
 import ClinicalAiIntakeWizard from './ClinicalAiIntakeWizard';
 import TherapistQuickChat from './clinical/TherapistQuickChat';
+import TherapistAiInsightsPanel from './clinical/TherapistAiInsightsPanel';
 import TherapistClinicalConsultantFAB from './clinical/TherapistClinicalConsultantFAB';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import TreatmentDocumentation from './clinical/TreatmentDocumentation';
@@ -529,6 +530,8 @@ export default function PatientOverview() {
         <div className="mb-5">
           <ClinicalDeepDiveTabs patient={p} />
         </div>
+
+        <TherapistAiInsightsPanel patient={p} />
 
         <PendingApprovalsPanel />
         <AiSuggestionsPanel />

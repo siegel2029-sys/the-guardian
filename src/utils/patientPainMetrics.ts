@@ -20,7 +20,7 @@ export function getPainMetricsFromReports(
   todayPain: number | null;
   lastKnownPain: number | null;
 } {
-  const ph = patient.analytics.painHistory;
+  const ph = patient.analytics?.painHistory ?? [];
   const start7 = addClinicalDays(clinicalToday, -6);
   const inWindow = ph.filter((r) => r.date >= start7 && r.date <= clinicalToday);
   const avgPain7d =

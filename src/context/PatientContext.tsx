@@ -111,7 +111,12 @@ import {
   buildPainAndSessionHistoryFromDailySessions,
   hydrateDailySessionsFromSessionCompletionMap,
 } from '../services/exerciseService';
-import { pushPersistedStateToSupabase, type PushPersistedStateOptions, type SupabasePushResult } from '../lib/supabaseSync';
+import { pushPersistedStateToSupabase, pullPersistedState, type PushPersistedStateOptions, type SupabasePushResult } from '../lib/supabaseSync';
+import {
+  mergeClinicalInsightsSnapshots,
+  pullClinicalInsightsFromPatientPayloads,
+} from '../utils/clinicalInsightsPayload';
+import { mergeProactiveAbsenceIntoClinicalQueue } from '../ai/proactiveAbsenceAlerts';
 import { useAuth } from './AuthContext';
 import { normalizeKnowledgeFactsList, tryBuildManualKnowledgeFactRow } from '../utils/knowledgeFactNormalize';
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
@@ -1315,6 +1320,20 @@ export function PatientProvider({
 
       setExercisePlans(res.exercisePlans);
       exercisePlansSessionBaselineRef.current = cloneExercisePlansForBaseline(res.exercisePlans);
+
+      const remoteInsights = pullClinicalInsightsFromPatientPayloads(normalizedServer);
+      setAiSuggestions((prev) =>
+        mergeClinicalInsightsSnapshots(
+          { aiSuggestions: prev, safetyAlerts: [] },
+          remoteInsights
+        ).aiSuggestions
+      );
+      setSafetyAlerts((prev) =>
+        mergeClinicalInsightsSnapshots(
+          { aiSuggestions: [], safetyAlerts: prev },
+          remoteInsights
+        ).safetyAlerts
+      );
 
       // After loading patients, check which portal accounts are still unlinked
       // (auth_user_id = NULL). This doesn't affect therapist saves but does block
@@ -2892,9 +2911,95 @@ export function PatientProvider({
     exercisePlans,
     setAiSuggestions,
     clinicalToday,
+    dailyHistoryByPatient,
     restrictPatientSessionId,
+    onClinicalQueueUpdated: () => {
+      void savePersistedStateToCloud({ immediate: true });
+    },
   });
 
+  /** Poll cloud clinical queue every 3 minutes (cross-device patient → therapist sync). */
+  const CLINICAL_INSIGHTS_POLL_MS = 3 * 60 * 1000;
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    if (restrictPatientSessionId) return;
+    if (sessionRole !== 'therapist') return;
+    if (authLoading || !isAuthenticated) return;
+
+    let cancelled = false;
+    const client = supabase;
+
+    const pullInsights = async () => {
+      const res = await pullPersistedState(client);
+      if (cancelled || !res.ok) return;
+      setAiSuggestions((prev) =>
+        mergeClinicalInsightsSnapshots(
+          { aiSuggestions: prev, safetyAlerts: [] },
+          res.clinicalInsights
+        ).aiSuggestions
+      );
+      setSafetyAlerts((prev) =>
+        mergeClinicalInsightsSnapshots(
+          { aiSuggestions: [], safetyAlerts: prev },
+          res.clinicalInsights
+        ).safetyAlerts
+      );
+    };
+
+    void pullInsights();
+    const timer = setInterval(() => void pullInsights(), CLINICAL_INSIGHTS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [
+    supabase,
+    restrictPatientSessionId,
+    sessionRole,
+    authLoading,
+    isAuthenticated,
+    isSupabaseConfigured,
+  ]);
+
+  /** Prolonged absence (>5d) — structural support/regression queue + immediate cloud backup. */
+  useEffect(() => {
+    if (restrictPatientSessionId) return;
+    if (sessionRole !== 'therapist') return;
+    if (allPatients.length === 0) return;
+
+    const merged = mergeProactiveAbsenceIntoClinicalQueue(
+      allPatients,
+      exercisePlans,
+      clinicalToday,
+      safetyAlerts,
+      aiSuggestions
+    );
+    if (!merged.hasNewItems) return;
+
+    setSafetyAlerts(merged.safetyAlerts);
+    setAiSuggestions(merged.aiSuggestions);
+
+    const snap = latestCloudPersistRef.current;
+    if (snap) {
+      void savePersistedStateToCloud({
+        immediate: true,
+        persistSnapshotOverride: {
+          ...snap,
+          safetyAlerts: merged.safetyAlerts,
+          aiSuggestions: merged.aiSuggestions,
+        },
+      });
+    }
+  }, [
+    allPatients,
+    exercisePlans,
+    clinicalToday,
+    safetyAlerts,
+    aiSuggestions,
+    restrictPatientSessionId,
+    sessionRole,
+    savePersistedStateToCloud,
+  ]);
 
   const resolveRedFlag = useCallback(
     (patientId: string) => {

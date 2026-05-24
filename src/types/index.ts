@@ -255,6 +255,10 @@ export interface Patient {
    */
   _sessionCompletionByDate?: Record<string, { completedIds: string[]; sessionXp: number }>;
   /**
+   * תור קליני (הצעות AI + התראות בטיחות) — מסונכרן ל־Supabase בתוך payload לגישה ממכשירי מטפל שונים.
+   */
+  clinicalInsightsQueue?: PatientClinicalInsightsQueue;
+  /**
    * עובדות «הידעת?» — משוכפלות ל־`patients.payload` בעת סנכרון מטפל (יחד עם `app_knowledge_base`)
    * כדי שמיזוג עם נתוני שרת ישנים לא ידרוס טיפים מקומיים לפני שמירת הענן.
    */
@@ -457,15 +461,25 @@ export interface DailyHistoryEntry {
 
 // ── AI Suggestion System ─────────────────────────────────────────
 
+/** Per-patient clinical queue shard stored in `patients.payload.clinicalInsightsQueue`. */
+export type PatientClinicalInsightsQueue = {
+  aiSuggestions: AiSuggestion[];
+  safetyAlerts: SafetyAlert[];
+  syncedAt?: string;
+};
+
 export type AiSuggestionType = 'increase_reps' | 'increase_sets' | 'reduce_reps' | 'add_exercise';
 /** pending = מוצג למטופל; awaiting_therapist = המטופל אישר — ממתין לאישור מטפל לפני עדכון DB */
 export type AiSuggestionStatus = 'pending' | 'awaiting_therapist' | 'approved' | 'declined';
+
+export type AiSuggestionField = 'reps' | 'sets' | 'weight' | 'holdSeconds';
 
 export type AiSuggestionSource =
   | 'system'
   | 'guardian_patient'
   | 'therapist_note'
-  | 'gemini_portal';
+  | 'gemini_portal'
+  | 'clinical_recommendation_engine';
 
 export interface AiSuggestion {
   id: string;
@@ -473,10 +487,11 @@ export interface AiSuggestion {
   exerciseId: string;
   exerciseName: string;
   type: AiSuggestionType;
-  field: 'reps' | 'sets' | 'weight';
+  field: AiSuggestionField;
   currentValue: number;
   suggestedValue: number;
-  reason: string;        // Hebrew explanation shown to therapist
+  /** הסבר קליני למטפל (עברית) */
+  reason: string;
   createdAt: string;
   status: AiSuggestionStatus;
   source?: AiSuggestionSource;
