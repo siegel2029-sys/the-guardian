@@ -29,14 +29,8 @@ const typeLabel: Record<string, string> = { clinical: 'קליני', standard: '�
 const typeBg: Record<string, string>   = { clinical: '#e0f2fe', standard: '#f3e8ff', custom: '#fff7ed' };
 const typeText: Record<string, string> = { clinical: '#0369a1', standard: '#6b21a8', custom: '#c2410c' };
 
-// ── Shared time formatter (M:SS or Xשנ') ─────────────────────────
-export function formatTime(totalSeconds: number): string {
-  if (totalSeconds <= 0) return '0שנ\'';
-  if (totalSeconds < 60) return `${totalSeconds}שנ'`;
-  const m = Math.floor(totalSeconds / 60);
-  const s = totalSeconds % 60;
-  return s > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${m}:00`;
-}
+import { formatTime } from '../../utils/formatExerciseTime';
+export { formatTime };
 
 // ── Custom form state ─────────────────────────────────────────────
 interface CustomFormData {

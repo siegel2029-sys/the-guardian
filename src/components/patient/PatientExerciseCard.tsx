@@ -1,7 +1,7 @@
 import { useRef, useCallback } from 'react';
 import { Play, CheckCircle2, Zap, Sparkles, PersonStanding, MessageSquare } from 'lucide-react';
 import type { PatientExercise } from '../../types';
-import { formatTime } from '../dashboard/ManagePlanModal';
+import { formatPatientRepsLabel } from '../../utils/patientExerciseRepsLabel';
 
 const typeStyle: Record<string, { bg: string; text: string; label: string }> = {
   clinical: { bg: '#e0f2fe', text: '#0369a1', label: 'קליני' },
@@ -29,15 +29,11 @@ export default function PatientExerciseCard({
   const previewRef = useRef<HTMLVideoElement>(null);
   const type = exercise.isCustom ? typeStyle.custom : typeStyle[exercise.type] ?? typeStyle.standard;
   const displaySets = exercise.patientSets;
-  const displayReps = exercise.patientReps;
+  const repsShort = formatPatientRepsLabel({
+    reps: exercise.patientReps,
+    holdSeconds: exercise.holdSeconds,
+  });
   const hasVideo = Boolean(exercise.videoUrl);
-
-  const repsShort =
-    exercise.holdSeconds && displayReps === 0
-      ? formatTime(exercise.holdSeconds)
-      : exercise.holdSeconds && displayReps > 0
-        ? `${displayReps}+${formatTime(exercise.holdSeconds)}`
-        : `${displayReps}חז'`;
 
   const playPreview = useCallback(() => {
     if (isCompleted || !hasVideo || !previewRef.current) return;

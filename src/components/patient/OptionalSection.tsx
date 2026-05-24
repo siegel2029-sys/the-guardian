@@ -1,7 +1,7 @@
 import type { BodyArea, Patient, PatientExercise } from '../../types';
 import type { StrengthExerciseLevelDef } from '../../data/strengthExerciseDatabase';
 import ExerciseCard from './ExerciseCard';
-import { formatTime } from '../dashboard/ManagePlanModal';
+import { formatPatientRepsLabel } from '../../utils/patientExerciseRepsLabel';
 import { displayPortalRehabExerciseTitle } from '../../utils/portalRehabExerciseTitle';
 import {
   PATIENT_REWARDS,
@@ -99,13 +99,10 @@ export default function OptionalSection({
                     isCompleted={false}
                     title={displayPortalRehabExerciseTitle(item.exercise.name)}
                     setsLabel={String(item.exercise.patientSets)}
-                    repsLabel={
-                      item.exercise.holdSeconds && item.exercise.patientReps === 0
-                        ? formatTime(item.exercise.holdSeconds)
-                        : item.exercise.holdSeconds && item.exercise.patientReps > 0
-                          ? `${item.exercise.patientReps}+${formatTime(item.exercise.holdSeconds)}`
-                          : `${item.exercise.patientReps}`
-                    }
+                    repsLabel={formatPatientRepsLabel({
+                      reps: item.exercise.patientReps,
+                      holdSeconds: item.exercise.holdSeconds,
+                    })}
                     weightLabel={
                       item.exercise.patientWeightKg != null && item.exercise.patientWeightKg > 0
                         ? `${item.exercise.patientWeightKg} ק״ג`
@@ -168,11 +165,10 @@ export default function OptionalSection({
                     isCompleted={false}
                     title={item.exercise.name}
                     setsLabel={String(item.exercise.sets)}
-                    repsLabel={
-                      item.exercise.repsAreSeconds
-                        ? `${item.exercise.reps} ש״`
-                        : String(item.exercise.reps)
-                    }
+                    repsLabel={formatPatientRepsLabel({
+                      reps: item.exercise.reps,
+                      repsAreSeconds: item.exercise.repsAreSeconds,
+                    })}
                     weightLabel={
                       item.strengthTier === 0
                         ? 'קל'

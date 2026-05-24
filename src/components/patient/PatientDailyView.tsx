@@ -32,7 +32,7 @@ import ExerciseTrainingFeedbackModal, {
 } from './ExerciseTrainingFeedbackModal';
 import GuardianAssistantFAB from './GuardianAssistantFAB';
 import { PatientDidYouKnowAnchorButton } from './PatientDidYouKnowPortal';
-import { formatTime } from '../dashboard/ManagePlanModal';
+import { formatPatientRepsLabel } from '../../utils/patientExerciseRepsLabel';
 import { patientFacingExerciseInstructions } from '../../utils/patientFacingExerciseInstructions';
 import type { StrengthExerciseLevelDef } from '../../data/strengthExerciseDatabase';
 import { getStrengthChainForArea } from '../../data/strengthExerciseDatabase';
@@ -1791,13 +1791,10 @@ export default function PatientDailyView() {
                     const idx = i + 1;
                     const done = completedSet.has(ex.id);
                     const displaySets = ex.patientSets;
-                    const displayReps = ex.patientReps;
-                    const repsShort =
-                      ex.holdSeconds && displayReps === 0
-                        ? formatTime(ex.holdSeconds)
-                        : ex.holdSeconds && displayReps > 0
-                          ? `${displayReps}+${formatTime(ex.holdSeconds)}`
-                          : `${displayReps}`;
+                    const repsShort = formatPatientRepsLabel({
+                      reps: ex.patientReps,
+                      holdSeconds: ex.holdSeconds,
+                    });
                     const w = ex.patientWeightKg;
                     const weightLabel =
                       w != null && w > 0 ? `${w} ק״ג` : undefined;
@@ -2055,18 +2052,39 @@ export default function PatientDailyView() {
           }
           repsLabel={
             exerciseVideoModal.kind === 'rehab'
-              ? (() => {
-                  const ex = exerciseVideoModal.exercise;
-                  const displayReps = ex.patientReps;
-                  if (ex.holdSeconds && displayReps === 0) return formatTime(ex.holdSeconds);
-                  if (ex.holdSeconds && displayReps > 0) {
-                    return `${displayReps}+${formatTime(ex.holdSeconds)}`;
-                  }
-                  return `${displayReps}`;
-                })()
+              ? formatPatientRepsLabel({
+                  reps: exerciseVideoModal.exercise.patientReps,
+                  holdSeconds: exerciseVideoModal.exercise.holdSeconds,
+                })
+              : formatPatientRepsLabel({
+                  reps: exerciseVideoModal.exercise.reps,
+                  repsAreSeconds: exerciseVideoModal.exercise.repsAreSeconds,
+                })
+          }
+          holdSeconds={
+            exerciseVideoModal.kind === 'rehab'
+              ? exerciseVideoModal.exercise.holdSeconds ?? 0
               : exerciseVideoModal.exercise.repsAreSeconds
-                ? `${exerciseVideoModal.exercise.reps} ש״`
-                : String(exerciseVideoModal.exercise.reps)
+                ? exerciseVideoModal.exercise.reps
+                : 0
+          }
+          isTimeBased={
+            exerciseVideoModal.kind === 'rehab'
+              ? Boolean(
+                  exerciseVideoModal.exercise.holdSeconds &&
+                    exerciseVideoModal.exercise.patientReps === 0
+                )
+              : Boolean(exerciseVideoModal.exercise.repsAreSeconds)
+          }
+          targetArea={
+            exerciseVideoModal.kind === 'rehab'
+              ? exerciseVideoModal.exercise.targetArea
+              : exerciseVideoModal.bodyArea
+          }
+          muscleGroup={
+            exerciseVideoModal.kind === 'rehab'
+              ? exerciseVideoModal.exercise.muscleGroup
+              : undefined
           }
           variant={exerciseVideoModal.kind === 'rehab' ? 'rehab' : 'selfCare'}
           xpAward={exerciseVideoModal.xpAward}

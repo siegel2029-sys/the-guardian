@@ -1,9 +1,15 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { X, Check } from 'lucide-react';
+import { X, Check, Play } from 'lucide-react';
+import type { BodyArea } from '../../types';
 import {
   getVideoIframeSrc,
   useVideoPresentation,
 } from '../../utils/exerciseVideoPresentation';
+import {
+  getLateralSideLabels,
+  requiresExerciseLateralization,
+  type LateralSide,
+} from '../../utils/exerciseLateralization';
 
 export type ModalPainLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
@@ -17,6 +23,12 @@ export interface ExerciseVideoTimerModalProps {
   targetSets: number;
   /** תצוגת חזרות / זמן יעד */
   repsLabel: string;
+  /** משך החזקה לסט (שניות) — לטיימר inline ולתרגילי זמן */
+  holdSeconds?: number;
+  /** true = «סטים × זמן» (לא חזרות) */
+  isTimeBased?: boolean;
+  targetArea?: BodyArea;
+  muscleGroup?: string;
   variant: 'rehab' | 'selfCare';
   /** XP שיוצג בסיום — התשלום בפועל מחושב ב־submitExerciseReport (כולל רצף / ציוד) */
   xpAward: number;
@@ -28,6 +40,10 @@ export interface ExerciseVideoTimerModalProps {
   onFinishPractice: () => void;
 }
 
+function emptySetFlags(count: number): boolean[] {
+  return Array.from({ length: count }, () => false);
+}
+
 export default function ExerciseVideoTimerModal({
   open,
   title,
@@ -35,6 +51,10 @@ export default function ExerciseVideoTimerModal({
   description,
   targetSets,
   repsLabel,
+  holdSeconds = 0,
+  isTimeBased = false,
+  targetArea,
+  muscleGroup,
   variant,
   xpAward: _xpAward,
   coinsAward: _coinsAward,
@@ -45,25 +65,71 @@ export default function ExerciseVideoTimerModal({
   const safeTargetSets = Math.max(1, targetSets);
   const [remaining, setRemaining] = useState(primeSeconds);
   const [timerStarted, setTimerStarted] = useState(false);
-  const [checkedSets, setCheckedSets] = useState<boolean[]>(() =>
-    Array.from({ length: safeTargetSets }, () => false)
+  const [activeSide, setActiveSide] = useState<LateralSide>('right');
+  const [checkedSetsRight, setCheckedSetsRight] = useState<boolean[]>(() =>
+    emptySetFlags(safeTargetSets)
   );
+  const [checkedSetsLeft, setCheckedSetsLeft] = useState<boolean[]>(() =>
+    emptySetFlags(safeTargetSets)
+  );
+  const [activeSetTimerKey, setActiveSetTimerKey] = useState<string | null>(null);
+  const [setTimerRemaining, setSetTimerRemaining] = useState(0);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const setTimerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const successTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const presentation = useVideoPresentation(videoUrl);
-
   const iframeSrc = useMemo(() => getVideoIframeSrc(presentation), [presentation]);
 
-  const allSetsChecked = checkedSets.length === safeTargetSets && checkedSets.every(Boolean);
-  const completedSetCount = checkedSets.filter(Boolean).length;
+  const lateralizationRequired = useMemo(
+    () =>
+      requiresExerciseLateralization({
+        name: title,
+        instructions: description,
+      }),
+    [title, description]
+  );
 
-  const clearTimer = useCallback(() => {
+  const sideLabels = useMemo(
+    () => getLateralSideLabels(targetArea, muscleGroup),
+    [targetArea, muscleGroup]
+  );
+
+  const perSetHoldSeconds = isTimeBased && holdSeconds > 0 ? holdSeconds : 0;
+  const showPerSetTimer = perSetHoldSeconds > 0;
+
+  const checkedSetsForActiveSide =
+    activeSide === 'right' ? checkedSetsRight : checkedSetsLeft;
+
+  const completedRightCount = checkedSetsRight.filter(Boolean).length;
+  const completedLeftCount = checkedSetsLeft.filter(Boolean).length;
+
+  const allSetsChecked = lateralizationRequired
+    ? checkedSetsRight.every(Boolean) && checkedSetsLeft.every(Boolean)
+    : checkedSetsRight.every(Boolean);
+
+  const completedSetCount = lateralizationRequired
+    ? completedRightCount + completedLeftCount
+    : completedRightCount;
+
+  const totalSetSlots = lateralizationRequired ? safeTargetSets * 2 : safeTargetSets;
+
+  const clearSessionTimer = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+  }, []);
+
+  const clearSetTimer = useCallback(() => {
+    if (setTimerIntervalRef.current) {
+      clearInterval(setTimerIntervalRef.current);
+      setTimerIntervalRef.current = null;
+    }
+    setActiveSetTimerKey(null);
+    setSetTimerRemaining(0);
   }, []);
 
   const clearSuccessTimers = useCallback(() => {
@@ -71,8 +137,8 @@ export default function ExerciseVideoTimerModal({
     successTimersRef.current = [];
   }, []);
 
-  const startTimer = useCallback(() => {
-    clearTimer();
+  const startSessionTimer = useCallback(() => {
+    clearSessionTimer();
     setRemaining(primeSeconds);
     intervalRef.current = setInterval(() => {
       setRemaining((prev) => {
@@ -86,7 +152,29 @@ export default function ExerciseVideoTimerModal({
         return prev - 1;
       });
     }, 1000);
-  }, [clearTimer, primeSeconds]);
+  }, [clearSessionTimer, primeSeconds]);
+
+  const startSetTimer = useCallback(
+    (timerKey: string) => {
+      clearSetTimer();
+      setActiveSetTimerKey(timerKey);
+      setSetTimerRemaining(perSetHoldSeconds);
+      setTimerIntervalRef.current = setInterval(() => {
+        setSetTimerRemaining((prev) => {
+          if (prev <= 1) {
+            if (setTimerIntervalRef.current) {
+              clearInterval(setTimerIntervalRef.current);
+              setTimerIntervalRef.current = null;
+            }
+            setActiveSetTimerKey(null);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    },
+    [clearSetTimer, perSetHoldSeconds]
+  );
 
   const tryPlayVideo = useCallback(() => {
     const v = videoRef.current;
@@ -97,16 +185,20 @@ export default function ExerciseVideoTimerModal({
 
   useEffect(() => {
     if (!open) {
-      clearTimer();
+      clearSessionTimer();
+      clearSetTimer();
       clearSuccessTimers();
       setTimerStarted(false);
       return;
     }
 
-    setCheckedSets(Array.from({ length: safeTargetSets }, () => false));
+    setCheckedSetsRight(emptySetFlags(safeTargetSets));
+    setCheckedSetsLeft(emptySetFlags(safeTargetSets));
+    setActiveSide('right');
+    clearSetTimer();
     clearSuccessTimers();
     setTimerStarted(true);
-    startTimer();
+    startSessionTimer();
 
     const v = videoRef.current;
     if (v) {
@@ -124,38 +216,46 @@ export default function ExerciseVideoTimerModal({
     }
   }, [
     open,
-    clearTimer,
+    clearSessionTimer,
+    clearSetTimer,
     clearSuccessTimers,
     safeTargetSets,
-    startTimer,
+    startSessionTimer,
     presentation.kind,
     tryPlayVideo,
   ]);
 
   useEffect(() => {
     return () => {
-      clearTimer();
+      clearSessionTimer();
+      clearSetTimer();
       clearSuccessTimers();
     };
-  }, [clearTimer, clearSuccessTimers]);
+  }, [clearSessionTimer, clearSetTimer, clearSuccessTimers]);
 
   const handleClose = useCallback(() => {
-    clearTimer();
+    clearSessionTimer();
+    clearSetTimer();
     clearSuccessTimers();
     onClose();
-  }, [clearTimer, clearSuccessTimers, onClose]);
+  }, [clearSessionTimer, clearSetTimer, clearSuccessTimers, onClose]);
 
-  const toggleSetChecked = useCallback((index: number) => {
-    setCheckedSets((prev) => {
-      const next = [...prev];
-      next[index] = !next[index];
-      return next;
-    });
-  }, []);
+  const toggleSetChecked = useCallback(
+    (side: LateralSide, index: number) => {
+      const setter = side === 'right' ? setCheckedSetsRight : setCheckedSetsLeft;
+      setter((prev) => {
+        const next = [...prev];
+        next[index] = !next[index];
+        return next;
+      });
+    },
+    []
+  );
 
   const handleFinish = useCallback(() => {
     if (remaining > 0 || !timerStarted || !allSetsChecked) return;
-    clearTimer();
+    clearSessionTimer();
+    clearSetTimer();
     clearSuccessTimers();
     onFinishPractice();
   }, [
@@ -163,7 +263,8 @@ export default function ExerciseVideoTimerModal({
     timerStarted,
     allSetsChecked,
     onFinishPractice,
-    clearTimer,
+    clearSessionTimer,
+    clearSetTimer,
     clearSuccessTimers,
   ]);
 
@@ -174,6 +275,70 @@ export default function ExerciseVideoTimerModal({
   const finishButtonLabel = timerRunning
     ? `סיים תרגול (${remaining} שניות נותרו)`
     : 'סיים תרגול';
+
+  const renderSetRow = (side: LateralSide, index: number, checked: boolean) => {
+    const timerKey = `${side}-${index}`;
+    const timerActive = activeSetTimerKey === timerKey && setTimerRemaining > 0;
+
+    return (
+      <li key={timerKey}>
+        <div
+          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all ${
+            checked
+              ? 'border-emerald-500/60 bg-emerald-950/40'
+              : 'border-slate-600 bg-slate-800/50'
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => toggleSetChecked(side, index)}
+            className="flex-1 min-w-0 flex items-center justify-between gap-3 px-1 py-1 rounded-md touch-manipulation text-right"
+            aria-pressed={checked}
+            aria-label={`${sideLabels[side]} — סט ${index + 1}${checked ? ' — הושלם' : ''}`}
+          >
+            <span className="text-sm font-semibold text-slate-200 truncate">
+              סט {index + 1}
+              <span className="text-slate-400 font-normal mr-2">· {repsLabel}</span>
+            </span>
+            <span
+              className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border-2 transition-colors ${
+                checked
+                  ? 'border-emerald-400 bg-emerald-500 text-white'
+                  : 'border-slate-500 bg-slate-700/80 text-slate-500'
+              }`}
+              aria-hidden
+            >
+              <Check className="w-4 h-4" strokeWidth={3} />
+            </span>
+          </button>
+
+          {showPerSetTimer && (
+            <button
+              type="button"
+              onClick={() => startSetTimer(timerKey)}
+              disabled={timerActive}
+              className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center border transition-all touch-manipulation ${
+                timerActive
+                  ? 'border-teal-400 bg-teal-900/60 text-teal-200'
+                  : 'border-slate-500 bg-slate-700/80 text-slate-200 hover:border-teal-500/70 hover:bg-teal-950/50'
+              } disabled:cursor-default`}
+              aria-label={
+                timerActive
+                  ? `טיימר סט ${index + 1} — ${setTimerRemaining} שניות נותרו`
+                  : `הפעל טיימר ${perSetHoldSeconds} שניות לסט ${index + 1}`
+              }
+            >
+              {timerActive ? (
+                <span className="text-xs font-bold tabular-nums">{setTimerRemaining}</span>
+              ) : (
+                <Play className="w-3.5 h-3.5" fill="currentColor" aria-hidden />
+              )}
+            </button>
+          )}
+        </div>
+      </li>
+    );
+  };
 
   return (
     <div
@@ -269,43 +434,79 @@ export default function ExerciseVideoTimerModal({
                 <h3 className="text-xs sm:text-sm font-bold text-slate-200">סטים וחזרות</h3>
                 <p className="text-xs sm:text-sm text-teal-300 font-semibold tabular-nums">
                   {safeTargetSets} × {repsLabel}
+                  {lateralizationRequired ? ' · לכל צד' : ''}
                 </p>
               </div>
-              <p className="text-[11px] text-slate-400">
-                סמנו V לכל סט שהושלם ({completedSetCount}/{safeTargetSets})
-              </p>
-              <ul className="space-y-2" aria-label="רשימת סטים">
-                {checkedSets.map((checked, index) => (
-                  <li key={index}>
-                    <button
-                      type="button"
-                      onClick={() => toggleSetChecked(index)}
-                      className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border transition-all touch-manipulation ${
-                        checked
-                          ? 'border-emerald-500/60 bg-emerald-950/40'
-                          : 'border-slate-600 bg-slate-800/50 hover:border-slate-500'
-                      }`}
-                      aria-pressed={checked}
-                      aria-label={`סט ${index + 1}${checked ? ' — הושלם' : ''}`}
-                    >
-                      <span className="text-sm font-semibold text-slate-200">
-                        סט {index + 1}
-                        <span className="text-slate-400 font-normal mr-2">· {repsLabel}</span>
-                      </span>
-                      <span
-                        className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border-2 transition-colors ${
-                          checked
-                            ? 'border-emerald-400 bg-emerald-500 text-white'
-                            : 'border-slate-500 bg-slate-700/80 text-slate-500'
-                        }`}
-                        aria-hidden
-                      >
-                        <Check className="w-4 h-4" strokeWidth={3} />
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+
+              {lateralizationRequired ? (
+                <>
+                  <p className="text-[11px] text-slate-400">
+                    בצעו את כל הסטים בכל צד. סמנו V לכל סט שהושלם (
+                    {completedSetCount}/{totalSetSlots})
+                  </p>
+                  <div
+                    className="flex rounded-lg border border-slate-600 overflow-hidden"
+                    role="tablist"
+                    aria-label="בחירת צד לתרגול"
+                  >
+                    {(['right', 'left'] as const).map((side) => {
+                      const sideComplete =
+                        (side === 'right' ? checkedSetsRight : checkedSetsLeft).every(Boolean);
+                      const sideDone =
+                        side === 'right' ? completedRightCount : completedLeftCount;
+                      return (
+                        <button
+                          key={side}
+                          type="button"
+                          role="tab"
+                          aria-selected={activeSide === side}
+                          onClick={() => setActiveSide(side)}
+                          className={`flex-1 px-2 py-2 text-xs sm:text-sm font-bold transition-colors touch-manipulation ${
+                            activeSide === side
+                              ? 'bg-teal-700/80 text-white'
+                              : 'bg-slate-800/60 text-slate-300 hover:bg-slate-700/60'
+                          }`}
+                        >
+                          <span>{sideLabels[side]}</span>
+                          <span
+                            className={`block text-[10px] font-semibold mt-0.5 tabular-nums ${
+                              sideComplete ? 'text-emerald-300' : 'text-slate-400'
+                            }`}
+                          >
+                            {sideDone}/{safeTargetSets}
+                            {sideComplete ? ' ✓' : ''}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <ul className="space-y-2" aria-label={`רשימת סטים — ${sideLabels[activeSide]}`}>
+                    {checkedSetsForActiveSide.map((checked, index) =>
+                      renderSetRow(activeSide, index, checked)
+                    )}
+                  </ul>
+                  {!allSetsChecked && (
+                    <p className="text-[10px] text-amber-300/90 leading-snug">
+                      {completedRightCount < safeTargetSets && completedLeftCount < safeTargetSets
+                        ? `השלימו ${safeTargetSets} סטים ב${sideLabels.right} וב${sideLabels.left}.`
+                        : completedRightCount < safeTargetSets
+                          ? `נותרו ${safeTargetSets - completedRightCount} סטים ב${sideLabels.right}.`
+                          : `נותרו ${safeTargetSets - completedLeftCount} סטים ב${sideLabels.left}.`}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-[11px] text-slate-400">
+                    סמנו V לכל סט שהושלם ({completedSetCount}/{safeTargetSets})
+                  </p>
+                  <ul className="space-y-2" aria-label="רשימת סטים">
+                    {checkedSetsRight.map((checked, index) =>
+                      renderSetRow('right', index, checked)
+                    )}
+                  </ul>
+                </>
+              )}
             </div>
 
             <button
