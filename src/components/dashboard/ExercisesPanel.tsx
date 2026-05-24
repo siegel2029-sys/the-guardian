@@ -5,7 +5,6 @@ import {
   Trophy,
   Star,
   Zap,
-  Play,
   X,
   CheckCircle2,
   PartyPopper,
@@ -17,44 +16,75 @@ import type { BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
+import {
+  getVideoIframeSrc,
+  useVideoPresentation,
+} from '../../utils/exerciseVideoPresentation';
 
 // ── Video Modal ──────────────────────────────────────────────────
-function VideoModal({ title, onClose }: { title: string; onClose: () => void }) {
+function VideoModal({
+  title,
+  videoUrl,
+  onClose,
+}: {
+  title: string;
+  videoUrl: string;
+  onClose: () => void;
+}) {
+  const presentation = useVideoPresentation(videoUrl);
+  const iframeSrc = useMemo(() => getVideoIframeSrc(presentation), [presentation]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: 'rgba(0,0,0,0.55)' }}
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="dashboard-video-title"
     >
       <div
-        className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl"
+        className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         dir="rtl"
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-bold text-slate-800">{title}</h3>
+          <h3 id="dashboard-video-title" className="text-base font-bold text-slate-800">
+            {title}
+          </h3>
           <button
+            type="button"
             onClick={onClose}
             className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-slate-100 transition-colors"
+            aria-label="סגור"
           >
-            <X className="w-4 h-4 text-slate-500" />
+            <X className="w-4 h-4 text-slate-500" aria-hidden="true" />
           </button>
         </div>
-        {/* Video placeholder */}
-        <div
-          className="w-full aspect-video rounded-xl flex flex-col items-center justify-center border-2 border-dashed"
-          style={{ background: '#f0fffe', borderColor: '#5eead4' }}
-        >
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center mb-3"
-            style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
-          >
-            <Play className="w-8 h-8 text-white" style={{ marginRight: '-3px' }} />
-          </div>
-          <p className="text-sm font-semibold text-teal-700">סרטון הדגמה</p>
-          <p className="text-xs text-slate-400 mt-1">הווידאו יהיה זמין בגרסה הבאה</p>
+        <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black">
+          {presentation.kind === 'iframe' ? (
+            <iframe
+              title={title}
+              className="absolute inset-0 w-full h-full border-0"
+              src={iframeSrc}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+            />
+          ) : presentation.kind === 'mp4' && videoUrl.trim() ? (
+            <video
+              key={videoUrl}
+              className="absolute inset-0 w-full h-full object-contain"
+              src={videoUrl.trim()}
+              controls
+              playsInline
+              loop
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm px-4 text-center">
+              <p className="text-slate-500">אין סרטון הדגמה</p>
+            </div>
+          )}
         </div>
-        <p className="text-xs text-slate-500 text-center mt-3">{title}</p>
       </div>
     </div>
   );
@@ -175,7 +205,7 @@ export default function ExercisesPanel() {
     clearPatientInjuryHighlights,
     cycleTherapistBodyMapClinical,
   } = usePatient();
-  const [videoModal, setVideoModal] = useState<string | null>(null);
+  const [videoModal, setVideoModal] = useState<{ title: string; videoUrl: string } | null>(null);
   const [filterArea, setFilterArea] = useState<BodyArea | null>(null);
 
   const strengthenedToday = useMemo(() => {
@@ -446,7 +476,9 @@ export default function ExercisesPanel() {
                     exercise.isOptional ? 0 : exercise.xpReward
                   )
                 }
-                onVideoClick={() => setVideoModal(exercise.videoPlaceholder ?? exercise.name)}
+                onVideoClick={() =>
+                  setVideoModal({ title: exercise.name, videoUrl: exercise.videoUrl })
+                }
               />
             ))
           )}
@@ -472,7 +504,11 @@ export default function ExercisesPanel() {
 
       {/* Video modal */}
       {videoModal && (
-        <VideoModal title={videoModal} onClose={() => setVideoModal(null)} />
+        <VideoModal
+          title={videoModal.title}
+          videoUrl={videoModal.videoUrl}
+          onClose={() => setVideoModal(null)}
+        />
       )}
     </div>
   );

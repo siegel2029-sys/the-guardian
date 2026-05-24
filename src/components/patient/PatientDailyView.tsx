@@ -77,28 +77,41 @@ import { usePatientReminderInfrastructure } from '../../hooks/usePatientReminder
 import { forceReregisterPatientWebPushClearStaleAndPersist } from '../../services/patientPushNotifications';
 
 /** TEMP: iOS requires user gesture for push + SW register (remove after patients sync). */
-const TEMP_PUSH_SYNC_PATIENT_IDS = [
-  'patient-mpcqx9d0-dzssqu', // yo
-] as const;
-/** Until tc's full patient id is known in-repo, match by portal login initials. */
-const TEMP_PUSH_SYNC_PORTAL_USERNAMES = ['TC'] as const;
+const TEMP_PUSH_SYNC_YO_PATIENT_ID = 'patient-mpcqx9d0-dzssqu';
 
 function tempPushSyncDoneKey(patientId: string): string {
   return `physioshield_force_push_reregister_${patientId}_v1`;
 }
 
-function patientNeedsTempPushSync(patient: {
-  id: string;
-  portalUsername?: string;
-}): boolean {
-  if ((TEMP_PUSH_SYNC_PATIENT_IDS as readonly string[]).includes(patient.id)) {
+function patientNeedsTempPushSync(
+  patient: { id: string; portalUsername?: string },
+  opts?: { portalPatientLabel?: string; patientLoginId?: string | null },
+): boolean {
+  if (patient.id === TEMP_PUSH_SYNC_YO_PATIENT_ID) {
     return true;
   }
-  const portal = patient.portalUsername?.trim().toUpperCase();
-  return (
-    portal != null &&
-    (TEMP_PUSH_SYNC_PORTAL_USERNAMES as readonly string[]).includes(portal)
-  );
+
+  const idLower = patient.id.toLowerCase();
+  if (idLower.includes('tc')) {
+    return true;
+  }
+
+  const portalUsername = patient.portalUsername?.trim().toLowerCase();
+  if (portalUsername === 'tc') {
+    return true;
+  }
+
+  const loginId = opts?.patientLoginId?.trim().toLowerCase();
+  if (loginId === 'tc') {
+    return true;
+  }
+
+  const label = opts?.portalPatientLabel?.trim().toLowerCase();
+  if (label != null && label.length > 0 && label.includes('tc')) {
+    return true;
+  }
+
+  return false;
 }
 
 type PortalTab = 'home' | 'activity' | 'gear' | 'messages';
@@ -1193,7 +1206,10 @@ export default function PatientDailyView() {
   const showPortalFrozenOverlay = portalFrozenUiLock && portalTab !== 'messages';
 
   const showTempPushSyncBanner =
-    patientNeedsTempPushSync(selectedPatient) && !tempPushSyncDone;
+    patientNeedsTempPushSync(selectedPatient, {
+      portalPatientLabel,
+      patientLoginId,
+    }) && !tempPushSyncDone;
 
   const tempPushSyncBannerText = portalPatientLabel
     ? `היי ${portalPatientLabel}, לצורך סינכרון מערכת הודעות הקליניקה באייפון, אנא לחץ כאן פעם אחת:`
