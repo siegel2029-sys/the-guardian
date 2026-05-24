@@ -76,9 +76,30 @@ import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { usePatientReminderInfrastructure } from '../../hooks/usePatientReminderInfrastructure';
 import { forceReregisterPatientWebPushClearStaleAndPersist } from '../../services/patientPushNotifications';
 
-/** TEMP: iOS requires user gesture for push + SW register (remove after patient syncs). */
-const TEMP_PUSH_SYNC_PATIENT_ID = 'patient-mormb90b-vudb06';
-const TEMP_PUSH_SYNC_DONE_KEY = 'physioshield_force_push_reregister_patient-mormb90b-vudb06_v1';
+/** TEMP: iOS requires user gesture for push + SW register (remove after patients sync). */
+const TEMP_PUSH_SYNC_PATIENT_IDS = [
+  'patient-mpcqx9d0-dzssqu', // yo
+] as const;
+/** Until tc's full patient id is known in-repo, match by portal login initials. */
+const TEMP_PUSH_SYNC_PORTAL_USERNAMES = ['TC'] as const;
+
+function tempPushSyncDoneKey(patientId: string): string {
+  return `physioshield_force_push_reregister_${patientId}_v1`;
+}
+
+function patientNeedsTempPushSync(patient: {
+  id: string;
+  portalUsername?: string;
+}): boolean {
+  if ((TEMP_PUSH_SYNC_PATIENT_IDS as readonly string[]).includes(patient.id)) {
+    return true;
+  }
+  const portal = patient.portalUsername?.trim().toUpperCase();
+  return (
+    portal != null &&
+    (TEMP_PUSH_SYNC_PORTAL_USERNAMES as readonly string[]).includes(portal)
+  );
+}
 
 type PortalTab = 'home' | 'activity' | 'gear' | 'messages';
 
@@ -253,13 +274,21 @@ export default function PatientDailyView() {
   const [pwConfirm, setPwConfirm] = useState('');
   const [pwFormError, setPwFormError] = useState<string | null>(null);
   const [tempPushSyncBusy, setTempPushSyncBusy] = useState(false);
-  const [tempPushSyncDone, setTempPushSyncDone] = useState(() => {
-    try {
-      return sessionStorage.getItem(TEMP_PUSH_SYNC_DONE_KEY) === '1';
-    } catch {
-      return false;
+  const [tempPushSyncDone, setTempPushSyncDone] = useState(false);
+
+  useEffect(() => {
+    if (!selectedPatient?.id) {
+      setTempPushSyncDone(false);
+      return;
     }
-  });
+    try {
+      setTempPushSyncDone(
+        sessionStorage.getItem(tempPushSyncDoneKey(selectedPatient.id)) === '1',
+      );
+    } catch {
+      setTempPushSyncDone(false);
+    }
+  }, [selectedPatient?.id]);
 
   const [portalTab, setPortalTab] = useState<PortalTab>(() =>
     tabFromPortalPath(typeof window !== 'undefined' ? window.location.pathname : '/patient-portal')
@@ -1164,7 +1193,11 @@ export default function PatientDailyView() {
   const showPortalFrozenOverlay = portalFrozenUiLock && portalTab !== 'messages';
 
   const showTempPushSyncBanner =
-    selectedPatient.id === TEMP_PUSH_SYNC_PATIENT_ID && !tempPushSyncDone;
+    patientNeedsTempPushSync(selectedPatient) && !tempPushSyncDone;
+
+  const tempPushSyncBannerText = portalPatientLabel
+    ? `היי ${portalPatientLabel}, לצורך סינכרון מערכת הודעות הקליניקה באייפון, אנא לחץ כאן פעם אחת:`
+    : 'היי, לצורך סינכרון מערכת הודעות הקליניקה באייפון, אנא לחץ כאן פעם אחת:';
 
   const handleTempPushSyncClick = async () => {
     if (tempPushSyncBusy) return;
@@ -1172,10 +1205,12 @@ export default function PatientDailyView() {
     try {
       const permission = await Notification.requestPermission();
       if (permission === 'granted') {
-        const result = await forceReregisterPatientWebPushClearStaleAndPersist(TEMP_PUSH_SYNC_PATIENT_ID);
+        const result = await forceReregisterPatientWebPushClearStaleAndPersist(
+          selectedPatient.id,
+        );
         if (result.persist.ok) {
           try {
-            sessionStorage.setItem(TEMP_PUSH_SYNC_DONE_KEY, '1');
+            sessionStorage.setItem(tempPushSyncDoneKey(selectedPatient.id), '1');
           } catch {
             /* ignore */
           }
@@ -1207,7 +1242,7 @@ export default function PatientDailyView() {
         >
           <div className="rounded-2xl border-2 border-amber-400 bg-gradient-to-l from-amber-50 to-orange-50 px-4 py-3 shadow-lg shadow-amber-200/60">
             <p className="text-sm font-semibold text-amber-950 leading-relaxed mb-3">
-              היי עמנואל, לצורך סינכרון מערכת הודעות הקליניקה באייפון, אנא לחץ כאן פעם אחת:
+              {tempPushSyncBannerText}
             </p>
             <button
               type="button"

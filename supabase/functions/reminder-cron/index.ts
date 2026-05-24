@@ -38,7 +38,7 @@ const corsHeaders: Record<string, string> = {
 const MOMENTUM_BODY =
   "You're already here! Want to complete your exercises now while you're at it?";
 const STANDARD_BODY =
-  "הגיע הזמן לאימון היום, הדרך לשיקום מתחיל מצעד קטן";
+  "הגיע הזמן לאימון היום, הדרך לשיקום מתחילה מצעד קטן";
 /** One-off test push when JSON body has `"test_now": true`. */
 const TEST_NOW_BODY = "[TEST] Physio-Shield reminder-cron ping — you can ignore this.";
 
