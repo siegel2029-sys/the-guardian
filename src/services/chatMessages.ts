@@ -10,23 +10,43 @@ export type ChatMessageRow = {
   from_patient: boolean;
   ai_clinical_alert: boolean;
   created_at: string;
+  read_by_therapist?: boolean;
+  read_by_patient?: boolean;
 };
 
 export type ChatViewerRole = 'therapist' | 'patient';
 
-export function chatRowToMessage(row: ChatMessageRow): Message {
-  return {
+export function messageIsReadForViewer(
+  row: Pick<
+    ChatMessageRow,
+    'from_patient' | 'ai_clinical_alert' | 'read_by_therapist' | 'read_by_patient'
+  >,
+  viewer: ChatViewerRole
+): boolean {
+  if (viewer === 'therapist') {
+    if (typeof row.read_by_therapist === 'boolean') return row.read_by_therapist;
+    return !row.from_patient && !row.ai_clinical_alert;
+  }
+  if (typeof row.read_by_patient === 'boolean') return row.read_by_patient;
+  return row.from_patient;
+}
+
+export function chatRowToMessage(row: ChatMessageRow, viewer?: ChatViewerRole): Message {
+  const base = {
     id: row.id,
     patientId: row.patient_id,
     content: row.content ?? '',
     timestamp: row.created_at,
-    isRead: false,
     fromPatient: row.from_patient,
     aiClinicalAlert: row.ai_clinical_alert,
   };
+  return {
+    ...base,
+    isRead: viewer ? messageIsReadForViewer(row, viewer) : false,
+  };
 }
 
-/** Default read state when hydrating from DB (local `markMessageRead` still overrides by id). */
+/** Default read state when hydrating without DB read columns (legacy). */
 export function defaultIsReadForViewer(m: Message, viewer: ChatViewerRole): boolean {
   if (viewer === 'therapist') {
     return !m.fromPatient && !m.aiClinicalAlert;
@@ -48,7 +68,7 @@ export function mergeChatMessages(
     const existing = byId.get(m.id);
     byId.set(m.id, {
       ...m,
-      isRead: readById.get(m.id) ?? existing?.isRead ?? defaultIsReadForViewer(m, viewer),
+      isRead: readById.get(m.id) ?? existing?.isRead ?? m.isRead ?? defaultIsReadForViewer(m, viewer),
     });
   }
   return [...byId.values()].sort(
@@ -73,14 +93,20 @@ export function countUnreadForTherapist(messages: Message[], patientId: string):
   ).length;
 }
 
+export function countUnreadForPatient(messages: Message[], patientId: string): number {
+  return messages.filter(
+    (m) => m.patientId === patientId && !m.isRead && !m.fromPatient
+  ).length;
+}
+
+const CHAT_SELECT =
+  'id, patient_id, therapist_id, content, from_patient, ai_clinical_alert, created_at, read_by_therapist, read_by_patient';
+
 export async function fetchChatMessages(
   client: SupabaseClient,
-  opts?: { patientId?: string; limit?: number }
+  opts?: { patientId?: string; limit?: number; viewer?: ChatViewerRole }
 ): Promise<{ ok: true; messages: Message[] } | { ok: false; message: string }> {
-  let q = client
-    .from('chat_messages')
-    .select('id, patient_id, therapist_id, content, from_patient, ai_clinical_alert, created_at')
-    .order('created_at', { ascending: true });
+  let q = client.from('chat_messages').select(CHAT_SELECT).order('created_at', { ascending: true });
 
   const patientId = opts?.patientId?.trim();
   if (patientId) {
@@ -95,8 +121,26 @@ export async function fetchChatMessages(
     return { ok: false, message: error.message };
   }
 
+  const viewer = opts?.viewer ?? 'therapist';
   const rows = (data ?? []) as ChatMessageRow[];
-  return { ok: true, messages: rows.map(chatRowToMessage) };
+  return { ok: true, messages: rows.map((row) => chatRowToMessage(row, viewer)) };
+}
+
+export async function markChatMessagesRead(
+  client: SupabaseClient,
+  messageIds: string[],
+  viewer: ChatViewerRole
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const ids = [...new Set(messageIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) return { ok: true };
+
+  const column = viewer === 'therapist' ? 'read_by_therapist' : 'read_by_patient';
+  const { error } = await client.from('chat_messages').update({ [column]: true }).in('id', ids);
+
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+  return { ok: true };
 }
 
 export async function insertTherapistChatMessage(
@@ -122,8 +166,10 @@ export async function insertTherapistChatMessage(
       content: body,
       from_patient: false,
       ai_clinical_alert: false,
+      read_by_therapist: true,
+      read_by_patient: false,
     })
-    .select('id, patient_id, therapist_id, content, from_patient, ai_clinical_alert, created_at')
+    .select(CHAT_SELECT)
     .single();
 
   if (error) {
@@ -133,9 +179,7 @@ export async function insertTherapistChatMessage(
     return { ok: false, message: 'insert_returned_no_row' };
   }
 
-  const msg = chatRowToMessage(data as ChatMessageRow);
-  msg.isRead = true;
-  return { ok: true, message: msg };
+  return { ok: true, message: chatRowToMessage(data as ChatMessageRow, 'therapist') };
 }
 
 export async function insertPatientChatMessage(
@@ -161,8 +205,10 @@ export async function insertPatientChatMessage(
       content: body,
       from_patient: true,
       ai_clinical_alert: false,
+      read_by_patient: true,
+      read_by_therapist: false,
     })
-    .select('id, patient_id, therapist_id, content, from_patient, ai_clinical_alert, created_at')
+    .select(CHAT_SELECT)
     .single();
 
   if (error) {
@@ -172,9 +218,7 @@ export async function insertPatientChatMessage(
     return { ok: false, message: 'insert_returned_no_row' };
   }
 
-  const msg = chatRowToMessage(data as ChatMessageRow);
-  msg.isRead = true;
-  return { ok: true, message: msg };
+  return { ok: true, message: chatRowToMessage(data as ChatMessageRow, 'patient') };
 }
 
 export type ChatRealtimeSubscription = {
@@ -209,9 +253,7 @@ export function subscribeChatMessages(
       (payload) => {
         const row = payload.new as ChatMessageRow | null;
         if (!row?.id) return;
-        const msg = chatRowToMessage(row);
-        msg.isRead = defaultIsReadForViewer(msg, opts.viewer);
-        opts.onInsert(msg);
+        opts.onInsert(chatRowToMessage(row, opts.viewer));
       }
     )
     .subscribe();

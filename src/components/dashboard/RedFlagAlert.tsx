@@ -60,6 +60,7 @@ export default function RedFlagAlert({ patient }: RedFlagAlertProps) {
           סמן כטופל
         </button>
         <button
+          onClick={() => resolveRedFlag(patient.id)}
           className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-all"
         >
           <X className="w-4 h-4" />

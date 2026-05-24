@@ -32,6 +32,16 @@ export default function MessagesPanel() {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
   }, [selectedPatient?.id, threadSignature]);
 
+  useEffect(() => {
+    if (!selectedPatient) return;
+    const unreadIds = messages
+      .filter((m) => !m.isRead && (m.fromPatient || m.aiClinicalAlert))
+      .map((m) => m.id);
+    if (unreadIds.length > 0) {
+      unreadIds.forEach((id) => markMessageRead(id));
+    }
+  }, [selectedPatient?.id, threadSignature, messages, markMessageRead]);
+
   if (!selectedPatient) {
     return (
       <div

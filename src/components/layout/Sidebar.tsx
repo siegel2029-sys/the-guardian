@@ -15,14 +15,12 @@ import {
   Bell,
   CheckCircle2,
   AlertOctagon,
-  MessageCircleWarning,
   X,
   ChevronDown,
   Snowflake,
   Link2Off,
 } from 'lucide-react';
 import { PortalDropdown } from '../ui/PortalDropdown';
-import RedFlagEmailNotificationModal from './RedFlagEmailNotificationModal';
 import { useAuth } from '../../context/AuthContext';
 import { usePatient } from '../../context/PatientContext';
 import type { NavSection } from '../../types';
@@ -73,7 +71,6 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
     dismissSafetyAlert,
     unlinkedPortalPatientIds,
   } = usePatient();
-  const [redFlagEmailOpen, setRedFlagEmailOpen] = useState(false);
   const [patientOpen, setPatientOpen] = useState(false);
   const patientTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -342,19 +339,6 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
         </div>
       )}
 
-      {selectedPatient && (
-        <div className="px-3 pb-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => setRedFlagEmailOpen(true)}
-            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-right border-2 border-red-700 bg-red-50 text-red-950 font-black text-xs hover:bg-red-100"
-          >
-            <MessageCircleWarning className="w-4 h-4 shrink-0" strokeWidth={2.5} />
-            <span className="flex-1">דגל אדום — דוא״ל</span>
-          </button>
-        </div>
-      )}
-
       <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto min-h-0">
         <p className="text-[10px] font-black text-slate-950 uppercase tracking-wider mb-2 px-1">
           ניווט
@@ -430,15 +414,6 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
         </button>
       </div>
 
-      {selectedPatient && (
-        <RedFlagEmailNotificationModal
-          open={redFlagEmailOpen}
-          onClose={() => setRedFlagEmailOpen(false)}
-          patientId={selectedPatient.id}
-          patientName={getPatientDisplayName(selectedPatient)}
-          therapistId={selectedPatient.therapistId}
-        />
-      )}
     </aside>
   );
 }

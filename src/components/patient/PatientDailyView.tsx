@@ -435,9 +435,12 @@ export default function PatientDailyView() {
 
   useEffect(() => {
     if (!selectedPatient || portalTab !== 'messages') return;
-    portalMessages.forEach((m) => {
-      if (!m.fromPatient && !m.isRead) markMessageRead(m.id);
-    });
+    const unreadIds = portalMessages
+      .filter((m) => !m.fromPatient && !m.isRead)
+      .map((m) => m.id);
+    if (unreadIds.length > 0) {
+      unreadIds.forEach((id) => markMessageRead(id));
+    }
   }, [selectedPatient?.id, portalTab, portalMessages, markMessageRead]);
 
   /** תוכנית אימון: PatientContext (מקור לוגי useExercisePlan) — תמיד גרסה פעילה. */

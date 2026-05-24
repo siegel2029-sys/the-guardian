@@ -130,9 +130,6 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
             <UserPlus className="w-4 h-4 shrink-0" />
             מטופל חדש + גישה
           </button>
-          <p className="text-xs text-gray-500 mt-1.5 px-0.5 leading-snug text-center">
-            רמזי פורטל (פרטיות), סיסמה, ואז אינטייק קליני
-          </p>
         </div>
       )}
 

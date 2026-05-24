@@ -117,6 +117,7 @@ import { normalizeKnowledgeFactsList, tryBuildManualKnowledgeFactRow } from '../
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
 import {
   fetchChatMessages,
+  markChatMessagesRead,
   insertPatientChatMessage,
   insertTherapistChatMessage,
   mergeChatMessage,
@@ -1192,6 +1193,7 @@ export function PatientProvider({
 
       const chatRes = await fetchChatMessages(supabaseClient, {
         patientId: restrictPatientSessionId,
+        viewer: 'patient',
       });
       if (!cancelled && chatRes.ok) {
         setMessages((prev) => mergeChatMessages(prev, chatRes.messages, 'patient'));
@@ -1321,7 +1323,7 @@ export function PatientProvider({
         if (!cancelled) setUnlinkedPortalPatientIds(patientIds);
       });
 
-      const chatRes = await fetchChatMessages(supabaseClient);
+      const chatRes = await fetchChatMessages(supabaseClient, { viewer: 'therapist' });
       if (!cancelled && chatRes.ok) {
         setMessages((prev) => mergeChatMessages(prev, chatRes.messages, 'therapist'));
         setAllPatients((prev) =>
@@ -2304,23 +2306,42 @@ export function PatientProvider({
     [messages]
   );
 
-  const markMessageRead = useCallback((messageId: string) => {
-    setMessages((prev) => {
-      const next = prev.map((m) => (m.id === messageId ? { ...m, isRead: true } : m));
-      setAllPatients((prev) =>
-        prev.map((p) => ({
-          ...p,
-          pendingMessages: next.filter(
-            (m) =>
-              m.patientId === p.id &&
-              !m.isRead &&
-              (m.fromPatient || m.aiClinicalAlert)
-          ).length,
-        }))
-      );
-      return next;
-    });
-  }, []);
+  const markMessagesRead = useCallback(
+    (messageIds: string | string[]) => {
+      const ids = [...new Set((Array.isArray(messageIds) ? messageIds : [messageIds]).filter(Boolean))];
+      if (ids.length === 0) return;
+
+      setMessages((prev) => {
+        const idSet = new Set(ids);
+        const next = prev.map((m) => (idSet.has(m.id) ? { ...m, isRead: true } : m));
+        if (!restrictPatientSessionId) {
+          setAllPatients((patients) =>
+            patients.map((p) => ({
+              ...p,
+              pendingMessages: countUnreadForTherapist(next, p.id),
+            }))
+          );
+        }
+        return next;
+      });
+
+      if (!supabase || !isSupabaseConfigured) return;
+      const viewer = restrictPatientSessionId ? ('patient' as const) : ('therapist' as const);
+      void markChatMessagesRead(supabase, ids, viewer).then((res) => {
+        if (res.ok === false) {
+          console.warn('[markMessagesRead] cloud persist failed', res.message);
+        }
+      });
+    },
+    [supabase, restrictPatientSessionId]
+  );
+
+  const markMessageRead = useCallback(
+    (messageId: string) => {
+      markMessagesRead(messageId);
+    },
+    [markMessagesRead]
+  );
 
   const applyEmergencyProtocol = useCallback(
     (patientId: string, patientTextSnippet: string, r: EmergencyScreenResult, sourceLabel: string) => {
@@ -2869,6 +2890,40 @@ export function PatientProvider({
   });
 
 
+  const resolveRedFlag = useCallback(
+    (patientId: string) => {
+      let payloadForCloud: Patient | null = null;
+      setAllPatients((prev) =>
+        prev.map((p) => {
+          if (p.id !== patientId) return p;
+          const next = { ...p, hasRedFlag: false, redFlagActive: false };
+          payloadForCloud = next;
+          return next;
+        })
+      );
+      if (payloadForCloud) {
+        void saveSinglePatientPayloadToCloud(payloadForCloud);
+      }
+    },
+    [saveSinglePatientPayloadToCloud]
+  );
+
+  const reportPatientUrgentRedFlag = useCallback(
+    (patientId: string, portalLogLine: string) => {
+      const baseline = allPatientsRef.current.find((p) => p.id === patientId);
+      clinical.reportPatientUrgentRedFlag(patientId, portalLogLine);
+      if (baseline) {
+        void saveSinglePatientPayloadToCloud({
+          ...baseline,
+          hasRedFlag: true,
+          redFlagActive: true,
+          pendingMessages: baseline.pendingMessages + 1,
+        });
+      }
+    },
+    [clinical.reportPatientUrgentRedFlag, saveSinglePatientPayloadToCloud]
+  );
+
   const updatePatient = useCallback(
     (patientId: string, patch: Partial<Omit<Patient, 'id' | 'therapistId'>>) => {
       setAllPatients((prev) => {
@@ -3201,8 +3256,8 @@ export function PatientProvider({
         setEmergencyModalPatientId,
         isPatientSessionLocked,
         createPatientWithAccess: exercise.createPatientWithAccess,
-        resolveRedFlag: clinical.resolveRedFlag,
-        reportPatientUrgentRedFlag: clinical.reportPatientUrgentRedFlag,
+        resolveRedFlag,
+        reportPatientUrgentRedFlag,
         setPatientContactWhatsapp: clinical.setPatientContactWhatsapp,
         exercisePlans,
         getExercisePlan: exercise.getExercisePlan,
