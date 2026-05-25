@@ -236,6 +236,11 @@ export interface Patient {
   secondaryClinicalBodyAreas: BodyArea[];
   /** צילום האינטייק הראשון — לא מתעדכן אחרי השמירה הראשונה */
   initialIntakeArchive?: PatientIntakeArchive;
+  /**
+   * סטטוס אינטייק קליני — `pending` מיצירת מטופל עד שמירת האינטייק; `complete` לאחר שמירה.
+   * נשמר ב־payload ומסונכרן ל־Supabase.
+   */
+  intakeStatus?: 'pending' | 'complete';
   /** שדה קשר ישן (מספר בינלאומי ללא +) — נשמר לתאימות; התראות קליניות נשלחות בדוא״ל בלבד */
   contactWhatsappE164?: string;
   /**

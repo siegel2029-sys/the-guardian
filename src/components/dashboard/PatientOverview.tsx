@@ -823,9 +823,10 @@ export default function PatientOverview() {
             initialPatientName={getPatientDisplayName(p)}
             highlightIncompleteFields={intakeIncomplete}
             onClose={() => setShowClinicalModal(false)}
-            onSave={(primaryBodyArea, libraryExerciseIds, extras) =>
-              applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds, extras)
-            }
+            onSave={(primaryBodyArea, libraryExerciseIds, extras) => {
+              applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds, extras);
+              void savePersistedStateToCloud({ immediate: true });
+            }}
           />
         )}
 

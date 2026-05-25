@@ -1,6 +1,7 @@
 import type { BodyArea, Patient } from '../types';
 import { bodyAreaLabels, getMuscleGroupLabel } from '../types';
 import { addClinicalDays, getClinicalDate } from './clinicalCalendar';
+import { patientHasCompletedIntake } from './patientRosterMetrics';
 
 export type PatientLastVisitLabel = {
   text: string;
@@ -168,6 +169,12 @@ export function patientRosterStatusBadge(
     return {
       label: 'מוקפא',
       className: 'bg-violet-50 text-violet-900 border-violet-200',
+    };
+  }
+  if (!patientHasCompletedIntake(p)) {
+    return {
+      label: 'יש צורך בהשלמת אינטייק',
+      className: 'bg-amber-50 text-amber-900 border-amber-400 font-bold',
     };
   }
   if (p.status === 'pending') {

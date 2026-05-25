@@ -1077,6 +1077,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             secondaryClinicalBodyAreas: secondary,
             hasRedFlag: p.hasRedFlag || !!extras?.intakeRedFlag,
             initialIntakeArchive: archive,
+            intakeStatus: 'complete',
           };
         })
       );
@@ -1166,6 +1167,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         clinicalTimeline: [],
         injuryHighlightSegments: [],
         secondaryClinicalBodyAreas: [],
+        intakeStatus: 'pending',
         analytics: {
           averageOverallPain: 0,
           painByArea: {},

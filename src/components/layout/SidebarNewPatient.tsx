@@ -17,7 +17,7 @@ function ModalPortal({ children }: { children: ReactNode }) {
 }
 
 export default function SidebarNewPatient({ compact = false, layout = 'sidebar' }: SidebarNewPatientProps) {
-  const { createPatientWithAccess, applyInitialClinicalProfile, deletePatient } = usePatient();
+  const { createPatientWithAccess, applyInitialClinicalProfile, savePersistedStateToCloud } = usePatient();
   const [open, setOpen] = useState(false);
   const [credentialsOpen, setCredentialsOpen] = useState(false);
   const [portalUsername, setPortalUsername] = useState('');
@@ -71,10 +71,11 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
       return;
     }
     if (draftPatientId) {
-      void deletePatient(draftPatientId);
       setDraftPatientId(null);
       setLockedPortalUsername(null);
-      setCreated(null);
+      if (created) {
+        setOpen(true);
+      }
     }
   };
 
@@ -86,6 +87,7 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
     if (!draftPatientId) return;
     savedDraftRef.current = true;
     applyInitialClinicalProfile(draftPatientId, primaryBodyArea, libraryExerciseIds, extras);
+    void savePersistedStateToCloud({ immediate: true });
     setDraftPatientId(null);
     setLockedPortalUsername(null);
     setOpen(true);

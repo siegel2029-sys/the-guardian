@@ -15,6 +15,8 @@ export function patientHasDemographicsFreeText(
 
 /** Initial intake archive is written once clinical intake is saved. */
 export function patientHasCompletedIntake(p: Patient): boolean {
+  if (p.intakeStatus === 'pending') return false;
+  if (p.intakeStatus === 'complete') return true;
   return p.initialIntakeArchive != null;
 }
 
