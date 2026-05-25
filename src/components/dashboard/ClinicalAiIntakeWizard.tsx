@@ -28,6 +28,8 @@ import {
   extractHeuristicIntakeRedFlags,
   heuristicIntakeRedFlagDetected,
 } from '../../utils/intakeRedFlagHeuristics';
+import { dataUpdateInputClassName } from './clinical/patientDataUpdateHighlight';
+import MissingFieldHint from './clinical/MissingFieldHint';
 
 export type ClinicalProfileSaveExtras = InitialClinicalProfileExtras;
 
@@ -39,6 +41,8 @@ type Props = {
   lockedPortalUsername?: string | null;
   /** יצירה מסרגל צד vs עריכה מסקירת מטפל */
   clinicalIntakeMode?: 'create' | 'edit';
+  /** מסמן שדות ריקים באינטייק כשחסר `initialIntakeArchive` */
+  highlightIncompleteFields?: boolean;
   onClose: () => void;
   onSave: (
     primaryBodyArea: BodyArea,
@@ -165,6 +169,7 @@ export default function ClinicalAiIntakeWizard({
   initialPatientName,
   lockedPortalUsername = null,
   clinicalIntakeMode: _clinicalIntakeMode = 'edit',
+  highlightIncompleteFields = false,
   onClose,
   onSave,
 }: Props) {
@@ -187,6 +192,10 @@ export default function ClinicalAiIntakeWizard({
   );
 
   const intakeAdvice = useMemo(() => getClinicalIntakeAdvice(primary), [primary]);
+
+  const highlightIntakeFields = highlightIncompleteFields && step === 'intake';
+  const intakeNameEmpty = intakeName.trim().length === 0;
+  const intakeStoryEmpty = intakeStory.trim().length === 0;
 
   const runAnalysisAndGoReview = async () => {
     const story = intakeStory.trim();
@@ -321,8 +330,13 @@ export default function ClinicalAiIntakeWizard({
                   value={intakeName}
                   onChange={(e) => setIntakeName(e.target.value)}
                   placeholder="שם המטופל"
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800"
+                  className={dataUpdateInputClassName(
+                    highlightIntakeFields,
+                    intakeNameEmpty,
+                    'w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500'
+                  )}
                 />
+                <MissingFieldHint show={highlightIntakeFields && intakeNameEmpty} />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">
@@ -333,8 +347,13 @@ export default function ClinicalAiIntakeWizard({
                   onChange={(e) => setIntakeStory(e.target.value)}
                   placeholder="למשל: כאב ברך ימין אחרי ריצה, VAS 6, מטרה לחזור לריצה קלה..."
                   rows={6}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800 resize-y min-h-[120px]"
+                  className={dataUpdateInputClassName(
+                    highlightIntakeFields,
+                    intakeStoryEmpty,
+                    'w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 resize-y min-h-[120px] placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500'
+                  )}
                 />
+                <MissingFieldHint show={highlightIntakeFields && intakeStoryEmpty} />
               </div>
               <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
                 <input

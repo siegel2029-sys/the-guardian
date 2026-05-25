@@ -33,7 +33,20 @@ import TherapistPatientGrid, { type RosterFilterKey } from './TherapistPatientGr
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { patientRosterStatusBadge } from '../../utils/patientPortalMeta';
-import { computeRosterClinicalStats } from '../../utils/patientRosterMetrics';
+import MissingFieldHint from './clinical/MissingFieldHint';
+import {
+  DATA_UPDATE_ACTION_HIGHLIGHT,
+  dataUpdateBoxClassName,
+  dataUpdateInputClassName,
+} from './clinical/patientDataUpdateHighlight';
+import {
+  computeRosterClinicalStats,
+  DEMOGRAPHICS_FREE_TEXT_PLACEHOLDER,
+  getPatientDataUpdateGaps,
+  patientHasCompletedIntake,
+  patientHasDemographicsFreeText,
+  patientNeedsDataUpdate,
+} from '../../utils/patientRosterMetrics';
 
 function AccessibilityFooterLink() {
   return (
@@ -225,6 +238,17 @@ export default function PatientOverview() {
   const portalUsernameDisplay =
     p.portalUsername ?? getPatientCredentialsByPatientId(p.id)?.loginId ?? null;
   const needsClinicalSetup = p.status === 'pending' || exerciseCount === 0;
+  const intakeIncomplete = !patientHasCompletedIntake(p);
+  const showIntakeAction = needsClinicalSetup || intakeIncomplete;
+  const dataUpdateGaps = getPatientDataUpdateGaps(p);
+  const highlightDataUpdateFields = patientNeedsDataUpdate(p);
+  const demographicsDraftFilled = patientHasDemographicsFreeText({
+    demographicsFreeText: demoFreeText,
+  });
+  const showDemographicsHighlight =
+    highlightDataUpdateFields && dataUpdateGaps.includes('demographics') && !demographicsDraftFilled;
+  const showIntakeHighlight =
+    highlightDataUpdateFields && dataUpdateGaps.includes('intake') && intakeIncomplete;
   const isPortalUnlinked =
     !portalBannerDismissed &&
     !!p.portalUsername?.trim() &&
@@ -250,6 +274,22 @@ export default function PatientOverview() {
     <div className="h-full overflow-y-auto bg-slate-50" dir="rtl">
       <div className="p-4 md:p-8 max-w-6xl mx-auto">
         {p.hasRedFlag && <RedFlagAlert patient={p} />}
+
+        {highlightDataUpdateFields && (
+          <div
+            className="mb-5 rounded-xl border border-blue-300 bg-blue-50/80 px-4 py-3 flex items-start gap-2.5"
+            role="status"
+          >
+            <UserRoundPen className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-bold text-blue-950">טעוני עדכון נתונים</p>
+              <p className="text-xs text-blue-800 mt-0.5 leading-relaxed">
+                השלימו את השדות המסומנים בכחול ({dataUpdateGaps.length}{' '}
+                {dataUpdateGaps.length === 1 ? 'פריט' : 'פריטים'} חסרים).
+              </p>
+            </div>
+          </div>
+        )}
 
         {isPatientExerciseSafetyLocked(p.id) && (
           <div className="mb-5 rounded-xl border-2 border-red-600 bg-red-50 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -380,16 +420,24 @@ export default function PatientOverview() {
                         setDemoFreeText(p.demographicsFreeText ?? '');
                         setEditingDemographics(true);
                       }}
-                      className={`w-full text-start rounded-lg py-1.5 px-2 font-medium hover:bg-slate-50 min-h-[2.25rem] ${
-                        (p.demographicsFreeText ?? '').trim()
-                          ? 'text-slate-900'
-                          : 'text-slate-400'
+                      className={`w-full text-start py-1.5 px-2 font-medium hover:bg-slate-50/80 min-h-[2.25rem] transition-colors ${dataUpdateBoxClassName(
+                        showDemographicsHighlight,
+                        !demographicsDraftFilled
+                      )} ${
+                        demographicsDraftFilled ? 'text-slate-900' : 'text-slate-400'
                       }`}
                     >
-                      {(p.demographicsFreeText ?? '').trim() || 'מגדר, גיל, עבודה…'}
+                      {demographicsDraftFilled
+                        ? demoFreeText.trim()
+                        : DEMOGRAPHICS_FREE_TEXT_PLACEHOLDER}
                     </button>
                   ) : (
-                    <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div
+                      className={`space-y-2 p-3 transition-colors ${dataUpdateBoxClassName(
+                        showDemographicsHighlight,
+                        !demographicsDraftFilled
+                      )} ${showDemographicsHighlight ? '' : 'rounded-xl border border-slate-200 bg-slate-50'}`}
+                    >
                       <label className="sr-only" htmlFor={`demo-free-${p.id}`}>
                         נתונים דמוגרפיים
                       </label>
@@ -403,8 +451,11 @@ export default function PatientOverview() {
                           const next = v.trim().length > 0 ? v : undefined;
                           updatePatient(p.id, { demographicsFreeText: next });
                         }}
-                        placeholder="מגדר, גיל, עבודה…"
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold placeholder:text-slate-400"
+                        placeholder={DEMOGRAPHICS_FREE_TEXT_PLACEHOLDER}
+                        className={dataUpdateInputClassName(
+                          showDemographicsHighlight,
+                          !demographicsDraftFilled
+                        )}
                       />
                       <div className="flex gap-2 pt-1">
                         <button
@@ -427,7 +478,30 @@ export default function PatientOverview() {
                       </div>
                     </div>
                   )}
+                  <MissingFieldHint show={showDemographicsHighlight} />
                 </div>
+
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">
+                    אינטייק קליני
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowClinicalModal(true)}
+                    className={`w-full text-start py-2 px-2.5 text-sm font-medium transition-colors min-h-[2.25rem] ${dataUpdateBoxClassName(
+                      showIntakeHighlight,
+                      intakeIncomplete
+                    )} ${
+                      intakeIncomplete
+                        ? 'text-blue-900 hover:bg-blue-50/50'
+                        : 'text-emerald-800 hover:bg-emerald-50/50'
+                    }`}
+                  >
+                    {intakeIncomplete ? 'טרם הושלם — לחץ להשלמה' : 'הושלם ✓'}
+                  </button>
+                  <MissingFieldHint show={showIntakeHighlight} />
+                </div>
+
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-red-600 mb-0.5">
                     אזור פעיל
@@ -533,15 +607,23 @@ export default function PatientOverview() {
                 </button>
               </div>
 
-              {needsClinicalSetup && (
+              {showIntakeAction && (
                 <button
                   type="button"
                   onClick={() => setShowClinicalModal(true)}
-                  className="w-full sm:w-auto inline-flex justify-center items-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold border border-amber-500 text-amber-900 bg-amber-50 hover:bg-amber-100 active:scale-[0.99] transition-colors"
-                  title="הגדרת פרופיל קליני"
+                  className={`w-full sm:w-auto inline-flex justify-center items-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold active:scale-[0.99] transition-colors ${
+                    showIntakeHighlight
+                      ? DATA_UPDATE_ACTION_HIGHLIGHT
+                      : 'border border-amber-500 text-amber-900 bg-amber-50 hover:bg-amber-100'
+                  }`}
+                  title={
+                    showIntakeHighlight
+                      ? 'השלמת אינטייק קליני — שדה חסר'
+                      : 'הגדרת פרופיל קליני'
+                  }
                 >
                   <Stethoscope className="w-4 h-4 shrink-0" />
-                  הגדרת פרופיל
+                  {showIntakeHighlight ? 'השלמת אינטייק קליני' : 'הגדרת פרופיל'}
                 </button>
               )}
             </div>
@@ -720,6 +802,7 @@ export default function PatientOverview() {
             clinicalIntakeMode="edit"
             lockedPortalUsername={portalUsernameDisplay}
             initialPatientName={getPatientDisplayName(p)}
+            highlightIncompleteFields={intakeIncomplete}
             onClose={() => setShowClinicalModal(false)}
             onSave={(primaryBodyArea, libraryExerciseIds, extras) =>
               applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds, extras)

@@ -1,14 +1,15 @@
 import type { AiSuggestion, Patient } from '../types';
 
-const MIN_PHONE_DIGITS = 9;
+/** Placeholder copy shown in the demographics free-text field when empty. */
+export const DEMOGRAPHICS_FREE_TEXT_PLACEHOLDER = 'מגדר, גיל, עבודה…';
 
-export function patientHasValidContactPhone(p: Patient): boolean {
-  const digits = (p.contactWhatsappE164 ?? '').replace(/\D/g, '');
-  return digits.length >= MIN_PHONE_DIGITS;
-}
-
-export function patientHasBirthDate(p: Patient): boolean {
-  return (p.birthDate?.trim() ?? '').length > 0;
+export function patientHasDemographicsFreeText(
+  p: Pick<Patient, 'demographicsFreeText'>
+): boolean {
+  const trimmed = (p.demographicsFreeText ?? '').trim();
+  if (!trimmed) return false;
+  if (trimmed === DEMOGRAPHICS_FREE_TEXT_PLACEHOLDER) return false;
+  return true;
 }
 
 /** Initial intake archive is written once clinical intake is saved. */
@@ -16,13 +17,22 @@ export function patientHasCompletedIntake(p: Patient): boolean {
   return p.initialIntakeArchive != null;
 }
 
-/** Missing core demographics or incomplete intake. */
+export type PatientDataUpdateGap = 'demographics' | 'intake';
+
+export function getPatientDataUpdateGaps(p: Patient): PatientDataUpdateGap[] {
+  const gaps: PatientDataUpdateGap[] = [];
+  if (!patientHasDemographicsFreeText(p)) gaps.push('demographics');
+  if (!patientHasCompletedIntake(p)) gaps.push('intake');
+  return gaps;
+}
+
+/** Missing demographics free text or incomplete intake questionnaire. */
 export function patientNeedsDataUpdate(p: Patient): boolean {
-  return (
-    !patientHasValidContactPhone(p) ||
-    !patientHasBirthDate(p) ||
-    !patientHasCompletedIntake(p)
-  );
+  return getPatientDataUpdateGaps(p).length > 0;
+}
+
+export function patientDataUpdateGapSet(p: Patient): Set<PatientDataUpdateGap> {
+  return new Set(getPatientDataUpdateGaps(p));
 }
 
 export function isUnhandledAiSuggestion(s: AiSuggestion): boolean {
