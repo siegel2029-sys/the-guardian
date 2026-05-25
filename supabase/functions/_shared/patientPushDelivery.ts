@@ -201,7 +201,7 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
 
   const ENV_PUBLIC_KEY = Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY");
   const HARDCODED_VALID_PUBLIC_KEY =
-    "647ff24f2fee1b708ae49792e3ff6745588d3bb324487e5c80ef72fb43a2e9fc";
+    "BIRiFTcrsL5UwU6kkrQ3ThpZZJbGWmteXiILW0Zh3XXkgPWN1QGzs0tnCn0vy3OVVjIoaKuFB_LL-5j6DpBbr98";
 
   let publicKey =
     ENV_PUBLIC_KEY && ENV_PUBLIC_KEY.length > 40 ? ENV_PUBLIC_KEY : HARDCODED_VALID_PUBLIC_KEY;
