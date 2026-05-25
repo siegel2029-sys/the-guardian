@@ -102,26 +102,47 @@ export function countUnreadForPatient(messages: Message[], patientId: string): n
 const CHAT_SELECT =
   'id, patient_id, therapist_id, content, from_patient, ai_clinical_alert, created_at, read_by_therapist, read_by_patient';
 
+/** PostgREST sort column on `public.chat_messages` — must stay the full name, never `_at`. */
+const CHAT_ORDER_COLUMN = 'created_at' as const;
+
+const CHAT_SELECT_LEGACY =
+  'id, patient_id, therapist_id, content, from_patient, ai_clinical_alert, created_at';
+
+const CHAT_DEFAULT_LIMIT = 500;
+
+function isMissingChatReadColumnError(message: string): boolean {
+  return /read_by_therapist|read_by_patient|column.*does not exist/i.test(message);
+}
+
 export async function fetchChatMessages(
   client: SupabaseClient,
   opts?: { patientId?: string; limit?: number; viewer?: ChatViewerRole }
 ): Promise<{ ok: true; messages: Message[] } | { ok: false; message: string }> {
-  let q = client.from('chat_messages').select(CHAT_SELECT).order('created_at', { ascending: true });
-
   const patientId = opts?.patientId?.trim();
-  if (patientId) {
-    q = q.eq('patient_id', patientId);
+  const limit = opts?.limit ?? CHAT_DEFAULT_LIMIT;
+  const viewer = opts?.viewer ?? 'therapist';
+
+  const runSelect = async (selectCols: string) => {
+    let q = client
+      .from('chat_messages')
+      .select(selectCols)
+      .order(CHAT_ORDER_COLUMN, { ascending: true })
+      .limit(limit);
+    if (patientId) {
+      q = q.eq('patient_id', patientId);
+    }
+    return q;
+  };
+
+  let { data, error } = await runSelect(CHAT_SELECT);
+  if (error && isMissingChatReadColumnError(error.message)) {
+    ({ data, error } = await runSelect(CHAT_SELECT_LEGACY));
   }
 
-  const limit = opts?.limit ?? 500;
-  q = q.limit(limit);
-
-  const { data, error } = await q;
   if (error) {
     return { ok: false, message: error.message };
   }
 
-  const viewer = opts?.viewer ?? 'therapist';
   const rows = (data ?? []) as ChatMessageRow[];
   return { ok: true, messages: rows.map((row) => chatRowToMessage(row, viewer)) };
 }
