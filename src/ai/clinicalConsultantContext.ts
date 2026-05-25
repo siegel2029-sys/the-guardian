@@ -81,6 +81,38 @@ export function buildAnonymizedClinicalContextSnapshot(
     lines.push('באינטייק ראשון סומן חשש/דגל אדום.');
   }
 
+  const bg =
+    patient.clinicalIntakeProfile?.medical_history?.backgroundDiseases?.trim() ??
+    patient.medicalProfileMetadata?.backgroundDiseases?.trim();
+  const meds =
+    patient.clinicalIntakeProfile?.medical_history?.chronicMedications?.trim() ??
+    patient.medicalProfileMetadata?.chronicMedications?.trim();
+  if (bg) {
+    lines.push(`מחלות רקע (מאינטייק): ${sanitizeFreeTextForClinicalAi(bg)}`);
+  }
+  if (meds) {
+    lines.push(`תרופות קבועות (מאינטייק): ${sanitizeFreeTextForClinicalAi(meds)}`);
+  }
+
+  const rom = patient.clinicalIntakeProfile?.ranges ?? [];
+  if (rom.length > 0) {
+    lines.push(`טווחי תנועה (ROM): ${rom.map((r) => sanitizeFreeTextForClinicalAi(r)).join('; ')}`);
+  }
+  const strength = patient.clinicalIntakeProfile?.muscle_strength?.trim();
+  if (strength) {
+    lines.push(`כוח שרירים: ${sanitizeFreeTextForClinicalAi(strength)}`);
+  }
+  const tests = patient.clinicalIntakeProfile?.special_tests ?? [];
+  if (tests.length > 0) {
+    lines.push(
+      `בדיקות מיוחדות: ${tests.map((t) => sanitizeFreeTextForClinicalAi(t)).join('; ')}`
+    );
+  }
+  const goals = patient.clinicalIntakeProfile?.goals ?? [];
+  if (goals.length > 0) {
+    lines.push(`מטרות שיקום: ${goals.map((g) => sanitizeFreeTextForClinicalAi(g)).join('; ')}`);
+  }
+
   const alerts = [...safetyAlertsForPatient].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );

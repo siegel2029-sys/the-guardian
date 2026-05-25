@@ -1,4 +1,10 @@
-import type { BodyArea, Exercise } from '../types';
+import type {
+  BodyArea,
+  Exercise,
+  PatientClinicalIntakeMedicalHistory,
+  PatientClinicalIntakeProfile,
+  PatientMedicalProfileMetadata,
+} from '../types';
 import { EXERCISE_LIBRARY } from '../data/mockData';
 import { getExerciseBankIdListForPrompt } from '../data/exerciseBank';
 import { filterToJointBodyAreas, JOINT_BODY_AREAS } from '../body/jointBodyAreas';
@@ -27,6 +33,9 @@ export type GeminiClinicalCaseRaw = {
   patientQuestions?: unknown;
   suggestedAnswers?: unknown;
   exerciseLibraryIds?: unknown;
+  clinicalIntakeProfile?: unknown;
+  /** @deprecated — קרא מ־clinicalIntakeProfile.medical_history */
+  medicalProfileMetadata?: unknown;
 };
 
 /** Normalized clinical case returned to the app. */
@@ -43,6 +52,9 @@ export type GeminiClinicalIntakeResult = {
   redFlagDetected: boolean;
   exerciseLibraryIds: string[];
   proposedExercises: Exercise[];
+  clinicalIntakeProfile: PatientClinicalIntakeProfile | null;
+  /** mirror של medical_history לתאימות */
+  medicalProfileMetadata: PatientMedicalProfileMetadata | null;
 };
 
 function logInfo(message: string, detail?: Record<string, unknown>): void {
@@ -143,6 +155,66 @@ function inferRedFlagDetected(flags: string[], analysis: string): boolean {
   );
 }
 
+function normalizeMedicalHistory(raw: unknown): PatientClinicalIntakeMedicalHistory | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined;
+  const o = raw as Record<string, unknown>;
+  const backgroundDiseases = asTrimmedString(o.backgroundDiseases);
+  const chronicMedications = asTrimmedString(o.chronicMedications);
+  if (!backgroundDiseases && !chronicMedications) return undefined;
+  return {
+    ...(backgroundDiseases ? { backgroundDiseases } : {}),
+    ...(chronicMedications ? { chronicMedications } : {}),
+  };
+}
+
+function normalizeStringList(v: unknown, maxLen = 12): string[] {
+  if (typeof v === 'string') {
+    const trimmed = v.trim();
+    if (!trimmed) return [];
+    return trimmed
+      .split(/\r?\n|[;,]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, maxLen);
+  }
+  return asStringArray(v, maxLen);
+}
+
+function normalizeClinicalIntakeProfile(raw: unknown): PatientClinicalIntakeProfile | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+
+  const ranges = normalizeStringList(o.ranges, 16);
+  const muscle_strength = asTrimmedString(o.muscle_strength) || asTrimmedString(o.strength);
+  const special_tests = normalizeStringList(o.special_tests, 16);
+  const goals = normalizeStringList(o.goals, 12);
+  const medical_history = normalizeMedicalHistory(o.medical_history);
+
+  const profile: PatientClinicalIntakeProfile = {
+    ...(ranges.length > 0 ? { ranges } : {}),
+    ...(muscle_strength ? { muscle_strength } : {}),
+    ...(special_tests.length > 0 ? { special_tests } : {}),
+    ...(medical_history ? { medical_history } : {}),
+    ...(goals.length > 0 ? { goals } : {}),
+  };
+
+  const hasContent =
+    (profile.ranges?.length ?? 0) > 0 ||
+    !!profile.muscle_strength ||
+    (profile.special_tests?.length ?? 0) > 0 ||
+    !!profile.medical_history?.backgroundDiseases ||
+    !!profile.medical_history?.chronicMedications ||
+    (profile.goals?.length ?? 0) > 0;
+
+  return hasContent ? profile : null;
+}
+
+function normalizeMedicalProfileMetadata(raw: unknown): PatientMedicalProfileMetadata | null {
+  const history = normalizeMedicalHistory(raw);
+  if (!history) return null;
+  return history;
+}
+
 function normalizeClinicalCase(raw: unknown): GeminiClinicalIntakeResult {
   if (raw === null || typeof raw !== 'object') {
     throw new Error('AI JSON root must be an object');
@@ -179,6 +251,17 @@ function normalizeClinicalCase(raw: unknown): GeminiClinicalIntakeResult {
 
   const redFlagDetected = inferRedFlagDetected(redFlags, redFlagAnalysis);
 
+  let clinicalIntakeProfile = normalizeClinicalIntakeProfile(o.clinicalIntakeProfile);
+  if (!clinicalIntakeProfile) {
+    const legacyMedical = normalizeMedicalProfileMetadata(o.medicalProfileMetadata);
+    if (legacyMedical) {
+      clinicalIntakeProfile = { medical_history: legacyMedical };
+    }
+  }
+  const medicalProfileMetadata =
+    clinicalIntakeProfile?.medical_history ??
+    normalizeMedicalProfileMetadata(o.medicalProfileMetadata);
+
   return {
     primaryInjuryZoneJoint: primary,
     chainReactionZoneJoints: chain,
@@ -192,6 +275,8 @@ function normalizeClinicalCase(raw: unknown): GeminiClinicalIntakeResult {
     redFlagDetected,
     exerciseLibraryIds,
     proposedExercises,
+    clinicalIntakeProfile,
+    medicalProfileMetadata,
   };
 }
 
@@ -226,9 +311,20 @@ export async function analyzeIntakeStoryWithGemini(
 
   const systemInstruction = `אתה פיזיותרפיסט אורתופדי בכיר. קהל היעד: פיזיותרפיסט בממשק ניהול.
 טון: מקצועי, תמציתי, מבוסס נתונים.
-משימות: נתח גם טווחי תנועה (ROM), מבחני כוח ותוצאות אינטייק אם הופיעו בסיפור; התאם למפת גוף תלת־ממדית (מפרק מוקד, שרשרת).
+משימות: נתח את תבנית האינטייק המובנית (אנמנזה, בדיקה פיזיקלית, תפקוד ומטרות); התאם למפת גוף תלת־ממדית (מפרק מוקד, שרשרת).
 
-הנחיה: סכם דגלים אדומים (Red Flags), הצע אבחנה מבדלת והמלץ על דגשים לתוכנית הטיפול על בסיס הנתונים שהוזנו — כולל מיפוי מפרקים במפה התלת־ממדית כשסופק.
+חובה: חלץ שדות מהטקסט ל־clinicalIntakeProfile בלבד — אל תערבב קטגוריות.
+מיפוי קשיח (שדה בתבנית → שדה JSON):
+| «טווחי תנועה (ROM…)» | clinicalIntakeProfile.ranges | מערך מחרוזות |
+| «כוח שרירים (MMT…)» | clinicalIntakeProfile.muscle_strength | מחרוזת |
+| «בדיקות מיוחדות (Special Tests…)» | clinicalIntakeProfile.special_tests | מערך |
+| «מחלות רקע (…)» | clinicalIntakeProfile.medical_history.backgroundDiseases | מחרוזת — «ללא» אם ריק |
+| «תרופות קבועות» | clinicalIntakeProfile.medical_history.chronicMedications | מחרוזת — «ללא» אם ריק |
+| «מטרות המטופל מהשיקום» | clinicalIntakeProfile.goals | מערך |
+
+אל תשים ROM ב־clinicalReasoningHe, כוח ב־redFlags, בדיקות ב־patientQuestions, או מטרות ב־differentialDiagnosis.
+
+הנחיה: סכם דגלים אדומים (Red Flags), הצע אבחנה מבדלת והמלץ על דגשים לתוכנית הטיפול — כולל מיפוי מפרקים במפה התלת־ממדית.
 
 הפלט שלך חייב להיות אך ורק JSON תקף, ללא טקסט לפני או אחרי, ללא Markdown.
 השפה הקלינית בעברית חייבת להיות מקצועית, מדויקת ומתאימה לתיעוד קליני.
@@ -244,7 +340,17 @@ export async function analyzeIntakeStoryWithGemini(
   "redFlagAnalysis": "<הסבר קליני קצר בעברית לגבי דגלים או 'אין דגלים חריגים' אם רלוונטי>",
   "patientQuestions": ["<שאלות/מטרות שהמטופל העלה בסיפור>"],
   "suggestedAnswers": ["<תשובות מקצועיות קצרות בעברית המתאימות לשאלות>"],
-  "exerciseLibraryIds": ["<בדיוק 5 מזהי id מהקטלוג>"]
+  "exerciseLibraryIds": ["<בדיוק 5 מזהי id מהקטלוג>"],
+  "clinicalIntakeProfile": {
+    "ranges": ["<רשומת ROM 1>", "<רשומת ROM 2>"],
+    "muscle_strength": "<סיכום כוח שרירים MMT>",
+    "special_tests": ["<בדיקה + תוצאה 1>", "..."],
+    "medical_history": {
+      "backgroundDiseases": "<מחלות רקע — «ללא» אם לא צוין>",
+      "chronicMedications": "<תרופות קבועות — «ללא» אם לא צוין>"
+    },
+    "goals": ["<מטרת שיקום 1>", "<מטרת שיקום 2>"]
+  }
 }
 
 כללים:
@@ -252,7 +358,8 @@ export async function analyzeIntakeStoryWithGemini(
 - אל תכלול אזורים שאינם מפרקים מהרשימה.
 - exerciseLibraryIds: בדיוק 5 מזהים, כל אחד חייב להופיע בקטלוג התרגילים שסופק (שדה id בלבד).
 - אם אין דגלים אדומים — redFlags: [] ו-redFlagAnalysis בעברית מקצועית שמסבירה שאין אזהרות מיידיות מהטקסט.
-- patientQuestions ו-suggestedAnswers: אותו אורך מערך ככל האפשר (שאלה↔תשובה) לפי הסיפור.${followUpBlock}`;
+- patientQuestions ו-suggestedAnswers: אותו אורך מערך ככל האפשר (שאלה↔תשובה) לפי הסיפור.
+- clinicalIntakeProfile: חובה. שדות ריקים — ranges/special_tests/goals: [] ; muscle_strength: "" ; medical_history: «ללא» לשני השדות.${followUpBlock}`;
 
   const userText = `רשימת מפרקים מורשית (BodyArea IDs בלבד):
 ${jointIds}
@@ -290,6 +397,8 @@ ${trimmedStory}`;
     chainCount: normalized.chainReactionZoneJoints.length,
     exerciseCount: normalized.exerciseLibraryIds.length,
     redFlagDetected: normalized.redFlagDetected,
+    clinicalIntakeProfile: normalized.clinicalIntakeProfile,
+    medicalProfile: normalized.medicalProfileMetadata,
   });
 
   return normalized;

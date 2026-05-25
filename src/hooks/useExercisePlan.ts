@@ -24,6 +24,7 @@ import { EXERCISE_LIBRARY } from '../data/mockData';
 import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../data/exerciseVideoDefaults';
 import { addClinicalDays, getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
 import { getTherapistAlertEmail, openClinicalMailto } from '../utils/clinicalAlertEmail';
+import { medicalHistoryToProfileMetadata } from '../utils/clinicalIntakeTemplate';
 import {
   PAIN_SURGE_PATIENT_COPY,
   DIFFICULTY_MAX_PATIENT_COPY,
@@ -1016,6 +1017,80 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           const geminiClinicalNarrative = extras?.geminiClinicalNarrative?.trim()
             ? extras.geminiClinicalNarrative.trim()
             : undefined;
+
+          const rawProfile = extras?.clinicalIntakeProfile;
+          const clinicalIntakeProfile =
+            rawProfile &&
+            ((rawProfile.ranges?.length ?? 0) > 0 ||
+              rawProfile.muscle_strength?.trim() ||
+              (rawProfile.special_tests?.length ?? 0) > 0 ||
+              rawProfile.medical_history?.backgroundDiseases?.trim() ||
+              rawProfile.medical_history?.chronicMedications?.trim() ||
+              (rawProfile.goals?.length ?? 0) > 0)
+              ? {
+                  ...(rawProfile.ranges?.length
+                    ? {
+                        ranges: rawProfile.ranges.map((s) => s.trim()).filter(Boolean),
+                      }
+                    : {}),
+                  ...(rawProfile.muscle_strength?.trim()
+                    ? { muscle_strength: rawProfile.muscle_strength.trim() }
+                    : {}),
+                  ...(rawProfile.special_tests?.length
+                    ? {
+                        special_tests: rawProfile.special_tests
+                          .map((s) => s.trim())
+                          .filter(Boolean),
+                      }
+                    : {}),
+                  ...(rawProfile.medical_history &&
+                  (rawProfile.medical_history.backgroundDiseases?.trim() ||
+                    rawProfile.medical_history.chronicMedications?.trim())
+                    ? {
+                        medical_history: {
+                          ...(rawProfile.medical_history.backgroundDiseases?.trim()
+                            ? {
+                                backgroundDiseases:
+                                  rawProfile.medical_history.backgroundDiseases.trim(),
+                              }
+                            : {}),
+                          ...(rawProfile.medical_history.chronicMedications?.trim()
+                            ? {
+                                chronicMedications:
+                                  rawProfile.medical_history.chronicMedications.trim(),
+                              }
+                            : {}),
+                        },
+                      }
+                    : {}),
+                  ...(rawProfile.goals?.length
+                    ? {
+                        goals: rawProfile.goals.map((s) => s.trim()).filter(Boolean),
+                      }
+                    : {}),
+                }
+              : undefined;
+
+          const medicalProfileMetadata =
+            medicalHistoryToProfileMetadata(clinicalIntakeProfile?.medical_history) ??
+            (extras?.medicalProfileMetadata &&
+            (extras.medicalProfileMetadata.backgroundDiseases?.trim() ||
+              extras.medicalProfileMetadata.chronicMedications?.trim())
+              ? {
+                  ...(extras.medicalProfileMetadata.backgroundDiseases?.trim()
+                    ? {
+                        backgroundDiseases:
+                          extras.medicalProfileMetadata.backgroundDiseases.trim(),
+                      }
+                    : {}),
+                  ...(extras.medicalProfileMetadata.chronicMedications?.trim()
+                    ? {
+                        chronicMedications:
+                          extras.medicalProfileMetadata.chronicMedications.trim(),
+                      }
+                    : {}),
+                }
+              : undefined);
           const injury =
             extras?.injuryHighlightSegments !== undefined
               ? [...extras.injuryHighlightSegments]
@@ -1058,6 +1133,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
                     ? { geminiClinicalNarrative: extras.geminiClinicalNarrative.trim() }
                     : {}),
                   ...(extras?.intakeRedFlag === true ? { intakeRedFlag: true } : {}),
+                  ...(clinicalIntakeProfile ? { clinicalIntakeProfile } : {}),
+                  ...(medicalProfileMetadata ? { medicalProfileMetadata } : {}),
                 },
               };
           return {
@@ -1072,6 +1149,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             ...(geminiClinicalNarrative != null
               ? { geminiClinicalNarrative }
               : {}),
+            ...(clinicalIntakeProfile ? { clinicalIntakeProfile } : {}),
+            ...(medicalProfileMetadata ? { medicalProfileMetadata } : {}),
             therapistNotes,
             injuryHighlightSegments: injury,
             secondaryClinicalBodyAreas: secondary,

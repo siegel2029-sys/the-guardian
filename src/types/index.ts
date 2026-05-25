@@ -191,6 +191,14 @@ export interface Patient {
   occupation?: string;
   /** תאריך לידה אופציונלי (YYYY-MM-DD) — משוכפל ל־`patients.birth_date` */
   birthDate?: string;
+  /**
+   * פרופיל אינטייק מובנה (ROM, כוח, בדיקות, היסטוריה רפואית, מטרות) — מופק מאינטייק AI.
+   */
+  clinicalIntakeProfile?: PatientClinicalIntakeProfile;
+  /**
+   * מטא-דאטה רפואי מרקע — מirror של `clinicalIntakeProfile.medical_history` לתאימות.
+   */
+  medicalProfileMetadata?: PatientMedicalProfileMetadata;
   diagnosis: string;
   /**
    * סיכום AI (אבחנה/תוכנית) — טקסט מלא מ-Gemini או עריכה ידנית; מוצג בדף המטופל ובפורטל.
@@ -300,10 +308,42 @@ export type ClinicalTimelineEntry = {
   aiInsights?: TreatmentAiInsights;
 };
 
+/** היסטוריה רפואית מרקע — חלק מ־`clinicalIntakeProfile.medical_history` */
+export type PatientClinicalIntakeMedicalHistory = {
+  /** מחלות רקע (סוכרת, לחץ דם, לב, רקמת חיבור וכו') */
+  backgroundDiseases?: string;
+  /** תרופות קבועות / כרוניות */
+  chronicMedications?: string;
+};
+
+/**
+ * פרופיל אינטייק מובנה — נשמר ב־`patients.payload.clinicalIntakeProfile`
+ * (מופק מ-Gemini או parsing מקומי של תבנית האינטייק).
+ */
+export type PatientClinicalIntakeProfile = {
+  /** טווחי תנועה (ROM) — מערך רשומות */
+  ranges?: string[];
+  /** כוח שרירים (MMT 0–5) */
+  muscle_strength?: string;
+  /** בדיקות מיוחדות (Special Tests) */
+  special_tests?: string[];
+  /** מחלות רקע ותרופות קבועות */
+  medical_history?: PatientClinicalIntakeMedicalHistory;
+  /** מטרות תפקודיות/שיקום */
+  goals?: string[];
+};
+
+/** @deprecated השתמשו ב־`clinicalIntakeProfile.medical_history` — נשמר לתאימות */
+export type PatientMedicalProfileMetadata = PatientClinicalIntakeMedicalHistory;
+
 /** שדות נוספים לשמירת פרופיל קליני ראשוני (אינטייק AI) */
 export type InitialClinicalProfileExtras = {
   displayName?: string;
   intakeStory?: string;
+  /** פרופיל אינטייק מובנה — מופק מ-Gemini או parsing מקומי */
+  clinicalIntakeProfile?: PatientClinicalIntakeProfile;
+  /** @deprecated — mirror של medical_history; נשמר לתאימות */
+  medicalProfileMetadata?: PatientMedicalProfileMetadata;
   /** מפרקים להדגשה אדומה (מוקד פגיעה) */
   injuryHighlightSegments?: BodyArea[];
   /** מפרקים משניים — כתום במפה */

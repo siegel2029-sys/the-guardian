@@ -28,6 +28,7 @@ import TherapistClinicalConsultantFAB from './clinical/TherapistClinicalConsulta
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import TreatmentDocumentation from './clinical/TreatmentDocumentation';
 import FullIntakeVaultModal from './clinical/FullIntakeVaultModal';
+import ClinicalIntakeProfilePanel from './clinical/ClinicalIntakeProfilePanel';
 import ManagePainAreasModal from './clinical/ManagePainAreasModal';
 import TherapistPatientGrid, { type RosterFilterKey } from './TherapistPatientGrid';
 import { bodyAreaLabels } from '../../types';
@@ -649,6 +650,10 @@ export default function PatientOverview() {
           </div>
         </div>
 
+        <div className="mb-6">
+          <ClinicalIntakeProfilePanel patient={p} />
+        </div>
+
         <TreatmentDocumentation patient={p} />
 
         <div className="mb-5">
@@ -821,6 +826,7 @@ export default function PatientOverview() {
             clinicalIntakeMode="edit"
             lockedPortalUsername={portalUsernameDisplay}
             initialPatientName={getPatientDisplayName(p)}
+            initialIntakeStory={p.therapistNotes?.trim() || undefined}
             highlightIncompleteFields={intakeIncomplete}
             onClose={() => setShowClinicalModal(false)}
             onSave={(primaryBodyArea, libraryExerciseIds, extras) => {

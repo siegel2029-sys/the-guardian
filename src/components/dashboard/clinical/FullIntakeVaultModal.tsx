@@ -7,6 +7,11 @@ import { getGeminiApiKey, GeminiRateLimitedError } from '../../../ai/geminiClien
 import { analyzeIntakeVersusCurrentCare, type IntakeComparativeAiResult } from '../../../ai/geminiIntakeComparativeFollowup';
 import { buildSupabaseClinicalDatastoreJson } from '../../../utils/buildSupabaseClinicalDatastoreJson';
 import { deriveDiagnosisHeadline } from '../../../utils/clinicalNarrative';
+import ClinicalIntakeProfilePanel from './ClinicalIntakeProfilePanel';
+import {
+  buildClinicalIntakeProfileSlots,
+  resolvePatientClinicalIntakeProfile,
+} from '../../../utils/clinicalIntakeProfileDisplay';
 
 type Props = {
   patient: Patient;
@@ -28,6 +33,7 @@ function fallbackIntakeFromPatient(p: Patient): PatientIntakeArchive {
       : {}),
     extras: {
       intakeStory: p.therapistNotes,
+      ...(p.clinicalIntakeProfile ? { clinicalIntakeProfile: p.clinicalIntakeProfile } : {}),
       injuryHighlightSegments: [...(p.injuryHighlightSegments ?? [])],
       secondaryClinicalBodyAreas: [...(p.secondaryClinicalBodyAreas ?? [])],
       clinicalDiagnosis: p.diagnosis,
@@ -63,11 +69,29 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
 
   const intakeFields = useMemo(() => {
     const ex = intake.extras ?? {};
+    const profile =
+      patient.clinicalIntakeProfile ??
+      ex.clinicalIntakeProfile ??
+      resolvePatientClinicalIntakeProfile(patient);
+    const slots = buildClinicalIntakeProfileSlots(profile);
+
+    const structuredRows = slots.flatMap((slot) => {
+      if (!slot.hasData) return [];
+      if (slot.lines.length <= 1) {
+        return [{ label: slot.titleHe, value: slot.lines[0] ?? '—' }];
+      }
+      return slot.lines.map((line, i) => ({
+        label: i === 0 ? slot.titleHe : `${slot.titleHe} (${i + 1})`,
+        value: line,
+      }));
+    });
+
     return [
       { label: 'תאריך צילום אינטייק', value: new Date(intake.capturedAt).toLocaleString('he-IL') },
       { label: 'מוקד ראשי (אינטייק)', value: bodyAreaLabels[intake.primaryBodyArea] },
       { label: 'אבחנה (שדה קצר)', value: intake.diagnosis || '—' },
-      { label: 'הערות / סיפור אינטייק', value: intake.therapistNotes || '—' },
+      ...structuredRows,
+      { label: 'הערות / סיפור אינטייק (מלא)', value: intake.therapistNotes || '—' },
       {
         label: 'סיכום AI באינטייק',
         value: intake.geminiClinicalNarrative ?? ex.geminiClinicalNarrative ?? '—',
@@ -94,7 +118,7 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
         value: intake.libraryExerciseIds?.length ? intake.libraryExerciseIds.join(', ') : '—',
       },
     ];
-  }, [intake]);
+  }, [intake, patient]);
 
   const runComparative = useCallback(async () => {
     if (!getGeminiApiKey()) {
@@ -176,6 +200,11 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
 
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="p-5 space-y-8">
+            <section>
+              <h3 className="text-sm font-bold text-slate-950 mb-3">פרופיל אינטייק מובנה</h3>
+              <ClinicalIntakeProfilePanel patient={patient} className="mb-6" />
+            </section>
+
             <section>
               <h3 className="text-sm font-bold text-slate-950 mb-3">שדות האינטייק</h3>
               <dl className="rounded-xl border border-slate-200 divide-y divide-slate-100 bg-white">

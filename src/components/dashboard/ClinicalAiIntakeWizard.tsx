@@ -14,7 +14,13 @@ import {
   Loader2,
 } from 'lucide-react';
 import { EXERCISE_LIBRARY } from '../../data/mockData';
-import type { BodyArea, Exercise, InitialClinicalProfileExtras } from '../../types';
+import type {
+  BodyArea,
+  Exercise,
+  InitialClinicalProfileExtras,
+  PatientClinicalIntakeProfile,
+  PatientMedicalProfileMetadata,
+} from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { exerciseMatchesPrimary } from '../../utils/clinicalBodyArea';
 import { getClinicalIntakeAdvice } from '../../ai/clinicalIntakeAdvisor';
@@ -31,6 +37,12 @@ import {
 } from '../../utils/intakeRedFlagHeuristics';
 import { dataUpdateInputClassName } from './clinical/patientDataUpdateHighlight';
 import MissingFieldHint from './clinical/MissingFieldHint';
+import ClinicalIntakeProfilePanel from './clinical/ClinicalIntakeProfilePanel';
+import {
+  CLINICAL_INTAKE_TEMPLATE_HE,
+  medicalHistoryToProfileMetadata,
+  parseClinicalIntakeProfileFromStory,
+} from '../../utils/clinicalIntakeTemplate';
 
 export type ClinicalProfileSaveExtras = InitialClinicalProfileExtras;
 
@@ -38,6 +50,8 @@ const ALL_AREAS = Object.keys(bodyAreaLabels) as BodyArea[];
 
 type Props = {
   initialPatientName: string;
+  /** טקסט אינטייק קיים (עריכה); ברירת מחדל — תבנית מובנית ביצירה */
+  initialIntakeStory?: string;
   /** מזהה פורטל קבוע (רמזים) — לא ניתן לעריכה; נכלל בניתוח AI כמזהה פנימי */
   lockedPortalUsername?: string | null;
   /** יצירה מסרגל צד vs עריכה מסקירת מטפל */
@@ -66,7 +80,31 @@ type AnalysisBundle = {
   source: 'gemini' | 'local';
   /** הודעה למטפל (למשל מכסת Gemini מלאה) */
   intakeNoticeHe?: string;
+  clinicalIntakeProfile?: PatientClinicalIntakeProfile;
+  medicalProfileMetadata?: PatientMedicalProfileMetadata;
 };
+
+function mergeClinicalIntakeProfile(
+  fromGemini: PatientClinicalIntakeProfile | null | undefined,
+  fromStory: PatientClinicalIntakeProfile | undefined
+): PatientClinicalIntakeProfile | undefined {
+  const merged: PatientClinicalIntakeProfile = {
+    ...(fromStory ?? {}),
+    ...(fromGemini ?? {}),
+    medical_history: {
+      ...(fromStory?.medical_history ?? {}),
+      ...(fromGemini?.medical_history ?? {}),
+    },
+  };
+  const hasContent =
+    (merged.ranges?.length ?? 0) > 0 ||
+    merged.muscle_strength?.trim() ||
+    (merged.special_tests?.length ?? 0) > 0 ||
+    merged.medical_history?.backgroundDiseases?.trim() ||
+    merged.medical_history?.chronicMedications?.trim() ||
+    (merged.goals?.length ?? 0) > 0;
+  return hasContent ? merged : undefined;
+}
 
 function buildLocalBundle(story: string, local: ClinicalIntakeAnalysis): AnalysisBundle {
   const primaryBodyArea = local.primaryBodyArea ?? 'back_lower';
@@ -80,6 +118,7 @@ function buildLocalBundle(story: string, local: ClinicalIntakeAnalysis): Analysi
   const secondaryClinicalBodyAreas = jointAreas.filter((a) => !injuryHighlightSegments.includes(a));
   const redFlags = extractHeuristicIntakeRedFlags(story);
   const redFlagDetected = heuristicIntakeRedFlagDetected(redFlags);
+  const clinicalIntakeProfile = parseClinicalIntakeProfileFromStory(story);
   return {
     primaryBodyArea,
     proposedExercises: local.proposedExercises,
@@ -90,6 +129,8 @@ function buildLocalBundle(story: string, local: ClinicalIntakeAnalysis): Analysi
     injuryHighlightSegments,
     secondaryClinicalBodyAreas,
     source: 'local',
+    clinicalIntakeProfile,
+    medicalProfileMetadata: medicalHistoryToProfileMetadata(clinicalIntakeProfile?.medical_history),
   };
 }
 
@@ -141,6 +182,11 @@ async function runIntakeAnalysis(
     const rationaleLinesHe =
       g.clinicalReasoningHe.length > 0 ? g.clinicalReasoningHe : local.rationaleLinesHe;
 
+    const clinicalIntakeProfile = mergeClinicalIntakeProfile(
+      g.clinicalIntakeProfile,
+      parseClinicalIntakeProfileFromStory(trimmed)
+    );
+
     return {
       primaryBodyArea,
       proposedExercises,
@@ -151,6 +197,10 @@ async function runIntakeAnalysis(
       injuryHighlightSegments,
       secondaryClinicalBodyAreas: [...g.chainReactionZoneJoints],
       source: 'gemini',
+      clinicalIntakeProfile,
+      medicalProfileMetadata: medicalHistoryToProfileMetadata(
+        clinicalIntakeProfile?.medical_history ?? g.medicalProfileMetadata ?? undefined
+      ),
     };
   } catch (e) {
     const bundle = buildLocalBundle(trimmed, local);
@@ -168,16 +218,19 @@ async function runIntakeAnalysis(
 
 export default function ClinicalAiIntakeWizard({
   initialPatientName,
+  initialIntakeStory,
   lockedPortalUsername = null,
-  clinicalIntakeMode: _clinicalIntakeMode = 'edit',
+  clinicalIntakeMode = 'edit',
   highlightIncompleteFields = false,
   onClose,
   onSave,
 }: Props) {
-  void _clinicalIntakeMode;
+  const defaultStory =
+    initialIntakeStory?.trim() ||
+    (clinicalIntakeMode === 'create' ? CLINICAL_INTAKE_TEMPLATE_HE : '');
   const [step, setStep] = useState<Step>('intake');
   const [intakeName, setIntakeName] = useState(initialPatientName);
-  const [intakeStory, setIntakeStory] = useState('');
+  const [intakeStory, setIntakeStory] = useState(defaultStory);
   const [followUpIntake, setFollowUpIntake] = useState(false);
   const [detailedEdit, setDetailedEdit] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -252,6 +305,20 @@ export default function ClinicalAiIntakeWizard({
       }
       out.geminiClinicalNarrative = narrativeParts.join('\n');
       if (analysisBundle.redFlagDetected) out.intakeRedFlag = true;
+      if (analysisBundle.clinicalIntakeProfile) {
+        out.clinicalIntakeProfile = { ...analysisBundle.clinicalIntakeProfile };
+      }
+      if (analysisBundle.medicalProfileMetadata) {
+        out.medicalProfileMetadata = { ...analysisBundle.medicalProfileMetadata };
+      }
+    }
+    if (!out.clinicalIntakeProfile) {
+      const parsed = parseClinicalIntakeProfileFromStory(story);
+      if (parsed) {
+        out.clinicalIntakeProfile = parsed;
+        out.medicalProfileMetadata =
+          out.medicalProfileMetadata ?? medicalHistoryToProfileMetadata(parsed.medical_history);
+      }
     }
     return Object.keys(out).length ? out : undefined;
   };
@@ -278,17 +345,25 @@ export default function ClinicalAiIntakeWizard({
   };
 
   const reviewLines = analysisBundle?.rationaleLinesHe ?? [];
+  const isIntakeStep = step === 'intake';
+  const spaciousIntakeLayout = isIntakeStep;
 
   const modal = (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5"
       style={{ background: 'rgba(15, 23, 42, 0.45)' }}
       dir="rtl"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col rounded-2xl bg-white shadow-2xl border border-teal-100"
+        className={`w-full overflow-hidden flex flex-col rounded-2xl bg-white shadow-2xl border border-teal-100 ${
+          spaciousIntakeLayout
+            ? 'max-w-5xl h-[min(96dvh,920px)]'
+            : step === 'review'
+              ? 'max-w-3xl max-h-[92dvh]'
+              : 'max-w-lg max-h-[90vh]'
+        }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -312,9 +387,13 @@ export default function ClinicalAiIntakeWizard({
           </button>
         </div>
 
-        <div className="p-5 overflow-y-auto flex-1 space-y-4">
+        <div
+          className={`overflow-y-auto flex-1 ${
+            spaciousIntakeLayout ? 'p-5 sm:p-6 flex flex-col' : 'p-5 space-y-4'
+          }`}
+        >
           {step === 'intake' && (
-            <>
+            <div className={spaciousIntakeLayout ? 'flex flex-col flex-1 min-h-0 gap-4' : 'space-y-4'}>
               {lockedPortalUsername && (
                 <div
                   className="rounded-xl border border-teal-200 bg-teal-50/90 px-3 py-2 text-[11px] text-teal-950 leading-relaxed"
@@ -339,19 +418,23 @@ export default function ClinicalAiIntakeWizard({
                 />
                 <MissingFieldHint show={highlightIntakeFields && intakeNameEmpty} />
               </div>
-              <div>
+              <div className={spaciousIntakeLayout ? 'flex flex-col flex-1 min-h-0' : ''}>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">
                   סיפור / הערכה חופשית
                 </label>
                 <textarea
                   value={intakeStory}
                   onChange={(e) => setIntakeStory(e.target.value)}
-                  placeholder="למשל: כאב ברך ימין אחרי ריצה, VAS 6, מטרה לחזור לריצה קלה..."
-                  rows={6}
+                  placeholder="מלאו את תבנית האינטייק הקליני…"
+                  rows={spaciousIntakeLayout ? 25 : 12}
                   className={dataUpdateInputClassName(
                     highlightIntakeFields,
                     intakeStoryEmpty,
-                    'w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 resize-y min-h-[120px] placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500'
+                    `w-full rounded-xl border px-4 py-3 text-sm text-slate-800 resize-y placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500 leading-relaxed ${
+                      spaciousIntakeLayout
+                        ? 'flex-1 min-h-[65vh] text-[15px] font-normal tracking-normal'
+                        : 'min-h-[200px]'
+                    }`
                   )}
                 />
                 <MissingFieldHint show={highlightIntakeFields && intakeStoryEmpty} />
@@ -380,7 +463,7 @@ export default function ClinicalAiIntakeWizard({
                   <code className="font-mono text-[10px]">GEMINI_API_KEY</code> ב־Supabase.
                 </p>
               )}
-            </>
+            </div>
           )}
 
           {step === 'review' && analysisBundle?.intakeNoticeHe && (
@@ -460,6 +543,9 @@ export default function ClinicalAiIntakeWizard({
                   ))}
                 </ul>
               </div>
+              {analysisBundle.clinicalIntakeProfile && (
+                <ClinicalIntakeProfilePanel profile={analysisBundle.clinicalIntakeProfile} compact />
+              )}
             </>
           )}
 
