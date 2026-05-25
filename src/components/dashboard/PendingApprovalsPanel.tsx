@@ -5,6 +5,7 @@ import type { LucideIcon } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import type { AiSuggestion } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
+import { filterTherapistPendingAiSuggestions } from '../../utils/clinicalAiQueueMerge';
 
 const typeConfig: Record<string, { label: string; icon: LucideIcon; color: string; bg: string }> = {
   increase_reps: { label: 'הגברת חזרות', icon: TrendingUp, color: '#059669', bg: '#d1fae5' },
@@ -106,11 +107,6 @@ function ApprovalCard({
   );
 }
 
-import {
-  collectDismissedRecommendationTypeSignatures,
-  recommendationTypeDismissalSignature,
-} from '../../utils/clinicalAiQueueMerge';
-
 export default function PendingApprovalsPanel() {
   const {
     selectedPatient,
@@ -122,20 +118,10 @@ export default function PendingApprovalsPanel() {
 
   if (!selectedPatient) return null;
 
-  const dismissedTypeSignatures = collectDismissedRecommendationTypeSignatures(
-    aiSuggestions,
-    selectedPatient.id,
-    selectedPatient.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? []
-  );
-
-  const awaiting = aiSuggestions.filter(
-    (s) =>
-      s.patientId === selectedPatient.id &&
-      s.status === 'awaiting_therapist' &&
-      !dismissedTypeSignatures.has(
-        recommendationTypeDismissalSignature(selectedPatient.id, s.type)
-      )
-  );
+  const awaiting = filterTherapistPendingAiSuggestions(aiSuggestions, selectedPatient.id, {
+    extraDismissedSignatures:
+      selectedPatient.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? [],
+  });
 
   if (awaiting.length === 0) return null;
 

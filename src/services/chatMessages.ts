@@ -114,6 +114,42 @@ function isMissingChatReadColumnError(message: string): boolean {
   return /read_by_therapist|read_by_patient|column.*does not exist/i.test(message);
 }
 
+function isChatMessageRow(value: unknown): value is ChatMessageRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.id === 'string' &&
+    typeof row.patient_id === 'string' &&
+    typeof row.therapist_id === 'string' &&
+    typeof row.content === 'string' &&
+    typeof row.from_patient === 'boolean' &&
+    typeof row.ai_clinical_alert === 'boolean' &&
+    typeof row.created_at === 'string'
+  );
+}
+
+function parseChatMessageRows(data: unknown): ChatMessageRow[] {
+  if (!Array.isArray(data)) {
+    if (data != null) {
+      console.warn('[fetchChatMessages] unexpected response shape — treating as empty', data);
+    }
+    return [];
+  }
+  const rows: ChatMessageRow[] = [];
+  for (const item of data) {
+    if (isChatMessageRow(item)) {
+      rows.push(item);
+    }
+  }
+  if (rows.length !== data.length) {
+    console.warn('[fetchChatMessages] dropped invalid chat rows', {
+      total: data.length,
+      valid: rows.length,
+    });
+  }
+  return rows;
+}
+
 export async function fetchChatMessages(
   client: SupabaseClient,
   opts?: { patientId?: string; limit?: number; viewer?: ChatViewerRole }
@@ -140,10 +176,11 @@ export async function fetchChatMessages(
   }
 
   if (error) {
+    console.warn('[fetchChatMessages] query failed', error.message);
     return { ok: false, message: error.message };
   }
 
-  const rows = (data ?? []) as ChatMessageRow[];
+  const rows = parseChatMessageRows(data);
   return { ok: true, messages: rows.map((row) => chatRowToMessage(row, viewer)) };
 }
 

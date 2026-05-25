@@ -26,14 +26,8 @@ import type { NavSection } from '../../types';
 import SidebarNewPatient from './SidebarNewPatient';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { isProlongedAbsenceSafetyAlert } from '../../ai/proactiveAbsenceAlerts';
-import {
-  getPatientDataUpdateGaps,
-  isUnhandledAiSuggestion,
-} from '../../utils/patientRosterMetrics';
-import {
-  collectDismissedRecommendationTypeSignatures,
-  recommendationTypeDismissalSignature,
-} from '../../utils/clinicalAiQueueMerge';
+import { getPatientDataUpdateGaps } from '../../utils/patientRosterMetrics';
+import { filterTherapistPendingAiSuggestions } from '../../utils/clinicalAiQueueMerge';
 
 const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'overview', label: 'לוח מטפל', icon: LayoutDashboard },
@@ -96,16 +90,9 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
 
   const pendingAiCountForPatient = (patientId: string) => {
     const patientRow = patients.find((p) => p.id === patientId);
-    const dismissedTypeSignatures = collectDismissedRecommendationTypeSignatures(
-      aiSuggestions,
-      patientId,
-      patientRow?.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? []
-    );
-    return aiSuggestions.filter((s) => {
-      if (s.patientId !== patientId || !isUnhandledAiSuggestion(s)) return false;
-      return !dismissedTypeSignatures.has(
-        recommendationTypeDismissalSignature(patientId, s.type)
-      );
+    return filterTherapistPendingAiSuggestions(aiSuggestions, patientId, {
+      extraDismissedSignatures:
+        patientRow?.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? [],
     }).length;
   };
 

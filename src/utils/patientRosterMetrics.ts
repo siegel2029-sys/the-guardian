@@ -1,8 +1,5 @@
 import type { AiSuggestion, Patient } from '../types';
-import {
-  collectDismissedRecommendationTypeSignatures,
-  recommendationTypeDismissalSignature,
-} from './clinicalAiQueueMerge';
+import { filterTherapistPendingAiSuggestions } from './clinicalAiQueueMerge';
 
 /** Placeholder copy shown in the demographics free-text field when empty. */
 export const DEMOGRAPHICS_FREE_TEXT_PLACEHOLDER = 'מגדר, גיל, עבודה…';
@@ -48,16 +45,10 @@ export function patientHasPendingAiAdjustments(
   aiSuggestions: AiSuggestion[],
   extraDismissedSignatures: Iterable<string> = []
 ): boolean {
-  const dismissed = collectDismissedRecommendationTypeSignatures(
-    aiSuggestions,
-    patientId,
-    extraDismissedSignatures
-  );
-  return aiSuggestions.some(
-    (s) =>
-      s.patientId === patientId &&
-      isUnhandledAiSuggestion(s) &&
-      !dismissed.has(recommendationTypeDismissalSignature(patientId, s.type))
+  return (
+    filterTherapistPendingAiSuggestions(aiSuggestions, patientId, {
+      extraDismissedSignatures,
+    }).length > 0
   );
 }
 

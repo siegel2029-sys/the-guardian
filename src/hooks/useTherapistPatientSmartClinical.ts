@@ -8,10 +8,8 @@ import { analyzeSmartClinicalCenterWithGemini } from '../ai/geminiSmartClinicalC
 import { getGeminiApiKey } from '../ai/geminiClient';
 import { getPatientDisplayName } from '../utils/patientDisplayName';
 import {
-  clinicalRecommendationCategoryKey,
-  collectDismissedRecommendationTypeSignatures,
   collectRecentTherapistReviewedSuggestions,
-  recommendationTypeDismissalSignature,
+  filterTherapistPendingAiSuggestions,
   therapistReviewedCategoryKeySet,
 } from '../utils/clinicalAiQueueMerge';
 
@@ -217,12 +215,6 @@ export function useTherapistPatientSmartClinical(
   const pendingRecommendations = useMemo((): PendingClinicalRecommendation[] => {
     if (!patientId) return [];
 
-    const dismissedTypeSignatures = collectDismissedRecommendationTypeSignatures(
-      aiSuggestions ?? [],
-      patientId,
-      patient?.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? []
-    );
-
     const excludedCategoryKeys = therapistReviewedCategoryKeySet(
       collectRecentTherapistReviewedSuggestions(
         aiSuggestions ?? [],
@@ -231,14 +223,11 @@ export function useTherapistPatientSmartClinical(
       )
     );
 
-    return (aiSuggestions ?? [])
-      .filter((s) => {
-        if (s?.patientId !== patientId || s.status !== 'awaiting_therapist') return false;
-        const signature = recommendationTypeDismissalSignature(patientId, s.type);
-        if (dismissedTypeSignatures.has(signature)) return false;
-        if (excludedCategoryKeys.has(clinicalRecommendationCategoryKey(s))) return false;
-        return true;
-      })
+    return filterTherapistPendingAiSuggestions(aiSuggestions ?? [], patientId, {
+      extraDismissedSignatures:
+        patient?.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? [],
+      excludedCategoryKeys,
+    })
       .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
       .map((s) => ({
         id: s.id,

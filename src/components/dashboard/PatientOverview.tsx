@@ -126,28 +126,28 @@ export default function PatientOverview() {
   if (!selectedPatient) {
     const statCardBtn = (
       selected: boolean,
-      accent: 'neutral' | 'blue' | 'yellow' | 'red' | 'purple' = 'neutral'
+      accent: 'teal' | 'blue' | 'yellow' | 'red' | 'purple' = 'teal'
     ) => {
       const accentSelected =
-        accent === 'blue'
-          ? 'border-2 border-blue-500 bg-blue-50/80 shadow-md ring-2 ring-blue-200/70'
-          : accent === 'yellow'
-            ? 'border-2 border-yellow-400 bg-yellow-50/80 shadow-md ring-2 ring-yellow-200/70'
-            : accent === 'red'
-              ? 'border-2 border-red-400 bg-red-50/70 shadow-md ring-2 ring-red-200/70'
-              : accent === 'purple'
-                ? 'border-2 border-purple-500 bg-purple-50/80 shadow-md ring-2 ring-purple-200/70'
-                : 'border-2 border-teal-500 bg-teal-50/70 shadow-md ring-2 ring-teal-200/70';
+        accent === 'teal'
+          ? 'border-2 border-teal-500 bg-teal-50/80 shadow-md ring-2 ring-teal-200/70'
+          : accent === 'blue'
+            ? 'border-2 border-blue-500 bg-blue-50/80 shadow-md ring-2 ring-blue-200/70'
+            : accent === 'yellow'
+              ? 'border-2 border-yellow-400 bg-yellow-50/80 shadow-md ring-2 ring-yellow-200/70'
+              : accent === 'red'
+                ? 'border-2 border-red-400 bg-red-50/70 shadow-md ring-2 ring-red-200/70'
+                : 'border-2 border-purple-500 bg-purple-50/80 shadow-md ring-2 ring-purple-200/70';
       const accentIdle =
-        accent === 'blue'
-          ? 'border border-blue-200 bg-blue-50/60 hover:bg-blue-50 hover:border-blue-200'
-          : accent === 'yellow'
-            ? 'border border-yellow-200 bg-yellow-50/60 hover:bg-yellow-50 hover:border-yellow-200'
-            : accent === 'red'
-              ? 'border border-red-100 bg-red-50/50 hover:bg-red-50 hover:border-red-200'
-              : accent === 'purple'
-                ? 'border border-purple-200 bg-purple-50/60 hover:bg-purple-50 hover:border-purple-200'
-                : 'border border-gray-100 bg-slate-50 hover:bg-slate-100/90 hover:border-gray-200';
+        accent === 'teal'
+          ? 'border border-teal-200 bg-teal-50/60 hover:bg-teal-50 hover:border-teal-200'
+          : accent === 'blue'
+            ? 'border border-blue-200 bg-blue-50/60 hover:bg-blue-50 hover:border-blue-200'
+            : accent === 'yellow'
+              ? 'border border-yellow-200 bg-yellow-50/60 hover:bg-yellow-50 hover:border-yellow-200'
+              : accent === 'red'
+                ? 'border border-red-100 bg-red-50/50 hover:bg-red-50 hover:border-red-200'
+                : 'border border-purple-200 bg-purple-50/60 hover:bg-purple-50 hover:border-purple-200';
 
       return `w-full rounded-lg px-3 py-2 text-start transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 ${
         selected ? accentSelected : `${accentIdle} active:scale-[0.99]`
@@ -174,10 +174,10 @@ export default function PatientOverview() {
                   onClick={() => setRosterFilterKey('active')}
                   aria-pressed={rosterFilterKey === 'active'}
                   aria-label={`סינון מטופלים פעילים, סה״כ ${rosterStats.active}`}
-                  className={statCardBtn(rosterFilterKey === 'active')}
+                  className={statCardBtn(rosterFilterKey === 'active', 'teal')}
                 >
-                  <span className="block text-sm text-gray-500">סה״כ פעילים</span>
-                  <span className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.active}</span>
+                  <span className="block text-sm text-teal-700">סה״כ פעילים</span>
+                  <span className="text-lg font-bold text-teal-950 tabular-nums">{rosterStats.active}</span>
                 </button>
                 <button
                   type="button"
@@ -201,11 +201,11 @@ export default function PatientOverview() {
                   aria-label={`סינון המלצות AI במתן, ${rosterStats.pendingAiAdjustments}`}
                   className={statCardBtn(rosterFilterKey === 'pendingAiAdjustments', 'yellow')}
                 >
-                  <span className="flex items-center gap-1.5 text-sm text-yellow-700">
-                    <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-yellow-700">
+                    <Sparkles className="w-3.5 h-3.5 shrink-0 text-yellow-600" aria-hidden="true" />
                     המלצות AI במתן
                   </span>
-                  <span className="text-lg font-bold text-yellow-950 tabular-nums">
+                  <span className="text-lg font-bold text-yellow-800 tabular-nums">
                     {rosterStats.pendingAiAdjustments}
                   </span>
                 </button>

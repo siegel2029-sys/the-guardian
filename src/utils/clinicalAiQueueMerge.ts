@@ -78,6 +78,37 @@ export function collectDismissedRecommendationTypeSignatures(
   return set;
 }
 
+export type FilterTherapistPendingAiOptions = {
+  extraDismissedSignatures?: Iterable<string>;
+  excludedCategoryKeys?: Set<string>;
+};
+
+/**
+ * Therapist-visible queue: only `awaiting_therapist`, excluding dismissed type signatures
+ * and recently reviewed categories.
+ */
+export function filterTherapistPendingAiSuggestions(
+  aiSuggestions: AiSuggestion[],
+  patientId: string,
+  options?: FilterTherapistPendingAiOptions
+): AiSuggestion[] {
+  const dismissedTypeSignatures = collectDismissedRecommendationTypeSignatures(
+    aiSuggestions,
+    patientId,
+    options?.extraDismissedSignatures ?? []
+  );
+  const excludedCategoryKeys = options?.excludedCategoryKeys;
+
+  return aiSuggestions.filter((s) => {
+    if (s.patientId !== patientId) return false;
+    if (s.status !== 'awaiting_therapist') return false;
+    const typeSig = recommendationTypeDismissalSignature(patientId, s.type);
+    if (dismissedTypeSignatures.has(typeSig)) return false;
+    if (excludedCategoryKeys?.has(clinicalRecommendationCategoryKey(s))) return false;
+    return true;
+  });
+}
+
 export function isRecommendationTypeDismissed(
   patientId: string,
   type: AiSuggestion['type'],
@@ -251,6 +282,14 @@ export function mergeClinicalRecommendationIntoQueue(
 
   if (existingIdx >= 0) {
     const existing = prev[existingIdx];
+    const typeSignature = recommendationTypeDismissalSignature(patientId, incoming.type);
+    if (
+      options?.excludedTypeSignatures?.has(typeSignature) ||
+      options?.excludedCategoryKeys?.has(categoryKey)
+    ) {
+      return { next: prev, changed: false };
+    }
+
     const updated: AiSuggestion = {
       ...incoming,
       id: existing.id,

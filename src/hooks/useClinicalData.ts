@@ -189,13 +189,19 @@ export function useClinicalData({
       if (!patient) return;
 
       const now = new Date().toISOString();
+      const dismissedRecommendationSignatures = [
+        ...collectDismissedRecommendationTypeSignatures(
+          nextSuggestions,
+          patientId,
+          patient.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? []
+        ),
+      ];
       const patientWithQueue: Patient = {
         ...patient,
         clinicalInsightsQueue: {
           aiSuggestions: nextSuggestions.filter((s) => s.patientId === patientId),
           safetyAlerts: safetyAlerts.filter((a) => a.patientId === patientId),
-          dismissedRecommendationSignatures:
-            patient.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? [],
+          dismissedRecommendationSignatures,
           syncedAt: now,
         },
       };
