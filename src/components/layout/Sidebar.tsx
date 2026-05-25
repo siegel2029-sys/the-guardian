@@ -10,7 +10,6 @@ import {
   Settings,
   BookOpen,
   LogOut,
-  AlertTriangle,
   User,
   Bell,
   CheckCircle2,
@@ -27,6 +26,10 @@ import type { NavSection } from '../../types';
 import SidebarNewPatient from './SidebarNewPatient';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { isProlongedAbsenceSafetyAlert } from '../../ai/proactiveAbsenceAlerts';
+import {
+  getPatientDataUpdateGaps,
+  isUnhandledAiSuggestion,
+} from '../../utils/patientRosterMetrics';
 
 const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'overview', label: 'לוח מטפל', icon: LayoutDashboard },
@@ -85,10 +88,15 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
   const totalRedFlags = patients.filter((p) => p.hasRedFlag).length;
   const pendingApprovals = getTotalAwaitingTherapistCount();
 
-  const awaitingForPatient = (patientId: string) =>
-    aiSuggestions.filter((s) => s.patientId === patientId && s.status === 'awaiting_therapist').length;
+  const pendingAiCountForPatient = (patientId: string) =>
+    aiSuggestions.filter(
+      (s) => s.patientId === patientId && isUnhandledAiSuggestion(s)
+    ).length;
 
   const sidebarSafetyAlerts = safetyAlerts.filter((a) => !isProlongedAbsenceSafetyAlert(a));
+
+  const clinicalBadgeBase =
+    'w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold shadow-sm shrink-0';
 
   const goTherapistDashboardHome = () => {
     selectPatient('', { openSection: 'overview' });
@@ -228,6 +236,9 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
                     patient.portalUsername?.trim()
                       ? unlinkedPortalPatientIds.includes(patient.id)
                       : false;
+                  const dataUpdateGapCount = getPatientDataUpdateGaps(patient).length;
+                  const pendingAiCount = pendingAiCountForPatient(patient.id);
+                  const showRedFlagBadge = patient.hasRedFlag;
                   return (
                     <button
                       key={patient.id}
@@ -275,13 +286,43 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
                       {patient.accountFrozen && (
                         <Snowflake className="w-3.5 h-3.5 text-sky-600 shrink-0" strokeWidth={2.5} aria-hidden />
                       )}
-                      {patient.hasRedFlag && (
-                        <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" strokeWidth={2.5} />
-                      )}
-                      {awaitingForPatient(patient.id) > 0 && (
-                        <span className="min-w-[18px] h-4 px-0.5 rounded-full bg-amber-500 text-white text-[8px] font-black flex items-center justify-center border border-white shrink-0">
-                          {awaitingForPatient(patient.id)}
-                        </span>
+                      {(showRedFlagBadge || pendingAiCount > 0 || dataUpdateGapCount > 0) && (
+                        <div
+                          className="flex items-center gap-1 shrink-0"
+                          aria-label={[
+                            showRedFlagBadge ? 'דגל אדום' : null,
+                            pendingAiCount > 0 ? `${pendingAiCount} המלצות AI במתן` : null,
+                            dataUpdateGapCount > 0 ? `${dataUpdateGapCount} טעוני עדכון` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(', ')}
+                        >
+                          {showRedFlagBadge && (
+                            <span
+                              className={`${clinicalBadgeBase} bg-red-500 text-white`}
+                              title="דגל אדום"
+                              aria-hidden
+                            />
+                          )}
+                          {pendingAiCount > 0 && (
+                            <span
+                              className={`${clinicalBadgeBase} bg-amber-500 text-white`}
+                              title={`${pendingAiCount} המלצות AI במתן`}
+                              aria-hidden
+                            >
+                              {pendingAiCount}
+                            </span>
+                          )}
+                          {dataUpdateGapCount > 0 && (
+                            <span
+                              className={`${clinicalBadgeBase} bg-blue-500 text-white`}
+                              title={`${dataUpdateGapCount} טעוני עדכון`}
+                              aria-hidden
+                            >
+                              {dataUpdateGapCount}
+                            </span>
+                          )}
+                        </div>
                       )}
                       {unreadCount > 0 && (
                         <span className="min-w-[18px] h-4 px-0.5 rounded-full bg-slate-900 text-white text-[8px] font-black flex items-center justify-center shrink-0">
