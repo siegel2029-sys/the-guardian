@@ -191,6 +191,7 @@ export function useTherapistPatientSmartClinical(
 
   const aggregatedKey = aggregatedSnapshotKey(aggregated);
   const progressInsightKey = progressInsightSnapshotKey(progressInsight);
+  const planExerciseCount = plan?.exercises.length ?? 0;
 
   const localNarrative = useMemo(() => {
     if (!safePatient || !aggregated) return null;
@@ -253,13 +254,16 @@ export function useTherapistPatientSmartClinical(
     setGeminiLoading(false);
   }, [patientId]);
 
-  /** Assessment engine — deduped; runs after base evaluation. */
+  /** Assessment engine — runs on every meaningful clinical snapshot change (no day blocking). */
   useEffect(() => {
     if (!patientId || isLoading) return;
 
     const signature = [
       patientId,
       clinicalToday,
+      aggregatedKey ?? '',
+      progressInsightKey ?? '',
+      planExerciseCount,
       painHistoryLen,
       sessionHistoryLen,
       therapistNotes.trim(),
@@ -273,6 +277,9 @@ export function useTherapistPatientSmartClinical(
     patientId,
     isLoading,
     clinicalToday,
+    aggregatedKey,
+    progressInsightKey,
+    planExerciseCount,
     painHistoryLen,
     sessionHistoryLen,
     therapistNotes,

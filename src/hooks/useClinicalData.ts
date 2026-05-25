@@ -16,6 +16,11 @@ import {
   applyTherapistPrimaryFocus,
 } from '../context/patientDomainHelpers';
 import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
+import {
+  appendTherapistNoteToReason,
+  mergeClinicalRecommendationIntoQueue,
+  newClinicalAssessmentSuggestionId,
+} from '../utils/clinicalAiQueueMerge';
 
 function applySelfCareZonesForPatientUpdate(
   setSelfCareZonesByPatientId: Dispatch<SetStateAction<Record<string, BodyArea[]>>>,
@@ -171,73 +176,65 @@ export function useClinicalData({
           defaultStatus: 'awaiting_therapist',
         });
 
-        let added = false;
+        let queueChanged = false;
 
         setAiSuggestions((prev) => {
-          const withoutStaleEngine = prev.filter(
-            (s) =>
-              !(
-                s.patientId === patientId &&
-                s.source === 'clinical_recommendation_engine' &&
-                s.status === 'awaiting_therapist' &&
-                s.id.startsWith('ai-assess-')
-              )
-          );
+          let candidate: AiSuggestion | null = null;
 
           if (engineRec) {
-            const rec: AiSuggestion = {
+            candidate = {
               ...engineRec,
-              id: `ai-assess-${patientId}-${Date.now()}`,
+              id: newClinicalAssessmentSuggestionId(patientId),
               status: 'awaiting_therapist',
               source: 'clinical_recommendation_engine',
-              reason:
-                notes.trim().length > 0
-                  ? `${engineRec.reason}\n\nהערת מטפל: «${notes.trim().slice(0, 120)}${notes.trim().length > 120 ? '…' : ''}»`
-                  : engineRec.reason,
+              reason: appendTherapistNoteToReason(engineRec.reason, notes),
             };
-            added = true;
-            return [...withoutStaleEngine, rec];
-          }
-
-          if (
-            insight.category !== 'load_increase' &&
-            insight.category !== 'load_decrease' &&
-            insight.category !== 'escalate_care'
+          } else if (
+            insight.category === 'load_increase' ||
+            insight.category === 'load_decrease' ||
+            insight.category === 'escalate_care'
           ) {
-            return withoutStaleEngine;
+            const ex = exercises.find((e) => (e.patientReps ?? 0) > 0);
+            if (ex) {
+              const currentValue = ex.patientReps;
+              const isReduce =
+                insight.category === 'load_decrease' || insight.category === 'escalate_care';
+              const suggestedValue = isReduce
+                ? Math.max(1, Math.floor(currentValue * 0.75))
+                : Math.max(currentValue + 1, Math.round(currentValue * 1.1));
+
+              if (suggestedValue !== currentValue) {
+                candidate = {
+                  id: newClinicalAssessmentSuggestionId(patientId),
+                  patientId,
+                  exerciseId: ex.id,
+                  exerciseName: ex.name,
+                  type: isReduce ? 'reduce_reps' : 'increase_reps',
+                  field: 'reps',
+                  currentValue,
+                  suggestedValue,
+                  reason: appendTherapistNoteToReason(
+                    `${insight.nextStepHe}\n\n${insight.basisHe}`,
+                    notes
+                  ),
+                  createdAt: new Date().toISOString(),
+                  status: 'awaiting_therapist',
+                  source: 'clinical_recommendation_engine',
+                };
+              }
+            }
           }
 
-          const ex = exercises.find((e) => (e.patientReps ?? 0) > 0);
-          if (!ex) return withoutStaleEngine;
-
-          const currentValue = ex.patientReps;
-          const isReduce =
-            insight.category === 'load_decrease' || insight.category === 'escalate_care';
-          const suggestedValue = isReduce
-            ? Math.max(1, Math.floor(currentValue * 0.75))
-            : Math.max(currentValue + 1, Math.round(currentValue * 1.1));
-
-          if (suggestedValue === currentValue) return withoutStaleEngine;
-
-          added = true;
-          const newSug: AiSuggestion = {
-            id: `ai-assess-${patientId}-${Date.now()}`,
+          const { next, changed } = mergeClinicalRecommendationIntoQueue(
+            prev,
             patientId,
-            exerciseId: ex.id,
-            exerciseName: ex.name,
-            type: isReduce ? 'reduce_reps' : 'increase_reps',
-            field: 'reps',
-            currentValue,
-            suggestedValue,
-            reason: `${insight.nextStepHe}\n\n${insight.basisHe}`,
-            createdAt: new Date().toISOString(),
-            status: 'awaiting_therapist',
-            source: 'clinical_recommendation_engine',
-          };
-          return [...withoutStaleEngine, newSug];
+            candidate
+          );
+          queueChanged = changed;
+          return next;
         });
 
-        if (added) onClinicalQueueUpdated?.();
+        if (queueChanged) onClinicalQueueUpdated?.();
       })();
     },
     [

@@ -9,8 +9,17 @@ import {
   patientRosterStatusBadge,
 } from '../../utils/patientPortalMeta';
 import type { Patient } from '../../types';
+import {
+  patientHasPendingAiAdjustments,
+  patientNeedsDataUpdate,
+} from '../../utils/patientRosterMetrics';
 
-export type RosterFilterKey = 'total' | 'active' | 'pending' | 'redFlags' | 'paused';
+export type RosterFilterKey =
+  | 'total'
+  | 'needsDataUpdate'
+  | 'pendingAiAdjustments'
+  | 'redFlags'
+  | 'paused';
 
 function rosterAvatarLabel(p: Patient): string {
   const name = getPatientDisplayName(p).trim();
@@ -21,12 +30,16 @@ function rosterAvatarLabel(p: Patient): string {
 function selectValueFromFilterKey(key: RosterFilterKey): string {
   if (key === 'total') return 'all';
   if (key === 'redFlags') return 'red_flags';
+  if (key === 'needsDataUpdate') return 'needs_data_update';
+  if (key === 'pendingAiAdjustments') return 'pending_ai';
   return key;
 }
 
 function filterKeyFromSelect(v: string): RosterFilterKey {
   if (v === 'all') return 'total';
   if (v === 'red_flags') return 'redFlags';
+  if (v === 'needs_data_update') return 'needsDataUpdate';
+  if (v === 'pending_ai') return 'pendingAiAdjustments';
   return v as RosterFilterKey;
 }
 
@@ -45,6 +58,7 @@ export default function TherapistPatientGrid({
     selectPatient,
     clinicalToday,
     getExercisePlan,
+    aiSuggestions,
   } = usePatient();
 
   const [search, setSearch] = useState('');
@@ -53,11 +67,11 @@ export default function TherapistPatientGrid({
     const q = search.trim().toLowerCase();
     return patients.filter((p) => {
       switch (rosterFilterKey) {
-        case 'active':
-          if (p.status !== 'active') return false;
+        case 'needsDataUpdate':
+          if (!patientNeedsDataUpdate(p)) return false;
           break;
-        case 'pending':
-          if (p.status !== 'pending') return false;
+        case 'pendingAiAdjustments':
+          if (!patientHasPendingAiAdjustments(p.id, aiSuggestions)) return false;
           break;
         case 'paused':
           if (p.status !== 'paused') return false;
@@ -72,7 +86,7 @@ export default function TherapistPatientGrid({
       const name = getPatientDisplayName(p);
       return patientMatchesRosterSearch(p, q, name);
     });
-  }, [patients, search, rosterFilterKey]);
+  }, [patients, search, rosterFilterKey, aiSuggestions]);
 
   return (
     <section className="rounded-xl border border-gray-100 bg-white shadow-sm p-5" dir="rtl">
@@ -105,8 +119,8 @@ export default function TherapistPatientGrid({
             aria-label="סינון לפי סטטוס"
           >
             <option value="all">כל הסטטוסים</option>
-            <option value="active">פעיל</option>
-            <option value="pending">ממתין</option>
+            <option value="needs_data_update">טעוני עדכון</option>
+            <option value="pending_ai">המלצות AI במתן</option>
             <option value="paused">מושהה</option>
             <option value="red_flags">דגלים אדומים</option>
           </select>

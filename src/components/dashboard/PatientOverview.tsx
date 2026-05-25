@@ -12,6 +12,8 @@ import {
   Snowflake,
   Link2Off,
   X,
+  UserRoundPen,
+  Sparkles,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
@@ -31,6 +33,7 @@ import TherapistPatientGrid, { type RosterFilterKey } from './TherapistPatientGr
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { patientRosterStatusBadge } from '../../utils/patientPortalMeta';
+import { computeRosterClinicalStats } from '../../utils/patientRosterMetrics';
 
 function AccessibilityFooterLink() {
   return (
@@ -64,6 +67,7 @@ export default function PatientOverview() {
     isPatientSessionLocked,
     safetyAlerts,
     unlinkedPortalPatientIds,
+    aiSuggestions,
   } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
   const [showClinicalModal, setShowClinicalModal] = useState(false);
@@ -101,24 +105,37 @@ export default function PatientOverview() {
     return safetyAlerts.filter((a) => a.patientId === selectedPatient.id);
   }, [selectedPatient, safetyAlerts]);
 
-  const rosterStats = useMemo(() => {
-    return {
-      total: patients.length,
-      active: patients.filter((x) => x.status === 'active').length,
-      pending: patients.filter((x) => x.status === 'pending').length,
-      redFlags: patients.filter((x) => x.hasRedFlag).length,
-    };
-  }, [patients]);
+  const rosterStats = useMemo(
+    () => computeRosterClinicalStats(patients, aiSuggestions),
+    [patients, aiSuggestions]
+  );
 
   if (!selectedPatient) {
     const statCardBtn = (
-      selected: boolean
-    ) =>
-      `w-full rounded-lg px-3 py-2 text-start transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 ${
-        selected
-          ? 'border-2 border-teal-500 bg-teal-50/70 shadow-md ring-2 ring-teal-200/70'
-          : 'border border-gray-100 bg-slate-50 hover:bg-slate-100/90 hover:border-gray-200 active:scale-[0.99]'
+      selected: boolean,
+      accent: 'neutral' | 'blue' | 'amber' | 'red' = 'neutral'
+    ) => {
+      const accentSelected =
+        accent === 'blue'
+          ? 'border-2 border-sky-500 bg-sky-50/80 shadow-md ring-2 ring-sky-200/70'
+          : accent === 'amber'
+            ? 'border-2 border-amber-500 bg-amber-50/80 shadow-md ring-2 ring-amber-200/70'
+            : accent === 'red'
+              ? 'border-2 border-red-400 bg-red-50/70 shadow-md ring-2 ring-red-200/70'
+              : 'border-2 border-teal-500 bg-teal-50/70 shadow-md ring-2 ring-teal-200/70';
+      const accentIdle =
+        accent === 'blue'
+          ? 'border border-sky-100 bg-sky-50/60 hover:bg-sky-50 hover:border-sky-200'
+          : accent === 'amber'
+            ? 'border border-amber-100 bg-amber-50/60 hover:bg-amber-50 hover:border-amber-200'
+            : accent === 'red'
+              ? 'border border-red-100 bg-red-50/50 hover:bg-red-50 hover:border-red-200'
+              : 'border border-gray-100 bg-slate-50 hover:bg-slate-100/90 hover:border-gray-200';
+
+      return `w-full rounded-lg px-3 py-2 text-start transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 ${
+        selected ? accentSelected : `${accentIdle} active:scale-[0.99]`
       }`;
+    };
 
     return (
       <div className="h-full overflow-y-auto bg-slate-50" dir="rtl">
@@ -147,30 +164,40 @@ export default function PatientOverview() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setRosterFilterKey('active')}
-                  aria-pressed={rosterFilterKey === 'active'}
-                  aria-label={`סינון פעילים בלבד, ${rosterStats.active}`}
-                  className={statCardBtn(rosterFilterKey === 'active')}
+                  onClick={() => setRosterFilterKey('needsDataUpdate')}
+                  aria-pressed={rosterFilterKey === 'needsDataUpdate'}
+                  aria-label={`סינון טעוני עדכון נתונים, ${rosterStats.needsDataUpdate}`}
+                  className={statCardBtn(rosterFilterKey === 'needsDataUpdate', 'blue')}
                 >
-                  <span className="block text-sm text-gray-500">פעילים</span>
-                  <span className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.active}</span>
+                  <span className="flex items-center gap-1.5 text-sm text-sky-700">
+                    <UserRoundPen className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    טעוני עדכון
+                  </span>
+                  <span className="text-lg font-bold text-sky-950 tabular-nums">
+                    {rosterStats.needsDataUpdate}
+                  </span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setRosterFilterKey('pending')}
-                  aria-pressed={rosterFilterKey === 'pending'}
-                  aria-label={`סינון ממתינים בלבד, ${rosterStats.pending}`}
-                  className={statCardBtn(rosterFilterKey === 'pending')}
+                  onClick={() => setRosterFilterKey('pendingAiAdjustments')}
+                  aria-pressed={rosterFilterKey === 'pendingAiAdjustments'}
+                  aria-label={`סינון המלצות AI במתן, ${rosterStats.pendingAiAdjustments}`}
+                  className={statCardBtn(rosterFilterKey === 'pendingAiAdjustments', 'amber')}
                 >
-                  <span className="block text-sm text-gray-500">ממתינים</span>
-                  <span className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.pending}</span>
+                  <span className="flex items-center gap-1.5 text-sm text-amber-800">
+                    <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    המלצות AI במתן
+                  </span>
+                  <span className="text-lg font-bold text-amber-950 tabular-nums">
+                    {rosterStats.pendingAiAdjustments}
+                  </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setRosterFilterKey('redFlags')}
                   aria-pressed={rosterFilterKey === 'redFlags'}
                   aria-label={`סינון דגלים אדומים בלבד, ${rosterStats.redFlags}`}
-                  className={statCardBtn(rosterFilterKey === 'redFlags')}
+                  className={statCardBtn(rosterFilterKey === 'redFlags', 'red')}
                 >
                   <span className="block text-sm text-gray-500">דגלים אדומים</span>
                   <span className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.redFlags}</span>
