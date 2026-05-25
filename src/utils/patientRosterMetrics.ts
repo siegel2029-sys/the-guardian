@@ -1,4 +1,8 @@
 import type { AiSuggestion, Patient } from '../types';
+import {
+  collectDismissedRecommendationTypeSignatures,
+  recommendationTypeDismissalSignature,
+} from './clinicalAiQueueMerge';
 
 /** Placeholder copy shown in the demographics free-text field when empty. */
 export const DEMOGRAPHICS_FREE_TEXT_PLACEHOLDER = 'מגדר, גיל, עבודה…';
@@ -41,15 +45,34 @@ export function isUnhandledAiSuggestion(s: AiSuggestion): boolean {
 
 export function patientHasPendingAiAdjustments(
   patientId: string,
-  aiSuggestions: AiSuggestion[]
+  aiSuggestions: AiSuggestion[],
+  extraDismissedSignatures: Iterable<string> = []
 ): boolean {
+  const dismissed = collectDismissedRecommendationTypeSignatures(
+    aiSuggestions,
+    patientId,
+    extraDismissedSignatures
+  );
   return aiSuggestions.some(
-    (s) => s.patientId === patientId && isUnhandledAiSuggestion(s)
+    (s) =>
+      s.patientId === patientId &&
+      isUnhandledAiSuggestion(s) &&
+      !dismissed.has(recommendationTypeDismissalSignature(patientId, s.type))
   );
 }
 
+export function patientIsActive(p: Pick<Patient, 'status'>): boolean {
+  return p.status === 'active';
+}
+
+/** Roster «מוקפא» — legacy `paused` or explicit `frozen` status. */
+export function patientIsFrozenStatus(p: Pick<Patient, 'status'>): boolean {
+  return p.status === 'paused' || p.status === 'frozen';
+}
+
 export type RosterClinicalStats = {
-  total: number;
+  active: number;
+  frozen: number;
   needsDataUpdate: number;
   pendingAiAdjustments: number;
   redFlags: number;
@@ -59,18 +82,27 @@ export function computeRosterClinicalStats(
   patients: Patient[],
   aiSuggestions: AiSuggestion[]
 ): RosterClinicalStats {
+  let active = 0;
+  let frozen = 0;
   let needsDataUpdate = 0;
   let pendingAiAdjustments = 0;
   let redFlags = 0;
 
   for (const p of patients) {
+    if (patientIsActive(p)) active += 1;
+    if (patientIsFrozenStatus(p)) frozen += 1;
     if (patientNeedsDataUpdate(p)) needsDataUpdate += 1;
-    if (patientHasPendingAiAdjustments(p.id, aiSuggestions)) pendingAiAdjustments += 1;
+    if (patientHasPendingAiAdjustments(
+      p.id,
+      aiSuggestions,
+      p.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? []
+    )) pendingAiAdjustments += 1;
     if (p.hasRedFlag) redFlags += 1;
   }
 
   return {
-    total: patients.length,
+    active,
+    frozen,
     needsDataUpdate,
     pendingAiAdjustments,
     redFlags,

@@ -40,11 +40,21 @@ function normalizeQueue(raw: unknown): PatientClinicalInsightsQueue | undefined 
   const safetyAlerts = Array.isArray(o.safetyAlerts)
     ? o.safetyAlerts.filter(isSafetyAlert)
     : [];
-  if (aiSuggestions.length === 0 && safetyAlerts.length === 0) return undefined;
+  const dismissedRecommendationSignatures = Array.isArray(o.dismissedRecommendationSignatures)
+    ? [...new Set(o.dismissedRecommendationSignatures.filter((s): s is string => typeof s === 'string' && s.trim().length > 0))]
+    : undefined;
+  if (
+    aiSuggestions.length === 0 &&
+    safetyAlerts.length === 0 &&
+    (!dismissedRecommendationSignatures || dismissedRecommendationSignatures.length === 0)
+  ) {
+    return undefined;
+  }
   return {
     aiSuggestions,
     safetyAlerts,
     syncedAt: typeof o.syncedAt === 'string' ? o.syncedAt : undefined,
+    dismissedRecommendationSignatures,
   };
 }
 
@@ -144,7 +154,13 @@ export function embedClinicalInsightsIntoPatients(
   return patients.map((p) => {
     const patientSuggestions = aiSuggestions.filter((s) => s.patientId === p.id);
     const patientAlerts = safetyAlerts.filter((a) => a.patientId === p.id);
-    if (patientSuggestions.length === 0 && patientAlerts.length === 0) {
+    const dismissedRecommendationSignatures =
+      p.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? [];
+    if (
+      patientSuggestions.length === 0 &&
+      patientAlerts.length === 0 &&
+      dismissedRecommendationSignatures.length === 0
+    ) {
       const { clinicalInsightsQueue: _drop, ...rest } = p;
       return rest;
     }
@@ -153,6 +169,7 @@ export function embedClinicalInsightsIntoPatients(
       clinicalInsightsQueue: {
         aiSuggestions: patientSuggestions,
         safetyAlerts: patientAlerts,
+        dismissedRecommendationSignatures,
         syncedAt,
       },
     };

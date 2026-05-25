@@ -28,6 +28,10 @@ import {
   collectRecentTherapistReviewedSuggestions,
   therapistReviewedCategoryKeySet,
   clinicalRecommendationCategoryKey,
+  appendLocalDismissedRecommendationSignature,
+  collectDismissedRecommendationTypeSignatures,
+  isRecommendationTypeDismissed,
+  recommendationTypeDismissalSignature,
   type TherapistReviewedSuggestion,
 } from '../utils/clinicalAiQueueMerge';
 
@@ -185,9 +189,19 @@ export function useClinicalData({
       if (!patient) return;
 
       const now = new Date().toISOString();
+      const patientWithQueue: Patient = {
+        ...patient,
+        clinicalInsightsQueue: {
+          aiSuggestions: nextSuggestions.filter((s) => s.patientId === patientId),
+          safetyAlerts: safetyAlerts.filter((a) => a.patientId === patientId),
+          dismissedRecommendationSignatures:
+            patient.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? [],
+          syncedAt: now,
+        },
+      };
       const result = await persistPatientClinicalInsightsQueue(
         supabase,
-        patient,
+        patientWithQueue,
         nextSuggestions,
         safetyAlerts,
         now
@@ -197,6 +211,31 @@ export function useClinicalData({
       }
     },
     [allPatients, safetyAlerts]
+  );
+
+  const appendDismissedRecommendationSignature = useCallback(
+    (patientId: string, type: AiSuggestion['type']) => {
+      const signature = recommendationTypeDismissalSignature(patientId, type);
+      appendLocalDismissedRecommendationSignature(patientId, signature);
+      setAllPatients((prev) =>
+        prev.map((p) => {
+          if (p.id !== patientId) return p;
+          const prevSigs = p.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? [];
+          if (prevSigs.includes(signature)) return p;
+          return {
+            ...p,
+            clinicalInsightsQueue: {
+              aiSuggestions: p.clinicalInsightsQueue?.aiSuggestions ?? [],
+              safetyAlerts: p.clinicalInsightsQueue?.safetyAlerts ?? [],
+              syncedAt: p.clinicalInsightsQueue?.syncedAt,
+              dismissedRecommendationSignatures: [...prevSigs, signature],
+            },
+          };
+        })
+      );
+      return signature;
+    },
+    [setAllPatients]
   );
 
   const commitTherapistAiSuggestionDecision = useCallback(
@@ -224,6 +263,10 @@ export function useClinicalData({
 
       if (!updatedSuggestion) return;
 
+      if (status === 'dismissed') {
+        appendDismissedRecommendationSignature(updatedSuggestion.patientId, updatedSuggestion.type);
+      }
+
       await persistAiSuggestionQueueForPatient(updatedSuggestion.patientId, nextQueue);
       onClinicalQueueUpdated?.();
 
@@ -250,6 +293,7 @@ export function useClinicalData({
     },
     [
       allPatients,
+      appendDismissedRecommendationSignature,
       onClinicalQueueUpdated,
       persistAiSuggestionQueueForPatient,
       setAiSuggestions,
@@ -275,7 +319,13 @@ export function useClinicalData({
 
       void (async () => {
         const therapistReviewHistory = await resolveTherapistReviewHistory(patientId);
+        const patientRow = allPatients.find((p) => p.id === patientId);
         const excludedCategoryKeys = therapistReviewedCategoryKeySet(therapistReviewHistory);
+        const excludedTypeSignatures = collectDismissedRecommendationTypeSignatures(
+          aiSuggestions,
+          patientId,
+          patientRow?.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? []
+        );
         const reviewHistoryForPrompt: TherapistReviewHistoryEntry[] = therapistReviewHistory.map(
           (r) => ({
             categoryKey: r.categoryKey,
@@ -323,7 +373,10 @@ export function useClinicalData({
 
           if (engineRec) {
             const categoryKey = clinicalRecommendationCategoryKey(engineRec);
-            if (excludedCategoryKeys.has(categoryKey)) {
+            if (
+              excludedCategoryKeys.has(categoryKey) ||
+              isRecommendationTypeDismissed(patientId, engineRec.type, excludedTypeSignatures)
+            ) {
               candidate = null;
             } else {
               candidate = {
@@ -366,7 +419,8 @@ export function useClinicalData({
                   status: 'awaiting_therapist',
                   source: 'clinical_recommendation_engine',
                 };
-                candidate = excludedCategoryKeys.has(clinicalRecommendationCategoryKey(draft))
+                candidate = excludedCategoryKeys.has(clinicalRecommendationCategoryKey(draft)) ||
+                  isRecommendationTypeDismissed(patientId, draft.type, excludedTypeSignatures)
                   ? null
                   : draft;
               }
@@ -377,7 +431,7 @@ export function useClinicalData({
             prev,
             patientId,
             candidate,
-            { excludedCategoryKeys }
+            { excludedCategoryKeys, excludedTypeSignatures }
           );
           queueChanged = changed;
           return next;
@@ -395,6 +449,7 @@ export function useClinicalData({
       setAllPatients,
       onClinicalQueueUpdated,
       resolveTherapistReviewHistory,
+      aiSuggestions,
     ]
   );
 

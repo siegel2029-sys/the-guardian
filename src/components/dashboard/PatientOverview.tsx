@@ -96,7 +96,7 @@ export default function PatientOverview() {
   const [freezePendingIntent, setFreezePendingIntent] = useState<boolean | null>(null);
   const [editingDemographics, setEditingDemographics] = useState(false);
   const [demoFreeText, setDemoFreeText] = useState(selectedPatient?.demographicsFreeText ?? '');
-  const [rosterFilterKey, setRosterFilterKey] = useState<RosterFilterKey>('total');
+  const [rosterFilterKey, setRosterFilterKey] = useState<RosterFilterKey>('active');
 
   useEffect(() => {
     setEditingDemographics(false);
@@ -126,24 +126,28 @@ export default function PatientOverview() {
   if (!selectedPatient) {
     const statCardBtn = (
       selected: boolean,
-      accent: 'neutral' | 'blue' | 'amber' | 'red' = 'neutral'
+      accent: 'neutral' | 'blue' | 'yellow' | 'red' | 'purple' = 'neutral'
     ) => {
       const accentSelected =
         accent === 'blue'
-          ? 'border-2 border-sky-500 bg-sky-50/80 shadow-md ring-2 ring-sky-200/70'
-          : accent === 'amber'
-            ? 'border-2 border-amber-500 bg-amber-50/80 shadow-md ring-2 ring-amber-200/70'
+          ? 'border-2 border-blue-500 bg-blue-50/80 shadow-md ring-2 ring-blue-200/70'
+          : accent === 'yellow'
+            ? 'border-2 border-yellow-400 bg-yellow-50/80 shadow-md ring-2 ring-yellow-200/70'
             : accent === 'red'
               ? 'border-2 border-red-400 bg-red-50/70 shadow-md ring-2 ring-red-200/70'
-              : 'border-2 border-teal-500 bg-teal-50/70 shadow-md ring-2 ring-teal-200/70';
+              : accent === 'purple'
+                ? 'border-2 border-purple-500 bg-purple-50/80 shadow-md ring-2 ring-purple-200/70'
+                : 'border-2 border-teal-500 bg-teal-50/70 shadow-md ring-2 ring-teal-200/70';
       const accentIdle =
         accent === 'blue'
-          ? 'border border-sky-100 bg-sky-50/60 hover:bg-sky-50 hover:border-sky-200'
-          : accent === 'amber'
-            ? 'border border-amber-100 bg-amber-50/60 hover:bg-amber-50 hover:border-amber-200'
+          ? 'border border-blue-200 bg-blue-50/60 hover:bg-blue-50 hover:border-blue-200'
+          : accent === 'yellow'
+            ? 'border border-yellow-200 bg-yellow-50/60 hover:bg-yellow-50 hover:border-yellow-200'
             : accent === 'red'
               ? 'border border-red-100 bg-red-50/50 hover:bg-red-50 hover:border-red-200'
-              : 'border border-gray-100 bg-slate-50 hover:bg-slate-100/90 hover:border-gray-200';
+              : accent === 'purple'
+                ? 'border border-purple-200 bg-purple-50/60 hover:bg-purple-50 hover:border-purple-200'
+                : 'border border-gray-100 bg-slate-50 hover:bg-slate-100/90 hover:border-gray-200';
 
       return `w-full rounded-lg px-3 py-2 text-start transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 ${
         selected ? accentSelected : `${accentIdle} active:scale-[0.99]`
@@ -167,26 +171,26 @@ export default function PatientOverview() {
               >
                 <button
                   type="button"
-                  onClick={() => setRosterFilterKey('total')}
-                  aria-pressed={rosterFilterKey === 'total'}
-                  aria-label={`סינון כל המטופלים, סה״כ ${rosterStats.total}`}
-                  className={statCardBtn(rosterFilterKey === 'total')}
+                  onClick={() => setRosterFilterKey('active')}
+                  aria-pressed={rosterFilterKey === 'active'}
+                  aria-label={`סינון מטופלים פעילים, סה״כ ${rosterStats.active}`}
+                  className={statCardBtn(rosterFilterKey === 'active')}
                 >
-                  <span className="block text-sm text-gray-500">סה״כ</span>
-                  <span className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.total}</span>
+                  <span className="block text-sm text-gray-500">סה״כ פעילים</span>
+                  <span className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.active}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setRosterFilterKey('needsDataUpdate')}
                   aria-pressed={rosterFilterKey === 'needsDataUpdate'}
-                  aria-label={`סינון טעוני עדכון נתונים, ${rosterStats.needsDataUpdate}`}
-                  className={statCardBtn(rosterFilterKey === 'needsDataUpdate', 'blue')}
+                  aria-label={`סינון צריכים עדכון נתונים, ${rosterStats.needsDataUpdate}`}
+                  className={statCardBtn(rosterFilterKey === 'needsDataUpdate', 'purple')}
                 >
-                  <span className="flex items-center gap-1.5 text-sm text-sky-700">
+                  <span className="flex items-center gap-1.5 text-sm text-purple-700">
                     <UserRoundPen className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                    טעוני עדכון
+                    צריכים עדכון נתונים
                   </span>
-                  <span className="text-lg font-bold text-sky-950 tabular-nums">
+                  <span className="text-lg font-bold text-purple-950 tabular-nums">
                     {rosterStats.needsDataUpdate}
                   </span>
                 </button>
@@ -195,13 +199,13 @@ export default function PatientOverview() {
                   onClick={() => setRosterFilterKey('pendingAiAdjustments')}
                   aria-pressed={rosterFilterKey === 'pendingAiAdjustments'}
                   aria-label={`סינון המלצות AI במתן, ${rosterStats.pendingAiAdjustments}`}
-                  className={statCardBtn(rosterFilterKey === 'pendingAiAdjustments', 'amber')}
+                  className={statCardBtn(rosterFilterKey === 'pendingAiAdjustments', 'yellow')}
                 >
-                  <span className="flex items-center gap-1.5 text-sm text-amber-800">
+                  <span className="flex items-center gap-1.5 text-sm text-yellow-700">
                     <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                     המלצות AI במתן
                   </span>
-                  <span className="text-lg font-bold text-amber-950 tabular-nums">
+                  <span className="text-lg font-bold text-yellow-950 tabular-nums">
                     {rosterStats.pendingAiAdjustments}
                   </span>
                 </button>
@@ -214,6 +218,21 @@ export default function PatientOverview() {
                 >
                   <span className="block text-sm text-gray-500">דגלים אדומים</span>
                   <span className="text-lg font-bold text-slate-900 tabular-nums">{rosterStats.redFlags}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRosterFilterKey('frozen')}
+                  aria-pressed={rosterFilterKey === 'frozen'}
+                  aria-label={`סינון מטופלים מוקפאים, ${rosterStats.frozen}`}
+                  className={`${statCardBtn(rosterFilterKey === 'frozen', 'blue')} col-span-2`}
+                >
+                  <span className="flex items-center gap-1.5 text-sm text-blue-700">
+                    <Snowflake className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    מוקפא
+                  </span>
+                  <span className="text-lg font-bold text-blue-950 tabular-nums">
+                    {rosterStats.frozen}
+                  </span>
                 </button>
               </div>
             </section>
@@ -277,14 +296,14 @@ export default function PatientOverview() {
 
         {highlightDataUpdateFields && (
           <div
-            className="mb-5 rounded-xl border border-blue-300 bg-blue-50/80 px-4 py-3 flex items-start gap-2.5"
+            className="mb-5 rounded-xl border border-purple-300 bg-purple-50/80 px-4 py-3 flex items-start gap-2.5"
             role="status"
           >
-            <UserRoundPen className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" aria-hidden="true" />
+            <UserRoundPen className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" aria-hidden="true" />
             <div>
-              <p className="text-sm font-bold text-blue-950">טעוני עדכון נתונים</p>
-              <p className="text-xs text-blue-800 mt-0.5 leading-relaxed">
-                השלימו את השדות המסומנים בכחול ({dataUpdateGaps.length}{' '}
+              <p className="text-sm font-bold text-purple-950">צריכים עדכון נתונים</p>
+              <p className="text-xs text-purple-800 mt-0.5 leading-relaxed">
+                השלימו את השדות המסומנים בסגול ({dataUpdateGaps.length}{' '}
                 {dataUpdateGaps.length === 1 ? 'פריט' : 'פריטים'} חסרים).
               </p>
             </div>
@@ -493,7 +512,7 @@ export default function PatientOverview() {
                       intakeIncomplete
                     )} ${
                       intakeIncomplete
-                        ? 'text-blue-900 hover:bg-blue-50/50'
+                        ? 'text-purple-900 hover:bg-purple-50/50'
                         : 'text-emerald-800 hover:bg-emerald-50/50'
                     }`}
                   >

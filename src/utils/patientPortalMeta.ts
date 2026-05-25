@@ -164,10 +164,10 @@ export function patientRosterStatusBadge(
       className: 'bg-sky-50 text-sky-900 border-sky-200',
     };
   }
-  if (p.status === 'paused') {
+  if (p.status === 'paused' || p.status === 'frozen') {
     return {
-      label: 'מושהה',
-      className: 'bg-slate-50 text-slate-700 border-gray-200',
+      label: 'מוקפא',
+      className: 'bg-violet-50 text-violet-900 border-violet-200',
     };
   }
   if (p.status === 'pending') {

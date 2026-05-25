@@ -30,6 +30,10 @@ import {
   getPatientDataUpdateGaps,
   isUnhandledAiSuggestion,
 } from '../../utils/patientRosterMetrics';
+import {
+  collectDismissedRecommendationTypeSignatures,
+  recommendationTypeDismissalSignature,
+} from '../../utils/clinicalAiQueueMerge';
 
 const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'overview', label: 'לוח מטפל', icon: LayoutDashboard },
@@ -43,13 +47,15 @@ const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ cla
 const statusColors: Record<string, string> = {
   active: '#059669',
   pending: '#d97706',
-  paused: '#475569',
+  paused: '#7c3aed',
+  frozen: '#7c3aed',
 };
 
 const statusLabels: Record<string, string> = {
   active: 'פעיל',
   pending: 'ממתין',
-  paused: 'מושהה',
+  paused: 'מוקפא',
+  frozen: 'מוקפא',
 };
 
 type Props = {
@@ -88,10 +94,20 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
   const totalRedFlags = patients.filter((p) => p.hasRedFlag).length;
   const pendingApprovals = getTotalAwaitingTherapistCount();
 
-  const pendingAiCountForPatient = (patientId: string) =>
-    aiSuggestions.filter(
-      (s) => s.patientId === patientId && isUnhandledAiSuggestion(s)
-    ).length;
+  const pendingAiCountForPatient = (patientId: string) => {
+    const patientRow = patients.find((p) => p.id === patientId);
+    const dismissedTypeSignatures = collectDismissedRecommendationTypeSignatures(
+      aiSuggestions,
+      patientId,
+      patientRow?.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? []
+    );
+    return aiSuggestions.filter((s) => {
+      if (s.patientId !== patientId || !isUnhandledAiSuggestion(s)) return false;
+      return !dismissedTypeSignatures.has(
+        recommendationTypeDismissalSignature(patientId, s.type)
+      );
+    }).length;
+  };
 
   const sidebarSafetyAlerts = safetyAlerts.filter((a) => !isProlongedAbsenceSafetyAlert(a));
 
@@ -292,7 +308,7 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
                           aria-label={[
                             showRedFlagBadge ? 'דגל אדום' : null,
                             pendingAiCount > 0 ? `${pendingAiCount} המלצות AI במתן` : null,
-                            dataUpdateGapCount > 0 ? `${dataUpdateGapCount} טעוני עדכון` : null,
+                            dataUpdateGapCount > 0 ? `${dataUpdateGapCount} צריכים עדכון נתונים` : null,
                           ]
                             .filter(Boolean)
                             .join(', ')}
@@ -306,7 +322,7 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
                           )}
                           {pendingAiCount > 0 && (
                             <span
-                              className={`${clinicalBadgeBase} bg-amber-500 text-white`}
+                              className={`${clinicalBadgeBase} bg-yellow-500 text-white`}
                               title={`${pendingAiCount} המלצות AI במתן`}
                               aria-hidden
                             >
@@ -315,8 +331,8 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
                           )}
                           {dataUpdateGapCount > 0 && (
                             <span
-                              className={`${clinicalBadgeBase} bg-blue-500 text-white`}
-                              title={`${dataUpdateGapCount} טעוני עדכון`}
+                              className={`${clinicalBadgeBase} bg-purple-500 text-white`}
+                              title={`${dataUpdateGapCount} צריכים עדכון נתונים`}
                               aria-hidden
                             >
                               {dataUpdateGapCount}

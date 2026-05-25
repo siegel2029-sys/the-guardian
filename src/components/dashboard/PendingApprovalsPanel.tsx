@@ -106,6 +106,11 @@ function ApprovalCard({
   );
 }
 
+import {
+  collectDismissedRecommendationTypeSignatures,
+  recommendationTypeDismissalSignature,
+} from '../../utils/clinicalAiQueueMerge';
+
 export default function PendingApprovalsPanel() {
   const {
     selectedPatient,
@@ -117,8 +122,19 @@ export default function PendingApprovalsPanel() {
 
   if (!selectedPatient) return null;
 
+  const dismissedTypeSignatures = collectDismissedRecommendationTypeSignatures(
+    aiSuggestions,
+    selectedPatient.id,
+    selectedPatient.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? []
+  );
+
   const awaiting = aiSuggestions.filter(
-    (s) => s.patientId === selectedPatient.id && s.status === 'awaiting_therapist'
+    (s) =>
+      s.patientId === selectedPatient.id &&
+      s.status === 'awaiting_therapist' &&
+      !dismissedTypeSignatures.has(
+        recommendationTypeDismissalSignature(selectedPatient.id, s.type)
+      )
   );
 
   if (awaiting.length === 0) return null;

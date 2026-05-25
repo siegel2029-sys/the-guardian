@@ -10,13 +10,13 @@ export type AvatarPresentationState = {
 
 /** מצב תצוגה ויזואלי (אווטאר) — נגזר מסטטוס, דגל אדום וכאב אחרון */
 export function getPatientAvatarPresentation(p: Patient): AvatarPresentationState {
-  if (p.status === 'paused') {
+  if (p.status === 'paused' || p.status === 'frozen') {
     return {
-      labelHe: 'מושהה',
+      labelHe: 'מוקפא',
       subtitleHe: 'התוכנית אינה פעילה כרגע',
-      ringClass: 'ring-slate-300',
-      badgeBg: '#e2e8f0',
-      badgeText: '#475569',
+      ringClass: 'ring-violet-300',
+      badgeBg: '#ede9fe',
+      badgeText: '#5b21b6',
     };
   }
   if (p.status === 'pending') {

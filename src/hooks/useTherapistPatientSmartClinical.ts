@@ -9,7 +9,9 @@ import { getGeminiApiKey } from '../ai/geminiClient';
 import { getPatientDisplayName } from '../utils/patientDisplayName';
 import {
   clinicalRecommendationCategoryKey,
+  collectDismissedRecommendationTypeSignatures,
   collectRecentTherapistReviewedSuggestions,
+  recommendationTypeDismissalSignature,
   therapistReviewedCategoryKeySet,
 } from '../utils/clinicalAiQueueMerge';
 
@@ -215,6 +217,12 @@ export function useTherapistPatientSmartClinical(
   const pendingRecommendations = useMemo((): PendingClinicalRecommendation[] => {
     if (!patientId) return [];
 
+    const dismissedTypeSignatures = collectDismissedRecommendationTypeSignatures(
+      aiSuggestions ?? [],
+      patientId,
+      patient?.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? []
+    );
+
     const excludedCategoryKeys = therapistReviewedCategoryKeySet(
       collectRecentTherapistReviewedSuggestions(
         aiSuggestions ?? [],
@@ -224,12 +232,13 @@ export function useTherapistPatientSmartClinical(
     );
 
     return (aiSuggestions ?? [])
-      .filter(
-        (s) =>
-          s?.patientId === patientId &&
-          s.status === 'awaiting_therapist' &&
-          !excludedCategoryKeys.has(clinicalRecommendationCategoryKey(s))
-      )
+      .filter((s) => {
+        if (s?.patientId !== patientId || s.status !== 'awaiting_therapist') return false;
+        const signature = recommendationTypeDismissalSignature(patientId, s.type);
+        if (dismissedTypeSignatures.has(signature)) return false;
+        if (excludedCategoryKeys.has(clinicalRecommendationCategoryKey(s))) return false;
+        return true;
+      })
       .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
       .map((s) => ({
         id: s.id,
@@ -242,7 +251,12 @@ export function useTherapistPatientSmartClinical(
         reason: s.reason ?? '',
         source: s.source,
       }));
-  }, [patientId, aiSuggestions, clinicalToday]);
+  }, [
+    patientId,
+    patient?.clinicalInsightsQueue?.dismissedRecommendationSignatures,
+    aiSuggestions,
+    clinicalToday,
+  ]);
 
   /** Clear loading after synchronous evaluation (success, empty, or caught error). */
   useEffect(() => {

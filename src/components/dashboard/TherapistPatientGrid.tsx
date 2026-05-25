@@ -11,15 +11,18 @@ import {
 import type { Patient } from '../../types';
 import {
   patientHasPendingAiAdjustments,
+  patientIsActive,
+  patientIsFrozenStatus,
   patientNeedsDataUpdate,
 } from '../../utils/patientRosterMetrics';
 
 export type RosterFilterKey =
-  | 'total'
+  | 'all'
+  | 'active'
   | 'needsDataUpdate'
   | 'pendingAiAdjustments'
   | 'redFlags'
-  | 'paused';
+  | 'frozen';
 
 function rosterAvatarLabel(p: Patient): string {
   const name = getPatientDisplayName(p).trim();
@@ -28,18 +31,22 @@ function rosterAvatarLabel(p: Patient): string {
 }
 
 function selectValueFromFilterKey(key: RosterFilterKey): string {
-  if (key === 'total') return 'all';
+  if (key === 'all') return 'all';
+  if (key === 'active') return 'active';
   if (key === 'redFlags') return 'red_flags';
   if (key === 'needsDataUpdate') return 'needs_data_update';
   if (key === 'pendingAiAdjustments') return 'pending_ai';
+  if (key === 'frozen') return 'frozen';
   return key;
 }
 
 function filterKeyFromSelect(v: string): RosterFilterKey {
-  if (v === 'all') return 'total';
+  if (v === 'all') return 'all';
+  if (v === 'active') return 'active';
   if (v === 'red_flags') return 'redFlags';
   if (v === 'needs_data_update') return 'needsDataUpdate';
   if (v === 'pending_ai') return 'pendingAiAdjustments';
+  if (v === 'frozen') return 'frozen';
   return v as RosterFilterKey;
 }
 
@@ -67,14 +74,25 @@ export default function TherapistPatientGrid({
     const q = search.trim().toLowerCase();
     return patients.filter((p) => {
       switch (rosterFilterKey) {
+        case 'active':
+          if (!patientIsActive(p)) return false;
+          break;
         case 'needsDataUpdate':
           if (!patientNeedsDataUpdate(p)) return false;
           break;
         case 'pendingAiAdjustments':
-          if (!patientHasPendingAiAdjustments(p.id, aiSuggestions)) return false;
+          if (
+            !patientHasPendingAiAdjustments(
+              p.id,
+              aiSuggestions,
+              p.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? []
+            )
+          ) {
+            return false;
+          }
           break;
-        case 'paused':
-          if (p.status !== 'paused') return false;
+        case 'frozen':
+          if (!patientIsFrozenStatus(p)) return false;
           break;
         case 'redFlags':
           if (!p.hasRedFlag) return false;
@@ -119,9 +137,10 @@ export default function TherapistPatientGrid({
             aria-label="סינון לפי סטטוס"
           >
             <option value="all">כל הסטטוסים</option>
-            <option value="needs_data_update">טעוני עדכון</option>
+            <option value="active">פעילים</option>
+            <option value="needs_data_update">צריכים עדכון נתונים</option>
             <option value="pending_ai">המלצות AI במתן</option>
-            <option value="paused">מושהה</option>
+            <option value="frozen">מוקפא</option>
             <option value="red_flags">דגלים אדומים</option>
           </select>
         </div>

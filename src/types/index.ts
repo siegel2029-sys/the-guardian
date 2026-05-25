@@ -96,7 +96,7 @@ export interface PatientAnalytics {
   sessionHistory: ExerciseSession[];
 }
 
-export type PatientStatus = 'active' | 'pending' | 'paused';
+export type PatientStatus = 'active' | 'pending' | 'paused' | 'frozen';
 /** רמת התקדמות מטופל (1–100) — XP ואווטאר משתנים לפי הסקאלה המלאה */
 export type ExerciseLevel = number;
 
@@ -466,6 +466,8 @@ export type PatientClinicalInsightsQueue = {
   aiSuggestions: AiSuggestion[];
   safetyAlerts: SafetyAlert[];
   syncedAt?: string;
+  /** Permanent `${patientId}-${type}` blocks after therapist dismissal. */
+  dismissedRecommendationSignatures?: string[];
 };
 
 export type AiSuggestionType = 'increase_reps' | 'increase_sets' | 'reduce_reps' | 'add_exercise';

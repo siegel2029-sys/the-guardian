@@ -1,6 +1,8 @@
 import type { AiSuggestion } from '../types';
 import { addClinicalDays } from './clinicalCalendar';
 
+const DISMISSED_SIGS_STORAGE_KEY = 'guardian-dismissed-recommendation-signatures-v1';
+
 const CLINICAL_ENGINE_SOURCES = new Set<AiSuggestion['source']>([
   'clinical_recommendation_engine',
   undefined,
@@ -10,6 +12,79 @@ const CLINICAL_ENGINE_SOURCES = new Set<AiSuggestion['source']>([
 export const THERAPIST_REVIEW_HISTORY_DAYS = 14;
 
 const TERMINAL_THERAPIST_STATUSES = new Set<AiSuggestion['status']>(['approved', 'dismissed']);
+
+/** Stable block key: one dismissal suppresses all future recs of the same type for this patient. */
+export function recommendationTypeDismissalSignature(
+  patientId: string,
+  type: AiSuggestion['type']
+): string {
+  return `${patientId}-${type}`;
+}
+
+function readLocalDismissedSigMap(): Record<string, string[]> {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(DISMISSED_SIGS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object') return {};
+    const out: Record<string, string[]> = {};
+    for (const [patientId, sigs] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!Array.isArray(sigs)) continue;
+      const clean = sigs.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+      if (clean.length > 0) out[patientId] = [...new Set(clean)];
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeLocalDismissedSigMap(map: Record<string, string[]>): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(DISMISSED_SIGS_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+/** Immediate local persistence — survives refresh before cloud shard sync completes. */
+export function appendLocalDismissedRecommendationSignature(
+  patientId: string,
+  signature: string
+): void {
+  const map = readLocalDismissedSigMap();
+  const prev = map[patientId] ?? [];
+  if (prev.includes(signature)) return;
+  map[patientId] = [...prev, signature];
+  writeLocalDismissedSigMap(map);
+}
+
+export function collectDismissedRecommendationTypeSignatures(
+  aiSuggestions: AiSuggestion[],
+  patientId: string,
+  extraSignatures: Iterable<string> = []
+): Set<string> {
+  const set = new Set<string>(extraSignatures);
+  for (const s of aiSuggestions) {
+    if (s.patientId !== patientId) continue;
+    if (s.status === 'dismissed') {
+      set.add(recommendationTypeDismissalSignature(patientId, s.type));
+    }
+  }
+  const local = readLocalDismissedSigMap()[patientId] ?? [];
+  for (const sig of local) set.add(sig);
+  return set;
+}
+
+export function isRecommendationTypeDismissed(
+  patientId: string,
+  type: AiSuggestion['type'],
+  dismissedSignatures: Set<string>
+): boolean {
+  return dismissedSignatures.has(recommendationTypeDismissalSignature(patientId, type));
+}
 
 export function isTerminalTherapistAiSuggestionStatus(status: AiSuggestion['status']): boolean {
   return TERMINAL_THERAPIST_STATUSES.has(status);
@@ -139,6 +214,8 @@ export type MergeClinicalRecommendationResult = {
 export type MergeClinicalRecommendationOptions = {
   /** Category keys blocked because therapist recently approved/dismissed them. */
   excludedCategoryKeys?: Set<string>;
+  /** Permanent `${patientId}-${type}` blocks after therapist dismissal. */
+  excludedTypeSignatures?: Set<string>;
 };
 
 /**
@@ -158,6 +235,11 @@ export function mergeClinicalRecommendationIntoQueue(
 
   const categoryKey = clinicalRecommendationCategoryKey(incoming);
   if (options?.excludedCategoryKeys?.has(categoryKey)) {
+    return { next: prev, changed: false };
+  }
+
+  const typeSignature = recommendationTypeDismissalSignature(patientId, incoming.type);
+  if (options?.excludedTypeSignatures?.has(typeSignature)) {
     return { next: prev, changed: false };
   }
 
