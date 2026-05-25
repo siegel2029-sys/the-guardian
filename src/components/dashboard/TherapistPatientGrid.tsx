@@ -3,7 +3,7 @@ import { ClipboardList, Activity, Search } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import {
-  formatPatientLastVisitHe,
+  formatPatientLastClinicalActivityHe,
   patientLastVisitValueParts,
   patientMatchesRosterSearch,
   patientRosterStatusBadge,
@@ -124,7 +124,7 @@ export default function TherapistPatientGrid({
             const plan = getExercisePlan(p.id);
             const n = plan?.exercises.length ?? 0;
             const statusBadge = patientRosterStatusBadge(p);
-            const lastVisit = formatPatientLastVisitHe(p.lastActivityTimestamp, clinicalToday);
+            const lastVisit = formatPatientLastClinicalActivityHe(p, clinicalToday);
             const visitValueParts = patientLastVisitValueParts(lastVisit);
 
             return (

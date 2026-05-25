@@ -13,7 +13,7 @@ export type PatientLastVisitTone = 'today' | 'neutral' | 'stale';
 
 export function patientLastVisitTone(label: PatientLastVisitLabel): PatientLastVisitTone {
   if (label.visitedToday) return 'today';
-  if (label.daysSinceVisit != null && label.daysSinceVisit > 5 && label.daysSinceVisit <= 7) {
+  if (label.daysSinceVisit != null && label.daysSinceVisit > 5) {
     return 'stale';
   }
   return 'neutral';
@@ -36,8 +36,73 @@ export function patientLastVisitValueParts(label: PatientLastVisitLabel): Patien
         { text: ' ימים' },
       ];
     }
+    return [{ text: label.text, className: 'text-red-600 font-bold' }];
   }
   return [{ text: label.text, className: 'text-slate-700 font-medium' }];
+}
+
+/** Latest clinical day with a logged session or pain report (ignores stale portal timestamps). */
+export function getLatestPatientClinicalActivityDay(patient: Patient): string | null {
+  const dayKeys: string[] = [];
+
+  for (const s of patient.analytics?.sessionHistory ?? []) {
+    const d = s.date?.slice(0, 10);
+    if (d) dayKeys.push(d);
+  }
+  for (const r of patient.analytics?.painHistory ?? []) {
+    const d = r.date?.slice(0, 10);
+    if (d) dayKeys.push(d);
+  }
+  if (patient.lastSessionDate?.trim()) {
+    dayKeys.push(patient.lastSessionDate.slice(0, 10));
+  }
+
+  if (dayKeys.length === 0) return null;
+  return dayKeys.sort((a, b) => b.localeCompare(a))[0];
+}
+
+function formatClinicalDayAsLastVisit(visitDay: string, clinicalToday: string): PatientLastVisitLabel {
+  const daysSinceVisit = clinicalDaysBetween(visitDay, clinicalToday);
+
+  if (visitDay === clinicalToday) {
+    return { text: 'ביקר היום', visitedToday: true, daysSinceVisit: 0 };
+  }
+  const yesterday = addClinicalDays(clinicalToday, -1);
+  if (visitDay === yesterday) {
+    return { text: 'אתמול', visitedToday: false, daysSinceVisit: 1 };
+  }
+  const twoDaysAgo = addClinicalDays(clinicalToday, -2);
+  if (visitDay === twoDaysAgo) {
+    return { text: 'לפני יומיים', visitedToday: false, daysSinceVisit: 2 };
+  }
+
+  if (daysSinceVisit > 2 && daysSinceVisit <= 7) {
+    return {
+      text: `לפני ${daysSinceVisit} ימים`,
+      visitedToday: false,
+      daysSinceVisit,
+    };
+  }
+
+  const [y, m, d] = visitDay.split('-').map((x) => parseInt(x, 10));
+  const parsed = new Date(y, m - 1, d);
+  return {
+    text: parsed.toLocaleDateString('he-IL', { day: 'numeric', month: 'short', year: 'numeric' }),
+    visitedToday: false,
+    daysSinceVisit,
+  };
+}
+
+/** Last-visit label derived from session/pain history — same source as absence detection. */
+export function formatPatientLastClinicalActivityHe(
+  patient: Patient,
+  clinicalToday: string
+): PatientLastVisitLabel {
+  const latestDay = getLatestPatientClinicalActivityDay(patient);
+  if (!latestDay) {
+    return { text: 'טרם ביקר', visitedToday: false, daysSinceVisit: null };
+  }
+  return formatClinicalDayAsLastVisit(latestDay, clinicalToday);
 }
 
 /** Clinical day (04:00 rollover) for an ISO timestamp. */
@@ -64,33 +129,7 @@ export function formatPatientLastVisitHe(
   }
 
   const visitDay = clinicalDayFromIso(iso);
-  const daysSinceVisit = clinicalDaysBetween(visitDay, clinicalToday);
-
-  if (visitDay === clinicalToday) {
-    return { text: 'ביקר היום', visitedToday: true, daysSinceVisit: 0 };
-  }
-  const yesterday = addClinicalDays(clinicalToday, -1);
-  if (visitDay === yesterday) {
-    return { text: 'אתמול', visitedToday: false, daysSinceVisit: 1 };
-  }
-  const twoDaysAgo = addClinicalDays(clinicalToday, -2);
-  if (visitDay === twoDaysAgo) {
-    return { text: 'לפני יומיים', visitedToday: false, daysSinceVisit: 2 };
-  }
-
-  if (daysSinceVisit > 2 && daysSinceVisit <= 7) {
-    return {
-      text: `לפני ${daysSinceVisit} ימים`,
-      visitedToday: false,
-      daysSinceVisit,
-    };
-  }
-
-  return {
-    text: parsed.toLocaleDateString('he-IL', { day: 'numeric', month: 'short', year: 'numeric' }),
-    visitedToday: false,
-    daysSinceVisit,
-  };
+  return formatClinicalDayAsLastVisit(visitDay, clinicalToday);
 }
 
 function clinicalDateToMidnight(ymd: string): Date {

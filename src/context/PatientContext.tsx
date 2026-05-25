@@ -116,7 +116,7 @@ import {
   mergeClinicalInsightsSnapshots,
   pullClinicalInsightsFromPatientPayloads,
 } from '../utils/clinicalInsightsPayload';
-import { mergeProactiveAbsenceIntoClinicalQueue } from '../ai/proactiveAbsenceAlerts';
+import { purgeProactiveAbsenceFromClinicalQueue } from '../ai/proactiveAbsenceAlerts';
 import { useAuth } from './AuthContext';
 import { normalizeKnowledgeFactsList, tryBuildManualKnowledgeFactRow } from '../utils/knowledgeFactNormalize';
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
@@ -2961,23 +2961,16 @@ export function PatientProvider({
     isSupabaseConfigured,
   ]);
 
-  /** Prolonged absence (>5d) — structural support/regression queue + immediate cloud backup. */
+  /** Remove legacy prolonged-absence sidebar/queue items — roster card color handles absence. */
   useEffect(() => {
     if (restrictPatientSessionId) return;
     if (sessionRole !== 'therapist') return;
-    if (allPatients.length === 0) return;
 
-    const merged = mergeProactiveAbsenceIntoClinicalQueue(
-      allPatients,
-      exercisePlans,
-      clinicalToday,
-      safetyAlerts,
-      aiSuggestions
-    );
-    if (!merged.hasNewItems) return;
+    const purged = purgeProactiveAbsenceFromClinicalQueue(safetyAlerts, aiSuggestions);
+    if (!purged.changed) return;
 
-    setSafetyAlerts(merged.safetyAlerts);
-    setAiSuggestions(merged.aiSuggestions);
+    setSafetyAlerts(purged.safetyAlerts);
+    setAiSuggestions(purged.aiSuggestions);
 
     const snap = latestCloudPersistRef.current;
     if (snap) {
@@ -2985,15 +2978,12 @@ export function PatientProvider({
         immediate: true,
         persistSnapshotOverride: {
           ...snap,
-          safetyAlerts: merged.safetyAlerts,
-          aiSuggestions: merged.aiSuggestions,
+          safetyAlerts: purged.safetyAlerts,
+          aiSuggestions: purged.aiSuggestions,
         },
       });
     }
   }, [
-    allPatients,
-    exercisePlans,
-    clinicalToday,
     safetyAlerts,
     aiSuggestions,
     restrictPatientSessionId,

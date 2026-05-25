@@ -26,6 +26,7 @@ import { usePatient } from '../../context/PatientContext';
 import type { NavSection } from '../../types';
 import SidebarNewPatient from './SidebarNewPatient';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
+import { isProlongedAbsenceSafetyAlert } from '../../ai/proactiveAbsenceAlerts';
 
 const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'overview', label: 'לוח מטפל', icon: LayoutDashboard },
@@ -86,6 +87,8 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
 
   const awaitingForPatient = (patientId: string) =>
     aiSuggestions.filter((s) => s.patientId === patientId && s.status === 'awaiting_therapist').length;
+
+  const sidebarSafetyAlerts = safetyAlerts.filter((a) => !isProlongedAbsenceSafetyAlert(a));
 
   const goTherapistDashboardHome = () => {
     selectPatient('', { openSection: 'overview' });
@@ -293,14 +296,14 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
           </PortalDropdown>
         </div>
 
-      {safetyAlerts.length > 0 && (
+      {sidebarSafetyAlerts.length > 0 && (
         <div className="px-3 py-2 border-b-2 border-red-300 shrink-0 max-h-40 overflow-y-auto bg-red-50">
           <p className="text-[10px] font-black text-red-950 uppercase tracking-wider mb-2 px-1 flex items-center gap-1.5">
             <AlertOctagon className="w-3.5 h-3.5 shrink-0" strokeWidth={2.5} />
             התראות בטיחות
           </p>
           <ul className="space-y-2">
-            {[...safetyAlerts]
+            {[...sidebarSafetyAlerts]
               .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
               .map((alert) => {
                 const pRow = patients.find((x) => x.id === alert.patientId);
