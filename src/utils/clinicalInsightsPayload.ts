@@ -78,17 +78,48 @@ export function pullClinicalInsightsFromPatientPayloads(
   };
 }
 
-/** Merge server-pulled insights with local state (union by id; newer `createdAt` wins). */
+const TERMINAL_AI_SUGGESTION_STATUSES = new Set(['approved', 'declined', 'dismissed']);
+
+function isTerminalAiSuggestionStatus(status: string): boolean {
+  return TERMINAL_AI_SUGGESTION_STATUSES.has(status);
+}
+
+function pickNewerAiSuggestion(local: AiSuggestion, remote: AiSuggestion): AiSuggestion {
+  const localTerminal = isTerminalAiSuggestionStatus(local.status);
+  const remoteTerminal = isTerminalAiSuggestionStatus(remote.status);
+
+  if (localTerminal && !remoteTerminal) return local;
+  if (remoteTerminal && !localTerminal) return remote;
+
+  const localReviewed = local.reviewedAt ?? local.createdAt;
+  const remoteReviewed = remote.reviewedAt ?? remote.createdAt;
+  if (localTerminal && remoteTerminal) {
+    return localReviewed.localeCompare(remoteReviewed) >= 0 ? local : remote;
+  }
+
+  return local.createdAt.localeCompare(remote.createdAt) >= 0 ? local : remote;
+}
+
+/** Merge server-pulled insights with local state (union by id; terminal therapist decisions win). */
 export function mergeClinicalInsightsSnapshots(
   local: ClinicalInsightsSnapshot,
   remote: ClinicalInsightsSnapshot
 ): ClinicalInsightsSnapshot {
+  const mergeAiSuggestions = (a: AiSuggestion[], b: AiSuggestion[]): AiSuggestion[] => {
+    const map = new Map<string, AiSuggestion>();
+    for (const row of [...a, ...b]) {
+      const prev = map.get(row.id);
+      map.set(row.id, prev ? pickNewerAiSuggestion(prev, row) : row);
+    }
+    return [...map.values()].sort((x, y) => y.createdAt.localeCompare(x.createdAt));
+  };
+
   const mergeById = <T extends { id: string; createdAt: string }>(
-    a: T[],
-    b: T[]
+    left: T[],
+    right: T[]
   ): T[] => {
     const map = new Map<string, T>();
-    for (const row of [...a, ...b]) {
+    for (const row of [...left, ...right]) {
       const prev = map.get(row.id);
       if (!prev || row.createdAt.localeCompare(prev.createdAt) >= 0) {
         map.set(row.id, row);
@@ -96,8 +127,9 @@ export function mergeClinicalInsightsSnapshots(
     }
     return [...map.values()].sort((x, y) => y.createdAt.localeCompare(x.createdAt));
   };
+
   return {
-    aiSuggestions: mergeById(local.aiSuggestions, remote.aiSuggestions),
+    aiSuggestions: mergeAiSuggestions(local.aiSuggestions, remote.aiSuggestions),
     safetyAlerts: mergeById(local.safetyAlerts, remote.safetyAlerts),
   };
 }

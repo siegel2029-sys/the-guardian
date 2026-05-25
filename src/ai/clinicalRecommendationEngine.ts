@@ -33,6 +33,11 @@ import {
 } from './patientProgressReasoning';
 import { geminiGenerateText, getGeminiApiKey } from './geminiClient';
 import { parseJsonObject } from './geminiClinicalIntake';
+import {
+  buildTherapistReviewHistoryPromptSection,
+  clinicalRecommendationCategoryKey,
+  type TherapistReviewedSuggestion,
+} from '../utils/clinicalAiQueueMerge';
 
 const LOG_PREFIX = '[ClinicalRecommendationEngine]';
 
@@ -331,6 +336,11 @@ function normalizeGeminiRecommendation(
   };
 }
 
+export type TherapistReviewHistoryEntry = Pick<
+  TherapistReviewedSuggestion,
+  'categoryKey' | 'status' | 'type' | 'field' | 'exerciseName' | 'reason'
+>;
+
 export type GenerateClinicalRecommendationParams = {
   patient: Patient;
   clinicalExercises: PatientExercise[];
@@ -343,6 +353,8 @@ export type GenerateClinicalRecommendationParams = {
    * `awaiting_therapist` — system/therapist-facing queue (skips patient consent).
    */
   defaultStatus?: AiSuggestionStatus;
+  /** Recently therapist-approved/dismissed recommendations — injected into Gemini context. */
+  therapistReviewHistory?: TherapistReviewHistoryEntry[];
 };
 
 /**
@@ -358,6 +370,7 @@ export async function generateClinicalRecommendation(
     clinicalToday,
     dayMap,
     defaultStatus = 'pending',
+    therapistReviewHistory = [],
   } = params;
 
   if (clinicalExercises.length === 0) return null;
@@ -376,12 +389,24 @@ export async function generateClinicalRecommendation(
   }
 
   const byId = new Map(clinicalExercises.map((e) => [e.id, e]));
+  const excludedCategoryKeys = new Set(therapistReviewHistory.map((r) => r.categoryKey));
+  const reviewPromptSection = buildTherapistReviewHistoryPromptSection(
+    therapistReviewHistory.map((r) => ({
+      ...r,
+      reviewedAt: '',
+    }))
+  );
+
   const heuristic = heuristicAdjustment(
     patient.id,
     clinicalExercises,
     tracking,
     defaultStatus
   );
+
+  if (heuristic && excludedCategoryKeys.has(clinicalRecommendationCategoryKey(heuristic))) {
+    return null;
+  }
 
   if (!getGeminiApiKey()) {
     return heuristic;
@@ -430,6 +455,13 @@ Decision rules:
       ? `
 
 Mandatory extra instruction: ${reengagementExtra}`
+      : ''
+  }${
+    reviewPromptSection
+      ? `
+
+Therapist review history (MUST respect — do not repeat dismissed adjustments):
+${reviewPromptSection}`
       : ''
   }`;
 
@@ -480,6 +512,12 @@ Return JSON only.`;
       byId,
       defaultStatus
     );
+    if (
+      normalized &&
+      excludedCategoryKeys.has(clinicalRecommendationCategoryKey(normalized))
+    ) {
+      return null;
+    }
     if (normalized) return normalized;
   } catch (e) {
     console.warn(`${LOG_PREFIX} Gemini failed, using heuristic`, e);

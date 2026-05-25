@@ -1,16 +1,21 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
-import type { AiSuggestion, BodyArea, DailyHistoryEntry, ExercisePlan, Message, Patient } from '../types';
+import type { AiSuggestion, BodyArea, DailyHistoryEntry, ExercisePlan, Message, Patient, SafetyAlert } from '../types';
 import { bodyAreaBlocksSelfCare } from '../body/bodyPickMapping';
 import { computeClinicalProgressInsight } from '../ai/clinicalCommandInsight';
 import {
   consolidateClinicalTracking,
   generateClinicalRecommendation,
+  type TherapistReviewHistoryEntry,
 } from '../ai/clinicalRecommendationEngine';
 import {
   upsertPatientRecords,
   upsertTherapistProfilesForPatients,
+  persistPatientClinicalInsightsQueue,
+  logRecommendationDismissAudit,
+  logRecommendationApprovalAudit,
 } from '../services/clinicalService';
 import { supabase } from '../lib/supabase';
+import { pullPersistedState } from '../lib/supabaseSync';
 import {
   applyTherapistClinicalCycle,
   applyTherapistPrimaryFocus,
@@ -20,6 +25,10 @@ import {
   appendTherapistNoteToReason,
   mergeClinicalRecommendationIntoQueue,
   newClinicalAssessmentSuggestionId,
+  collectRecentTherapistReviewedSuggestions,
+  therapistReviewedCategoryKeySet,
+  clinicalRecommendationCategoryKey,
+  type TherapistReviewedSuggestion,
 } from '../utils/clinicalAiQueueMerge';
 
 function applySelfCareZonesForPatientUpdate(
@@ -50,7 +59,9 @@ export type UseClinicalDataParams = {
     React.SetStateAction<Record<string, BodyArea[]>>
   >;
   exercisePlans: ExercisePlan[];
+  aiSuggestions: AiSuggestion[];
   setAiSuggestions: React.Dispatch<React.SetStateAction<AiSuggestion[]>>;
+  safetyAlerts?: SafetyAlert[];
   clinicalToday: string;
   dailyHistoryByPatient?: Record<string, Record<string, DailyHistoryEntry>>;
   /** Patient portal — skip `profiles` upsert; only own `patients` row. */
@@ -65,7 +76,9 @@ export function useClinicalData({
   setMessages,
   setSelfCareZonesByPatientId,
   exercisePlans,
+  aiSuggestions,
   setAiSuggestions,
+  safetyAlerts = [],
   clinicalToday,
   dailyHistoryByPatient = {},
   restrictPatientSessionId = null,
@@ -130,6 +143,119 @@ export function useClinicalData({
     [setAllPatients]
   );
 
+  const resolveTherapistReviewHistory = useCallback(
+    async (patientId: string): Promise<TherapistReviewedSuggestion[]> => {
+      const local = collectRecentTherapistReviewedSuggestions(
+        aiSuggestions,
+        patientId,
+        clinicalToday
+      );
+
+      if (!supabase || restrictPatientSessionId) {
+        return local;
+      }
+
+      try {
+        const pulled = await pullPersistedState(supabase, { onlyPatientId: patientId });
+        if (!pulled.ok) return local;
+        const remote = collectRecentTherapistReviewedSuggestions(
+          pulled.clinicalInsights.aiSuggestions,
+          patientId,
+          clinicalToday
+        );
+        const byKey = new Map<string, TherapistReviewedSuggestion>();
+        for (const row of [...remote, ...local]) {
+          const prev = byKey.get(row.categoryKey);
+          if (!prev || row.reviewedAt.localeCompare(prev.reviewedAt) >= 0) {
+            byKey.set(row.categoryKey, row);
+          }
+        }
+        return [...byKey.values()].sort((a, b) => b.reviewedAt.localeCompare(a.reviewedAt));
+      } catch {
+        return local;
+      }
+    },
+    [aiSuggestions, clinicalToday, restrictPatientSessionId]
+  );
+
+  const persistAiSuggestionQueueForPatient = useCallback(
+    async (patientId: string, nextSuggestions: AiSuggestion[]) => {
+      if (!supabase) return;
+      const patient = allPatients.find((p) => p.id === patientId);
+      if (!patient) return;
+
+      const now = new Date().toISOString();
+      const result = await persistPatientClinicalInsightsQueue(
+        supabase,
+        patient,
+        nextSuggestions,
+        safetyAlerts,
+        now
+      );
+      if (!result.ok && import.meta.env.DEV) {
+        console.warn('[useClinicalData] clinical insights queue persist failed', result.message);
+      }
+    },
+    [allPatients, safetyAlerts]
+  );
+
+  const commitTherapistAiSuggestionDecision = useCallback(
+    async (
+      suggestionId: string,
+      status: 'approved' | 'dismissed',
+      auditContext?: {
+        appliedPlanUpdates?: Record<string, unknown>;
+      }
+    ) => {
+      const reviewedAt = new Date().toISOString();
+      let updatedSuggestion: AiSuggestion | undefined;
+      let nextQueue: AiSuggestion[] = [];
+
+      setAiSuggestions((prev) => {
+        const found = prev.find((s) => s.id === suggestionId);
+        if (!found || found.status !== 'awaiting_therapist') {
+          nextQueue = prev;
+          return prev;
+        }
+        updatedSuggestion = { ...found, status, reviewedAt };
+        nextQueue = prev.map((s) => (s.id === suggestionId ? updatedSuggestion! : s));
+        return nextQueue;
+      });
+
+      if (!updatedSuggestion) return;
+
+      await persistAiSuggestionQueueForPatient(updatedSuggestion.patientId, nextQueue);
+      onClinicalQueueUpdated?.();
+
+      if (supabase) {
+        const patientRow = allPatients.find((p) => p.id === updatedSuggestion!.patientId);
+        const therapistId = patientRow?.therapistId?.trim();
+        if (therapistId) {
+          if (status === 'approved' && auditContext?.appliedPlanUpdates) {
+            void logRecommendationApprovalAudit(supabase, {
+              therapistId,
+              patientId: updatedSuggestion.patientId,
+              suggestion: updatedSuggestion,
+              appliedPlanUpdates: auditContext.appliedPlanUpdates,
+            });
+          } else if (status === 'dismissed') {
+            void logRecommendationDismissAudit(supabase, {
+              therapistId,
+              patientId: updatedSuggestion.patientId,
+              suggestion: updatedSuggestion,
+            });
+          }
+        }
+      }
+    },
+    [
+      allPatients,
+      onClinicalQueueUpdated,
+      persistAiSuggestionQueueForPatient,
+      setAiSuggestions,
+    ]
+  );
+
   const runClinicalAssessmentEngine = useCallback(
     (patientId: string, notes: string) => {
       const patient = allPatients.find((p) => p.id === patientId);
@@ -148,6 +274,19 @@ export function useClinicalData({
       }
 
       void (async () => {
+        const therapistReviewHistory = await resolveTherapistReviewHistory(patientId);
+        const excludedCategoryKeys = therapistReviewedCategoryKeySet(therapistReviewHistory);
+        const reviewHistoryForPrompt: TherapistReviewHistoryEntry[] = therapistReviewHistory.map(
+          (r) => ({
+            categoryKey: r.categoryKey,
+            status: r.status,
+            type: r.type,
+            field: r.field,
+            exerciseName: r.exerciseName,
+            reason: r.reason,
+          })
+        );
+
         const tracking = consolidateClinicalTracking({
           patient,
           clinicalToday,
@@ -174,6 +313,7 @@ export function useClinicalData({
           dayMap,
           longitudinalGate: gate,
           defaultStatus: 'awaiting_therapist',
+          therapistReviewHistory: reviewHistoryForPrompt,
         });
 
         let queueChanged = false;
@@ -182,13 +322,18 @@ export function useClinicalData({
           let candidate: AiSuggestion | null = null;
 
           if (engineRec) {
-            candidate = {
-              ...engineRec,
-              id: newClinicalAssessmentSuggestionId(patientId),
-              status: 'awaiting_therapist',
-              source: 'clinical_recommendation_engine',
-              reason: appendTherapistNoteToReason(engineRec.reason, notes),
-            };
+            const categoryKey = clinicalRecommendationCategoryKey(engineRec);
+            if (excludedCategoryKeys.has(categoryKey)) {
+              candidate = null;
+            } else {
+              candidate = {
+                ...engineRec,
+                id: newClinicalAssessmentSuggestionId(patientId),
+                status: 'awaiting_therapist',
+                source: 'clinical_recommendation_engine',
+                reason: appendTherapistNoteToReason(engineRec.reason, notes),
+              };
+            }
           } else if (
             insight.category === 'load_increase' ||
             insight.category === 'load_decrease' ||
@@ -204,7 +349,7 @@ export function useClinicalData({
                 : Math.max(currentValue + 1, Math.round(currentValue * 1.1));
 
               if (suggestedValue !== currentValue) {
-                candidate = {
+                const draft: AiSuggestion = {
                   id: newClinicalAssessmentSuggestionId(patientId),
                   patientId,
                   exerciseId: ex.id,
@@ -221,6 +366,9 @@ export function useClinicalData({
                   status: 'awaiting_therapist',
                   source: 'clinical_recommendation_engine',
                 };
+                candidate = excludedCategoryKeys.has(clinicalRecommendationCategoryKey(draft))
+                  ? null
+                  : draft;
               }
             }
           }
@@ -228,7 +376,8 @@ export function useClinicalData({
           const { next, changed } = mergeClinicalRecommendationIntoQueue(
             prev,
             patientId,
-            candidate
+            candidate,
+            { excludedCategoryKeys }
           );
           queueChanged = changed;
           return next;
@@ -245,6 +394,7 @@ export function useClinicalData({
       setAiSuggestions,
       setAllPatients,
       onClinicalQueueUpdated,
+      resolveTherapistReviewHistory,
     ]
   );
 
@@ -372,6 +522,7 @@ export function useClinicalData({
     setPatientContactWhatsapp,
     updateTherapistNotes,
     runClinicalAssessmentEngine,
+    commitTherapistAiSuggestionDecision,
     resetPatientPainReports,
     togglePatientInjuryHighlight,
     clearPatientInjuryHighlights,

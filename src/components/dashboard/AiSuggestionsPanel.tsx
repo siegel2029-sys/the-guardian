@@ -62,9 +62,10 @@ function HistoryCard({ suggestion }: { suggestion: AiSuggestion }) {
   const tc = typeConfig[suggestion.type] ?? typeConfig.increase_reps;
   const Icon = tc.icon;
   const approved = suggestion.status === 'approved';
+  const dismissed = suggestion.status === 'dismissed' || suggestion.status === 'declined';
   const sc = approved
     ? { label: 'אושר', icon: CheckCircle2, color: '#059669', bg: '#d1fae5' }
-    : { label: 'נדחה', icon: XCircle, color: '#ef4444', bg: '#fee2e2' };
+    : { label: dismissed ? 'נדחה על ידי מטפל' : 'נדחה', icon: XCircle, color: '#ef4444', bg: '#fee2e2' };
   const StatusIcon = sc.icon;
 
   return (
@@ -95,7 +96,9 @@ export default function AiSuggestionsPanel() {
 
   const patientSuggestions = aiSuggestions.filter((s) => s.patientId === selectedPatient.id);
   const pendingPatient = patientSuggestions.filter((s) => s.status === 'pending');
-  const history = patientSuggestions.filter((s) => s.status === 'approved' || s.status === 'declined');
+  const history = patientSuggestions.filter(
+    (s) => s.status === 'approved' || s.status === 'declined' || s.status === 'dismissed'
+  );
 
   if (pendingPatient.length === 0 && history.length === 0) return null;
 

@@ -44,7 +44,7 @@ import {
   normalizePortalUsername,
   isValidPortalUsername,
 } from '../lib/patientPortalAuth';
-import { mergeSessionCompletionByDateMaps, upsertPatientRecords, fetchActiveExercisePlanForPatient, logRecommendationApprovalAudit } from '../services/clinicalService';
+import { mergeSessionCompletionByDateMaps, upsertPatientRecords, fetchActiveExercisePlanForPatient } from '../services/clinicalService';
 import {
   upsertDailySessionRowMerged,
   persistPatientFinishReportToCloud,
@@ -914,15 +914,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
 
   const therapistApproveAiSuggestion = useCallback(
     (suggestionId: string) => {
-      let found: AiSuggestion | undefined;
-      setAiSuggestions((prev) => {
-        found = prev.find((s) => s.id === suggestionId);
-        if (!found || found.status !== 'awaiting_therapist') return prev;
-        return prev.map((s) =>
-          s.id === suggestionId ? { ...s, status: 'approved' as const } : s
-        );
-      });
-      if (!found || found.status !== 'awaiting_therapist') return;
+      const found = aiSuggestions.find((s) => s.id === suggestionId);
+      if (!found || found.status !== 'awaiting_therapist') return null;
 
       const updates: Partial<
         Pick<PatientExercise, 'patientReps' | 'patientSets' | 'patientWeightKg' | 'holdSeconds'>
@@ -936,36 +929,19 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               : { patientWeightKg: found.suggestedValue };
 
       updateExerciseInPlan(found.patientId, found.exerciseId, updates);
-
-      if (supabaseClient) {
-        const patientRow = allPatients.find((p) => p.id === found!.patientId);
-        const therapistId = patientRow?.therapistId?.trim();
-        if (therapistId) {
-          void logRecommendationApprovalAudit(supabaseClient, {
-            therapistId,
-            patientId: found.patientId,
-            suggestion: found,
-            appliedPlanUpdates: updates,
-          }).then((res) => {
-            if (!res.ok && import.meta.env.DEV) {
-              console.warn('[therapistApproveAiSuggestion] audit log failed', res.message);
-            }
-          });
-        }
-      }
+      return { suggestion: found, appliedPlanUpdates: updates };
     },
-    [updateExerciseInPlan, supabaseClient, allPatients]
+    [aiSuggestions, updateExerciseInPlan]
   );
 
-  const therapistDeclineAiSuggestion = useCallback((suggestionId: string) => {
-    setAiSuggestions((prev) =>
-      prev.map((s) =>
-        s.id === suggestionId && s.status === 'awaiting_therapist'
-          ? { ...s, status: 'declined' as const }
-          : s
-      )
-    );
-  }, []);
+  const therapistDeclineAiSuggestion = useCallback(
+    (suggestionId: string) => {
+      const found = aiSuggestions.find((s) => s.id === suggestionId);
+      if (!found || found.status !== 'awaiting_therapist') return null;
+      return found;
+    },
+    [aiSuggestions]
+  );
 
   const submitGuardianRepsIncreaseRequest = useCallback(
     (

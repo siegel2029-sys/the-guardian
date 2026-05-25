@@ -470,7 +470,12 @@ export type PatientClinicalInsightsQueue = {
 
 export type AiSuggestionType = 'increase_reps' | 'increase_sets' | 'reduce_reps' | 'add_exercise';
 /** pending = מוצג למטופל; awaiting_therapist = המטופל אישר — ממתין לאישור מטפל לפני עדכון DB */
-export type AiSuggestionStatus = 'pending' | 'awaiting_therapist' | 'approved' | 'declined';
+export type AiSuggestionStatus =
+  | 'pending'
+  | 'awaiting_therapist'
+  | 'approved'
+  | 'declined'
+  | 'dismissed';
 
 export type AiSuggestionField = 'reps' | 'sets' | 'weight' | 'holdSeconds';
 
@@ -494,6 +499,8 @@ export interface AiSuggestion {
   reason: string;
   createdAt: string;
   status: AiSuggestionStatus;
+  /** ISO timestamp when therapist approved or dismissed (for review-window filtering). */
+  reviewedAt?: string;
   source?: AiSuggestionSource;
 }
 

@@ -2909,7 +2909,9 @@ export function PatientProvider({
     setMessages,
     setSelfCareZonesByPatientId,
     exercisePlans,
+    aiSuggestions,
     setAiSuggestions,
+    safetyAlerts,
     clinicalToday,
     dailyHistoryByPatient,
     restrictPatientSessionId,
@@ -2917,6 +2919,28 @@ export function PatientProvider({
       void savePersistedStateToCloud({ immediate: true });
     },
   });
+
+  const therapistApproveAiSuggestion = useCallback(
+    (suggestionId: string) => {
+      const result = exercise.therapistApproveAiSuggestion(suggestionId);
+      if (result) {
+        void clinical.commitTherapistAiSuggestionDecision(suggestionId, 'approved', {
+          appliedPlanUpdates: result.appliedPlanUpdates,
+        });
+      }
+    },
+    [exercise.therapistApproveAiSuggestion, clinical.commitTherapistAiSuggestionDecision]
+  );
+
+  const therapistDeclineAiSuggestion = useCallback(
+    (suggestionId: string) => {
+      const found = exercise.therapistDeclineAiSuggestion(suggestionId);
+      if (found) {
+        void clinical.commitTherapistAiSuggestionDecision(suggestionId, 'dismissed');
+      }
+    },
+    [exercise.therapistDeclineAiSuggestion, clinical.commitTherapistAiSuggestionDecision]
+  );
 
   /** Poll cloud clinical queue every 3 minutes (cross-device patient → therapist sync). */
   const CLINICAL_INSIGHTS_POLL_MS = 3 * 60 * 1000;
@@ -3377,8 +3401,8 @@ export function PatientProvider({
         getTotalAwaitingTherapistCount: exercise.getTotalAwaitingTherapistCount,
         patientAgreeToAiSuggestion: exercise.patientAgreeToAiSuggestion,
         patientDeclineAiSuggestion: exercise.patientDeclineAiSuggestion,
-        therapistApproveAiSuggestion: exercise.therapistApproveAiSuggestion,
-        therapistDeclineAiSuggestion: exercise.therapistDeclineAiSuggestion,
+        therapistApproveAiSuggestion,
+        therapistDeclineAiSuggestion,
         submitGuardianRepsIncreaseRequest: exercise.submitGuardianRepsIncreaseRequest,
         submitPatientAiPlanAdjustmentRequest: exercise.submitPatientAiPlanAdjustmentRequest,
         grantPatientCoins: gamification.grantPatientCoins,

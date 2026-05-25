@@ -9,6 +9,7 @@ import type {
   PainRecord,
   Patient,
   PatientExercise,
+  SafetyAlert,
   Therapist,
 } from '../types';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
@@ -37,6 +38,7 @@ import {
   markGlobalKbMigrationAttemptedForTherapist,
 } from '../lib/kbHydrationGate';
 import { fetchAppKnowledgeBaseFromSupabase } from './gamificationService';
+import { embedClinicalInsightsIntoPatients } from '../utils/clinicalInsightsPayload';
 
 /**
  * בסיס ידע גלובלי («הידעת?») — לא נמשך כאן בשאילתות קליניות.
@@ -784,6 +786,51 @@ export async function logRecommendationApprovalAudit(
       approvedAt: new Date().toISOString(),
     },
   });
+}
+
+/** Logs therapist dismissal of an AI clinical recommendation to `clinical_audit_logs`. */
+export async function logRecommendationDismissAudit(
+  client: SupabaseClient,
+  row: {
+    therapistId: string;
+    patientId: string;
+    suggestion: AiSuggestion;
+  }
+): Promise<ClinicalPushResult> {
+  return insertClinicalAuditLog(client, {
+    therapistId: row.therapistId,
+    patientId: row.patientId,
+    entityType: 'recommendation',
+    action: 'decline',
+    oldValue: row.suggestion,
+    newValue: {
+      suggestionId: row.suggestion.id,
+      dismissedAt: new Date().toISOString(),
+      status: 'dismissed',
+    },
+  });
+}
+
+/**
+ * Persists the full clinical insights queue shard for one patient to Supabase
+ * (`patients.payload.clinicalInsightsQueue`).
+ */
+export async function persistPatientClinicalInsightsQueue(
+  client: SupabaseClient,
+  patient: Patient,
+  aiSuggestions: AiSuggestion[],
+  safetyAlerts: SafetyAlert[],
+  now: string
+): Promise<ClinicalPushResult> {
+  const patientSuggestions = aiSuggestions.filter((s) => s.patientId === patient.id);
+  const patientAlerts = safetyAlerts.filter((a) => a.patientId === patient.id);
+  const [embedded] = embedClinicalInsightsIntoPatients(
+    [patient],
+    patientSuggestions,
+    patientAlerts,
+    now
+  );
+  return upsertPatientRecords(client, [embedded], now);
 }
 
 export type UpsertPatientRecordsOptions = {

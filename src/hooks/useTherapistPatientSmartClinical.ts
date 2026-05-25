@@ -7,6 +7,11 @@ import { buildUnifiedClinicalNarrative, type UnifiedClinicalNarrative } from '..
 import { analyzeSmartClinicalCenterWithGemini } from '../ai/geminiSmartClinicalCenter';
 import { getGeminiApiKey } from '../ai/geminiClient';
 import { getPatientDisplayName } from '../utils/patientDisplayName';
+import {
+  clinicalRecommendationCategoryKey,
+  collectRecentTherapistReviewedSuggestions,
+  therapistReviewedCategoryKeySet,
+} from '../utils/clinicalAiQueueMerge';
 
 export type PendingClinicalRecommendation = {
   id: string;
@@ -209,11 +214,21 @@ export function useTherapistPatientSmartClinical(
 
   const pendingRecommendations = useMemo((): PendingClinicalRecommendation[] => {
     if (!patientId) return [];
+
+    const excludedCategoryKeys = therapistReviewedCategoryKeySet(
+      collectRecentTherapistReviewedSuggestions(
+        aiSuggestions ?? [],
+        patientId,
+        clinicalToday
+      )
+    );
+
     return (aiSuggestions ?? [])
       .filter(
         (s) =>
           s?.patientId === patientId &&
-          (s.status === 'pending' || s.status === 'awaiting_therapist')
+          s.status === 'awaiting_therapist' &&
+          !excludedCategoryKeys.has(clinicalRecommendationCategoryKey(s))
       )
       .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
       .map((s) => ({
@@ -227,7 +242,7 @@ export function useTherapistPatientSmartClinical(
         reason: s.reason ?? '',
         source: s.source,
       }));
-  }, [patientId, aiSuggestions]);
+  }, [patientId, aiSuggestions, clinicalToday]);
 
   /** Clear loading after synchronous evaluation (success, empty, or caught error). */
   useEffect(() => {
