@@ -170,16 +170,27 @@ async function sendExpoPush(
   return { ok: true };
 }
 
-/** Strip BOM/quotes/whitespace so dashboard-copied secrets match `web-push` expectations. */
-function normalizeVapidKeyEnv(raw: string): string {
-  let s = raw.replace(/^\uFEFF/, "").trim();
-  if (
-    (s.startsWith('"') && s.endsWith('"')) ||
-    (s.startsWith("'") && s.endsWith("'"))
-  ) {
-    s = s.slice(1, -1).trim();
+/**
+ * Aggressive sanitization for VAPID secrets set via CLI / PowerShell (quotes, newlines, spaces).
+ * Used by notify-new-message, send-therapist-chat-push, and reminder-cron via sendPatientReminder.
+ */
+function sanitizeVapidKeyEnv(raw: string | undefined): string {
+  let s = (raw ?? "").replace(/^\uFEFF/, "");
+  s = s.replace(/[\r\n\u2028\u2029]+/g, "");
+  s = s.trim();
+  s = s.replace(/^['"]|['"]$/g, "").trim();
+  for (let i = 0; i < 8; i++) {
+    const stripped = s.replace(/^['"`]+|['"`]+$/g, "").trim();
+    if (stripped === s) break;
+    s = stripped;
   }
   return s.replace(/\s+/g, "");
+}
+
+function sanitizeVapidSubjectEnv(raw: string | undefined): string {
+  let s = (raw ?? "").replace(/^\uFEFF/, "").replace(/[\r\n]+/g, "").trim();
+  s = s.replace(/^['"]|['"]$/g, "").trim();
+  return s || "mailto:noreply@physioshield.app";
 }
 
 let webPushVapidConfigured = false;
@@ -187,10 +198,9 @@ let webPushVapidConfigured = false;
 function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
   if (webPushVapidConfigured) return { ok: true };
 
-  const publicKey = normalizeVapidKeyEnv(Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY") ?? "");
-  const privateKey = normalizeVapidKeyEnv(Deno.env.get("WEB_PUSH_VAPID_PRIVATE_KEY") ?? "");
-  const subject =
-    Deno.env.get("WEB_PUSH_VAPID_SUBJECT")?.trim() || "mailto:noreply@physioshield.app";
+  let publicKey = sanitizeVapidKeyEnv(Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY"));
+  let privateKey = sanitizeVapidKeyEnv(Deno.env.get("WEB_PUSH_VAPID_PRIVATE_KEY"));
+  const subject = sanitizeVapidSubjectEnv(Deno.env.get("WEB_PUSH_VAPID_SUBJECT"));
 
   if (!publicKey || !privateKey) {
     return {
@@ -201,7 +211,18 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
     };
   }
 
-  webPush.setVapidDetails(subject, publicKey, privateKey);
+  try {
+    webPush.setVapidDetails(subject, publicKey, privateKey);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      detail:
+        `${msg} — re-set WEB_PUSH_VAPID_PUBLIC_KEY / WEB_PUSH_VAPID_PRIVATE_KEY without quotes, spaces, or line breaks ` +
+        `(PowerShell: supabase secrets set WEB_PUSH_VAPID_PUBLIC_KEY=YourKeyHere)`,
+    };
+  }
+
   webPushVapidConfigured = true;
   console.log(
     "patient-push: WEB_PUSH_VAPID_PUBLIC_KEY loaded:",
