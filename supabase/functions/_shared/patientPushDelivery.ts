@@ -178,6 +178,24 @@ function sanitizeVapidSubjectEnv(raw: string | undefined): string {
 
 let webPushVapidConfigured = false;
 
+/** Safe prefix/suffix peek for Supabase secret corruption (quotes, newlines, truncation). */
+function logVapidKeyPreSetTelemetry(label: string, key: string): void {
+  const len = key.length;
+  const head = len === 0 ? "(empty)" : key.slice(0, Math.min(5, len));
+  const tail = len === 0 ? "(empty)" : len <= 5 ? key : key.slice(-5);
+  const flags = {
+    hasWhitespace: /\s/.test(key),
+    hasSingleQuotes: key.includes("'"),
+    hasDoubleQuotes: key.includes('"'),
+    hasNewline: /[\r\n\u2028\u2029]/.test(key),
+    hasBackslash: key.includes("\\"),
+  };
+  console.log(
+    `patient-push: VAPID ${label} resolved length=${len} head=[${head}] tail=[${tail}] formatFlags=`,
+    JSON.stringify(flags),
+  );
+}
+
 function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
   if (webPushVapidConfigured) return { ok: true };
 
@@ -212,6 +230,21 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
         "Generate: npx web-push generate-vapid-keys",
     };
   }
+
+  const envPrivateRaw = Deno.env.get("WEB_PUSH_VAPID_PRIVATE_KEY") ?? "";
+  console.log(
+    "patient-push: ensureWebPushVapid — pre-setVapidDetails telemetry",
+    JSON.stringify({
+      subjectLength: subject.length,
+      envPublicRawLength: ENV_PUBLIC_KEY?.length ?? 0,
+      envPrivateRawLength: envPrivateRaw.length,
+      resolvedPublicLength: publicKey.length,
+      resolvedPrivateLength: privateKey.length,
+      publicUsedHardcodedFallback: publicKey === HARDCODED_VALID_PUBLIC_KEY,
+    }),
+  );
+  logVapidKeyPreSetTelemetry("publicKey (resolved)", publicKey);
+  logVapidKeyPreSetTelemetry("privateKey (resolved)", privateKey);
 
   try {
     webPush.setVapidDetails(subject, publicKey, privateKey);
