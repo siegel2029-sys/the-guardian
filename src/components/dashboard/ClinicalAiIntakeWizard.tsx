@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { PortalSelect } from '../ui/PortalDropdown';
 import {
   X,
@@ -278,9 +279,9 @@ export default function ClinicalAiIntakeWizard({
 
   const reviewLines = analysisBundle?.rationaleLinesHe ?? [];
 
-  return (
+  const modal = (
     <div
-      className="fixed inset-0 z-[130] flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
       style={{ background: 'rgba(15, 23, 42, 0.45)' }}
       dir="rtl"
       onClick={onClose}
@@ -667,4 +668,7 @@ export default function ClinicalAiIntakeWizard({
       `}</style>
     </div>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(modal, document.body);
 }

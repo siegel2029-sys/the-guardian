@@ -110,7 +110,7 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
 
   return (
     <aside
-      className={`flex flex-col shrink-0 border-l-2 border-slate-900/15 bg-white shadow-[inset_1px_0_0_rgba(15,23,42,0.06)] z-30 ${
+      className={`flex flex-col shrink-0 border-l-2 border-slate-900/15 bg-white shadow-[inset_1px_0_0_rgba(15,23,42,0.06)] z-20 ${
         mobileMode ? 'w-full h-full overflow-y-auto' : 'w-64 h-screen'
       }`}
       dir="rtl"

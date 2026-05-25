@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { UserPlus, KeyRound, Copy, X, RefreshCw } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import ClinicalAiIntakeWizard from '../dashboard/ClinicalAiIntakeWizard';
@@ -9,6 +10,11 @@ type SidebarNewPatientProps = {
   /** `dashboard`: header-style primary button only (no sidebar chrome). Default: sidebar strip. */
   layout?: 'sidebar' | 'dashboard';
 };
+
+function ModalPortal({ children }: { children: ReactNode }) {
+  if (typeof document === 'undefined') return null;
+  return createPortal(children, document.body);
+}
 
 export default function SidebarNewPatient({ compact = false, layout = 'sidebar' }: SidebarNewPatientProps) {
   const { createPatientWithAccess, applyInitialClinicalProfile, deletePatient } = usePatient();
@@ -134,8 +140,9 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
       )}
 
       {credentialsOpen && (
+        <ModalPortal>
         <div
-          className="fixed inset-0 z-[190] flex items-center justify-center p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
           style={{ background: 'rgba(15, 23, 42, 0.5)' }}
           dir="rtl"
           onClick={() => !creating && setCredentialsOpen(false)}
@@ -223,6 +230,7 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
 
       {draftPatientId && lockedPortalUsername && (
@@ -236,8 +244,9 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
       )}
 
       {open && (
+        <ModalPortal>
         <div
-          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
           style={{ background: 'rgba(15, 23, 42, 0.5)' }}
           dir="rtl"
           onClick={() => setOpen(false)}
@@ -302,6 +311,7 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
     </>
   );
