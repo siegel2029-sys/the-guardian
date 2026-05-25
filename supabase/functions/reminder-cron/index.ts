@@ -26,7 +26,7 @@ import {
  */
 
 /** Standard reminder fires only at this local hour (24h), using each patient's `reminder_timezone`. */
-const STANDARD_REMINDER_LOCAL_HOUR = 14;
+const STANDARD_REMINDER_LOCAL_HOUR = 20;
 /** Momentum nudges allowed from this hour (inclusive) until `STANDARD_REMINDER_LOCAL_HOUR` (exclusive). */
 const MOMENTUM_WINDOW_START_HOUR = 8;
 
