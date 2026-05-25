@@ -22,7 +22,6 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
   const [credentialsOpen, setCredentialsOpen] = useState(false);
   const [portalUsername, setPortalUsername] = useState('');
   const [portalPassword, setPortalPassword] = useState('');
-  const [displayNameDraft, setDisplayNameDraft] = useState('מטופל חדש');
   const [credentialsError, setCredentialsError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [draftPatientId, setDraftPatientId] = useState<string | null>(null);
@@ -34,17 +33,18 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
 
   const openCredentials = () => {
     setPortalUsername('');
-    setPortalPassword(randomPatientPassword());
-    setDisplayNameDraft('מטופל חדש');
+    setPortalPassword('');
     setCredentialsError(null);
     setCredentialsOpen(true);
   };
+
+  const initialPatientDisplayName = () => portalUsername.trim() || 'מטופל חדש';
 
   const submitCredentials = async () => {
     setCredentialsError(null);
     setCreating(true);
     try {
-      const r = await createPatientWithAccess(displayNameDraft.trim() || 'מטופל חדש', {
+      const r = await createPatientWithAccess(initialPatientDisplayName(), {
         portalUsername,
         password: portalPassword.trim().length >= 6 ? portalPassword : undefined,
       });
@@ -157,7 +157,7 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-teal-100">
               <h2 id="new-patient-creds-title" className="text-sm font-bold text-slate-800">
-                מטופל חדש — מזהה פורטל
+                מטופל חדש
               </h2>
               <button
                 type="button"
@@ -170,33 +170,22 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
               </button>
             </div>
             <div className="p-4 space-y-3 text-sm">
-              <p className="text-[11px] text-slate-500 leading-relaxed">
-                מזהה הפורטל נשמר <strong>לצמיתות</strong> ומשמש לכניסה (רמזים בלבד — לדוגמה JD). אי אפשר לשנות
-                אחרי השמירה.
-              </p>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  רמזי מטופל (לדוגמה JD) — לפרטיות
+                <label htmlFor="new-patient-portal-username" className="block text-xs font-semibold text-slate-600 mb-1">
+                  שם - <span className="text-red-600">ר&quot;ת בלבד</span>
                 </label>
                 <input
+                  id="new-patient-portal-username"
                   value={portalUsername}
                   onChange={(e) => setPortalUsername(e.target.value.toUpperCase())}
                   placeholder="JD"
                   autoComplete="off"
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono text-sm uppercase"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">שם תצוגה ראשוני</label>
-                <input
-                  value={displayNameDraft}
-                  onChange={(e) => setDisplayNameDraft(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono text-sm uppercase placeholder:text-slate-300 placeholder:font-normal"
                 />
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-slate-600">סיסמה (מינימום 6 תווים)</label>
+                  <label htmlFor="new-patient-portal-password" className="text-xs font-semibold text-slate-600">סיסמא ראשונית</label>
                   <button
                     type="button"
                     onClick={genPassword}
@@ -207,6 +196,7 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
                   </button>
                 </div>
                 <input
+                  id="new-patient-portal-password"
                   type="text"
                   value={portalPassword}
                   onChange={(e) => setPortalPassword(e.target.value)}
@@ -237,7 +227,7 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
         <ClinicalAiIntakeWizard
           clinicalIntakeMode="create"
           lockedPortalUsername={lockedPortalUsername}
-          initialPatientName={displayNameDraft.trim() || 'מטופל חדש'}
+          initialPatientName={initialPatientDisplayName()}
           onClose={onWizardClose}
           onSave={onWizardSave}
         />
