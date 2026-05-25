@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Send, MessageSquare, Clock, User, Bot } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
@@ -7,6 +7,7 @@ import { getPatientDisplayName } from '../../utils/patientDisplayName';
 export default function MessagesPanel() {
   const {
     selectedPatient,
+    selectedPatientId,
     getPatientMessages,
     markMessageRead,
     sendTherapistReply,
@@ -14,35 +15,53 @@ export default function MessagesPanel() {
   } = usePatient();
   const [replyText, setReplyText] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
-  const messages = selectedPatient ? getPatientMessages(selectedPatient.id) : [];
-  const displayName = selectedPatient ? getPatientDisplayName(selectedPatient) : '';
+
+  const threadPatientId = (selectedPatient?.id ?? selectedPatientId).trim();
+  const messages = threadPatientId ? getPatientMessages(threadPatientId) : [];
+  const displayName = selectedPatient
+    ? getPatientDisplayName(selectedPatient)
+    : threadPatientId
+      ? 'מטופל נבחר'
+      : '';
 
   const threadSignature = useMemo(
     () =>
-      selectedPatient
+      threadPatientId
         ? allMessages
-            .filter((m) => m.patientId === selectedPatient.id)
+            .filter((m) => m.patientId === threadPatientId)
             .map((m) => `${m.id}:${m.timestamp}:${m.content.length}:${m.isRead ? 1 : 0}`)
             .join('|')
         : '',
-    [allMessages, selectedPatient?.id]
+    [allMessages, threadPatientId]
   );
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-  }, [selectedPatient?.id, threadSignature]);
+  }, [threadPatientId, threadSignature]);
 
   useEffect(() => {
-    if (!selectedPatient) return;
+    if (!threadPatientId) return;
     const unreadIds = messages
       .filter((m) => !m.isRead && (m.fromPatient || m.aiClinicalAlert))
       .map((m) => m.id);
     if (unreadIds.length > 0) {
       unreadIds.forEach((id) => markMessageRead(id));
     }
-  }, [selectedPatient?.id, threadSignature, messages, markMessageRead]);
+  }, [threadPatientId, threadSignature, messages, markMessageRead]);
 
-  if (!selectedPatient) {
+  const handleSend = useCallback(() => {
+    const body = replyText.trim();
+    if (!body || !threadPatientId) return;
+    if (import.meta.env.DEV) {
+      console.log('[Chat UI] MessagesPanel send', { patientId: threadPatientId });
+    }
+    sendTherapistReply(threadPatientId, body);
+    setReplyText('');
+  }, [replyText, threadPatientId, sendTherapistReply]);
+
+  const canSend = Boolean(threadPatientId && replyText.trim().length > 0);
+
+  if (!threadPatientId) {
     return (
       <div
         className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-500"
@@ -65,13 +84,6 @@ export default function MessagesPanel() {
     unreadIds.forEach((id) => markMessageRead(id));
   };
 
-  const handleSend = () => {
-    const body = replyText.trim();
-    if (!body) return;
-    sendTherapistReply(selectedPatient.id, body);
-    setReplyText('');
-  };
-
   return (
     <div className="h-full flex flex-col min-h-0 bg-[#f8fafc]" dir="rtl">
       <div
@@ -90,7 +102,9 @@ export default function MessagesPanel() {
               <MessageSquare className="w-5 h-5 text-teal-600 shrink-0" />
               צ׳אט עם {displayName}
             </h2>
-            <p className="text-xs text-slate-500 truncate">{selectedPatient.diagnosis}</p>
+            {selectedPatient?.diagnosis ? (
+              <p className="text-xs text-slate-500 truncate">{selectedPatient.diagnosis}</p>
+            ) : null}
           </div>
         </div>
         {unreadIds.length > 0 && (
@@ -195,7 +209,13 @@ export default function MessagesPanel() {
         className="shrink-0 border-t border-teal-100 px-4 sm:px-6 py-4"
         style={{ background: 'rgba(255,255,255,0.98)' }}
       >
-        <div className="max-w-3xl mx-auto space-y-2">
+        <form
+          className="max-w-3xl mx-auto space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSend();
+          }}
+        >
           <p className="text-xs font-semibold text-slate-600 mb-2">הודעה חדשה למטופל</p>
           <div className="flex gap-2 items-end">
             <textarea
@@ -203,20 +223,22 @@ export default function MessagesPanel() {
               onChange={(e) => setReplyText(e.target.value)}
               placeholder="כתבו כאן… ההודעה תופיע מיד בפורטל המטופל"
               rows={3}
+              aria-label="הודעה חדשה למטופל"
               className="flex-1 resize-none rounded-2xl border border-teal-200/90 px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/40 placeholder:text-slate-400"
               style={{ background: '#fafefd' }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleSend();
                 }
               }}
             />
             <button
-              type="button"
-              onClick={handleSend}
-              disabled={!replyText.trim()}
-              className="shrink-0 h-12 px-5 rounded-2xl text-white text-sm font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg"
+              type="submit"
+              aria-disabled={!canSend}
+              className={`shrink-0 h-12 px-5 rounded-2xl text-white text-sm font-bold transition-all flex items-center gap-2 shadow-lg ${
+                canSend ? '' : 'opacity-40 cursor-not-allowed'
+              }`}
               style={{
                 background: 'linear-gradient(135deg, #0d9488, #10b981)',
                 boxShadow: '0 8px 24px -6px rgba(13, 148, 136, 0.45)',
@@ -226,8 +248,8 @@ export default function MessagesPanel() {
               שלח
             </button>
           </div>
-          <p className="text-[10px] text-slate-400 mt-2">Ctrl+Enter לשליחה מהירה</p>
-        </div>
+          <p className="text-[10px] text-slate-400 mt-2">Enter לשליחה · Shift+Enter לשורה חדשה</p>
+        </form>
       </div>
     </div>
   );

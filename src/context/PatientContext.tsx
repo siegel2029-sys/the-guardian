@@ -340,6 +340,8 @@ interface PatientContextValue {
   // Patients
   patients: Patient[];
   selectedPatient: Patient | null;
+  /** Stable id for chat/send even when `selectedPatient` is briefly null during roster hydration. */
+  selectedPatientId: string;
   selectPatient: (id: string, options?: { openSection?: NavSection }) => void;
 
   // Navigation
@@ -1531,9 +1533,10 @@ export function PatientProvider({
         ? allPatients.filter((p) => patientMatchesTherapistScope(p, therapistScopeIds))
         : allPatients;
     if (selectedPatientId === '') return;
-    if (!mine.some((p) => p.id === selectedPatientId)) {
-      setSelectedPatientId('');
-    }
+    if (mine.some((p) => p.id === selectedPatientId)) return;
+    // Keep selection during hydration when therapist_id is not yet on the row (backend resolves on send).
+    if (allPatients.some((p) => p.id === selectedPatientId)) return;
+    setSelectedPatientId('');
   }, [therapistScopeIds, allPatients, selectedPatientId, restrictPatientSessionId]);
 
   const clinicalToday = useMemo(() => {
@@ -2448,9 +2451,11 @@ export function PatientProvider({
   const sendTherapistReply = useCallback(
     (patientId: string, content: string) => {
       const body = content.trim();
-      if (!body) return;
-
       const pid = patientId.trim();
+      if (import.meta.env.DEV) {
+        console.log('[Chat] sendTherapistReply invoked', { patientId: pid, hasBody: body.length > 0 });
+      }
+      if (!body) return;
       if (!pid) return;
 
       const appendLocal = (msg: Message) => {
@@ -3400,7 +3405,7 @@ export function PatientProvider({
   return (
     <PatientContext.Provider
       value={{
-        patients, selectedPatient, selectPatient,
+        patients, selectedPatient, selectedPatientId, selectPatient,
         activeSection, setActiveSection,
         messages, markMessageRead, getPatientMessages, sendTherapistReply, sendPatientMessage, sendAiClinicalAlert,
         safetyAlerts,

@@ -614,7 +614,7 @@ export default function PatientOverview() {
                   type="button"
                   onClick={() => setActiveSection('messages')}
                   className="inline-flex justify-center items-center gap-2 px-4 min-h-[48px] rounded-xl text-sm font-bold border-2 border-teal-600 text-teal-800 bg-teal-50 hover:bg-teal-100 active:scale-[0.99] transition-colors"
-                  title="שלח הודעה למטופל"
+                  title="שלח הודעה למטופל — פותח מסך הודעות וצ׳אט"
                 >
                   <MessageSquare className="w-4 h-4 shrink-0" />
                   שלח הודעה

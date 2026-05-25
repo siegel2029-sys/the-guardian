@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Send, MessageCircle } from 'lucide-react';
 import { usePatient } from '../../../context/PatientContext';
 
@@ -13,12 +13,18 @@ export default function TherapistQuickChat({
   const { sendTherapistReply } = usePatient();
   const [text, setText] = useState('');
 
-  const send = () => {
+  const threadPatientId = patientId.trim();
+  const canSend = Boolean(threadPatientId && text.trim().length > 0);
+
+  const send = useCallback(() => {
     const t = text.trim();
-    if (!t) return;
-    sendTherapistReply(patientId, t);
+    if (!t || !threadPatientId) return;
+    if (import.meta.env.DEV) {
+      console.log('[Chat UI] TherapistQuickChat send', { patientId: threadPatientId });
+    }
+    sendTherapistReply(threadPatientId, t);
     setText('');
-  };
+  }, [text, threadPatientId, sendTherapistReply]);
 
   return (
     <div
@@ -34,27 +40,39 @@ export default function TherapistQuickChat({
       <p className="text-[11px] text-slate-500 mb-2">
         ההודעה נשמרת ומוצגת מיד במרכז ההודעות בפורטל המטופל.
       </p>
-      <div className="flex gap-2 items-end">
+      <form
+        className="flex gap-2 items-end"
+        onSubmit={(e) => {
+          e.preventDefault();
+          send();
+        }}
+      >
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={2}
-          placeholder={
-            'הקלדת הודעה קצרה למטופל…'
-          }
+          aria-label="צ׳אט מהיר למטופל"
+          placeholder="הקלדת הודעה קצרה למטופל…"
           className="flex-1 resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              send();
+            }
+          }}
         />
         <button
-          type="button"
-          onClick={send}
-          disabled={!text.trim()}
-          className="shrink-0 h-10 px-4 rounded-lg text-white text-sm font-bold disabled:opacity-40 flex items-center gap-1.5"
+          type="submit"
+          aria-disabled={!canSend}
+          className={`shrink-0 h-10 px-4 rounded-lg text-white text-sm font-bold flex items-center gap-1.5 ${
+            canSend ? '' : 'opacity-40 cursor-not-allowed'
+          }`}
           style={{ background: 'linear-gradient(135deg, #1d4ed8, #2563eb)' }}
         >
           <Send className="w-4 h-4" />
           שליחה
         </button>
-      </div>
+      </form>
     </div>
   );
 }
