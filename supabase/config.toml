@@ -366,6 +366,13 @@ allow_dynamic_registration = false
 [functions.gemini-proxy]
 verify_jwt = false
 
+# Therapist JWT in Authorization; ownership enforced via patients RLS in function code.
+[functions.send-therapist-chat-push]
+verify_jwt = false
+
+[functions.notify-new-message]
+verify_jwt = false
+
 # Invoked with header x-cron-secret or query ?secret= matching INTERNAL_CRON_SECRET
 [functions.reminder-cron]
 verify_jwt = false

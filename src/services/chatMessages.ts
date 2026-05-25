@@ -1,5 +1,7 @@
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import type { Message } from '../types';
+import { dispatchTherapistChatPushNotification } from './therapistChatPush';
 
 /** Row shape from `public.chat_messages`. */
 export type ChatMessageRow = {
@@ -323,21 +325,17 @@ export function subscribeChatMessages(
   };
 }
 
-const THERAPIST_MESSAGE_PUSH_BODY = 'המטפל שלך שלח לך הודעה';
-
 /**
- * Placeholder for FCM / Expo push. Production delivery is via DB webhook → `notify-new-message` Edge Function.
- * Wire Firebase/Expo here when client-side or direct API sends are needed.
+ * Therapist → patient chat push. Uses explicit DB token + JWT edge function
+ * (`send-therapist-chat-push`), isolated from roster hydration / Gemini.
  */
 export async function sendPushNotification(
   patientId: string,
   messageText?: string
 ): Promise<void> {
-  if (import.meta.env.DEV) {
-    console.log('[sendPushNotification] placeholder', {
-      patientId,
-      body: messageText?.trim() || THERAPIST_MESSAGE_PUSH_BODY,
-    });
-  }
-  // Future: Expo Push API / FCM using patients.push_token
+  if (!supabase) return;
+  await dispatchTherapistChatPushNotification(supabase, {
+    patientId,
+    messagePreview: messageText,
+  });
 }

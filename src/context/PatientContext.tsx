@@ -129,9 +129,9 @@ import {
   mergeChatMessages,
   countUnreadForTherapist,
   subscribeChatMessages,
-  sendPushNotification,
   type ChatViewerRole,
 } from '../services/chatMessages';
+import { dispatchTherapistChatPushNotification, fetchPatientChatPushContext } from '../services/therapistChatPush';
 import type {
   GearPurchaseResult,
   PatientRewardFeedback,
@@ -2450,17 +2450,28 @@ export function PatientProvider({
       const body = content.trim();
       if (!body) return;
 
-      const patient = allPatients.find((p) => p.id === patientId);
-      const therapistKey = patient?.therapistId?.trim();
+      const pid = patientId.trim();
+      if (!pid) return;
 
       const appendLocal = (msg: Message) => {
         setMessages((prev) => mergeChatMessage(prev, msg, 'therapist'));
       };
 
-      if (!supabase || !isSupabaseConfigured || !therapistKey) {
+      const appendLocalFallback = () => {
+        appendLocal({
+          id: `msg-local-${Date.now()}`,
+          patientId: pid,
+          content: body,
+          timestamp: new Date().toISOString(),
+          isRead: true,
+          fromPatient: false,
+        });
+      };
+
+      if (!supabase || !isSupabaseConfigured) {
         appendLocal({
           id: `msg-${Date.now()}`,
-          patientId,
+          patientId: pid,
           content: body,
           timestamp: new Date().toISOString(),
           isRead: true,
@@ -2469,39 +2480,59 @@ export function PatientProvider({
         return;
       }
 
+      // Isolated from Gemini / roster hydration — session + DB row are authoritative.
       void (async () => {
-        let therapistRowId = therapistKey;
+        const guard = await ensureSupabaseSessionReady(supabase, { context: 'sendTherapistReply' });
+        if (!guard.ok) {
+          console.warn('[Chat] sendTherapistReply: auth session not ready');
+          appendLocalFallback();
+          return;
+        }
+
         const {
           data: { user },
         } = await supabase.auth.getUser();
-        if (user?.id) {
-          therapistRowId = resolveTherapistIdForSupabaseRls(therapistKey, user) ?? user.id;
+        if (!user?.id) {
+          console.warn('[Chat] sendTherapistReply: no authenticated therapist user');
+          appendLocalFallback();
+          return;
         }
 
+        const pushCtx = await fetchPatientChatPushContext(supabase, pid);
+        const memoryPatient = allPatientsRef.current.find((p) => p.id === pid);
+        const patientTherapistId =
+          pushCtx?.therapistId?.trim() || memoryPatient?.therapistId?.trim() || '';
+
+        if (!patientTherapistId) {
+          console.warn('[Chat] sendTherapistReply: missing therapist_id on patient record', pid);
+          appendLocalFallback();
+          return;
+        }
+
+        const therapistRowId =
+          resolveTherapistIdForSupabaseRls(patientTherapistId, user) ?? user.id;
+
         const res = await insertTherapistChatMessage(supabase, {
-          patientId,
+          patientId: pid,
           therapistId: therapistRowId,
           content: body,
         });
 
         if (res.ok) {
           appendLocal(res.message);
-          void sendPushNotification(patientId, body);
+          void dispatchTherapistChatPushNotification(supabase, {
+            patientId: pid,
+            pushToken: pushCtx?.pushToken,
+            messagePreview: body,
+          });
           return;
         }
 
         console.error('[Chat] insertTherapistChatMessage failed:', res.message);
-        appendLocal({
-          id: `msg-local-${Date.now()}`,
-          patientId,
-          content: body,
-          timestamp: new Date().toISOString(),
-          isRead: true,
-          fromPatient: false,
-        });
+        appendLocalFallback();
       })();
     },
-    [allPatients, supabase]
+    [supabase, isSupabaseConfigured]
   );
 
   const sendPatientMessage = useCallback(
