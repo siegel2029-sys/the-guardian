@@ -97,11 +97,11 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
     <button
       type="button"
       onClick={openCredentials}
-      title="מטופל חדש + גישה"
+      title="מטופל חדש"
       className="w-full md:w-auto inline-flex items-center justify-center gap-2 py-3 px-5 rounded-xl text-sm font-bold text-white shadow-sm bg-teal-600 hover:bg-teal-700 transition-colors min-h-[44px]"
     >
       <UserPlus className="w-4 h-4 shrink-0" />
-      מטופל חדש + גישה
+      מטופל חדש
     </button>
   );
 
@@ -114,7 +114,7 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
           <button
             type="button"
             onClick={openCredentials}
-            title="מטופל חדש + גישה"
+            title="מטופל חדש"
             className="w-full flex items-center justify-center py-2.5 rounded-xl text-white shadow-sm bg-teal-600 hover:bg-teal-700 transition-colors"
           >
             <UserPlus className="w-5 h-5 shrink-0" />
@@ -128,7 +128,7 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
             className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-bold text-white shadow-sm bg-teal-600 hover:bg-teal-700 transition-colors"
           >
             <UserPlus className="w-4 h-4 shrink-0" />
-            מטופל חדש + גישה
+            מטופל חדש
           </button>
         </div>
       )}

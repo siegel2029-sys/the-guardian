@@ -9,7 +9,7 @@ function effectiveNavSection(raw: string): NavSection {
 }
 
 const sectionTitles: Record<NavSection, string> = {
-  overview: 'לוח מטופל',
+  overview: '',
   clinical: 'דוחות קליניים',
   analytics: 'היסטוריה ואנליטיקה',
   messages: 'הודעות וצ׳אט',
@@ -80,20 +80,22 @@ export default function Header({ onMenuToggle }: Props) {
         </button>
       ) : null}
 
-      {canScrollTitleToTop ? (
-        <button
-          type="button"
-          onClick={scrollDashboardToTop}
-          className={`${titleClassName} cursor-pointer rounded-lg hover:bg-slate-100 active:bg-slate-200 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600`}
-          aria-label="לוח מטופל — גלילה לראש העמוד"
-        >
-          {title}
-        </button>
-      ) : (
-        <span className={titleClassName}>
-          {title}
-        </span>
-      )}
+      {title ? (
+        canScrollTitleToTop ? (
+          <button
+            type="button"
+            onClick={scrollDashboardToTop}
+            className={`${titleClassName} cursor-pointer rounded-lg hover:bg-slate-100 active:bg-slate-200 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600`}
+            aria-label="גלילה לראש העמוד"
+          >
+            {title}
+          </button>
+        ) : (
+          <span className={titleClassName}>
+            {title}
+          </span>
+        )
+      ) : null}
     </header>
   );
 }

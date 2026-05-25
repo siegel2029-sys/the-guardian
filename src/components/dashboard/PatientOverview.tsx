@@ -157,8 +157,8 @@ export default function PatientOverview() {
     return (
       <div className="h-full overflow-y-auto bg-slate-50" dir="rtl">
         <div className="p-4 md:p-8 max-w-7xl mx-auto">
-          <header className="mb-6">
-            <h1 className="text-2xl font-bold text-slate-900">ברוכים השבים</h1>
+          <header className="mb-6 text-center">
+            <h1 className="text-3xl font-bold text-slate-900">ברוכים השבים</h1>
           </header>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -198,12 +198,12 @@ export default function PatientOverview() {
                   type="button"
                   onClick={() => setRosterFilterKey('pendingAiAdjustments')}
                   aria-pressed={rosterFilterKey === 'pendingAiAdjustments'}
-                  aria-label={`סינון המלצות AI במתן, ${rosterStats.pendingAiAdjustments}`}
+                  aria-label={`סינון עם המלצות AI, ${rosterStats.pendingAiAdjustments}`}
                   className={statCardBtn(rosterFilterKey === 'pendingAiAdjustments', 'yellow')}
                 >
                   <span className="flex items-center gap-1.5 text-sm font-medium text-yellow-700">
                     <Sparkles className="w-3.5 h-3.5 shrink-0 text-yellow-600" aria-hidden="true" />
-                    המלצות AI במתן
+                    עם המלצות AI
                   </span>
                   <span className="text-lg font-bold text-yellow-800 tabular-nums">
                     {rosterStats.pendingAiAdjustments}
