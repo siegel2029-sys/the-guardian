@@ -117,6 +117,7 @@ import {
   pullClinicalInsightsFromPatientPayloads,
 } from '../utils/clinicalInsightsPayload';
 import { purgeProactiveAbsenceFromClinicalQueue } from '../ai/proactiveAbsenceAlerts';
+import { migratePatientsClinicalIntakeProfiles } from '../utils/clinicalIntakeProfileMigration';
 import { useAuth } from './AuthContext';
 import { normalizeKnowledgeFactsList, tryBuildManualKnowledgeFactRow } from '../utils/knowledgeFactNormalize';
 import { fetchAppKnowledgeBaseFromSupabase } from '../services/gamificationService';
@@ -1302,6 +1303,14 @@ export function PatientProvider({
         const serverIds = new Set(mergedFromServer.map((p) => p.id));
         const localOnly = prevPatientsSnapshot.filter((p) => !serverIds.has(p.id));
         mergedPatientsForCloud = [...mergedFromServer, ...localOnly];
+        const intakeMigration = migratePatientsClinicalIntakeProfiles(mergedPatientsForCloud);
+        if (intakeMigration.migratedPatientIds.length > 0 && import.meta.env.DEV) {
+          console.info('[PatientContext] clinical intake profile legacy migration', {
+            migratedCount: intakeMigration.migratedPatientIds.length,
+            patientIds: intakeMigration.migratedPatientIds,
+          });
+        }
+        mergedPatientsForCloud = intakeMigration.patients;
         setAllPatients(mergedPatientsForCloud);
       }
 

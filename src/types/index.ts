@@ -196,6 +196,10 @@ export interface Patient {
    */
   clinicalIntakeProfile?: PatientClinicalIntakeProfile;
   /**
+   * @deprecated נימוקי AI ישנים — עשויים להכיל כותרות אינטייק; נפרסים ל־`clinicalIntakeProfile` במיגרציה.
+   */
+  clinicalReasoningHe?: string[];
+  /**
    * מטא-דאטה רפואי מרקע — מirror של `clinicalIntakeProfile.medical_history` לתאימות.
    */
   medicalProfileMetadata?: PatientMedicalProfileMetadata;
@@ -228,6 +232,11 @@ export interface Patient {
    */
   redFlagActive?: boolean;
   therapistNotes: string;
+  /**
+   * סיכום/סיפור אינטייק גולמי — שם השדה המקורי מאשף האינטייק (`extras.intakeStory`).
+   * נשמר ב־`patients.payload`; לעיתים מועתק גם ל־`therapistNotes` או רק ב־`initialIntakeArchive`.
+   */
+  intakeStory?: string;
   /** מטבעות למידה / בונוסים בתצוגת מטופל */
   coins: number;
   /**
@@ -344,6 +353,8 @@ export type InitialClinicalProfileExtras = {
   clinicalIntakeProfile?: PatientClinicalIntakeProfile;
   /** @deprecated — mirror של medical_history; נשמר לתאימות */
   medicalProfileMetadata?: PatientMedicalProfileMetadata;
+  /** @deprecated נימוקי AI ישנים — לחילוץ legacy בלבד */
+  clinicalReasoningHe?: string[];
   /** מפרקים להדגשה אדומה (מוקד פגיעה) */
   injuryHighlightSegments?: BodyArea[];
   /** מפרקים משניים — כתום במפה */

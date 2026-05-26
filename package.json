@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "seed:knowledge": "tsx scripts/seed-knowledge-base.ts",
+    "migrate:clinical-intake": "tsx scripts/migrate-clinical-intake-profiles.ts",
     "supabase:push": "supabase db push",
     "supabase:link": "supabase link"
   },

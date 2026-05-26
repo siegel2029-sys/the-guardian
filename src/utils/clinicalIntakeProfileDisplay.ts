@@ -1,52 +1,13 @@
 import type { Patient, PatientClinicalIntakeProfile } from '../types';
-import {
-  isClinicalIntakeProfileEmpty,
-  parseClinicalIntakeProfileFromStory,
-} from './clinicalIntakeTemplate';
-
-/** מיזוג פרופילים — ערכים מאוחרים גוברים. */
-function mergeProfiles(
-  ...sources: (PatientClinicalIntakeProfile | undefined | null)[]
-): PatientClinicalIntakeProfile {
-  const out: PatientClinicalIntakeProfile = {};
-  for (const src of sources) {
-    if (!src) continue;
-    if (src.ranges?.length) out.ranges = [...src.ranges];
-    if (src.muscle_strength?.trim()) out.muscle_strength = src.muscle_strength.trim();
-    if (src.special_tests?.length) out.special_tests = [...src.special_tests];
-    if (src.goals?.length) out.goals = [...src.goals];
-    out.medical_history = {
-      ...(out.medical_history ?? {}),
-      ...(src.medical_history ?? {}),
-    };
-  }
-  return out;
-}
+import { resolveClinicalIntakeProfileForDisplay } from './clinicalIntakeProfileMigration';
 
 /**
- * מקור אמת לתצוגה: `patient.clinicalIntakeProfile` → ארכיון אינטייק → parsing מהערות → legacy metadata.
+ * מקור אמת לתצוגה: structured profile → ארכיון → parsing מטקסט legacy (הערות, narrative, clinicalReasoningHe).
  */
 export function resolvePatientClinicalIntakeProfile(
   patient: Patient
 ): PatientClinicalIntakeProfile | undefined {
-  const fromPatient = patient.clinicalIntakeProfile;
-  const fromArchive =
-    patient.initialIntakeArchive?.extras?.clinicalIntakeProfile ??
-    undefined;
-  const notes =
-    patient.therapistNotes?.trim() ||
-    patient.initialIntakeArchive?.therapistNotes?.trim() ||
-    patient.initialIntakeArchive?.extras?.intakeStory?.trim() ||
-    '';
-  const fromNotes = notes ? parseClinicalIntakeProfileFromStory(notes) : undefined;
-
-  const legacyMedical = patient.medicalProfileMetadata;
-  const fromLegacy: PatientClinicalIntakeProfile | undefined = legacyMedical
-    ? { medical_history: { ...legacyMedical } }
-    : undefined;
-
-  const merged = mergeProfiles(fromLegacy, fromNotes, fromArchive, fromPatient);
-  return isClinicalIntakeProfileEmpty(merged) ? undefined : merged;
+  return resolveClinicalIntakeProfileForDisplay(patient);
 }
 
 export type ClinicalIntakeProfileSlotId =

@@ -1,5 +1,6 @@
 import type { Patient, SafetyAlert } from '../types';
 import { bodyAreaLabels } from '../types';
+import { resolvePatientClinicalIntakeProfile } from '../utils/clinicalIntakeProfileDisplay';
 
 /**
  * Removes obvious PII patterns from free text before sending to an external model.
@@ -81,11 +82,12 @@ export function buildAnonymizedClinicalContextSnapshot(
     lines.push('באינטייק ראשון סומן חשש/דגל אדום.');
   }
 
+  const intakeProfile = resolvePatientClinicalIntakeProfile(patient);
   const bg =
-    patient.clinicalIntakeProfile?.medical_history?.backgroundDiseases?.trim() ??
+    intakeProfile?.medical_history?.backgroundDiseases?.trim() ??
     patient.medicalProfileMetadata?.backgroundDiseases?.trim();
   const meds =
-    patient.clinicalIntakeProfile?.medical_history?.chronicMedications?.trim() ??
+    intakeProfile?.medical_history?.chronicMedications?.trim() ??
     patient.medicalProfileMetadata?.chronicMedications?.trim();
   if (bg) {
     lines.push(`מחלות רקע (מאינטייק): ${sanitizeFreeTextForClinicalAi(bg)}`);
@@ -94,21 +96,21 @@ export function buildAnonymizedClinicalContextSnapshot(
     lines.push(`תרופות קבועות (מאינטייק): ${sanitizeFreeTextForClinicalAi(meds)}`);
   }
 
-  const rom = patient.clinicalIntakeProfile?.ranges ?? [];
+  const rom = intakeProfile?.ranges ?? [];
   if (rom.length > 0) {
     lines.push(`טווחי תנועה (ROM): ${rom.map((r) => sanitizeFreeTextForClinicalAi(r)).join('; ')}`);
   }
-  const strength = patient.clinicalIntakeProfile?.muscle_strength?.trim();
+  const strength = intakeProfile?.muscle_strength?.trim();
   if (strength) {
     lines.push(`כוח שרירים: ${sanitizeFreeTextForClinicalAi(strength)}`);
   }
-  const tests = patient.clinicalIntakeProfile?.special_tests ?? [];
+  const tests = intakeProfile?.special_tests ?? [];
   if (tests.length > 0) {
     lines.push(
       `בדיקות מיוחדות: ${tests.map((t) => sanitizeFreeTextForClinicalAi(t)).join('; ')}`
     );
   }
-  const goals = patient.clinicalIntakeProfile?.goals ?? [];
+  const goals = intakeProfile?.goals ?? [];
   if (goals.length > 0) {
     lines.push(`מטרות שיקום: ${goals.map((g) => sanitizeFreeTextForClinicalAi(g)).join('; ')}`);
   }

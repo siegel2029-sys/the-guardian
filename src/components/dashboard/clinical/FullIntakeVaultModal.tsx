@@ -7,6 +7,7 @@ import { getGeminiApiKey, GeminiRateLimitedError } from '../../../ai/geminiClien
 import { analyzeIntakeVersusCurrentCare, type IntakeComparativeAiResult } from '../../../ai/geminiIntakeComparativeFollowup';
 import { buildSupabaseClinicalDatastoreJson } from '../../../utils/buildSupabaseClinicalDatastoreJson';
 import { deriveDiagnosisHeadline } from '../../../utils/clinicalNarrative';
+import { resolveCoreLegacyIntakeSummaryText } from '../../../utils/clinicalIntakeProfileMigration';
 import ClinicalIntakeProfilePanel from './ClinicalIntakeProfilePanel';
 import {
   buildClinicalIntakeProfileSlots,
@@ -19,12 +20,13 @@ type Props = {
 };
 
 function fallbackIntakeFromPatient(p: Patient): PatientIntakeArchive {
+  const coreIntakeText = resolveCoreLegacyIntakeSummaryText(p) ?? p.therapistNotes;
   return {
     capturedAt: p.joinDate,
     primaryBodyArea: p.primaryBodyArea,
     libraryExerciseIds: [],
     diagnosis: p.diagnosis,
-    therapistNotes: p.therapistNotes,
+    therapistNotes: coreIntakeText,
     ...(p.geminiClinicalNarrative?.trim()
       ? { geminiClinicalNarrative: p.geminiClinicalNarrative.trim() }
       : {}),
@@ -32,7 +34,7 @@ function fallbackIntakeFromPatient(p: Patient): PatientIntakeArchive {
       ? { displayName: (p.displayAlias ?? p.name).trim() }
       : {}),
     extras: {
-      intakeStory: p.therapistNotes,
+      intakeStory: coreIntakeText,
       ...(p.clinicalIntakeProfile ? { clinicalIntakeProfile: p.clinicalIntakeProfile } : {}),
       injuryHighlightSegments: [...(p.injuryHighlightSegments ?? [])],
       secondaryClinicalBodyAreas: [...(p.secondaryClinicalBodyAreas ?? [])],

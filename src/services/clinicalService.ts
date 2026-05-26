@@ -39,6 +39,10 @@ import {
 } from '../lib/kbHydrationGate';
 import { fetchAppKnowledgeBaseFromSupabase } from './gamificationService';
 import { embedClinicalInsightsIntoPatients } from '../utils/clinicalInsightsPayload';
+import {
+  migratePatientsClinicalIntakeProfiles,
+  type BatchClinicalIntakeProfileMigrationResult,
+} from '../utils/clinicalIntakeProfileMigration';
 
 /**
  * בסיס ידע גלובלי («הידעת?») — לא נמשך כאן בשאילתות קליניות.
@@ -1974,4 +1978,67 @@ export async function updatePatientExercises(
     changeSummary: options?.changeSummary,
     now,
   });
+}
+
+export type MigrateClinicalIntakeProfilesInSupabaseResult =
+  | {
+      ok: true;
+      migratedPatientIds: string[];
+      skippedCount: number;
+      errors: { patientId: string; message: string }[];
+      dryRun: boolean;
+    }
+  | { ok: false; message: string };
+
+export type MigrateClinicalIntakeProfilesOptions = {
+  /** When true, compute migrations but do not write to Supabase */
+  dryRun?: boolean;
+  /** Explicit patient list; when omitted, loads all therapist patients from Supabase */
+  patients?: Patient[];
+};
+
+/**
+ * Migrates legacy intake text into `payload.clinicalIntakeProfile` for patients that need it.
+ * Safe to run repeatedly — only fills missing structured fields from legacy sources.
+ */
+export async function migrateClinicalIntakeProfilesInSupabase(
+  client: SupabaseClient,
+  options?: MigrateClinicalIntakeProfilesOptions
+): Promise<MigrateClinicalIntakeProfilesInSupabaseResult> {
+  const dryRun = options?.dryRun === true;
+
+  try {
+    let sourcePatients = options?.patients;
+    if (!sourcePatients) {
+      const fetched = await fetchPatientPayloadsForTherapist(client);
+      if (!fetched.ok) {
+        return { ok: false, message: fetched.message };
+      }
+      sourcePatients = fetched.patients;
+    }
+
+    const batch: BatchClinicalIntakeProfileMigrationResult =
+      migratePatientsClinicalIntakeProfiles(sourcePatients);
+    const migratedIds = new Set(batch.migratedPatientIds);
+    const toWrite = batch.patients.filter((p) => migratedIds.has(p.id));
+
+    if (!dryRun && toWrite.length > 0) {
+      const now = new Date().toISOString();
+      const push = await upsertPatientRecords(client, toWrite, now);
+      if (push.ok === false) {
+        return { ok: false, message: push.message };
+      }
+    }
+
+    return {
+      ok: true,
+      migratedPatientIds: batch.migratedPatientIds,
+      skippedCount: sourcePatients.length - batch.migratedPatientIds.length,
+      errors: batch.errors,
+      dryRun,
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { ok: false, message: `migrateClinicalIntakeProfilesInSupabase: ${message}` };
+  }
 }

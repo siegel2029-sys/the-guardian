@@ -33,6 +33,7 @@ import ManagePainAreasModal from './clinical/ManagePainAreasModal';
 import TherapistPatientGrid, { type RosterFilterKey } from './TherapistPatientGrid';
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
+import { resolveCoreLegacyIntakeSummaryText } from '../../utils/clinicalIntakeProfileMigration';
 import { patientRosterStatusBadge } from '../../utils/patientPortalMeta';
 import MissingFieldHint from './clinical/MissingFieldHint';
 import {
@@ -826,7 +827,7 @@ export default function PatientOverview() {
             clinicalIntakeMode="edit"
             lockedPortalUsername={portalUsernameDisplay}
             initialPatientName={getPatientDisplayName(p)}
-            initialIntakeStory={p.therapistNotes?.trim() || undefined}
+            initialIntakeStory={resolveCoreLegacyIntakeSummaryText(p) || undefined}
             highlightIncompleteFields={intakeIncomplete}
             onClose={() => setShowClinicalModal(false)}
             onSave={(primaryBodyArea, libraryExerciseIds, extras) => {
