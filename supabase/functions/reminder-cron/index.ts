@@ -27,8 +27,10 @@ import {
 
 /** Standard reminder fires only at this local hour (24h), using each patient's `reminder_timezone`. */
 const STANDARD_REMINDER_LOCAL_HOUR = 20;
-/** Momentum nudges allowed from this hour (inclusive) until `STANDARD_REMINDER_LOCAL_HOUR` (exclusive). */
+/** Momentum nudges allowed from this hour (inclusive) until `MOMENTUM_WINDOW_END_HOUR` (exclusive). */
 const MOMENTUM_WINDOW_START_HOUR = 8;
+/** Latest local hour (exclusive) for momentum nudges; operational quiet hours begin at 22:00. */
+const MOMENTUM_WINDOW_END_HOUR = 22;
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -301,10 +303,10 @@ async function runReminderDispatch(params: {
 
     const inMomentumDayWindow =
       localHour >= MOMENTUM_WINDOW_START_HOUR &&
-      localHour < STANDARD_REMINDER_LOCAL_HOUR;
+      localHour < MOMENTUM_WINDOW_END_HOUR;
 
     console.log(
-      `[reminder-cron]   Momentum quiet-hours: local hour ${localHour} must be in [${MOMENTUM_WINDOW_START_HOUR}, ${STANDARD_REMINDER_LOCAL_HOUR}) → ${inMomentumDayWindow ? "eligible window" : "outside window (no momentum nudge)"}.`,
+      `[reminder-cron]   Momentum quiet-hours: local hour ${localHour} must be in [${MOMENTUM_WINDOW_START_HOUR}, ${MOMENTUM_WINDOW_END_HOUR}) → ${inMomentumDayWindow ? "eligible window" : "outside window (no momentum nudge)"}.`,
     );
     console.log(
       `[reminder-cron]   Standard schedule: sends only when local hour === ${STANDARD_REMINDER_LOCAL_HOUR} (currently ${localHour}).`,
@@ -323,7 +325,7 @@ async function runReminderDispatch(params: {
     }
     if (!inMomentumDayWindow) {
       momentumBlockedReasons.push(
-        `outside_momentum_quiet_window (hour ${localHour}; need ${MOMENTUM_WINDOW_START_HOUR}≤H<${STANDARD_REMINDER_LOCAL_HOUR})`,
+        `outside_momentum_quiet_window (hour ${localHour}; need ${MOMENTUM_WINDOW_START_HOUR}≤H<${MOMENTUM_WINDOW_END_HOUR})`,
       );
     }
 
