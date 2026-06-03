@@ -1227,9 +1227,7 @@ export function PatientProvider({
       const res = await fetchPatients(supabaseClient);
       if (cancelled) return;
       if (res.ok === false) {
-        if (import.meta.env.DEV) {
-          console.warn('[PatientContext] fetchPatients (patients + exercise_plans)', res.message);
-        }
+        console.warn('[PatientContext] fetchPatients failed — keeping current patient state', res.message);
         if (!cancelled) {
           await refreshKnowledgeBaseFromCloudMerged([]);
         }
@@ -1238,7 +1236,17 @@ export function PatientProvider({
       const list = res.patients;
 
       if (list.length === 0) {
-        // Server is authoritative: wipe ALL local patient caches so stale data can't block re-creation
+        const prevCount = allPatientsRef.current.length;
+        if (prevCount > 0) {
+          console.warn(
+            '[PatientContext] Supabase returned 0 patients but local state still has',
+            prevCount,
+            '— not wiping (check patients.therapist_id vs auth.uid() in Network → patients request)'
+          );
+          return;
+        }
+
+        // Server is authoritative when there was no local roster: clear caches so stale data can't block re-creation
         try { localStorage.removeItem(PATIENT_STATE_STORAGE_KEY); } catch { /* ignore */ }
         try { clearAllPatientAccountsFromStorage(); } catch { /* ignore */ }
 

@@ -14,8 +14,12 @@ import {
   X,
   UserRoundPen,
   Sparkles,
+  BellRing,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { PI_PUSH_SYNC_TEST_PATIENT_ID } from '../../constants/pushSyncTestPatients';
+import { dispatchPatientPushSyncRequest } from '../../services/therapistChatPush';
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
 import RedFlagAlert from './RedFlagAlert';
 import AiSuggestionsPanel from './AiSuggestionsPanel';
@@ -98,6 +102,8 @@ export default function PatientOverview() {
   const [freezePendingIntent, setFreezePendingIntent] = useState<boolean | null>(null);
   const [editingDemographics, setEditingDemographics] = useState(false);
   const [demoFreeText, setDemoFreeText] = useState(selectedPatient?.demographicsFreeText ?? '');
+  const [piPushSyncBusy, setPiPushSyncBusy] = useState(false);
+  const [piPushSyncStatus, setPiPushSyncStatus] = useState<string | null>(null);
   const [rosterFilterKey, setRosterFilterKey] = useState<RosterFilterKey>('active');
 
   useEffect(() => {
@@ -334,6 +340,54 @@ export default function PatientOverview() {
             >
               שחרור נעילת תרגול
             </button>
+          </div>
+        )}
+
+        {p.id === PI_PUSH_SYNC_TEST_PATIENT_ID && (
+          <div
+            className="mb-5 rounded-xl border-2 border-violet-400 bg-gradient-to-l from-violet-50 to-indigo-50 p-4 shadow-md shadow-violet-200/50"
+            role="region"
+            aria-label="בדיקת סנכרון התראות PI"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <BellRing className="w-5 h-5 text-violet-700 shrink-0 mt-0.5" aria-hidden="true" />
+                <div>
+                  <p className="text-sm font-bold text-violet-950">בדיקת מפתחות התראות (PI בלבד)</p>
+                  <p className="text-xs text-violet-800 mt-1 leading-relaxed">
+                    שולח Web Push עם קישור לפורטל המטופל לסנכרון מחדש של מנוי ההתראות.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={piPushSyncBusy || !isSupabaseConfigured || !supabase}
+                onClick={() => {
+                  if (!supabase || piPushSyncBusy) return;
+                  setPiPushSyncBusy(true);
+                  setPiPushSyncStatus(null);
+                  void (async () => {
+                    const result = await dispatchPatientPushSyncRequest(supabase, p.id);
+                    setPiPushSyncStatus(result.message);
+                    setPiPushSyncBusy(false);
+                  })();
+                }}
+                className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-violet-700 hover:bg-violet-800 text-white text-sm font-bold py-2.5 px-4 shadow-md disabled:opacity-50 disabled:pointer-events-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-700"
+              >
+                <BellRing className="w-4 h-4" aria-hidden="true" />
+                {piPushSyncBusy ? 'שולח…' : 'שלח בקשת סנכרון (בדיקה עבור PI)'}
+              </button>
+            </div>
+            {piPushSyncStatus && (
+              <p
+                className={`mt-3 text-xs leading-relaxed ${
+                  piPushSyncStatus.includes('נשלחה') ? 'text-emerald-800' : 'text-violet-900'
+                }`}
+                role="status"
+              >
+                {piPushSyncStatus}
+              </p>
+            )}
           </div>
         )}
 

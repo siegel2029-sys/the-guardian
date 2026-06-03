@@ -19,6 +19,9 @@ const corsHeaders: Record<string, string> = {
 
 const CHAT_NOTIFY_BODY = "שלחתי לך הודעה חדשה בצ'אט. כנס לראות!";
 const PORTAL_MESSAGES_PATH = "/patient-portal/messages";
+const PUSH_SYNC_NOTIFY_BODY =
+  "נדרש סנכרון התראות הקליניקה — לחצו לפתיחת הפורטל ולחיצה על «סנכרן התראות».";
+const PUSH_SYNC_PORTAL_PATH = "/patient-portal?push_sync=1";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -61,9 +64,9 @@ Deno.serve(async (req) => {
     );
   }
 
-  let body: { patientId?: string; body?: string };
+  let body: { patientId?: string; body?: string; intent?: string };
   try {
-    body = (await req.json()) as { patientId?: string; body?: string };
+    body = (await req.json()) as { patientId?: string; body?: string; intent?: string };
   } catch {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
@@ -72,6 +75,8 @@ Deno.serve(async (req) => {
   if (!patientId) {
     return jsonResponse({ error: "missing_patientId" }, 400);
   }
+
+  const pushSyncIntent = body.intent === "push_sync";
 
   const { data: patient, error: patientErr } = await supabaseAuth
     .from("patients")
@@ -107,11 +112,21 @@ Deno.serve(async (req) => {
     });
   }
 
-  const pushResult = await sendPatientReminder(token, CHAT_NOTIFY_BODY, patient.payload, {
+  const notifyBody = pushSyncIntent
+    ? (typeof body.body === "string" && body.body.trim().length > 0
+      ? body.body.trim()
+      : PUSH_SYNC_NOTIFY_BODY)
+    : CHAT_NOTIFY_BODY;
+  const portalPath = pushSyncIntent ? PUSH_SYNC_PORTAL_PATH : PORTAL_MESSAGES_PATH;
+  const notifyTag = pushSyncIntent
+    ? "physioshield-push-sync-request"
+    : "physioshield-chat-message";
+
+  const pushResult = await sendPatientReminder(token, notifyBody, patient.payload, {
     expoTitle: "Physio-Shield",
     webPushPayloadExtras: {
-      data: { url: PORTAL_MESSAGES_PATH },
-      tag: "physioshield-chat-message",
+      data: { url: portalPath, intent: pushSyncIntent ? "push_sync" : "chat" },
+      tag: notifyTag,
     },
   });
 
@@ -124,6 +139,15 @@ Deno.serve(async (req) => {
     }, 200);
   }
 
-  console.log("[send-therapist-chat-push] Push sent OK:", patientId);
-  return jsonResponse({ ok: true, sent: true, patientId });
+  console.log(
+    "[send-therapist-chat-push] Push sent OK:",
+    patientId,
+    pushSyncIntent ? "(push_sync)" : "(chat)",
+  );
+  return jsonResponse({
+    ok: true,
+    sent: true,
+    patientId,
+    intent: pushSyncIntent ? "push_sync" : "chat",
+  });
 });

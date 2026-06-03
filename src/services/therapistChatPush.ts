@@ -140,3 +140,108 @@ export async function dispatchTherapistChatPushNotification(
     console.error('[Push Dispatch] Network error calling send-therapist-chat-push', e);
   }
 }
+
+export type PatientPushSyncDispatchResult = {
+  ok: boolean;
+  sent: boolean;
+  message: string;
+};
+
+/**
+ * Therapist-initiated Web Push that opens the patient portal with `?push_sync=1`
+ * so the temp re-register banner is shown again (isolated testing).
+ */
+export async function dispatchPatientPushSyncRequest(
+  client: SupabaseClient,
+  patientId: string
+): Promise<PatientPushSyncDispatchResult> {
+  const pid = patientId.trim();
+  if (!pid) {
+    return { ok: false, sent: false, message: 'חסר מזהה מטופל' };
+  }
+
+  const ctx = await fetchPatientChatPushContext(client, pid);
+  const token = ctx?.pushToken ?? '';
+  if (!hasDeliverablePatientPushToken(token)) {
+    return {
+      ok: false,
+      sent: false,
+      message: 'אין push_token תקין בשרת (Expo או Web Push HTTPS)',
+    };
+  }
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return { ok: false, sent: false, message: 'Supabase לא מוגדר בסביבה' };
+  }
+
+  const session = await getSupabaseAuthSession(client);
+  if (!session?.access_token) {
+    return { ok: false, sent: false, message: 'נדרשת התחברות מטפל' };
+  }
+
+  const invokeUrl = getSendTherapistChatPushUrl();
+  try {
+    const res = await fetch(invokeUrl, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ patientId: pid, intent: 'push_sync' }),
+    });
+
+    const raw = await res.text();
+    let parsed: {
+      ok?: boolean;
+      sent?: boolean;
+      error?: string;
+      reason?: string;
+      deliveryError?: string;
+      intent?: string;
+    } = {};
+    try {
+      parsed = raw ? (JSON.parse(raw) as typeof parsed) : {};
+    } catch {
+      /* ignore */
+    }
+
+    if (!res.ok) {
+      const detail = parsed.error ?? raw.slice(0, 200);
+      console.error('[Push Sync Request] HTTP error', res.status, detail);
+      return { ok: false, sent: false, message: `שגיאת שרת (${res.status}): ${detail}` };
+    }
+
+    if (parsed.sent) {
+      console.log('[Push Sync Request] Sent push_sync for', pid);
+      return {
+        ok: true,
+        sent: true,
+        message: 'בקשת הסנכרון נשלחה — המטופל יקבל התראה לפתיחת הפורטל.',
+      };
+    }
+
+    if (parsed.ok && parsed.reason === 'no_deliverable_push_token') {
+      return {
+        ok: true,
+        sent: false,
+        message: 'לא נשלח — אין push_token תקין בשרת',
+      };
+    }
+
+    if (!parsed.ok) {
+      const detail = parsed.deliveryError ?? parsed.error ?? raw.slice(0, 200);
+      return { ok: false, sent: false, message: `שליחה נכשלה: ${detail}` };
+    }
+
+    return {
+      ok: true,
+      sent: false,
+      message: parsed.reason ?? 'הבקשה לא נשלחה (סיבה לא ידועה)',
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[Push Sync Request] Network error', e);
+    return { ok: false, sent: false, message: `שגיאת רשת: ${msg}` };
+  }
+}

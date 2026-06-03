@@ -75,11 +75,13 @@ import {
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { usePatientReminderInfrastructure } from '../../hooks/usePatientReminderInfrastructure';
 import { forceReregisterPatientWebPushClearStaleAndPersist } from '../../services/patientPushNotifications';
+import { PI_PUSH_SYNC_TEST_PATIENT_ID } from '../../constants/pushSyncTestPatients';
 
 /** TEMP: iOS requires user gesture for push + SW register (remove after patients sync). */
 const TEMP_PUSH_SYNC_PATIENT_IDS = [
   'patient-mpcqx9d0-dzssqu', // yo
   'patient-mpcr41c8-t50dlk', // tc
+  PI_PUSH_SYNC_TEST_PATIENT_ID, // PI
 ] as const;
 
 function tempPushSyncDoneKey(patientId: string): string {
@@ -277,6 +279,24 @@ export default function PatientDailyView() {
     } catch {
       setTempPushSyncDone(false);
     }
+  }, [selectedPatient?.id]);
+
+  /** Re-show sync banner when opened from therapist push_sync notification (`?push_sync=1`). */
+  useEffect(() => {
+    if (!selectedPatient?.id || !patientNeedsTempPushSync(selectedPatient)) return;
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('push_sync') !== '1') return;
+    try {
+      sessionStorage.removeItem(tempPushSyncDoneKey(selectedPatient.id));
+    } catch {
+      /* ignore */
+    }
+    setTempPushSyncDone(false);
+    params.delete('push_sync');
+    const qs = params.toString();
+    const nextPath = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`;
+    window.history.replaceState(null, '', nextPath);
   }, [selectedPatient?.id]);
 
   const [portalTab, setPortalTab] = useState<PortalTab>(() =>

@@ -1670,42 +1670,26 @@ export type FetchPatientPayloadsForTherapistResult =
  * תרגילי תוכנית פעילה אינם ב־payload — משיגים באמצעות {@link fetchActiveExercisePlansForPatientIds}
  * או {@link fetchPatients}.
  */
-export async function fetchPatientPayloadsForTherapist(
-  client: SupabaseClient
-): Promise<FetchPatientPayloadsForTherapistResult> {
-  const {
-    data: { user },
-    error: userErr,
-  } = await client.auth.getUser();
-  if (userErr || !user?.id) {
-    return { ok: false, message: userErr?.message ?? 'אין משתמש מחובר' };
-  }
+function isPostgrestUnknownColumnError(err: { code?: string; message?: string }): boolean {
+  const code = err.code ?? '';
+  const msg = (err.message ?? '').toLowerCase();
+  return (
+    code === '42703' ||
+    code === 'PGRST204' ||
+    /column.*does not exist|could not find.*column/i.test(msg)
+  );
+}
 
-  // Defence-in-depth: filter by therapist_id in addition to relying on RLS,
-  // so a misconfigured RLS policy cannot return another therapist's patients.
-  const { data, error } = await client
-    .from('patients')
-    .select('payload, push_token, last_activity_timestamp')
-    .eq('therapist_id', user.id)
-    .order('updated_at', { ascending: false });
+type PatientRowForTherapistFetch = {
+  payload?: unknown;
+  push_token?: string | null;
+  last_activity_timestamp?: string | null;
+};
 
-  if (error) {
-    if (import.meta.env.DEV) {
-      console.warn('[fetchPatientPayloadsForTherapist]', error.message, {
-        code: (error as { code?: string }).code,
-      });
-    }
-    return { ok: false, message: error.message };
-  }
-
+function patientsFromTherapistFetchRows(rows: PatientRowForTherapistFetch[] | null): Patient[] {
   const out: Patient[] = [];
-  for (const row of data ?? []) {
-    const typed = row as {
-      payload?: unknown;
-      push_token?: string | null;
-      last_activity_timestamp?: string | null;
-    };
-    const payload = typed.payload;
+  for (const row of rows ?? []) {
+    const payload = row.payload;
     if (
       payload &&
       typeof payload === 'object' &&
@@ -1714,11 +1698,83 @@ export async function fetchPatientPayloadsForTherapist(
     ) {
       out.push({
         ...(payload as Patient),
-        pushToken: typed.push_token ?? null,
-        lastActivityTimestamp: typed.last_activity_timestamp ?? null,
+        pushToken: row.push_token ?? null,
+        lastActivityTimestamp: row.last_activity_timestamp ?? null,
       });
     }
   }
+  return out;
+}
+
+export async function fetchPatientPayloadsForTherapist(
+  client: SupabaseClient
+): Promise<FetchPatientPayloadsForTherapistResult> {
+  const sessionGuard = await ensureSupabaseSessionReady(client, {
+    context: 'טעינת רשימת מטופלים',
+  });
+  if (!sessionGuard.ok) {
+    return { ok: false, message: sessionGuard.message };
+  }
+
+  const {
+    data: { user },
+    error: userErr,
+  } = await client.auth.getUser();
+  if (userErr || !user?.id) {
+    return { ok: false, message: userErr?.message ?? 'אין משתמש מחובר' };
+  }
+
+  const therapistId = user.id.trim();
+  // Defence-in-depth: filter by therapist_id in addition to RLS.
+  const { data: fullData, error: fullError } = await client
+    .from('patients')
+    .select('payload, push_token, last_activity_timestamp')
+    .eq('therapist_id', therapistId)
+    .order('updated_at', { ascending: false });
+
+  let rows: PatientRowForTherapistFetch[] | null = (fullData ?? null) as PatientRowForTherapistFetch[] | null;
+  let error = fullError;
+
+  if (error && isPostgrestUnknownColumnError(error)) {
+    console.warn(
+      '[fetchPatientPayloadsForTherapist] optional columns missing — retrying with payload only',
+      { message: error.message, code: error.code }
+    );
+    const { data: slimData, error: slimError } = await client
+      .from('patients')
+      .select('payload')
+      .eq('therapist_id', therapistId)
+      .order('updated_at', { ascending: false });
+    rows = (slimData ?? null) as PatientRowForTherapistFetch[] | null;
+    error = slimError;
+  }
+
+  if (error) {
+    logSupabaseCallError('fetchPatientPayloadsForTherapist', error, {
+      therapistId,
+      httpStatus: postgrestHttpStatus(error),
+    });
+    return { ok: false, message: error.message };
+  }
+
+  const out = patientsFromTherapistFetchRows(rows);
+
+  if (out.length === 0) {
+    console.warn(
+      '[fetchPatientPayloadsForTherapist] 0 rows for therapist — RLS or patients.therapist_id may not match auth.uid()',
+      {
+        therapistId,
+        rawRowCount: rows?.length ?? 0,
+        hint: 'In Supabase SQL: SELECT id, therapist_id FROM patients; compare therapist_id to auth.users.id for your login.',
+      }
+    );
+  } else if (import.meta.env.DEV) {
+    console.log('[fetchPatientPayloadsForTherapist] loaded', {
+      therapistId,
+      patientCount: out.length,
+    });
+  }
+
   return { ok: true, patients: out };
 }
 
