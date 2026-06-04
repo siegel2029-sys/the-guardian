@@ -28,7 +28,7 @@ export function buildOptionalPool(
     .map((exercise) => ({
       kind: 'rehab' as const,
       exercise,
-      area: exercise.targetArea,
+      area: exercise.targetAreas?.[0] ?? exercise.targetArea,
       poolKey: `rehab:${exercise.id}`,
     }));
 

@@ -12,7 +12,11 @@ import type { PatientExercise, BodyArea, ExerciseDifficulty } from '../../types'
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { normalizeCachedPatientExercises, pickCanonicalExercisePlan } from '../../utils/exercisePlanCanonical';
-import { PortalDropdown, PortalSelect } from '../ui/PortalDropdown';
+import { PortalDropdown, PortalMultiSelect } from '../ui/PortalDropdown';
+import {
+  formatExerciseBodyAreaLabels,
+  formatExerciseMuscleGroups,
+} from '../../utils/exerciseTargeting';
 
 interface ManagePlanModalProps {
   onClose: () => void;
@@ -36,8 +40,8 @@ export { formatTime };
 // ── Custom form state ─────────────────────────────────────────────
 interface CustomFormData {
   name: string;
-  muscleGroup: string;
-  targetArea: BodyArea;
+  muscleGroups: string[];
+  targetAreas: BodyArea[];
   sets: number;
   mode: 'reps' | 'time';
   reps: number;
@@ -51,8 +55,8 @@ interface CustomFormData {
 
 const DEFAULT_FORM: CustomFormData = {
   name: '',
-  muscleGroup: 'גב תחתון',
-  targetArea: 'back_lower',
+  muscleGroups: ['גב תחתון'],
+  targetAreas: ['back_lower'],
   sets: 3,
   mode: 'reps',
   reps: 10,
@@ -82,6 +86,8 @@ function CustomExerciseForm({
   const validate = (): boolean => {
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = 'נא להזין שם תרגיל';
+    if (form.muscleGroups.length === 0) e.muscleGroups = 'נא לבחור לפחות קבוצת שרירים אחת';
+    if (form.targetAreas.length === 0) e.targetAreas = 'נא לבחור לפחות אזור גוף אחד';
     if (form.sets < 1 || form.sets > 20) e.sets = '1–20 בלבד';
     if (form.mode === 'reps' && (form.reps < 1 || form.reps > 100)) e.reps = '1–100 בלבד';
     if (form.mode === 'time' && totalSeconds < 5) e.time = 'מינימום 5 שניות';
@@ -143,25 +149,43 @@ function CustomExerciseForm({
           )}
         </div>
 
-        {/* Row 2: Muscle Group + Body Area */}
+        {/* Row 2: Muscle Groups + Body Areas (multi-select) */}
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="text-xs font-medium text-slate-600 mb-1 block">קבוצת שרירים</label>
-            <PortalSelect
-              value={form.muscleGroup}
-              onChange={(v) => set('muscleGroup', v)}
+            <label className="text-xs font-medium text-slate-600 mb-1 block">
+              קבוצת שרירים <span className="text-red-500">*</span>
+            </label>
+            <PortalMultiSelect
+              values={form.muscleGroups}
+              onChange={(v) => set('muscleGroups', v)}
               options={MUSCLE_GROUPS_SELECT.map((g) => ({ value: g, label: g }))}
-              className={inputClass() + ' cursor-pointer'}
+              placeholder="בחר קבוצות שרירים..."
+              className={inputClass(errors.muscleGroups) + ' cursor-pointer min-h-[38px]'}
+              aria-label="קבוצת שרירים"
             />
+            {errors.muscleGroups && (
+              <p className="text-[10px] text-red-500 mt-0.5 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />{errors.muscleGroups}
+              </p>
+            )}
           </div>
           <div>
-            <label className="text-xs font-medium text-slate-600 mb-1 block">אזור גוף</label>
-            <PortalSelect
-              value={form.targetArea}
-              onChange={(v) => set('targetArea', v as BodyArea)}
+            <label className="text-xs font-medium text-slate-600 mb-1 block">
+              אזור גוף <span className="text-red-500">*</span>
+            </label>
+            <PortalMultiSelect
+              values={form.targetAreas}
+              onChange={(v) => set('targetAreas', v as BodyArea[])}
               options={ALL_BODY_AREAS.map(([area, label]) => ({ value: area, label }))}
-              className={inputClass() + ' cursor-pointer'}
+              placeholder="בחר אזורי גוף..."
+              className={inputClass(errors.targetAreas) + ' cursor-pointer min-h-[38px]'}
+              aria-label="אזור גוף"
             />
+            {errors.targetAreas && (
+              <p className="text-[10px] text-red-500 mt-0.5 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />{errors.targetAreas}
+              </p>
+            )}
           </div>
         </div>
 
@@ -492,9 +516,11 @@ function PlanExerciseRow({
             )}
           </div>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <span className="text-xs text-teal-600 font-medium break-words">{exercise.muscleGroup}</span>
+            <span className="text-xs text-teal-600 font-medium break-words">
+              {formatExerciseMuscleGroups(exercise)}
+            </span>
             <span className="text-xs text-slate-400">·</span>
-            <span className="text-xs text-slate-500">{bodyAreaLabels[exercise.targetArea]}</span>
+            <span className="text-xs text-slate-500">{formatExerciseBodyAreaLabels(exercise)}</span>
           </div>
         </div>
 
@@ -778,8 +804,8 @@ function LibraryToggleRow({
             </span>
           </div>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <span className="text-xs text-teal-700">{exercise.muscleGroup}</span>
-            <span className="text-[10px] text-slate-500">{bodyAreaLabels[exercise.targetArea]}</span>
+            <span className="text-xs text-teal-700">{formatExerciseMuscleGroups(exercise)}</span>
+            <span className="text-[10px] text-slate-500">{formatExerciseBodyAreaLabels(exercise)}</span>
             <span className="text-[10px]" style={{ color: difficultyColor[exercise.difficulty] }}>
               ● {difficultyLabel[exercise.difficulty]}
             </span>
@@ -932,11 +958,15 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     const computedHoldSeconds =
       data.mode === 'time' ? data.minutes * 60 + data.seconds : undefined;
     const customId = `patient-${selectedPatient.id}-custom-${Date.now()}`;
+    const muscleGroups = [...data.muscleGroups];
+    const targetAreas = [...data.targetAreas];
     const newEntry: PatientExercise = {
       id: customId,
       name: data.name.trim(),
-      muscleGroup: data.muscleGroup,
-      targetArea: data.targetArea,
+      muscleGroup: muscleGroups.join(' · '),
+      muscleGroups,
+      targetArea: targetAreas[0],
+      targetAreas,
       sets: data.sets,
       reps: data.mode === 'reps' ? data.reps : undefined,
       holdSeconds: computedHoldSeconds,

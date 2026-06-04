@@ -15,6 +15,10 @@ import ExerciseCard from './ExerciseCard';
 import type { BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
+import {
+  exerciseMatchesTargetArea,
+  getExerciseTargetAreas,
+} from '../../utils/exerciseTargeting';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import {
   getVideoIframeSrc,
@@ -246,11 +250,13 @@ export default function ExercisesPanel() {
   }
 
   // Compute which body areas have exercises
-  const activeAreas = [...new Set(plan.exercises.map((e) => e.targetArea))];
+  const activeAreas = [
+    ...new Set(plan.exercises.flatMap((e) => getExerciseTargetAreas(e))),
+  ];
 
   // Filter exercises by clicked area on body map
   const visibleExercises = filterArea
-    ? plan.exercises.filter((e) => e.targetArea === filterArea)
+    ? plan.exercises.filter((e) => exerciseMatchesTargetArea(e, filterArea))
     : plan.exercises;
 
   const totalXp = plan.exercises.reduce((s, e) => s + e.xpReward, 0);
@@ -328,7 +334,9 @@ export default function ExercisesPanel() {
             {/* Legend */}
             <div className="mt-3 space-y-1.5">
               {activeAreas.map((area) => {
-                const exercisesInArea = plan.exercises.filter((e) => e.targetArea === area);
+                const exercisesInArea = plan.exercises.filter((e) =>
+                  exerciseMatchesTargetArea(e, area)
+                );
                 const completedInArea = exercisesInArea.filter((e) =>
                   session.completedIds.includes(e.id)
                 ).length;

@@ -319,3 +319,130 @@ export function PortalSelect({
     </div>
   );
 }
+
+// ─── PortalMultiSelect (high-level) ───────────────────────────────────────────
+
+/**
+ * Portal-based multi-select with checkbox options and removable badges.
+ * Option list is portaled like `PortalSelect` (no overflow clipping in modals).
+ */
+export function PortalMultiSelect({
+  values,
+  onChange,
+  options,
+  className = '',
+  placeholder = 'בחר...',
+  dir = 'rtl',
+  'aria-label': ariaLabel,
+}: {
+  values: string[];
+  onChange: (vals: string[]) => void;
+  options: SelectOption[];
+  className?: string;
+  placeholder?: string;
+  dir?: 'rtl' | 'ltr';
+  'aria-label'?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const toggle = (val: string) => {
+    if (values.includes(val)) {
+      onChange(values.filter((v) => v !== val));
+    } else {
+      onChange([...values, val]);
+    }
+  };
+
+  const removeValue = (val: string) => {
+    onChange(values.filter((v) => v !== val));
+  };
+
+  const triggerSummary =
+    values.length === 0
+      ? placeholder
+      : values.length === 1
+        ? (options.find((o) => o.value === values[0])?.label ?? values[0])
+        : `${values.length} נבחרו`;
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full flex items-center justify-between gap-2 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400/40 ${className} ${
+          values.length === 0 ? 'text-slate-400' : ''
+        }`}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={ariaLabel}
+        dir={dir}
+      >
+        <span className="truncate flex-1 text-right">{triggerSummary}</span>
+        <ChevronDown
+          className={`w-4 h-4 shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+        />
+      </button>
+
+      {values.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1.5" dir={dir}>
+          {values.map((val) => {
+            const label = options.find((o) => o.value === val)?.label ?? val;
+            return (
+              <span
+                key={val}
+                className="inline-flex items-center gap-0.5 max-w-full px-2 py-0.5 rounded-lg text-[10px] font-medium bg-teal-50 text-teal-800 border border-teal-200"
+              >
+                <span className="truncate">{label}</span>
+                <button
+                  type="button"
+                  onClick={() => removeValue(val)}
+                  className="shrink-0 w-4 h-4 rounded hover:bg-teal-100 text-teal-700 leading-none"
+                  aria-label={`הסר ${label}`}
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      <PortalDropdown
+        open={open}
+        onClose={() => setOpen(false)}
+        triggerRef={triggerRef as RefObject<HTMLElement | null>}
+      >
+        <ul role="listbox" dir={dir} aria-multiselectable="true">
+          {options.map((opt) => {
+            const selected = values.includes(opt.value);
+            return (
+              <li key={opt.value} role="option" aria-selected={selected}>
+                <button
+                  type="button"
+                  onClick={() => toggle(opt.value)}
+                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-slate-50 transition-colors ${
+                    selected ? 'font-semibold text-teal-700' : 'text-slate-800'
+                  }`}
+                  dir={dir}
+                >
+                  <span
+                    className={`w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${
+                      selected ? 'bg-teal-600 border-teal-600' : 'border-slate-300 bg-white'
+                    }`}
+                    aria-hidden
+                  >
+                    {selected && <Check className="w-2.5 h-2.5 text-white" />}
+                  </span>
+                  <span className="flex-1 text-right">{opt.label}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </PortalDropdown>
+    </div>
+  );
+}

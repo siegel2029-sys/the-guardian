@@ -166,7 +166,10 @@ export default function PatientExerciseCard({
             )}
           </div>
           <p className="text-[10px] text-slate-500 truncate mt-0.5 leading-tight">
-            {displaySets}× {repsShort} · {exercise.muscleGroup}
+            {displaySets}× {repsShort} ·{' '}
+            {exercise.muscleGroups?.length
+              ? exercise.muscleGroups.join(' · ')
+              : exercise.muscleGroup}
           </p>
         </div>
 

@@ -433,8 +433,12 @@ export type ExerciseType = 'clinical' | 'standard';
 export interface Exercise {
   id: string;
   name: string;           // Hebrew display name
-  muscleGroup: string;    // Hebrew label e.g. 'גב תחתון', 'ברך'
-  targetArea: BodyArea;
+  muscleGroup: string;    // Hebrew label e.g. 'גב תחתון', 'ברך' (primary / display)
+  /** Multiple muscle groups — custom exercises; persisted in exercise_plans JSONB */
+  muscleGroups?: string[];
+  targetArea: BodyArea;   // primary area for filters / legacy consumers
+  /** Multiple body areas — custom exercises; persisted in exercise_plans JSONB */
+  targetAreas?: BodyArea[];
   sets: number;
   reps?: number;
   holdSeconds?: number;

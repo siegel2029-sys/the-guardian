@@ -1,7 +1,7 @@
 import { Play, CheckCircle2, Circle, Clock, RotateCcw, Zap, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import type { Exercise } from '../../types';
-import { bodyAreaLabels } from '../../types';
+import { formatExerciseBodyAreaLabels } from '../../utils/exerciseTargeting';
 import { formatTime } from './ManagePlanModal';
 
 interface ExerciseCardProps {
@@ -133,7 +133,7 @@ export default function ExerciseCard({
               className="text-[10px] px-2 py-0.5 rounded-full font-medium"
               style={{ background: '#f0fffe', color: '#0d9488', border: '1px solid #99f6e4' }}
             >
-              {bodyAreaLabels[exercise.targetArea]}
+              {formatExerciseBodyAreaLabels(exercise)}
             </span>
           </div>
         </div>

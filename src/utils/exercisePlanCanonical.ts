@@ -104,6 +104,22 @@ export function normalizeCachedPatientExercise(raw: PatientExercise): PatientExe
           ? 0
           : 10;
 
+  const targetAreas =
+    Array.isArray(raw.targetAreas) && raw.targetAreas.length > 0
+      ? raw.targetAreas
+      : raw.targetArea
+        ? [raw.targetArea]
+        : undefined;
+  const muscleGroups =
+    Array.isArray(raw.muscleGroups) && raw.muscleGroups.length > 0
+      ? raw.muscleGroups
+      : raw.muscleGroup?.trim()
+        ? [raw.muscleGroup.trim()]
+        : undefined;
+  const primaryArea = targetAreas?.[0] ?? raw.targetArea;
+  const primaryMuscle =
+    muscleGroups?.join(' · ') ?? (raw.muscleGroup ?? '');
+
   return {
     ...raw,
     sets: typeof raw.sets === 'number' ? raw.sets : patientSets,
@@ -112,7 +128,10 @@ export function normalizeCachedPatientExercise(raw: PatientExercise): PatientExe
     patientReps,
     addedAt: raw.addedAt ?? new Date().toISOString(),
     instructions: raw.instructions ?? '',
-    muscleGroup: raw.muscleGroup ?? '',
+    muscleGroup: primaryMuscle,
+    muscleGroups,
+    targetArea: primaryArea ?? raw.targetArea ?? 'neck',
+    targetAreas,
     difficulty: raw.difficulty ?? 3,
     type: raw.type ?? 'standard',
     xpReward: typeof raw.xpReward === 'number' ? raw.xpReward : 20,
