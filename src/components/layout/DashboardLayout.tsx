@@ -9,11 +9,15 @@ import HistoryAnalyticsPanel from '../dashboard/HistoryAnalyticsPanel';
 import TherapistSettingsPanel from '../dashboard/TherapistSettingsPanel';
 import ManageKnowledgeBasePanel from '../dashboard/ManageKnowledgeBasePanel';
 import { usePatient } from '../../context/PatientContext';
+import { useTherapistPushInfrastructure } from '../../hooks/useTherapistPushInfrastructure';
 import type { NavSection } from '../../types';
 
 export default function DashboardLayout() {
   const { activeSection } = usePatient();
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+
+  // Refresh + persist the therapist's push subscription on dashboard open (server-validated VAPID key).
+  useTherapistPushInfrastructure();
 
   const openMobileDrawer = useCallback(() => setMobileDrawerOpen(true), []);
   const closeMobileDrawer = useCallback(() => setMobileDrawerOpen(false), []);

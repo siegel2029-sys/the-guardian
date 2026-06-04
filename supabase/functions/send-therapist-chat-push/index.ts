@@ -130,12 +130,21 @@ Deno.serve(async (req) => {
     },
   });
 
+  console.log(
+    `[send-therapist-chat-push] Gateway response for patient ${patientId}: ${
+      pushResult.ok ? "sent_ok" : pushResult.detail ?? "failed"
+    }${pushResult.statusCode ? ` [HTTP ${pushResult.statusCode}]` : ""}${
+      pushResult.stale ? " [STALE — patient should re-register on next app open]" : ""
+    }`,
+  );
+
   if (!pushResult.ok) {
     console.error("[send-therapist-chat-push] Push failed:", pushResult.detail);
     return jsonResponse({
       ok: false,
       patientId,
       deliveryError: pushResult.detail,
+      stale: pushResult.stale ?? false,
     }, 200);
   }
 

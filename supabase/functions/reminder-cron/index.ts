@@ -3,6 +3,7 @@ import {
   coerceJsonRecord,
   hasDeliverableReminderToken,
   isWebPushEndpoint,
+  markPatientPushTokenStale,
   sendPatientReminder,
 } from "../_shared/patientPushDelivery.ts";
 
@@ -159,6 +160,12 @@ function mergeCronFlagsFromUrl(
 }
 
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
+/**
+ * A web-push gateway can return `sent_ok` while the device silently drops the notification because the
+ * OS/browser has throttled or evicted a long-idle service worker. We can't see that from the gateway,
+ * but we surface it as a diagnostic so a "successful but silent" delivery is explainable in the logs.
+ */
+const STALE_ACTIVITY_WARN_HOURS = 72;
 
 async function runReminderDispatch(params: {
   supabase: ReturnType<typeof createClient>;
@@ -181,6 +188,13 @@ async function runReminderDispatch(params: {
   let skipped = 0;
   let testBypassSent = 0;
   const errors: string[] = [];
+
+  const deliverableCount = patients.filter((p) =>
+    hasDeliverableReminderToken((p.push_token ?? "").trim())
+  ).length;
+  console.log(
+    `[reminder-cron] Tokens resolved: ${deliverableCount} deliverable / ${patients.length} patients scanned.`,
+  );
 
   if (reminderTestBypass) {
     console.log(
@@ -354,7 +368,9 @@ async function runReminderDispatch(params: {
       );
       const r = await sendPatientReminder(token, MOMENTUM_BODY, p.payload);
       console.log(
-        `[reminder-cron]   Momentum send result: ${r.ok ? "sent_ok" : r.detail ?? "failed"}`,
+        `[reminder-cron]   Gateway response (momentum) for ${label}: ${r.ok ? "sent_ok" : r.detail ?? "failed"}${
+          r.statusCode ? ` [HTTP ${r.statusCode}]` : ""
+        }${r.stale ? " [STALE → clearing token]" : ""}`,
       );
       if (r.ok) {
         await supabase
@@ -366,6 +382,9 @@ async function runReminderDispatch(params: {
         sentSomething = true;
       } else {
         errors.push(`${p.id}: momentum ${r.detail ?? "push failed"}`);
+        if (r.stale) {
+          await markPatientPushTokenStale(supabase, p.id, `momentum: ${r.detail ?? "stale"}`);
+        }
       }
     } else if (!hasWorkToday) {
       console.log(
@@ -408,7 +427,9 @@ async function runReminderDispatch(params: {
       );
       const r = await sendPatientReminder(token, STANDARD_BODY, p.payload);
       console.log(
-        `[reminder-cron]   Standard send result: ${r.ok ? "sent_ok" : r.detail ?? "failed"}`,
+        `[reminder-cron]   Gateway response (standard) for ${label}: ${r.ok ? "sent_ok" : r.detail ?? "failed"}${
+          r.statusCode ? ` [HTTP ${r.statusCode}]` : ""
+        }${r.stale ? " [STALE → clearing token]" : ""}`,
       );
       if (r.ok) {
         await supabase
@@ -417,8 +438,16 @@ async function runReminderDispatch(params: {
           .eq("id", p.id);
         standardSent += 1;
         standardDelivered = true;
+        if (hoursSinceActivity !== null && hoursSinceActivity >= STALE_ACTIVITY_WARN_HOURS) {
+          console.warn(
+            `[reminder-cron]   Note: standard push reported sent_ok for ${label} (${p.id}) but last activity was ${hoursSinceActivity.toFixed(0)}h ago (>= ${STALE_ACTIVITY_WARN_HOURS}h) — device service worker may be OS-throttled/stale. It will self-heal when the patient next opens the app (auto re-subscribe).`,
+          );
+        }
       } else {
         errors.push(`${p.id}: standard ${r.detail ?? "push failed"}`);
+        if (r.stale) {
+          await markPatientPushTokenStale(supabase, p.id, `standard: ${r.detail ?? "stale"}`);
+        }
       }
     }
 

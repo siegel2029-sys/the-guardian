@@ -6,6 +6,23 @@ import webPush from "npm:web-push@3.6.7";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
+/**
+ * Result of a single push attempt.
+ * `stale === true` means the gateway permanently rejected the registration (VAPID 403 mismatch,
+ * 404, 410 Gone, or Expo DeviceNotRegistered) — callers should clear the token so we stop retrying.
+ */
+export type PushSendResult = {
+  ok: boolean;
+  detail?: string;
+  statusCode?: number;
+  stale?: boolean;
+};
+
+/** HTTP statuses that mean "this subscription is dead — stop sending to it". */
+export function isStaleSubscriptionStatus(status: number | undefined): boolean {
+  return status === 403 || status === 404 || status === 410;
+}
+
 export function isExpoPushToken(token: string): boolean {
   const t = token.trim();
   return t.startsWith("ExponentPushToken[") || t.startsWith("ExpoPushToken");
@@ -132,7 +149,7 @@ async function sendExpoPush(
   token: string,
   body: string,
   title = "Physio-Shield",
-): Promise<{ ok: boolean; detail?: string }> {
+): Promise<PushSendResult> {
   const expoAccessToken = Deno.env.get("EXPO_ACCESS_TOKEN")?.trim() ?? "";
   if (!expoAccessToken) {
     return { ok: false, detail: "EXPO_ACCESS_TOKEN secret missing or empty" };
@@ -156,13 +173,18 @@ async function sendExpoPush(
   });
   const text = await r.text();
   if (!r.ok) {
-    return { ok: false, detail: text.slice(0, 500) };
+    return { ok: false, detail: text.slice(0, 500), statusCode: r.status };
   }
   try {
-    const j = JSON.parse(text) as { data?: { status?: string } };
+    const j = JSON.parse(text) as {
+      data?: { status?: string; details?: { error?: string } };
+    };
     const st = j.data?.status;
     if (st && st !== "ok") {
-      return { ok: false, detail: text.slice(0, 500) };
+      // Expo signals a permanently dead token via DeviceNotRegistered.
+      const errCode = j.data?.details?.error ?? "";
+      const stale = errCode === "DeviceNotRegistered";
+      return { ok: false, detail: text.slice(0, 500), stale };
     }
   } catch {
     /* ignore */
@@ -177,6 +199,34 @@ function sanitizeVapidSubjectEnv(raw: string | undefined): string {
 }
 
 let webPushVapidConfigured = false;
+/** Resolved VAPID public key actually handed to web-push (and exposed to the client so subscriptions match). */
+let resolvedVapidPublicKey = "";
+
+/**
+ * Last-resort public key if the env secret is genuinely missing. NOTE: this only works if
+ * WEB_PUSH_VAPID_PRIVATE_KEY pairs with it. Prefer setting WEB_PUSH_VAPID_PUBLIC_KEY.
+ */
+const HARDCODED_FALLBACK_PUBLIC_KEY =
+  "BIRiFTcrsL5UwU6kkrQ3ThpZZJbGWmteXiILW0Zh3XXkgPWN1QGzs0tnCn0vy3OVVjIoaKuFB_LL-5j6DpBbr98";
+
+function normalizeVapidKeyString(raw: string | undefined | null): string {
+  return (raw ?? "")
+    .replace(/^\uFEFF/, "")
+    .replace(/[\r\n\u2028\u2029]+/g, "")
+    .replace(/^['"]|['"]$/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+/**
+ * The canonical public key the server signs with — the client MUST subscribe with these exact bytes
+ * or the gateway returns HTTP 403 (VAPID credential mismatch). Served by the `web-push-public-key` function.
+ */
+export function getConfiguredVapidPublicKey(): string {
+  if (resolvedVapidPublicKey) return resolvedVapidPublicKey;
+  const envPublic = normalizeVapidKeyString(Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY"));
+  return envPublic.length > 40 ? envPublic : HARDCODED_FALLBACK_PUBLIC_KEY;
+}
 
 /** Safe prefix/suffix peek for Supabase secret corruption (quotes, newlines, truncation). */
 function logVapidKeyPreSetTelemetry(label: string, key: string): void {
@@ -200,25 +250,23 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
   if (webPushVapidConfigured) return { ok: true };
 
   const ENV_PUBLIC_KEY = Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY");
-  const HARDCODED_VALID_PUBLIC_KEY =
-    "BIRiFTcrsL5UwU6kkrQ3ThpZZJbGWmteXiILW0Zh3XXkgPWN1QGzs0tnCn0vy3OVVjIoaKuFB_LL-5j6DpBbr98";
+  const envPublicKey = normalizeVapidKeyString(ENV_PUBLIC_KEY);
 
-  let publicKey =
-    ENV_PUBLIC_KEY && ENV_PUBLIC_KEY.length > 40 ? ENV_PUBLIC_KEY : HARDCODED_VALID_PUBLIC_KEY;
-
-  publicKey = publicKey.replace(/^['"]|['"]$/g, "").trim();
-  publicKey = publicKey.replace(/\s+/g, "");
-
-  if (publicKey !== HARDCODED_VALID_PUBLIC_KEY) {
-    publicKey = HARDCODED_VALID_PUBLIC_KEY;
-    console.log(
-      "patient-push: WEB_PUSH_VAPID_PUBLIC_KEY env missing/short/corrupt — using hardcoded public key fallback",
+  // CRITICAL: prefer the env public key. It is the one the browser subscribed against
+  // (VITE_WEB_PUSH_VAPID_PUBLIC_KEY) and the one that pairs with WEB_PUSH_VAPID_PRIVATE_KEY.
+  // Forcing a hardcoded key here was the source of the HTTP 403 "VAPID credentials do not
+  // correspond" failures — we now only fall back when the env key is genuinely absent.
+  let publicKey = envPublicKey.length > 40 ? envPublicKey : HARDCODED_FALLBACK_PUBLIC_KEY;
+  const usedFallback = publicKey === HARDCODED_FALLBACK_PUBLIC_KEY &&
+    envPublicKey.length <= 40;
+  if (usedFallback) {
+    console.warn(
+      "patient-push: WEB_PUSH_VAPID_PUBLIC_KEY env missing/short — using hardcoded fallback. " +
+        "Set WEB_PUSH_VAPID_PUBLIC_KEY to the key paired with WEB_PUSH_VAPID_PRIVATE_KEY to avoid 403 mismatches.",
     );
   }
 
-  let privateKey = Deno.env.get("WEB_PUSH_VAPID_PRIVATE_KEY")?.trim() || "";
-  privateKey = privateKey.replace(/^['"]|['"]$/g, "").trim();
-  privateKey = privateKey.replace(/\s+/g, "");
+  const privateKey = normalizeVapidKeyString(Deno.env.get("WEB_PUSH_VAPID_PRIVATE_KEY"));
 
   const subject = sanitizeVapidSubjectEnv(Deno.env.get("WEB_PUSH_VAPID_SUBJECT"));
 
@@ -240,7 +288,7 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
       envPrivateRawLength: envPrivateRaw.length,
       resolvedPublicLength: publicKey.length,
       resolvedPrivateLength: privateKey.length,
-      publicUsedHardcodedFallback: publicKey === HARDCODED_VALID_PUBLIC_KEY,
+      publicUsedHardcodedFallback: usedFallback,
     }),
   );
   logVapidKeyPreSetTelemetry("publicKey (resolved)", publicKey);
@@ -259,6 +307,7 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
   }
 
   webPushVapidConfigured = true;
+  resolvedVapidPublicKey = publicKey;
   console.log(
     "patient-push: WEB_PUSH_VAPID_PUBLIC_KEY loaded:",
     "length=" + publicKey.length,
@@ -372,7 +421,7 @@ export async function sendPatientReminder(
   expoBody: string,
   patientPayload: unknown,
   opts?: SendPatientPushOptions,
-): Promise<{ ok: boolean; detail?: string }> {
+): Promise<PushSendResult> {
   const title = opts?.expoTitle ?? "Physio-Shield";
   const endpoint = token.trim();
 
@@ -386,7 +435,13 @@ export async function sendPatientReminder(
         "payloadType=",
         typeof patientPayload,
       );
-      return { ok: false, detail: "No valid subscription keys found after parsing" };
+      // Incomplete registration (missing schema keys) — the client must re-register a full
+      // { endpoint, keys } subscription, so flag as stale to trigger cleanup + re-subscribe.
+      return {
+        ok: false,
+        detail: "No valid subscription keys found after parsing",
+        stale: true,
+      };
     }
 
     const pushSub = toWebPushLibrarySubscription(parsedSub);
@@ -424,13 +479,85 @@ export async function sendPatientReminder(
       }
       const statusCode = (e as { statusCode?: number }).statusCode;
       if (typeof statusCode === "number") detail = `HTTP ${statusCode}: ${detail}`;
-      return { ok: false, detail };
+      return {
+        ok: false,
+        detail,
+        statusCode,
+        stale: isStaleSubscriptionStatus(statusCode),
+      };
     }
   }
 
   const r = await sendExpoPush(endpoint, expoBody, title);
   if (!r.ok && r.detail && !r.detail.startsWith("[expo_push]")) {
-    return { ok: false, detail: `[expo_push] ${r.detail}` };
+    return { ...r, detail: `[expo_push] ${r.detail}` };
   }
   return r;
+}
+
+/** Minimal Supabase client surface needed to flag a stale push registration. */
+type SupabaseLike = {
+  from: (table: string) => {
+    update: (values: Record<string, unknown>) => {
+      eq: (column: string, value: string) => Promise<{ error: { message: string } | null }>;
+    };
+  };
+};
+
+/**
+ * Clears a dead push registration after a persistent gateway rejection (403/404/410 or parse miss)
+ * so the cron + chat functions stop hammering it. The frontend re-registers (with the
+ * server-validated VAPID key) on the user's next app open, which repopulates these fields.
+ *
+ * Generic across `patients` (keyed by `id`) and `profiles` (therapist, keyed by `id`) — both share the
+ * `push_token` / `push_invalidated_at` / `push_last_error` columns.
+ */
+export async function markPushTokenStale(
+  supabase: SupabaseLike,
+  opts: { table: string; idColumn?: string; id: string; detail: string },
+): Promise<void> {
+  const { table, id, detail } = opts;
+  const idColumn = opts.idColumn ?? "id";
+  try {
+    const { error } = await supabase
+      .from(table)
+      .update({
+        push_token: null,
+        push_invalidated_at: new Date().toISOString(),
+        push_last_error: detail.slice(0, 300),
+      })
+      .eq(idColumn, id);
+    if (error) {
+      console.error(
+        `patient-push: failed to flag stale token for ${table}.${idColumn}=${id}: ${error.message}`,
+      );
+    } else {
+      console.log(
+        `patient-push: flagged stale push token for ${table}.${idColumn}=${id} (cleared push_token). Reason: ${detail.slice(0, 120)}`,
+      );
+    }
+  } catch (e) {
+    console.error(
+      `patient-push: exception flagging stale token for ${table}.${idColumn}=${id}:`,
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+}
+
+/** Backwards-compatible wrapper used by reminder-cron + notify-new-message for the patients table. */
+export async function markPatientPushTokenStale(
+  supabase: SupabaseLike,
+  patientId: string,
+  detail: string,
+): Promise<void> {
+  await markPushTokenStale(supabase, { table: "patients", id: patientId, detail });
+}
+
+/** Flags a therapist's stale push registration in `public.profiles` (parallel to the patient path). */
+export async function markTherapistPushTokenStale(
+  supabase: SupabaseLike,
+  therapistId: string,
+  detail: string,
+): Promise<void> {
+  await markPushTokenStale(supabase, { table: "profiles", id: therapistId, detail });
 }

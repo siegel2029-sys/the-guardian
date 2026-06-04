@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 import { getSupabaseAuthSession } from '../lib/supabaseSessionGuard';
 import type { Patient } from '../types';
 
@@ -163,7 +163,7 @@ export async function syncWebPushDatabasePayloadIfStale(patientId: string): Prom
   }
 
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-  if (!getVapidPublicKey()) return;
+  if (!(await resolveVapidPublicKey())) return;
 
   const regResult = await forceReregisterPatientWebPush(patientId);
   if (!regResult.ok) return;
@@ -232,6 +232,64 @@ function getVapidPublicKey(): string {
   return normalizeVapidPublicKeyString(raw);
 }
 
+/** In-memory cache for the server-validated VAPID public key (per page load). */
+let serverVapidPublicKeyCache: string | null = null;
+
+function getWebPushPublicKeyUrl(): string | null {
+  if (!supabaseUrl) return null;
+  return `${supabaseUrl.replace(/\/+$/, '')}/functions/v1/web-push-public-key`;
+}
+
+/**
+ * Fetches the canonical VAPID public key the Edge Functions actually sign with, so the browser
+ * subscribes with matching bytes (prevents HTTP 403 "VAPID credentials do not correspond").
+ * Falls back to the build-time `VITE_WEB_PUSH_VAPID_PUBLIC_KEY` if the endpoint is unreachable.
+ */
+async function fetchServerVapidPublicKey(): Promise<string> {
+  if (serverVapidPublicKeyCache) return serverVapidPublicKeyCache;
+  const url = getWebPushPublicKeyUrl();
+  if (!url || !supabaseAnonKey) return '';
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },
+    });
+    if (!res.ok) {
+      console.warn('[PhysioShield push] web-push-public-key HTTP', res.status);
+      return '';
+    }
+    const json = (await res.json()) as { ok?: boolean; publicKey?: unknown };
+    const key = normalizeVapidPublicKeyString(json.publicKey);
+    if (json.ok && key.length > 40) {
+      serverVapidPublicKeyCache = key;
+      return key;
+    }
+    console.warn('[PhysioShield push] web-push-public-key returned no usable key');
+    return '';
+  } catch (e) {
+    console.warn('[PhysioShield push] web-push-public-key fetch failed:', e);
+    return '';
+  }
+}
+
+/**
+ * Single source of truth for the VAPID public key used to subscribe: server-validated key first,
+ * build-time env as fallback. Logs when the two disagree (a classic 403 root cause).
+ */
+async function resolveVapidPublicKey(): Promise<string> {
+  const server = await fetchServerVapidPublicKey();
+  const envKey = getVapidPublicKey();
+  if (server) {
+    if (envKey && envKey !== server) {
+      console.warn(
+        '[PhysioShield push] VITE_WEB_PUSH_VAPID_PUBLIC_KEY differs from server key — using server key to avoid 403 mismatch.',
+      );
+    }
+    return server;
+  }
+  return envKey;
+}
+
 /**
  * VAPID / Web Push: URL-safe base64 (RFC 4648 §5) → `Uint8Array` for
  * `pushManager.subscribe({ applicationServerKey })`.
@@ -290,10 +348,10 @@ export async function subscribeWebPushAfterPermissionGranted(): Promise<WebPushS
     return null;
   }
 
-  const vapidPublic = getVapidPublicKey();
+  const vapidPublic = await resolveVapidPublicKey();
   if (!vapidPublic) {
     console.warn(
-      '[PhysioShield push] Set VITE_WEB_PUSH_VAPID_PUBLIC_KEY (or VITE_VAPID_PUBLIC_KEY) — cannot call pushManager.subscribe'
+      '[PhysioShield push] No VAPID public key (server endpoint + VITE_WEB_PUSH_VAPID_PUBLIC_KEY both empty) — cannot call pushManager.subscribe'
     );
     return null;
   }
@@ -452,7 +510,7 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
     return { ok: false, reason: 'permission_denied' };
   }
 
-  const vapidPublic = getVapidPublicKey();
+  const vapidPublic = await resolveVapidPublicKey();
 
   let webPushSubscription: WebPushSubscriptionPayload | undefined;
   let token: string;
@@ -635,6 +693,11 @@ export async function persistPatientPushProfile(params: {
   const patch: Record<string, unknown> = {
     push_token: params.token,
     reminder_timezone: tz,
+    // Heartbeat on every refresh so reminder-cron "momentum" eligibility + stale-token triage stay current.
+    last_activity_timestamp: new Date().toISOString(),
+    // A fresh, valid registration clears any prior stale flag set by the Edge Functions.
+    push_invalidated_at: null,
+    push_last_error: null,
   };
 
   if (params.webPushSubscription) {
@@ -661,12 +724,23 @@ export async function persistPatientPushProfile(params: {
     patch.payload = base;
   }
 
-  const { data: updated, error } = await supabase
-    .from('patients')
-    .update(patch)
-    .eq('id', params.patientId)
-    .select('id')
-    .maybeSingle();
+  const runUpdate = async (values: Record<string, unknown>) =>
+    supabase!
+      .from('patients')
+      .update(values)
+      .eq('id', params.patientId)
+      .select('id')
+      .maybeSingle();
+
+  let { data: updated, error } = await runUpdate(patch);
+
+  // Graceful fallback when push-health columns haven't been migrated yet on this environment.
+  if (error && /push_invalidated_at|push_last_error|column.*does not exist/i.test(error.message)) {
+    const { push_invalidated_at: _pia, push_last_error: _ple, ...legacyPatch } = patch;
+    void _pia;
+    void _ple;
+    ({ data: updated, error } = await runUpdate(legacyPatch));
+  }
 
   if (error) {
     return { ok: false, message: error.message };

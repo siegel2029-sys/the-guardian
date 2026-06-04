@@ -373,6 +373,11 @@ verify_jwt = false
 [functions.notify-new-message]
 verify_jwt = false
 
+# Public read-only endpoint: returns the server's canonical VAPID public key so the browser
+# subscribes with bytes that match the signer (prevents HTTP 403 VAPID mismatch).
+[functions.web-push-public-key]
+verify_jwt = false
+
 # Invoked with header x-cron-secret or query ?secret= matching INTERNAL_CRON_SECRET
 [functions.reminder-cron]
 verify_jwt = false

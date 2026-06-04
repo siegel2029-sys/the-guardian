@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
@@ -7,6 +7,11 @@ import { ChevronDown, Check } from 'lucide-react';
 
 /** Absolute maximum height of a floating panel in px. */
 export const PANEL_MAX_H = 280;
+/**
+ * Anchored panels must sit above centred overlays (`CENTERED_PANEL_Z`) so nested
+ * dropdowns inside modals (e.g. custom-exercise multi-select) stay visible.
+ */
+const ANCHORED_PANEL_Z = 100_001;
 /** Centred overlay: backdrop sits below the panel so content stays sharp and clickable. */
 const CENTERED_BACKDROP_Z = 99998;
 const CENTERED_PANEL_Z = 99999;
@@ -82,7 +87,7 @@ export function calcPanelStyle(trigger: HTMLElement): CSSProperties {
     top = rect.bottom + window.scrollY + 4;
   }
 
-    return { position: 'absolute', top, left, width, maxHeight, zIndex: 40000 };
+    return { position: 'absolute', top, left, width, maxHeight, zIndex: ANCHORED_PANEL_Z };
 }
 
 // ─── PortalDropdown (low-level) ───────────────────────────────────────────────
@@ -96,7 +101,8 @@ export function calcPanelStyle(trigger: HTMLElement): CSSProperties {
  *   it tracks the trigger even when the trigger is inside a scrollable pane.
  * - Closes on outside click and Escape key.
  * - Never clipped by `overflow: hidden` ancestors because it lives at the
- *   document body level with `position: absolute` and `zIndex` below `#physioshield-portal-root` (999999).
+ *   document body level with `position: absolute` and `zIndex` below `#physioshield-portal-root` (999999),
+ *   but above centred modal panels (`ANCHORED_PANEL_Z`).
  */
 export function PortalDropdown({
   open,
@@ -138,11 +144,23 @@ export function PortalDropdown({
     if (triggerRef.current) setPanelStyle(calcPanelStyle(triggerRef.current));
   }, [triggerRef]);
 
+  useLayoutEffect(() => {
+    if (!open || centered) return;
+    reposition();
+  }, [open, centered, reposition]);
+
   useEffect(() => {
     if (!open) return;
-    if (!centered) reposition();
+
+    // Defer outside-click handling so the same gesture that opened the panel
+    // (mousedown/click on the trigger) cannot immediately close it.
+    let outsideClickArmed = false;
+    const armOutsideClick = window.requestAnimationFrame(() => {
+      outsideClickArmed = true;
+    });
 
     const onOutside = (e: MouseEvent) => {
+      if (!outsideClickArmed) return;
       const t = e.target as Node;
       if (triggerRef.current?.contains(t) || panelRef.current?.contains(t)) return;
       onClose();
@@ -155,17 +173,17 @@ export function PortalDropdown({
       // capture:true ensures we receive scroll events from inside nested overflow-y-auto panes
       window.addEventListener('scroll', reposition, true);
       window.addEventListener('resize', reposition);
+      // Use click (not mousedown) so it does not fight with trigger pointer handlers.
+      document.addEventListener('click', onOutside, true);
     }
-    // Outside-click is handled by the backdrop onClick in centered mode, but
-    // we still wire Escape for both modes.
-    if (!centered) document.addEventListener('mousedown', onOutside);
     document.addEventListener('keydown', onKey);
 
     return () => {
+      window.cancelAnimationFrame(armOutsideClick);
       if (!centered) {
         window.removeEventListener('scroll', reposition, true);
         window.removeEventListener('resize', reposition);
-        document.removeEventListener('mousedown', onOutside);
+        document.removeEventListener('click', onOutside, true);
       }
       document.removeEventListener('keydown', onKey);
     };
@@ -208,9 +226,11 @@ export function PortalDropdown({
   }
 
   // ── Anchor-based mode ────────────────────────────────────────────────────
-  const effectivePanelStyle: CSSProperties = panelMaxHeight
-    ? { ...panelStyle, maxHeight: panelMaxHeight }
-    : panelStyle;
+  const effectivePanelStyle: CSSProperties = {
+    zIndex: ANCHORED_PANEL_Z,
+    ...panelStyle,
+    ...(panelMaxHeight != null ? { maxHeight: panelMaxHeight } : {}),
+  };
 
   return createPortal(
     <div
@@ -354,7 +374,8 @@ export function PortalMultiSelect({
     }
   };
 
-  const removeValue = (val: string) => {
+  const removeValue = (val: string, e: { stopPropagation(): void }) => {
+    e.stopPropagation();
     onChange(values.filter((v) => v !== val));
   };
 
@@ -365,12 +386,18 @@ export function PortalMultiSelect({
         ? (options.find((o) => o.value === values[0])?.label ?? values[0])
         : `${values.length} נבחרו`;
 
+  const toggleMenu = () => setOpen((v) => !v);
+
   return (
     <div className="relative">
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleMenu();
+        }}
         className={`w-full flex items-center justify-between gap-2 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400/40 ${className} ${
           values.length === 0 ? 'text-slate-400' : ''
         }`}
@@ -379,9 +406,9 @@ export function PortalMultiSelect({
         aria-label={ariaLabel}
         dir={dir}
       >
-        <span className="truncate flex-1 text-right">{triggerSummary}</span>
+        <span className="truncate flex-1 text-right pointer-events-none">{triggerSummary}</span>
         <ChevronDown
-          className={`w-4 h-4 shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`w-4 h-4 shrink-0 text-slate-500 transition-transform pointer-events-none ${open ? 'rotate-180' : ''}`}
           aria-hidden
         />
       </button>
@@ -398,7 +425,8 @@ export function PortalMultiSelect({
                 <span className="truncate">{label}</span>
                 <button
                   type="button"
-                  onClick={() => removeValue(val)}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => removeValue(val, e)}
                   className="shrink-0 w-4 h-4 rounded hover:bg-teal-100 text-teal-700 leading-none"
                   aria-label={`הסר ${label}`}
                 >
@@ -422,9 +450,13 @@ export function PortalMultiSelect({
               <li key={opt.value} role="option" aria-selected={selected}>
                 <button
                   type="button"
-                  onClick={() => toggle(opt.value)}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggle(opt.value);
+                  }}
                   className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-slate-50 transition-colors ${
-                    selected ? 'font-semibold text-teal-700' : 'text-slate-800'
+                    selected ? 'font-semibold text-teal-700 bg-teal-50/40' : 'text-slate-800'
                   }`}
                   dir={dir}
                 >
