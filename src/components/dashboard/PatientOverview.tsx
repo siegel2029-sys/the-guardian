@@ -26,6 +26,7 @@ import AiSuggestionsPanel from './AiSuggestionsPanel';
 import PendingApprovalsPanel from './PendingApprovalsPanel';
 import ManagePlanModal from './ManagePlanModal';
 import ClinicalAiIntakeWizard from './ClinicalAiIntakeWizard';
+import ClinicalIntakeCompletionModal from './clinical/ClinicalIntakeCompletionModal';
 import TherapistQuickChat from './clinical/TherapistQuickChat';
 import TherapistAiInsightsPanel from './clinical/TherapistAiInsightsPanel';
 import TherapistClinicalConsultantFAB from './clinical/TherapistClinicalConsultantFAB';
@@ -89,7 +90,9 @@ export default function PatientOverview() {
     aiSuggestions,
   } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
-  const [showClinicalModal, setShowClinicalModal] = useState(false);
+  const [clinicalModalMode, setClinicalModalMode] = useState<'none' | 'completion' | 'wizard'>(
+    'none'
+  );
   const [showIntakeVault, setShowIntakeVault] = useState(false);
   const [showPainAreasModal, setShowPainAreasModal] = useState(false);
   const [destructiveDeleteOpen, setDestructiveDeleteOpen] = useState(false);
@@ -282,6 +285,10 @@ export default function PatientOverview() {
     unlinkedPortalPatientIds.includes(p.id);
 
   const displayName = getPatientDisplayName(p);
+
+  const openClinicalIntakeModal = () => {
+    setClinicalModalMode(intakeIncomplete ? 'completion' : 'wizard');
+  };
 
   const saveDemographics = () => {
     const trimmed = demoFreeText.trim();
@@ -562,7 +569,7 @@ export default function PatientOverview() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowClinicalModal(true)}
+                    onClick={openClinicalIntakeModal}
                     className={`w-full text-start py-2 px-2.5 text-sm font-medium transition-colors min-h-[2.25rem] ${dataUpdateBoxClassName(
                       showIntakeHighlight,
                       intakeIncomplete
@@ -685,7 +692,7 @@ export default function PatientOverview() {
               {showIntakeAction && (
                 <button
                   type="button"
-                  onClick={() => setShowClinicalModal(true)}
+                  onClick={openClinicalIntakeModal}
                   className={`w-full sm:w-auto inline-flex justify-center items-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold active:scale-[0.99] transition-colors ${
                     showIntakeHighlight
                       ? DATA_UPDATE_ACTION_HIGHLIGHT
@@ -876,14 +883,36 @@ export default function PatientOverview() {
 
         {showManageModal && <ManagePlanModal onClose={() => setShowManageModal(false)} />}
 
-        {showClinicalModal && (
+        {clinicalModalMode === 'completion' && (
+          <ClinicalIntakeCompletionModal
+            patient={p}
+            planExercises={plan?.exercises ?? []}
+            onClose={() => setClinicalModalMode('none')}
+            onOpenFullWizard={() => setClinicalModalMode('wizard')}
+            onSave={async (primaryBodyArea, libraryExerciseIds, extras) => {
+              applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds, extras);
+              const ok = await savePersistedStateToCloud({ immediate: true });
+              if (!ok) {
+                console.error('[ClinicalIntakeCompletion] savePersistedStateToCloud failed', {
+                  patientId: p.id,
+                  primaryBodyArea,
+                  clinicalIntakeProfile: extras?.clinicalIntakeProfile,
+                });
+                throw new Error(
+                  'שמירה לענן נכשלה — הנתונים נשמרו מקומית בלבד. רעננו את הדף או נסו שוב.'
+                );
+              }
+            }}
+          />
+        )}
+
+        {clinicalModalMode === 'wizard' && (
           <ClinicalAiIntakeWizard
             clinicalIntakeMode="edit"
             lockedPortalUsername={portalUsernameDisplay}
             initialPatientName={getPatientDisplayName(p)}
             initialIntakeStory={resolveCoreLegacyIntakeSummaryText(p) || undefined}
-            highlightIncompleteFields={intakeIncomplete}
-            onClose={() => setShowClinicalModal(false)}
+            onClose={() => setClinicalModalMode('none')}
             onSave={(primaryBodyArea, libraryExerciseIds, extras) => {
               applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds, extras);
               void savePersistedStateToCloud({ immediate: true });

@@ -1,6 +1,9 @@
 /** Soft purple theme aligned with the «צריכים עדכון נתונים» metric card. */
 export const DATA_UPDATE_FIELD_HIGHLIGHT =
-  'border-purple-500 bg-purple-50/40 shadow-[0_0_0_2px_rgba(168,85,247,0.2)]';
+  'border-purple-600 bg-purple-50 shadow-[0_0_0_2px_rgba(147,51,234,0.18)]';
+
+export const DATA_UPDATE_FIELD_COMPLETE =
+  'border-emerald-500 bg-emerald-50/60 shadow-[0_0_0_2px_rgba(16,185,129,0.18)]';
 
 export const DATA_UPDATE_FIELD_NEUTRAL = 'border-slate-200 bg-white';
 
@@ -17,7 +20,13 @@ export function dataUpdateFieldBorderClass(
   isEmpty: boolean,
   neutralClass = DATA_UPDATE_FIELD_NEUTRAL
 ): string {
-  return highlightActive && isEmpty ? DATA_UPDATE_FIELD_HIGHLIGHT : neutralClass;
+  if (!highlightActive) return neutralClass;
+  return isEmpty ? DATA_UPDATE_FIELD_HIGHLIGHT : DATA_UPDATE_FIELD_COMPLETE;
+}
+
+export function intakeValidationFieldClass(isMissing: boolean, highlightActive: boolean): string {
+  if (!highlightActive) return DATA_UPDATE_FIELD_NEUTRAL;
+  return isMissing ? DATA_UPDATE_FIELD_HIGHLIGHT : DATA_UPDATE_FIELD_COMPLETE;
 }
 
 export function dataUpdateInputClassName(

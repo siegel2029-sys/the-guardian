@@ -530,9 +530,9 @@ export function resolveClinicalIntakeProfileForDisplay(
     const fromPatient = patient.clinicalIntakeProfile;
 
     const merged = mergeClinicalIntakeProfilesGapFill(
-      fromLegacy,
+      fromPatient,
       fromArchive,
-      fromPatient
+      fromLegacy
     );
     return isClinicalIntakeProfileEmpty(merged) ? undefined : merged;
   } catch {
@@ -564,9 +564,9 @@ export function migratePatientClinicalIntakeProfile(
 
     const beforeFields = listFields(patient.clinicalIntakeProfile);
     const clinicalIntakeProfile = mergeClinicalIntakeProfilesGapFill(
-      legacy,
+      patient.clinicalIntakeProfile,
       patient.initialIntakeArchive?.extras?.clinicalIntakeProfile,
-      patient.clinicalIntakeProfile
+      legacy
     );
     if (isClinicalIntakeProfileEmpty(clinicalIntakeProfile)) {
       return empty;

@@ -1,8 +1,9 @@
 import type { Patient, PatientClinicalIntakeProfile } from '../types';
+import { isClinicalIntakeTextFieldAnswered } from './clinicalIntakeFieldAnswers';
 import { resolveClinicalIntakeProfileForDisplay } from './clinicalIntakeProfileMigration';
 
 /**
- * מקור אמת לתצוגה: structured profile → ארכיון → parsing מטקסט legacy (הערות, narrative, clinicalReasoningHe).
+ * מקור אמת לתצוגה: `patient.clinicalIntakeProfile` → ארכיון → parsing מטקסט legacy.
  */
 export function resolvePatientClinicalIntakeProfile(
   patient: Patient
@@ -26,11 +27,8 @@ export type ClinicalIntakeProfileSlot = {
   lines: string[];
 };
 
-const PLACEHOLDER_NONE = new Set(['ללא', '—', '-', 'none', 'n/a']);
-
 function isPlaceholderValue(v: string): boolean {
-  const t = v.trim().toLowerCase();
-  return !t || PLACEHOLDER_NONE.has(t);
+  return !isClinicalIntakeTextFieldAnswered(v);
 }
 
 export function buildClinicalIntakeProfileSlots(

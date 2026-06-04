@@ -28,6 +28,8 @@ interface GuardianAssistantFABProps {
   /** מילות מפתח חירום בטקסט המטופל — לזרימת הבטיחות */
   onPatientEmergencyText?: () => void;
   hidden?: boolean;
+  /** מסתיר את שורת העוזר הצפה (למשל בטאב צ׳אט מטפל) */
+  suppressPortalPeekBar?: boolean;
   /** ניסוח רך לפורטל מטופל (ללא מונחי דשבורד מטפל) */
   variant?: 'default' | 'portal';
 }
@@ -40,6 +42,7 @@ export default function GuardianAssistantFAB({
   onTherapistClinicalAlert,
   onPatientEmergencyText,
   hidden,
+  suppressPortalPeekBar = false,
   variant = 'default',
 }: GuardianAssistantFABProps) {
   const isPortal = variant === 'portal';
@@ -220,7 +223,7 @@ export default function GuardianAssistantFAB({
 
   const chrome = (
     <>
-      {isPortal && !open && (
+      {isPortal && !open && !suppressPortalPeekBar && (
         <div
           ref={portalBarRef}
           className={`fixed z-[20] flex items-center overflow-hidden border border-slate-200/70 bg-white/92 shadow-sm backdrop-blur-md motion-safe:transition-[width,min-width,height,border-radius,box-shadow] motion-safe:duration-300 motion-safe:ease-out pointer-events-auto ${

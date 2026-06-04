@@ -19,13 +19,14 @@ export function parseStrengthRows(muscleStrength: string | undefined): { muscle:
 
 export function formatStrengthRows(rows: { muscle: string; grade: string }[]): string {
   return rows
-    .filter((r) => r.muscle.trim() || r.grade.trim())
     .map((r) => {
       const m = r.muscle.trim();
       const g = r.grade.trim();
+      if (!m && !g) return '';
       if (m && g) return `${m}: ${g}`;
       return m || g;
     })
+    .filter(Boolean)
     .join('\n');
 }
 

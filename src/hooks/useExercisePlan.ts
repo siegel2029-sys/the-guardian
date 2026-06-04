@@ -25,6 +25,7 @@ import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../data/exerciseVideoDefaults';
 import { addClinicalDays, getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
 import { getTherapistAlertEmail, openClinicalMailto } from '../utils/clinicalAlertEmail';
 import { medicalHistoryToProfileMetadata } from '../utils/clinicalIntakeTemplate';
+import { normalizeClinicalIntakeProfileForStorage } from '../utils/clinicalIntakeProfilePersist';
 import {
   PAIN_SURGE_PATIENT_COPY,
   DIFFICULTY_MAX_PATIENT_COPY,
@@ -1018,58 +1019,9 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             ? extras.geminiClinicalNarrative.trim()
             : undefined;
 
-          const rawProfile = extras?.clinicalIntakeProfile;
-          const clinicalIntakeProfile =
-            rawProfile &&
-            ((rawProfile.ranges?.length ?? 0) > 0 ||
-              rawProfile.muscle_strength?.trim() ||
-              (rawProfile.special_tests?.length ?? 0) > 0 ||
-              rawProfile.medical_history?.backgroundDiseases?.trim() ||
-              rawProfile.medical_history?.chronicMedications?.trim() ||
-              (rawProfile.goals?.length ?? 0) > 0)
-              ? {
-                  ...(rawProfile.ranges?.length
-                    ? {
-                        ranges: rawProfile.ranges.map((s) => s.trim()).filter(Boolean),
-                      }
-                    : {}),
-                  ...(rawProfile.muscle_strength?.trim()
-                    ? { muscle_strength: rawProfile.muscle_strength.trim() }
-                    : {}),
-                  ...(rawProfile.special_tests?.length
-                    ? {
-                        special_tests: rawProfile.special_tests
-                          .map((s) => s.trim())
-                          .filter(Boolean),
-                      }
-                    : {}),
-                  ...(rawProfile.medical_history &&
-                  (rawProfile.medical_history.backgroundDiseases?.trim() ||
-                    rawProfile.medical_history.chronicMedications?.trim())
-                    ? {
-                        medical_history: {
-                          ...(rawProfile.medical_history.backgroundDiseases?.trim()
-                            ? {
-                                backgroundDiseases:
-                                  rawProfile.medical_history.backgroundDiseases.trim(),
-                              }
-                            : {}),
-                          ...(rawProfile.medical_history.chronicMedications?.trim()
-                            ? {
-                                chronicMedications:
-                                  rawProfile.medical_history.chronicMedications.trim(),
-                              }
-                            : {}),
-                        },
-                      }
-                    : {}),
-                  ...(rawProfile.goals?.length
-                    ? {
-                        goals: rawProfile.goals.map((s) => s.trim()).filter(Boolean),
-                      }
-                    : {}),
-                }
-              : undefined;
+          const clinicalIntakeProfile = normalizeClinicalIntakeProfileForStorage(
+            extras?.clinicalIntakeProfile
+          );
 
           const medicalProfileMetadata =
             medicalHistoryToProfileMetadata(clinicalIntakeProfile?.medical_history) ??
@@ -1099,8 +1051,17 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             extras?.secondaryClinicalBodyAreas !== undefined
               ? [...extras.secondaryClinicalBodyAreas]
               : p.secondaryClinicalBodyAreas;
+          const archiveExtras = {
+            ...p.initialIntakeArchive?.extras,
+            ...(clinicalIntakeProfile ? { clinicalIntakeProfile } : {}),
+            ...(medicalProfileMetadata ? { medicalProfileMetadata } : {}),
+          };
           const archive: PatientIntakeArchive | undefined = p.initialIntakeArchive
-            ? p.initialIntakeArchive
+            ? {
+                ...p.initialIntakeArchive,
+                extras:
+                  Object.keys(archiveExtras).length > 0 ? archiveExtras : p.initialIntakeArchive.extras,
+              }
             : {
                 capturedAt: addedAt,
                 primaryBodyArea,

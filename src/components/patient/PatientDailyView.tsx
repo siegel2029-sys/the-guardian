@@ -1485,7 +1485,7 @@ export default function PatientDailyView() {
         )}
 
         {portalTab === 'messages' && selectedPatient && (
-          <section className="mb-5 rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden flex flex-col min-h-[min(70vh,520px)] max-h-[calc(100dvh-8rem)]">
+          <section className="mb-5 rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden flex flex-col min-h-[min(70vh,520px)] max-h-[calc(100dvh-11rem)]">
             <div className="px-4 py-3 border-b border-slate-100 bg-white shrink-0">
               <div className="flex items-center gap-3">
                 <MessageCircle className="w-7 h-7 text-medical-primary shrink-0" />
@@ -1568,13 +1568,15 @@ export default function PatientDailyView() {
                     })
                 )}
               </div>
-              <div className="flex gap-2 items-end border-t-2 border-slate-200 pt-3 shrink-0">
+              <div className="relative z-40 flex gap-2 items-end border-t-2 border-slate-200 pt-3 pb-1 shrink-0 bg-slate-50/95">
                 <textarea
                   value={messageText}
                   onChange={(e) => setMessageText(e.target.value)}
                   placeholder={`הודעה ל־${careGiverShort}…`}
                   rows={2}
-                  className="flex-1 resize-none rounded-xl border-2 border-slate-200 px-3 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-medical-primary/30 bg-white"
+                  disabled={false}
+                  aria-disabled={false}
+                  className="flex-1 resize-none rounded-xl border-2 border-slate-200 px-3 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-medical-primary/30 bg-white pointer-events-auto touch-manipulation"
                 />
                 <button
                   type="button"
@@ -1909,6 +1911,7 @@ export default function PatientDailyView() {
             until: Date.now() + 9000,
           })
         }
+        suppressPortalPeekBar={portalTab === 'messages'}
         hidden={
           !!exerciseVideoModal ||
           trainingFeedbackOpen ||
@@ -1916,7 +1919,8 @@ export default function PatientDailyView() {
           patientMustChangePassword ||
           sessionCelebrationBurst > 0 ||
           trainingAiPlanModalOpen ||
-          portalFrozenUiLock
+          portalFrozenUiLock ||
+          portalTab === 'messages'
         }
       />
 
