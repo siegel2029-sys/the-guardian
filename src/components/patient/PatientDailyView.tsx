@@ -74,23 +74,6 @@ import {
 } from '../../hooks/useGamification';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { usePatientReminderInfrastructure } from '../../hooks/usePatientReminderInfrastructure';
-import { forceReregisterPatientWebPushClearStaleAndPersist } from '../../services/patientPushNotifications';
-import { PI_PUSH_SYNC_TEST_PATIENT_ID } from '../../constants/pushSyncTestPatients';
-
-/** TEMP: iOS requires user gesture for push + SW register (remove after patients sync). */
-const TEMP_PUSH_SYNC_PATIENT_IDS = [
-  'patient-mpcqx9d0-dzssqu', // yo
-  'patient-mpcr41c8-t50dlk', // tc
-  PI_PUSH_SYNC_TEST_PATIENT_ID, // PI
-] as const;
-
-function tempPushSyncDoneKey(patientId: string): string {
-  return `physioshield_force_push_reregister_${patientId}_v1`;
-}
-
-function patientNeedsTempPushSync(patient: { id: string }): boolean {
-  return (TEMP_PUSH_SYNC_PATIENT_IDS as readonly string[]).includes(patient.id);
-}
 
 type PortalTab = 'home' | 'activity' | 'gear' | 'messages';
 
@@ -264,40 +247,6 @@ export default function PatientDailyView() {
   const [pwNew, setPwNew] = useState('');
   const [pwConfirm, setPwConfirm] = useState('');
   const [pwFormError, setPwFormError] = useState<string | null>(null);
-  const [tempPushSyncBusy, setTempPushSyncBusy] = useState(false);
-  const [tempPushSyncDone, setTempPushSyncDone] = useState(false);
-
-  useEffect(() => {
-    if (!selectedPatient?.id) {
-      setTempPushSyncDone(false);
-      return;
-    }
-    try {
-      setTempPushSyncDone(
-        sessionStorage.getItem(tempPushSyncDoneKey(selectedPatient.id)) === '1',
-      );
-    } catch {
-      setTempPushSyncDone(false);
-    }
-  }, [selectedPatient?.id]);
-
-  /** Re-show sync banner when opened from therapist push_sync notification (`?push_sync=1`). */
-  useEffect(() => {
-    if (!selectedPatient?.id || !patientNeedsTempPushSync(selectedPatient)) return;
-    if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('push_sync') !== '1') return;
-    try {
-      sessionStorage.removeItem(tempPushSyncDoneKey(selectedPatient.id));
-    } catch {
-      /* ignore */
-    }
-    setTempPushSyncDone(false);
-    params.delete('push_sync');
-    const qs = params.toString();
-    const nextPath = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`;
-    window.history.replaceState(null, '', nextPath);
-  }, [selectedPatient?.id]);
 
   const [portalTab, setPortalTab] = useState<PortalTab>(() =>
     tabFromPortalPath(typeof window !== 'undefined' ? window.location.pathname : '/patient-portal')
@@ -1206,69 +1155,11 @@ export default function PatientDailyView() {
 
   const showPortalFrozenOverlay = portalFrozenUiLock && portalTab !== 'messages';
 
-  const showTempPushSyncBanner =
-    patientNeedsTempPushSync(selectedPatient) && !tempPushSyncDone;
-
-  const tempPushSyncBannerText = portalPatientLabel
-    ? `היי ${portalPatientLabel}, לצורך סינכרון מערכת הודעות הקליניקה באייפון, אנא לחץ כאן פעם אחת:`
-    : 'היי, לצורך סינכרון מערכת הודעות הקליניקה באייפון, אנא לחץ כאן פעם אחת:';
-
-  const handleTempPushSyncClick = async () => {
-    if (tempPushSyncBusy) return;
-    setTempPushSyncBusy(true);
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        const result = await forceReregisterPatientWebPushClearStaleAndPersist(
-          selectedPatient.id,
-        );
-        if (result.persist.ok) {
-          try {
-            sessionStorage.setItem(tempPushSyncDoneKey(selectedPatient.id), '1');
-          } catch {
-            /* ignore */
-          }
-          setTempPushSyncDone(true);
-          alert('הסינכרון הושלם בהצלחה!');
-        } else {
-          alert(
-            `הסינכרון נכשל בשמירה לשרת: ${result.persist.message ?? 'נסו שוב או פנו למטפל'}`,
-          );
-        }
-      } else if (permission === 'denied') {
-        alert('יש לאשר התראות בהגדרות Safari → אתר זה → התראות.');
-      }
-    } finally {
-      setTempPushSyncBusy(false);
-    }
-  };
-
   return (
     <div
       className="min-h-screen flex flex-col max-w-lg mx-auto w-full relative bg-medical-bg font-sans"
       dir="rtl"
     >
-      {showTempPushSyncBanner && (
-        <div
-          role="region"
-          aria-label="סנכרון התראות קליניקה"
-          className="shrink-0 z-50 px-3 pt-3 pb-1"
-        >
-          <div className="rounded-2xl border-2 border-amber-400 bg-gradient-to-l from-amber-50 to-orange-50 px-4 py-3 shadow-lg shadow-amber-200/60">
-            <p className="text-sm font-semibold text-amber-950 leading-relaxed mb-3">
-              {tempPushSyncBannerText}
-            </p>
-            <button
-              type="button"
-              disabled={tempPushSyncBusy}
-              onClick={() => void handleTempPushSyncClick()}
-              className="w-full rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-[0.98] text-white text-base font-bold py-3 px-4 shadow-md disabled:opacity-60 disabled:pointer-events-none transition-colors"
-            >
-              {tempPushSyncBusy ? 'מסנכרן…' : 'סנכרן התראות'}
-            </button>
-          </div>
-        </div>
-      )}
       <GuardiVictorySequence
         burstKey={guardiVictoryBurst}
         xpAdded={guardiVictoryRewards.xp}

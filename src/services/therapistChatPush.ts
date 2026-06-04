@@ -148,8 +148,8 @@ export type PatientPushSyncDispatchResult = {
 };
 
 /**
- * Therapist-initiated Web Push that opens the patient portal with `?push_sync=1`
- * so the temp re-register banner is shown again (isolated testing).
+ * Therapist-initiated Web Push that opens the patient portal so automated hydration
+ * refreshes the push subscription (isolated testing).
  */
 export async function dispatchPatientPushSyncRequest(
   client: SupabaseClient,

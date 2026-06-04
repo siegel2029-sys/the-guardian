@@ -355,7 +355,7 @@ export default function PatientOverview() {
                 <div>
                   <p className="text-sm font-bold text-violet-950">בדיקת מפתחות התראות (PI בלבד)</p>
                   <p className="text-xs text-violet-800 mt-1 leading-relaxed">
-                    שולח Web Push עם קישור לפורטל המטופל לסנכרון מחדש של מנוי ההתראות.
+                    שולח Web Push עם קישור לפורטל המטופל — פתיחת הפורטל מרעננת את מנוי ההתראות אוטומטית.
                   </p>
                 </div>
               </div>

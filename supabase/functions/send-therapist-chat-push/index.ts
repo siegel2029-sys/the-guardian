@@ -20,8 +20,8 @@ const corsHeaders: Record<string, string> = {
 const CHAT_NOTIFY_BODY = "שלחתי לך הודעה חדשה בצ'אט. כנס לראות!";
 const PORTAL_MESSAGES_PATH = "/patient-portal/messages";
 const PUSH_SYNC_NOTIFY_BODY =
-  "נדרש סנכרון התראות הקליניקה — לחצו לפתיחת הפורטל ולחיצה על «סנכרן התראות».";
-const PUSH_SYNC_PORTAL_PATH = "/patient-portal?push_sync=1";
+  "נדרש רענון מנוי ההתראות — פתחו את הפורטל; הסנכרון יתבצע אוטומטית.";
+const PUSH_SYNC_PORTAL_PATH = "/patient-portal";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
