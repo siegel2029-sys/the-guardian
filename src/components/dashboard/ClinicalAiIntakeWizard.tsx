@@ -1,15 +1,9 @@
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { PortalSelect } from '../ui/PortalDropdown';
 import {
   X,
   Stethoscope,
-  Dumbbell,
-  BookOpen,
-  Microscope,
-  Link2,
   Check,
-  Pencil,
   AlertTriangle,
   Loader2,
 } from 'lucide-react';
@@ -24,6 +18,11 @@ import type {
 import { bodyAreaLabels } from '../../types';
 import { exerciseMatchesPrimary } from '../../utils/clinicalBodyArea';
 import { getClinicalIntakeAdvice } from '../../ai/clinicalIntakeAdvisor';
+import IntakeActivationReviewPanel from './clinical/IntakeActivationReviewPanel';
+import {
+  emptyClinicalProfile,
+  splitClinicalListText,
+} from './clinical/intakeReviewUtils';
 import { analyzeClinicalNote, type ClinicalIntakeAnalysis } from '../../utils/clinicalParser';
 import {
   getGeminiApiKey,
@@ -37,7 +36,6 @@ import {
 } from '../../utils/intakeRedFlagHeuristics';
 import { dataUpdateInputClassName } from './clinical/patientDataUpdateHighlight';
 import MissingFieldHint from './clinical/MissingFieldHint';
-import ClinicalIntakeProfilePanel from './clinical/ClinicalIntakeProfilePanel';
 import {
   CLINICAL_INTAKE_TEMPLATE_HE,
   medicalHistoryToProfileMetadata,
@@ -73,6 +71,9 @@ type AnalysisBundle = {
   proposedExercises: Exercise[];
   rationaleLinesHe: string[];
   clinicalDiagnosis: string;
+  differentialDiagnosis: string[];
+  precautionsHe: string[];
+  recommendedTestsHe: string[];
   redFlags: string[];
   redFlagDetected: boolean;
   injuryHighlightSegments: BodyArea[];
@@ -83,6 +84,27 @@ type AnalysisBundle = {
   clinicalIntakeProfile?: PatientClinicalIntakeProfile;
   medicalProfileMetadata?: PatientMedicalProfileMetadata;
 };
+
+function buildReviewClinicalContext(
+  primary: BodyArea,
+  bundle: {
+    differentialDiagnosis?: string[];
+    rationaleLinesHe: string[];
+    source: 'gemini' | 'local';
+  }
+): { differentialDiagnosis: string[]; precautionsHe: string[]; recommendedTestsHe: string[] } {
+  const advice = getClinicalIntakeAdvice(primary);
+  const differentialDiagnosis =
+    bundle.differentialDiagnosis?.length
+      ? bundle.differentialDiagnosis
+      : splitClinicalListText(advice.differentialHe);
+  const precautionsHe =
+    bundle.rationaleLinesHe.length > 0
+      ? bundle.rationaleLinesHe
+      : [advice.chainWarningHe];
+  const recommendedTestsHe = splitClinicalListText(advice.furtherTestsHe);
+  return { differentialDiagnosis, precautionsHe, recommendedTestsHe };
+}
 
 function mergeClinicalIntakeProfile(
   fromGemini: PatientClinicalIntakeProfile | null | undefined,
@@ -119,11 +141,17 @@ function buildLocalBundle(story: string, local: ClinicalIntakeAnalysis): Analysi
   const redFlags = extractHeuristicIntakeRedFlags(story);
   const redFlagDetected = heuristicIntakeRedFlagDetected(redFlags);
   const clinicalIntakeProfile = parseClinicalIntakeProfileFromStory(story);
+  const rationaleLinesHe = local.rationaleLinesHe;
+  const clinicalContext = buildReviewClinicalContext(primaryBodyArea, {
+    rationaleLinesHe,
+    source: 'local',
+  });
   return {
     primaryBodyArea,
     proposedExercises: local.proposedExercises,
-    rationaleLinesHe: local.rationaleLinesHe,
+    rationaleLinesHe,
     clinicalDiagnosis: `מוקד טיפול: ${bodyAreaLabels[primaryBodyArea]}`,
+    ...clinicalContext,
     redFlags,
     redFlagDetected,
     injuryHighlightSegments,
@@ -187,11 +215,18 @@ async function runIntakeAnalysis(
       parseClinicalIntakeProfileFromStory(trimmed)
     );
 
+    const clinicalContext = buildReviewClinicalContext(primaryBodyArea, {
+      differentialDiagnosis: g.differentialDiagnosis,
+      rationaleLinesHe,
+      source: 'gemini',
+    });
+
     return {
       primaryBodyArea,
       proposedExercises,
       rationaleLinesHe,
       clinicalDiagnosis: g.clinicalDiagnosis,
+      ...clinicalContext,
       redFlags: g.redFlags,
       redFlagDetected: g.redFlagDetected,
       injuryHighlightSegments,
@@ -232,20 +267,43 @@ export default function ClinicalAiIntakeWizard({
   const [intakeName, setIntakeName] = useState(initialPatientName);
   const [intakeStory, setIntakeStory] = useState(defaultStory);
   const [followUpIntake, setFollowUpIntake] = useState(false);
-  const [detailedEdit, setDetailedEdit] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisBundle, setAnalysisBundle] = useState<AnalysisBundle | null>(null);
 
   const [primary, setPrimary] = useState<BodyArea>('back_lower');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [reviewProfile, setReviewProfile] = useState<PatientClinicalIntakeProfile>(() =>
+    emptyClinicalProfile()
+  );
+  const [differentialDiagnosis, setDifferentialDiagnosis] = useState<string[]>([]);
+  const [precautionsHe, setPrecautionsHe] = useState<string[]>([]);
+  const [recommendedTestsHe, setRecommendedTestsHe] = useState<string[]>([]);
+  const [injuryHighlightSegments, setInjuryHighlightSegments] = useState<BodyArea[]>([]);
+  const [secondaryClinicalBodyAreas, setSecondaryClinicalBodyAreas] = useState<BodyArea[]>([]);
 
   const suggestedForPrimary = useMemo(
     () => EXERCISE_LIBRARY.filter((ex) => exerciseMatchesPrimary(ex, primary)),
     [primary]
   );
 
-  const intakeAdvice = useMemo(() => getClinicalIntakeAdvice(primary), [primary]);
+  const reviewExercises = useMemo(() => {
+    const seen = new Set<string>();
+    const out: Exercise[] = [];
+    for (const ex of analysisBundle?.proposedExercises ?? []) {
+      if (!seen.has(ex.id)) {
+        seen.add(ex.id);
+        out.push(ex);
+      }
+    }
+    for (const ex of suggestedForPrimary) {
+      if (!seen.has(ex.id)) {
+        seen.add(ex.id);
+        out.push(ex);
+      }
+    }
+    return out;
+  }, [analysisBundle?.proposedExercises, suggestedForPrimary]);
 
   const highlightIntakeFields = highlightIncompleteFields && step === 'intake';
   const intakeNameEmpty = intakeName.trim().length === 0;
@@ -261,7 +319,19 @@ export default function ClinicalAiIntakeWizard({
       setAnalysisBundle(bundle);
       setPrimary(bundle.primaryBodyArea);
       setSelectedIds(new Set(bundle.proposedExercises.map((e) => e.id)));
-      setDetailedEdit(false);
+      setReviewProfile({
+        ...emptyClinicalProfile(),
+        ...(bundle.clinicalIntakeProfile ?? {}),
+        medical_history: {
+          ...emptyClinicalProfile().medical_history,
+          ...bundle.clinicalIntakeProfile?.medical_history,
+        },
+      });
+      setDifferentialDiagnosis([...bundle.differentialDiagnosis]);
+      setPrecautionsHe([...bundle.precautionsHe]);
+      setRecommendedTestsHe([...bundle.recommendedTestsHe]);
+      setInjuryHighlightSegments([...bundle.injuryHighlightSegments]);
+      setSecondaryClinicalBodyAreas([...bundle.secondaryClinicalBodyAreas]);
       setStep('review');
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'שגיאת ניתוח';
@@ -280,10 +350,6 @@ export default function ClinicalAiIntakeWizard({
     });
   };
 
-  const selectAllSuggested = () => {
-    setSelectedIds(new Set(suggestedForPrimary.map((e) => e.id)));
-  };
-
   const clearSelection = () => setSelectedIds(new Set());
 
   const extras = (): ClinicalProfileSaveExtras | undefined => {
@@ -293,24 +359,31 @@ export default function ClinicalAiIntakeWizard({
     if (name) out.displayName = name;
     if (story) out.intakeStory = story;
     if (analysisBundle) {
-      out.injuryHighlightSegments = [...analysisBundle.injuryHighlightSegments];
-      out.secondaryClinicalBodyAreas = [...analysisBundle.secondaryClinicalBodyAreas];
+      out.injuryHighlightSegments = [...injuryHighlightSegments];
+      out.secondaryClinicalBodyAreas = [...secondaryClinicalBodyAreas];
       out.clinicalDiagnosis = analysisBundle.clinicalDiagnosis;
       const narrativeParts: string[] = [analysisBundle.clinicalDiagnosis];
-      if (analysisBundle.rationaleLinesHe.length > 0) {
-        narrativeParts.push('', ...analysisBundle.rationaleLinesHe);
+      const diff = differentialDiagnosis.filter((s) => s.trim());
+      if (diff.length > 0) {
+        narrativeParts.push('', 'אבחנה מבדלת:', ...diff.map((d) => `• ${d}`));
+      }
+      const precautions = precautionsHe.filter((s) => s.trim());
+      if (precautions.length > 0) {
+        narrativeParts.push('', 'דגשים:', ...precautions.map((p) => `• ${p}`));
+      }
+      const tests = recommendedTestsHe.filter((s) => s.trim());
+      if (tests.length > 0) {
+        narrativeParts.push('', 'בדיקות מומלצות:', ...tests.map((t) => `• ${t}`));
       }
       if (analysisBundle.redFlags.length > 0) {
         narrativeParts.push('', 'דגלים:', ...analysisBundle.redFlags.map((f) => `• ${f}`));
       }
       out.geminiClinicalNarrative = narrativeParts.join('\n');
       if (analysisBundle.redFlagDetected) out.intakeRedFlag = true;
-      if (analysisBundle.clinicalIntakeProfile) {
-        out.clinicalIntakeProfile = { ...analysisBundle.clinicalIntakeProfile };
-      }
-      if (analysisBundle.medicalProfileMetadata) {
-        out.medicalProfileMetadata = { ...analysisBundle.medicalProfileMetadata };
-      }
+      out.clinicalIntakeProfile = { ...reviewProfile };
+      out.medicalProfileMetadata = medicalHistoryToProfileMetadata(
+        reviewProfile.medical_history ?? analysisBundle.medicalProfileMetadata
+      );
     }
     if (!out.clinicalIntakeProfile) {
       const parsed = parseClinicalIntakeProfileFromStory(story);
@@ -329,24 +402,22 @@ export default function ClinicalAiIntakeWizard({
     onClose();
   };
 
-  const approveAi = () => {
+  const confirmActivation = () => {
     if (!analysisBundle) return;
-    const p = analysisBundle.primaryBodyArea;
-    let ids = analysisBundle.proposedExercises.map((e) => e.id);
+    let ids = [...selectedIds];
     if (ids.length === 0) {
-      const fb = EXERCISE_LIBRARY.filter((ex) => exerciseMatchesPrimary(ex, p)).slice(0, 4);
-      ids = fb.map((e) => e.id);
+      ids = analysisBundle.proposedExercises.map((e) => e.id);
     }
-    commitSave(p, ids);
+    if (ids.length === 0) {
+      ids = EXERCISE_LIBRARY.filter((ex) => exerciseMatchesPrimary(ex, primary))
+        .slice(0, 4)
+        .map((e) => e.id);
+    }
+    commitSave(primary, ids);
   };
 
-  const saveFromEditor = () => {
-    commitSave(primary, [...selectedIds]);
-  };
-
-  const reviewLines = analysisBundle?.rationaleLinesHe ?? [];
   const isIntakeStep = step === 'intake';
-  const spaciousIntakeLayout = isIntakeStep;
+  const spaciousIntakeLayout = isIntakeStep || step === 'review';
 
   const modal = (
     <div
@@ -360,9 +431,7 @@ export default function ClinicalAiIntakeWizard({
         className={`w-full overflow-hidden flex flex-col rounded-2xl bg-white shadow-2xl border border-teal-100 ${
           spaciousIntakeLayout
             ? 'max-w-5xl h-[min(96dvh,920px)]'
-            : step === 'review'
-              ? 'max-w-3xl max-h-[92dvh]'
-              : 'max-w-lg max-h-[90vh]'
+            : 'max-w-lg max-h-[90vh]'
         }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -501,163 +570,36 @@ export default function ClinicalAiIntakeWizard({
             </div>
           )}
 
-          {step === 'review' && !detailedEdit && analysisBundle && (
-            <>
-              <div
-                className="rounded-xl border border-indigo-200 bg-indigo-50/90 p-3 space-y-2 text-[11px] text-indigo-950 leading-relaxed"
-                role="region"
-              >
-                {analysisBundle.source === 'gemini' && (
-                  <p className="text-[10px] font-semibold text-indigo-700 uppercase tracking-wide">
-                    ניתוח Gemini Flash
-                  </p>
-                )}
-                {reviewLines.map((line, i) => (
-                  <p key={i}>{line}</p>
-                ))}
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-sm text-slate-800">
-                <p className="text-xs font-semibold text-slate-500 mb-1">אבחון / רושם</p>
-                <p className="font-bold text-slate-900">{analysisBundle.clinicalDiagnosis}</p>
-                <p className="text-xs font-semibold text-slate-500 mt-2 mb-1">מוקד מוצע (תוכנית)</p>
-                <p className="font-bold">{bodyAreaLabels[analysisBundle.primaryBodyArea]}</p>
-                <p className="text-xs font-semibold text-slate-500 mt-2 mb-1">
-                  מפרקים במפה (אדום / כתום)
-                </p>
-                <p className="text-xs text-slate-700">
-                  <span className="font-semibold text-red-700">אדום: </span>
-                  {analysisBundle.injuryHighlightSegments.length
-                    ? analysisBundle.injuryHighlightSegments.map((a) => bodyAreaLabels[a]).join(', ')
-                    : '—'}
-                </p>
-                <p className="text-xs text-slate-700 mt-0.5">
-                  <span className="font-semibold text-orange-700">כתום: </span>
-                  {analysisBundle.secondaryClinicalBodyAreas.length
-                    ? analysisBundle.secondaryClinicalBodyAreas.map((a) => bodyAreaLabels[a]).join(', ')
-                    : '—'}
-                </p>
-                <p className="text-xs font-semibold text-slate-500 mt-2 mb-1">תרגילים מוצעים</p>
-                <ul className="list-disc list-inside text-xs space-y-0.5 text-slate-700">
-                  {analysisBundle.proposedExercises.slice(0, 8).map((ex) => (
-                    <li key={ex.id}>{ex.name}</li>
-                  ))}
-                </ul>
-              </div>
-              {analysisBundle.clinicalIntakeProfile && (
-                <ClinicalIntakeProfilePanel profile={analysisBundle.clinicalIntakeProfile} compact />
-              )}
-            </>
-          )}
-
-          {step === 'review' && detailedEdit && (
-            <>
-              <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-2">
-                אזור גוף מרכזי (מפת גוף + תרגילים)
-              </label>
-                <PortalSelect
-                  value={primary}
-                  onChange={(v) => {
-                    setPrimary(v as BodyArea);
-                    setSelectedIds(new Set());
-                  }}
-                  options={ALL_AREAS.map((a) => ({ value: a, label: bodyAreaLabels[a] }))}
-                  className="rounded-xl border border-slate-200 px-3 py-2.5"
-                />
-              </div>
-
-              <div
-                className="rounded-xl border border-indigo-200 bg-indigo-50/90 p-3 space-y-2.5 text-[11px] text-indigo-950 leading-relaxed"
-                role="region"
-                aria-label="הנחיות אינטייק"
-              >
-                <p className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
-                  <BookOpen className="w-4 h-4 shrink-0" />
-                  פרוטוקול והמלצות (לפי אזור)
-                </p>
-                <p>{intakeAdvice.protocolHe}</p>
-                <p className="text-indigo-800/95">
-                  <span className="font-semibold">תרגילים: </span>
-                  {intakeAdvice.exercisesHintHe}
-                </p>
-                <p className="text-indigo-800/95 flex gap-1.5">
-                  <Microscope className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>
-                    <span className="font-semibold">הבחנה דיפרנציאלית: </span>
-                    {intakeAdvice.differentialHe}
-                  </span>
-                </p>
-                <p className="text-indigo-800/95">
-                  <span className="font-semibold">בדיקות נוספות: </span>
-                  {intakeAdvice.furtherTestsHe}
-                </p>
-                <p className="rounded-lg bg-amber-100/90 border border-amber-300/80 px-2.5 py-2 text-amber-950 flex gap-1.5">
-                  <Link2 className="w-4 h-4 shrink-0 mt-0.5 text-amber-800" />
-                  <span>{intakeAdvice.chainWarningHe}</span>
-                </p>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
-                    <Dumbbell className="w-4 h-4 text-teal-600" />
-                    תוכנית ({suggestedForPrimary.length} תרגילים מוצעים)
-                  </span>
-                  <div className="flex gap-1.5">
-                    <button
-                      type="button"
-                      onClick={selectAllSuggested}
-                      className="text-[11px] font-medium text-teal-700 hover:underline"
-                    >
-                      בחר הכל
-                    </button>
-                    <span className="text-slate-300">|</span>
-                    <button
-                      type="button"
-                      onClick={clearSelection}
-                      className="text-[11px] font-medium text-slate-500 hover:underline"
-                    >
-                      נקה
-                    </button>
-                  </div>
-                </div>
-                <ul className="rounded-xl border border-slate-200 divide-y divide-slate-100 max-h-52 overflow-y-auto">
-                  {suggestedForPrimary.map((ex) => {
-                    const on = selectedIds.has(ex.id);
-                    return (
-                      <li key={ex.id}>
-                        <button
-                          type="button"
-                          onClick={() => toggleLibId(ex.id)}
-                          className={`w-full text-right px-3 py-2.5 text-sm flex items-start gap-2 transition-colors ${
-                            on ? 'bg-teal-50' : 'hover:bg-slate-50'
-                          }`}
-                        >
-                          <span
-                            className={`mt-0.5 w-4 h-4 rounded border shrink-0 flex items-center justify-center text-[10px] font-bold ${
-                              on ? 'bg-teal-600 border-teal-600 text-white' : 'border-slate-300 bg-white'
-                            }`}
-                          >
-                            {on ? '✓' : ''}
-                          </span>
-                          <span className="min-w-0">
-                            <span className="font-semibold text-slate-800 block">{ex.name}</span>
-                            <span className="text-[11px] text-slate-500">
-                              {ex.muscleGroup} · {bodyAreaLabels[ex.targetArea]}
-                            </span>
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-                {suggestedForPrimary.length === 0 && (
-                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3">
-                    אין תרגילים בספרייה לאזור זה — בחרו אזור אחר.
-                  </p>
-                )}
-              </div>
-            </>
+          {step === 'review' && analysisBundle && (
+            <IntakeActivationReviewPanel
+              clinicalDiagnosis={analysisBundle.clinicalDiagnosis}
+              differentialDiagnosis={differentialDiagnosis}
+              onDifferentialChange={setDifferentialDiagnosis}
+              precautionsHe={precautionsHe}
+              onPrecautionsChange={setPrecautionsHe}
+              recommendedTestsHe={recommendedTestsHe}
+              onRecommendedTestsChange={setRecommendedTestsHe}
+              profile={reviewProfile}
+              onProfileChange={setReviewProfile}
+              primaryBodyArea={primary}
+              onPrimaryBodyAreaChange={(area) => {
+                setPrimary(area);
+              }}
+              injuryHighlightSegments={injuryHighlightSegments}
+              onInjuryHighlightChange={setInjuryHighlightSegments}
+              secondaryClinicalBodyAreas={secondaryClinicalBodyAreas}
+              onSecondaryClinicalChange={setSecondaryClinicalBodyAreas}
+              allBodyAreas={ALL_AREAS}
+              suggestedExercises={reviewExercises}
+              selectedExerciseIds={selectedIds}
+              onToggleExercise={toggleLibId}
+              onSelectAllExercises={() =>
+                setSelectedIds(new Set(reviewExercises.map((e) => e.id)))
+              }
+              onClearExercises={clearSelection}
+              sourceGemini={analysisBundle.source === 'gemini'}
+              rationaleLinesHe={analysisBundle.rationaleLinesHe}
+            />
           )}
         </div>
 
@@ -691,7 +633,7 @@ export default function ClinicalAiIntakeWizard({
             </div>
           )}
 
-          {step === 'review' && !detailedEdit && (
+          {step === 'review' && (
             <div className="flex flex-col sm:flex-row gap-2">
               <button
                 type="button"
@@ -699,48 +641,19 @@ export default function ClinicalAiIntakeWizard({
                   setStep('intake');
                   setAnalysisBundle(null);
                 }}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-sm font-medium"
+                className="sm:flex-none sm:min-w-[7rem] py-2.5 rounded-xl border border-slate-200 text-slate-700 text-sm font-medium"
               >
                 חזרה
               </button>
               <button
                 type="button"
-                onClick={() => setDetailedEdit(true)}
-                className="flex-1 py-2.5 rounded-xl border-2 border-amber-500 text-amber-900 bg-amber-50 text-sm font-semibold flex items-center justify-center gap-2"
-              >
-                <Pencil className="w-4 h-4" />
-                עריכה
-              </button>
-              <button
-                type="button"
-                onClick={approveAi}
+                onClick={confirmActivation}
                 disabled={!analysisBundle}
                 className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-45"
                 style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
               >
-                <Check className="w-4 h-4" />
-                אישור
-              </button>
-            </div>
-          )}
-
-          {step === 'review' && detailedEdit && (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setDetailedEdit(false)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-sm font-medium"
-              >
-                חזרה לסיכום
-              </button>
-              <button
-                type="button"
-                disabled={selectedIds.size === 0}
-                onClick={saveFromEditor}
-                className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-45"
-                style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
-              >
-                שמירה
+                <Check className="w-4 h-4" aria-hidden />
+                אישור והפעלה
               </button>
             </div>
           )}
