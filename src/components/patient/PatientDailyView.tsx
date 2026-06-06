@@ -1467,10 +1467,8 @@ export default function PatientDailyView() {
         {portalTab === 'messages' && (
           <PatientPortalMessagesTab
             patient={selectedPatient}
-            exercises={exercises}
             draftSeed={messageDraftSeed}
             onDraftSeedConsumed={consumeMessageDraftSeed}
-            onPatientEmergencyText={handlePatientEmergencyText}
           />
         )}
 
@@ -1677,8 +1675,7 @@ export default function PatientDailyView() {
         </>
       )}
 
-      {portalTab === 'home' &&
-        selectedPatient &&
+      {selectedPatient &&
         !patientMustChangePassword &&
         !exerciseVideoModal &&
         !trainingFeedbackOpen && (

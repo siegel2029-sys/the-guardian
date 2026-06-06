@@ -11,7 +11,7 @@ type Props = {
 };
 
 /**
- * Floating AI Q&A bar for the בית tab only. All typing state stays inside
+ * Floating AI Q&A entry point for the patient portal. All typing state stays inside
  * PatientPortalAiChatInput — this shell never lifts keystrokes to PatientDailyView.
  */
 function PatientPortalHomeAiChatDock({
