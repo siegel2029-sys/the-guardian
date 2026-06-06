@@ -1139,6 +1139,10 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             ...(extras?.intakeVasScore != null && Number.isFinite(extras.intakeVasScore)
               ? { intakeVasScore: extras.intakeVasScore }
               : {}),
+            /** clinical_story — סיפור המקרה (שדה נפרד מקטעי AI) */
+            ...(extras?.intakeStory?.trim()
+              ? { intakeStory: extras.intakeStory.trim() }
+              : {}),
             therapistNotes,
             injuryHighlightSegments: injury,
             secondaryClinicalBodyAreas: secondary,

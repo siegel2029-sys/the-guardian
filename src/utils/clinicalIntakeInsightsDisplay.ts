@@ -4,6 +4,11 @@ import { extractIntakeFieldBlock } from './clinicalIntakeTemplate';
 import { isClinicalIntakeTextFieldAnswered, isClinicalIntakeNegativeAnswer } from './clinicalIntakeFieldAnswers';
 import { extractHeuristicIntakeRedFlags } from './intakeRedFlagHeuristics';
 import { resolveCoreLegacyIntakeSummaryText } from './clinicalIntakeProfileMigration';
+import {
+  extractNarrativeCaseStory,
+  pruneAiInsightLists,
+  stripIntakeSystemArtifacts,
+} from './clinicalIntakeNarrativeExtract';
 
 export type ClinicalIntakeInsightsDisplay = {
   diagnosis: string;
@@ -190,8 +195,9 @@ function firstNonEmpty(...parts: (string | undefined)[]): string {
 
 export function buildClinicalIntakeInsightsDisplay(patient: Patient): ClinicalIntakeInsightsDisplay {
   const ex = patient.initialIntakeArchive?.extras;
-  const story =
+  const rawStory =
     resolveCoreLegacyIntakeSummaryText(patient) ?? patient.intakeStory ?? ex?.intakeStory ?? '';
+  const story = stripIntakeSystemArtifacts(rawStory);
 
   const narrative = firstNonEmpty(
     patient.geminiClinicalNarrative,
@@ -213,6 +219,7 @@ export function buildClinicalIntakeInsightsDisplay(patient: Patient): ClinicalIn
   ]);
 
   const storySummary =
+    extractNarrativeCaseStory(story) ||
     parsed.storySummary ||
     sanitizeLine(
       [
@@ -221,7 +228,7 @@ export function buildClinicalIntakeInsightsDisplay(patient: Patient): ClinicalIn
         extractIntakeFieldBlock(story, 'התנהגות הכאב'),
       ]
         .filter((line): line is string => Boolean(line && isDisplayableLine(line)))
-        .join(' · ')
+        .join('\n\n')
     );
 
   const heuristicRed = extractHeuristicIntakeRedFlags(`${story}\n${narrative}`);
@@ -256,27 +263,40 @@ export function buildClinicalIntakeInsightsDisplay(patient: Patient): ClinicalIn
     narrative.split(/\r?\n/)[0]
   );
 
-  const clinicalConclusions = reasoning.length > 0 ? reasoning : parsed.supplemental;
+  const clinicalConclusions =
+    reasoning.length > 0 ? reasoning : parsed.supplemental.filter(isDisplayableLine);
+
+  const pruned = pruneAiInsightLists(
+    {
+      differentialDiagnosis,
+      clinicalConclusionsHe: clinicalConclusions,
+      precautionsHe: precautions,
+      recommendedTestsHe: recommendedTests,
+      redFlags,
+    },
+    { narrative: storySummary, profile: patient.clinicalIntakeProfile ?? ex?.clinicalIntakeProfile }
+  );
 
   const display: ClinicalIntakeInsightsDisplay = {
     diagnosis,
-    differentialDiagnosis,
-    clinicalConclusions,
-    precautions,
-    redFlags,
+    differentialDiagnosis: pruned.differentialDiagnosis,
+    clinicalConclusions: pruned.clinicalConclusionsHe,
+    precautions: pruned.precautionsHe,
+    redFlags: pruned.redFlags,
     redFlagAnalysis: sanitizeLine(mergedInsights.redFlagAnalysis ?? ''),
-    recommendedTests,
+    recommendedTests: pruned.recommendedTestsHe,
     storySummary,
     supplementalNarrative: parsed.supplemental.filter(
-      (line) => !clinicalConclusions.includes(line)
+      (line) =>
+        isDisplayableLine(line) && !pruned.clinicalConclusionsHe.includes(line)
     ),
     hasAnyInsights: Boolean(
       diagnosis ||
-        differentialDiagnosis.length ||
-        clinicalConclusions.length ||
-        precautions.length ||
-        redFlags.length ||
-        recommendedTests.length ||
+        pruned.differentialDiagnosis.length ||
+        pruned.clinicalConclusionsHe.length ||
+        pruned.precautionsHe.length ||
+        pruned.redFlags.length ||
+        pruned.recommendedTestsHe.length ||
         storySummary
     ),
   };

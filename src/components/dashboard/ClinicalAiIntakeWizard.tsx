@@ -49,6 +49,10 @@ import {
   clinicalInsightsToSavePayload,
   formatClinicalIntakeInsightsNarrative,
 } from '../../utils/clinicalIntakeInsightsDisplay';
+import {
+  extractNarrativeCaseStory,
+  pruneAiInsightLists,
+} from '../../utils/clinicalIntakeNarrativeExtract';
 
 export type ClinicalProfileSaveExtras = InitialClinicalProfileExtras;
 
@@ -321,27 +325,44 @@ export default function ClinicalAiIntakeWizard({
   const intakeStoryEmpty = intakeStory.trim().length === 0;
 
   const runAnalysisAndGoReview = async () => {
-    const story = intakeStory.trim();
-    if (!story) return;
+    const fullStory = intakeStory.trim();
+    if (!fullStory) return;
     setAnalysisError(null);
     setIsAnalyzing(true);
     try {
-      const bundle = await runIntakeAnalysis(story, followUpIntake, lockedPortalUsername);
+      const bundle = await runIntakeAnalysis(fullStory, followUpIntake, lockedPortalUsername);
+      const narrativeOnly = extractNarrativeCaseStory(fullStory) || fullStory;
+      const parsedProfile = mergeClinicalIntakeProfile(
+        bundle.clinicalIntakeProfile,
+        parseClinicalIntakeProfileFromStory(fullStory)
+      );
+      const prunedAi = pruneAiInsightLists(
+        {
+          differentialDiagnosis: [...bundle.differentialDiagnosis],
+          clinicalConclusionsHe: [...bundle.rationaleLinesHe],
+          precautionsHe: [...bundle.precautionsHe],
+          recommendedTestsHe: [...bundle.recommendedTestsHe],
+          redFlags: [...bundle.redFlags],
+        },
+        { narrative: narrativeOnly, profile: parsedProfile }
+      );
+
       setAnalysisBundle(bundle);
       setPrimary(bundle.primaryBodyArea);
       setSelectedIds(new Set(bundle.proposedExercises.map((e) => e.id)));
       setReviewProfile({
         ...emptyClinicalProfile(),
-        ...(bundle.clinicalIntakeProfile ?? {}),
+        ...(parsedProfile ?? {}),
         medical_history: {
           ...emptyClinicalProfile().medical_history,
-          ...bundle.clinicalIntakeProfile?.medical_history,
+          ...parsedProfile?.medical_history,
         },
       });
-      setDifferentialDiagnosis([...bundle.differentialDiagnosis]);
-      setPrecautionsHe([...bundle.precautionsHe]);
-      setRecommendedTestsHe([...bundle.recommendedTestsHe]);
-      setClinicalConclusionsHe([...bundle.rationaleLinesHe]);
+      setIntakeStory(narrativeOnly);
+      setDifferentialDiagnosis(prunedAi.differentialDiagnosis);
+      setPrecautionsHe(prunedAi.precautionsHe);
+      setRecommendedTestsHe(prunedAi.recommendedTestsHe);
+      setClinicalConclusionsHe(prunedAi.clinicalConclusionsHe);
       setReviewClinicalDiagnosis(bundle.clinicalDiagnosis);
       setIntakeVasScore(null);
       setInjuryHighlightSegments([...bundle.injuryHighlightSegments]);
@@ -368,10 +389,12 @@ export default function ClinicalAiIntakeWizard({
 
   const extras = (): ClinicalProfileSaveExtras | undefined => {
     const name = intakeName.trim();
-    const story = intakeStory.trim();
+    /** Narrative-only — objective metrics live in clinicalIntakeProfile */
+    const caseStory = extractNarrativeCaseStory(intakeStory.trim()) || intakeStory.trim();
     const out: ClinicalProfileSaveExtras = {};
     if (name) out.displayName = name;
-    if (story) out.intakeStory = story;
+    if (caseStory) out.intakeStory = caseStory;
+    /** Maps to payload `intakeVasScore` / `vas_score` */
     if (intakeVasScore != null && Number.isFinite(intakeVasScore)) {
       out.intakeVasScore = Math.min(10, Math.max(0, Math.round(intakeVasScore)));
     }
@@ -383,7 +406,7 @@ export default function ClinicalAiIntakeWizard({
         profile: { ...reviewProfile },
         diagnosis: out.clinicalDiagnosis,
         clinicalDiagnosis: out.clinicalDiagnosis,
-        intakeStory: story,
+        intakeStory: caseStory,
         intakeRedFlag: analysisBundle.redFlagDetected,
         primaryBodyArea: primary,
       }).sections.find((s) => s.id === 'story_brief')?.text;
@@ -391,11 +414,12 @@ export default function ClinicalAiIntakeWizard({
       const clinicalConclusions = clinicalConclusionsHe.filter((l) => l.trim());
       const redFromBundle = analysisBundle.redFlags.filter((f) => f.trim());
 
+      /** Structured AI segments — not merged into case story blob */
       out.clinicalReasoningHe = clinicalConclusions;
       out.clinicalIntakeAiInsights = clinicalInsightsToSavePayload({
-        differentialDiagnosis,
-        precautionsHe,
-        recommendedTestsHe,
+        differentialDiagnosis: differentialDiagnosis.filter((d) => d.trim()),
+        precautionsHe: precautionsHe.filter((p) => p.trim()),
+        recommendedTestsHe: recommendedTestsHe.filter((t) => t.trim()),
         redFlags: redFromBundle,
         clinicalConclusions,
       });
@@ -416,7 +440,7 @@ export default function ClinicalAiIntakeWizard({
           profile: { ...reviewProfile },
           diagnosis: analysisBundle.clinicalDiagnosis,
           clinicalDiagnosis: analysisBundle.clinicalDiagnosis,
-          intakeStory: story,
+          intakeStory: caseStory,
           intakeRedFlag: analysisBundle.redFlagDetected,
           primaryBodyArea: primary,
         });
@@ -446,7 +470,7 @@ export default function ClinicalAiIntakeWizard({
       );
     }
     if (!out.clinicalIntakeProfile) {
-      const parsed = parseClinicalIntakeProfileFromStory(story);
+      const parsed = parseClinicalIntakeProfileFromStory(caseStory);
       if (parsed) {
         out.clinicalIntakeProfile = parsed;
         out.medicalProfileMetadata =
@@ -490,7 +514,7 @@ export default function ClinicalAiIntakeWizard({
       <div
         className={`w-full overflow-hidden flex flex-col rounded-2xl bg-white shadow-2xl border border-teal-100 ${
           spaciousIntakeLayout
-            ? 'max-w-5xl h-[min(96dvh,920px)]'
+            ? 'max-w-3xl h-[min(96dvh,920px)]'
             : 'max-w-lg max-h-[90vh]'
         }`}
         onClick={(e) => e.stopPropagation()}

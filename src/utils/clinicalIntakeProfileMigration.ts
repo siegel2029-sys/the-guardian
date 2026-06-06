@@ -327,6 +327,7 @@ const LEGACY_INTAKE_SUMMARY_PAYLOAD_KEYS = [
   'initialIntakeStory',
   'intake_summary',
   'clinicalSummary',
+  'clinical_story',
 ] as const;
 
 /**

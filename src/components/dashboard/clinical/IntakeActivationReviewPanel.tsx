@@ -1,21 +1,16 @@
 import { useMemo, useState } from 'react';
 import {
-  Stethoscope,
-  AlertTriangle,
-  FlaskConical,
   Dumbbell,
   MapPin,
   Pencil,
   ChevronDown,
   ChevronUp,
-  FileText,
-  Lightbulb,
 } from 'lucide-react';
 import { PortalSelect } from '../../ui/PortalDropdown';
 import type { BodyArea, Exercise, PatientClinicalIntakeProfile } from '../../../types';
 import { bodyAreaLabels } from '../../../types';
 import { JOINT_BODY_AREAS } from '../../../body/jointBodyAreas';
-import StructuredClinicalIntakeTabs from './StructuredClinicalIntakeTabs';
+import { MedicalIntakeSectionedReport } from './MedicalIntakeDashboard';
 
 type Props = {
   clinicalDiagnosis: string;
@@ -51,6 +46,126 @@ type Props = {
 
 function toggleArea(list: BodyArea[], area: BodyArea): BodyArea[] {
   return list.includes(area) ? list.filter((a) => a !== area) : [...list, area];
+}
+
+function PainMapEditor({
+  primaryBodyArea,
+  onPrimaryBodyAreaChange,
+  injuryHighlightSegments,
+  onInjuryHighlightChange,
+  secondaryClinicalBodyAreas,
+  onSecondaryClinicalChange,
+  allBodyAreas,
+  painBadgeLabel,
+  painEditorOpen,
+  onToggleEditor,
+}: {
+  primaryBodyArea: BodyArea;
+  onPrimaryBodyAreaChange: (area: BodyArea) => void;
+  injuryHighlightSegments: BodyArea[];
+  onInjuryHighlightChange: (areas: BodyArea[]) => void;
+  secondaryClinicalBodyAreas: BodyArea[];
+  onSecondaryClinicalChange: (areas: BodyArea[]) => void;
+  allBodyAreas: BodyArea[];
+  painBadgeLabel: string;
+  painEditorOpen: boolean;
+  onToggleEditor: () => void;
+}) {
+  return (
+    <section
+      className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"
+      aria-label="מיקוד ומפת כאב"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-bold text-slate-900">מיקוד / מפת כאב</p>
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 border border-teal-200 px-2.5 py-1 text-xs font-bold text-teal-900">
+            <MapPin className="w-3.5 h-3.5 text-teal-600 shrink-0" aria-hidden />
+            {painBadgeLabel}
+          </span>
+          <button
+            type="button"
+            onClick={onToggleEditor}
+            className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-100"
+            aria-expanded={painEditorOpen}
+            aria-label="עריכת אזורי כאב במפה"
+          >
+            <Pencil className="w-3 h-3" aria-hidden />
+            עריכה
+            {painEditorOpen ? (
+              <ChevronUp className="w-3 h-3" aria-hidden />
+            ) : (
+              <ChevronDown className="w-3 h-3" aria-hidden />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {painEditorOpen && (
+        <div
+          className="mt-3 pt-3 border-t border-slate-200/80 space-y-3"
+          role="region"
+          aria-label="עריכת אזורי כאב"
+        >
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              אזור מרכזי (תוכנית + מפה)
+            </label>
+            <PortalSelect
+              value={primaryBodyArea}
+              onChange={(v) => onPrimaryBodyAreaChange(v as BodyArea)}
+              options={allBodyAreas.map((a) => ({ value: a, label: bodyAreaLabels[a] }))}
+              className="rounded-lg border border-slate-200 px-2 py-2 text-sm w-full max-w-xs"
+            />
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold text-red-800 mb-1.5">הדגשת פגיעה (אדום)</p>
+            <div className="flex flex-wrap gap-1.5">
+              {JOINT_BODY_AREAS.map((a) => {
+                const on = injuryHighlightSegments.includes(a);
+                return (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => onInjuryHighlightChange(toggleArea(injuryHighlightSegments, a))}
+                    className={`text-[10px] font-semibold px-2 py-1 rounded-full border transition-colors ${
+                      on
+                        ? 'bg-red-100 border-red-400 text-red-900'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-red-200'
+                    }`}
+                  >
+                    {bodyAreaLabels[a]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold text-orange-800 mb-1.5">שרשרת / משני (כתום)</p>
+            <div className="flex flex-wrap gap-1.5">
+              {JOINT_BODY_AREAS.map((a) => {
+                const on = secondaryClinicalBodyAreas.includes(a);
+                return (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => onSecondaryClinicalChange(toggleArea(secondaryClinicalBodyAreas, a))}
+                    className={`text-[10px] font-semibold px-2 py-1 rounded-full border transition-colors ${
+                      on
+                        ? 'bg-orange-100 border-orange-400 text-orange-900'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-orange-200'
+                    }`}
+                  >
+                    {bodyAreaLabels[a]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }
 
 export default function IntakeActivationReviewPanel({
@@ -100,336 +215,47 @@ export default function IntakeActivationReviewPanel({
   }, [primaryBodyArea, injuryHighlightSegments, secondaryClinicalBodyAreas]);
 
   return (
-    <div className="space-y-4" dir="rtl">
-      <section className="rounded-xl border-2 border-teal-200 bg-gradient-to-br from-teal-50/80 to-white p-3.5 shadow-sm">
-        <h3 className="text-xs font-black text-teal-950 flex items-center gap-1.5 mb-2">
-          <FileText className="w-4 h-4 text-teal-700 shrink-0" aria-hidden />
-          תיאור מקרה / סיפור קליני
-        </h3>
-        <textarea
-          value={caseStory}
-          onChange={(e) => onCaseStoryChange(e.target.value)}
-          rows={5}
-          className="w-full rounded-xl border border-teal-200/90 bg-white px-3 py-2.5 text-sm text-slate-800 leading-relaxed resize-y min-h-[6rem] focus:outline-none focus:ring-2 focus:ring-teal-400/30"
-          placeholder="מה קרה, איך זה התפתח, ומה מצב המטופל היום…"
-        />
-      </section>
-
-      {/* Diagnosis + pain map inline edit */}
-      <header className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
-              אבחון / רושם
-            </p>
-            <input
-              type="text"
-              value={clinicalDiagnosis}
-              onChange={(e) => onClinicalDiagnosisChange(e.target.value)}
-              className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-base font-black text-slate-900 leading-snug focus:outline-none focus:ring-2 focus:ring-teal-400/25"
-              placeholder="רושם קליני / אבחנה עיקרית"
-            />
-          </div>
-          <div className="shrink-0 w-full sm:w-auto sm:min-w-[10rem]">
-            <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">
-              מדד כאב VAS
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min={0}
-                max={10}
-                step={1}
-                value={vasScore ?? 0}
-                onChange={(e) => onVasScoreChange(Number.parseInt(e.target.value, 10))}
-                className="w-24 accent-teal-600"
-                aria-label="מדד כאב VAS"
-              />
-              <input
-                type="number"
-                min={0}
-                max={10}
-                step={1}
-                value={vasScore ?? ''}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (raw === '') {
-                    onVasScoreChange(null);
-                    return;
-                  }
-                  const n = Number.parseInt(raw, 10);
-                  if (Number.isFinite(n)) {
-                    onVasScoreChange(Math.min(10, Math.max(0, n)));
-                  }
-                }}
-                className="w-14 rounded-lg border border-slate-200 px-2 py-1.5 text-center text-sm font-black text-slate-900 tabular-nums"
-                aria-label="ציון VAS מספרי"
-              />
-              <span className="text-xs font-semibold text-slate-500 tabular-nums">
-                {vasScore != null ? `${vasScore}/10` : '—'}
-              </span>
-            </div>
-          </div>
-          <div className="flex flex-col items-end gap-1 shrink-0 w-full sm:w-auto">
-            <span className="text-[10px] font-semibold text-slate-500">מיקוד / מפת כאב</span>
-            <div className="flex items-center gap-1.5 flex-wrap justify-end">
-              <span
-                className="inline-flex items-center gap-1 rounded-full bg-teal-50 border border-teal-200 px-2.5 py-1 text-xs font-bold text-teal-900"
-              >
-                <MapPin className="w-3.5 h-3.5 text-teal-600 shrink-0" aria-hidden />
-                {painBadgeLabel}
-              </span>
-              <button
-                type="button"
-                onClick={() => setPainEditorOpen((o) => !o)}
-                className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-100"
-                aria-expanded={painEditorOpen}
-                aria-label="עריכת אזורי כאב במפה"
-              >
-                <Pencil className="w-3 h-3" aria-hidden />
-                עריכה
-                {painEditorOpen ? (
-                  <ChevronUp className="w-3 h-3" aria-hidden />
-                ) : (
-                  <ChevronDown className="w-3 h-3" aria-hidden />
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {painEditorOpen && (
-          <div
-            className="mt-3 pt-3 border-t border-slate-100 space-y-3"
-            role="region"
-            aria-label="עריכת אזורי כאב"
-          >
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                אזור מרכזי (תוכנית + מפה)
-              </label>
-              <PortalSelect
-                value={primaryBodyArea}
-                onChange={(v) => onPrimaryBodyAreaChange(v as BodyArea)}
-                options={allBodyAreas.map((a) => ({ value: a, label: bodyAreaLabels[a] }))}
-                className="rounded-lg border border-slate-200 px-2 py-2 text-sm w-full max-w-xs"
-              />
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold text-red-800 mb-1.5">הדגשת פגיעה (אדום)</p>
-              <div className="flex flex-wrap gap-1.5">
-                {JOINT_BODY_AREAS.map((a) => {
-                  const on = injuryHighlightSegments.includes(a);
-                  return (
-                    <button
-                      key={a}
-                      type="button"
-                      onClick={() => onInjuryHighlightChange(toggleArea(injuryHighlightSegments, a))}
-                      className={`text-[10px] font-semibold px-2 py-1 rounded-full border transition-colors ${
-                        on
-                          ? 'bg-red-100 border-red-400 text-red-900'
-                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-red-200'
-                      }`}
-                    >
-                      {bodyAreaLabels[a]}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold text-orange-800 mb-1.5">שרשרת / משני (כתום)</p>
-              <div className="flex flex-wrap gap-1.5">
-                {JOINT_BODY_AREAS.map((a) => {
-                  const on = secondaryClinicalBodyAreas.includes(a);
-                  return (
-                    <button
-                      key={a}
-                      type="button"
-                      onClick={() => onSecondaryClinicalChange(toggleArea(secondaryClinicalBodyAreas, a))}
-                      className={`text-[10px] font-semibold px-2 py-1 rounded-full border transition-colors ${
-                        on
-                          ? 'bg-orange-100 border-orange-400 text-orange-900'
-                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-orange-200'
-                      }`}
-                    >
-                      {bodyAreaLabels[a]}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {sourceGemini && (
-          <p className="mt-2 pt-2 border-t border-slate-100 text-[11px] text-indigo-700/90">
-            ניתוח AI — ניתן לערוך כל שדה לפני אישור והפעלה.
-          </p>
-        )}
-      </header>
-
-      <section
-        className="rounded-xl border border-teal-200/90 bg-gradient-to-br from-teal-50/70 to-white p-3"
-        aria-label="מסקנות קליניות"
+    <div className="space-y-6" dir="rtl">
+      <MedicalIntakeSectionedReport
+        caseStory={caseStory}
+        onCaseStoryChange={onCaseStoryChange}
+        vasScore={vasScore}
+        onVasScoreChange={onVasScoreChange}
+        clinicalDiagnosis={clinicalDiagnosis}
+        onClinicalDiagnosisChange={onClinicalDiagnosisChange}
+        differentialDiagnosis={differentialDiagnosis}
+        onDifferentialChange={onDifferentialChange}
+        clinicalConclusionsHe={clinicalConclusionsHe}
+        onClinicalConclusionsChange={onClinicalConclusionsChange}
+        precautionsHe={precautionsHe}
+        onPrecautionsChange={onPrecautionsChange}
+        recommendedTestsHe={recommendedTestsHe}
+        onRecommendedTestsChange={onRecommendedTestsChange}
+        profile={profile}
+        onProfileChange={onProfileChange}
+        objectiveEditable
+        sourceGemini={sourceGemini}
       >
-        <h3 className="text-xs font-black text-teal-950 flex items-center gap-1.5 mb-2">
-          <Lightbulb className="w-4 h-4 text-teal-700 shrink-0" aria-hidden />
-          מסקנות קליניות
-        </h3>
-        <ul className="space-y-1.5">
-          {(clinicalConclusionsHe.length ? clinicalConclusionsHe : ['']).map((line, i) => (
-            <li key={i}>
-              <textarea
-                value={line}
-                onChange={(e) => {
-                  const next = [...clinicalConclusionsHe];
-                  if (next.length === 0) next.push('');
-                  next[i] = e.target.value;
-                  onClinicalConclusionsChange(
-                    next.filter((s, idx) => s.trim() || idx < next.length - 1 || next.length === 1)
-                  );
-                }}
-                rows={2}
-                className="w-full rounded-lg border border-teal-200/80 bg-white/90 px-2 py-1.5 text-sm text-teal-950 leading-relaxed resize-y min-h-[2.5rem]"
-                placeholder="מסקנה קלינית"
-              />
-            </li>
-          ))}
-        </ul>
-        <button
-          type="button"
-          onClick={() => onClinicalConclusionsChange([...clinicalConclusionsHe, ''])}
-          className="mt-2 text-[10px] font-semibold text-teal-700 hover:underline"
-        >
-          + מסקנה
-        </button>
-      </section>
+        <PainMapEditor
+          primaryBodyArea={primaryBodyArea}
+          onPrimaryBodyAreaChange={onPrimaryBodyAreaChange}
+          injuryHighlightSegments={injuryHighlightSegments}
+          onInjuryHighlightChange={onInjuryHighlightChange}
+          secondaryClinicalBodyAreas={secondaryClinicalBodyAreas}
+          onSecondaryClinicalChange={onSecondaryClinicalChange}
+          allBodyAreas={allBodyAreas}
+          painBadgeLabel={painBadgeLabel}
+          painEditorOpen={painEditorOpen}
+          onToggleEditor={() => setPainEditorOpen((o) => !o)}
+        />
+      </MedicalIntakeSectionedReport>
 
-      {/* Always-visible clinical context */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <section
-          className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 lg:col-span-1"
-          aria-label="אבחנה מבדלת"
-        >
-          <h3 className="text-xs font-black text-indigo-950 flex items-center gap-1.5 mb-2">
-            <Stethoscope className="w-4 h-4 shrink-0" aria-hidden />
-            אבחנה מבדלת
-          </h3>
-          <ul className="space-y-1.5">
-            {(differentialDiagnosis.length ? differentialDiagnosis : ['']).map((item, i) => (
-              <li key={i} className="flex gap-1.5 items-start">
-                <span className="text-indigo-400 font-bold mt-2 shrink-0" aria-hidden>
-                  •
-                </span>
-                <input
-                  type="text"
-                  value={item}
-                  onChange={(e) => {
-                    const next = [...differentialDiagnosis];
-                    if (next.length === 0) next.push('');
-                    next[i] = e.target.value;
-                    onDifferentialChange(next.filter((s, idx) => s.trim() || idx < next.length - 1));
-                  }}
-                  className="flex-1 rounded-lg border border-indigo-200/80 bg-white/90 px-2 py-1.5 text-sm text-indigo-950"
-                  placeholder="חלופה אבחנתית"
-                />
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            onClick={() => onDifferentialChange([...differentialDiagnosis, ''])}
-            className="mt-2 text-[10px] font-semibold text-indigo-700 hover:underline"
-          >
-            + חלופה
-          </button>
-        </section>
-
-        <section
-          className="rounded-xl border-2 border-amber-400 bg-gradient-to-br from-amber-50 to-orange-50 p-3 shadow-sm lg:col-span-1"
-          aria-label="ממה להיזהר ונקודות דגש"
-        >
-          <h3 className="text-xs font-black text-amber-950 flex items-center gap-1.5 mb-2">
-            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" aria-hidden />
-            ממה להיזהר / נקודות דגש
-          </h3>
-          <ul className="space-y-2">
-            {(precautionsHe.length ? precautionsHe : ['']).map((line, i) => (
-              <li key={i}>
-                <textarea
-                  value={line}
-                  onChange={(e) => {
-                    const next = [...precautionsHe];
-                    if (next.length === 0) next.push('');
-                    next[i] = e.target.value;
-                    onPrecautionsChange(
-                      next.filter((s, idx) => s.trim() || idx < next.length - 1)
-                    );
-                  }}
-                  rows={2}
-                  className="w-full rounded-lg border border-amber-300/90 bg-white/80 px-2 py-1.5 text-sm text-amber-950 leading-relaxed resize-y min-h-[2.5rem]"
-                  placeholder="דגש קליני או אזהרה"
-                />
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            onClick={() => onPrecautionsChange([...precautionsHe, ''])}
-            className="mt-2 text-[10px] font-semibold text-amber-800 hover:underline"
-          >
-            + דגש
-          </button>
-        </section>
-
-        <section
-          className="rounded-xl border border-slate-200 bg-slate-50/90 p-3 lg:col-span-1"
-          aria-label="בדיקות מומלצות נוספות"
-        >
-          <h3 className="text-xs font-black text-slate-800 flex items-center gap-1.5 mb-2">
-            <FlaskConical className="w-4 h-4 text-slate-600 shrink-0" aria-hidden />
-            בדיקות מומלצות נוספות
-          </h3>
-          <ul className="space-y-1.5">
-            {(recommendedTestsHe.length ? recommendedTestsHe : ['']).map((test, i) => (
-              <li key={i} className="flex gap-1.5 items-center">
-                <input
-                  type="text"
-                  value={test}
-                  onChange={(e) => {
-                    const next = [...recommendedTestsHe];
-                    if (next.length === 0) next.push('');
-                    next[i] = e.target.value;
-                    onRecommendedTestsChange(
-                      next.filter((s, idx) => s.trim() || idx < next.length - 1)
-                    );
-                  }}
-                  className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
-                  placeholder="בדיקה מומלצת"
-                />
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            onClick={() => onRecommendedTestsChange([...recommendedTestsHe, ''])}
-            className="mt-2 text-[10px] font-semibold text-slate-600 hover:underline"
-          >
-            + בדיקה
-          </button>
-        </section>
-      </div>
-
-      <StructuredClinicalIntakeTabs profile={profile} onProfileChange={onProfileChange} />
-
-      {/* Exercise library */}
       <section
-        className="rounded-xl border border-teal-200 bg-white overflow-hidden"
+        className="rounded-xl border border-teal-200 bg-white overflow-hidden shadow-sm"
         aria-label="ספריית תרגילים מוצעת"
       >
-        <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-teal-100 bg-teal-50/80">
-          <span className="text-xs font-bold text-teal-950 flex items-center gap-1.5">
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-teal-100 bg-teal-50/80">
+          <span className="text-sm font-bold text-teal-950 flex items-center gap-1.5">
             <Dumbbell className="w-4 h-4 text-teal-600" aria-hidden />
             תרגילים מוצעים ({selectedExerciseIds.size} נבחרו)
           </span>
@@ -459,7 +285,7 @@ export default function IntakeActivationReviewPanel({
                 <button
                   type="button"
                   onClick={() => onToggleExercise(ex.id)}
-                  className={`w-full text-right px-3.5 py-2.5 text-sm flex items-start gap-2 transition-colors ${
+                  className={`w-full text-right px-4 py-2.5 text-sm flex items-start gap-2 transition-colors ${
                     on ? 'bg-teal-50' : 'hover:bg-slate-50'
                   }`}
                 >
