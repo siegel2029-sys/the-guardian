@@ -1,13 +1,36 @@
 import type { User } from '@supabase/supabase-js';
 import type { Therapist } from '../types';
 
+/**
+ * Canonical Web Push subscription persisted to `public.profiles.push_payload`
+ * (mirrors `patients.payload.webPushSubscription`).
+ */
+export type ProfilePushPayload = {
+  webPushSubscription?: {
+    endpoint?: string;
+    expirationTime?: number | null;
+    keys?: { p256dh: string; auth: string };
+  };
+} & Record<string, unknown>;
+
 /** Row shape from public.profiles (subset). */
 export type ProfileRow = {
+  id?: unknown;
   name?: unknown;
   email?: unknown;
   title?: unknown;
   avatar_initials?: unknown;
   clinic_name?: unknown;
+  /** Therapist Expo push token (`ExponentPushToken[...]`) or HTTPS Web Push endpoint. */
+  push_token?: string | null;
+  /** Canonical `{ webPushSubscription: { endpoint, keys } }` for VAPID Web Push. */
+  push_payload?: ProfilePushPayload | null;
+  /** Set when a push gateway returned a persistent rejection (403/404/410) and the token was cleared. */
+  push_invalidated_at?: string | null;
+  /** Short detail of the last push gateway failure (dashboard triage). */
+  push_last_error?: string | null;
+  /** Updated whenever the therapist opens the dashboard; push-health heartbeat. */
+  last_activity_timestamp?: string | null;
 };
 
 /**

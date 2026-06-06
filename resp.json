@@ -1,0 +1,1 @@
+{"ok":false,"therapistId":"d8aa0460-da8c-4de3-95a0-9f5e45167894","deliveryError":"HTTP 410: error sending request from 10.33.2.37:34630 for https://httpstat.us/410 (13.58.71.78:443): client error (SendRequest): connection error: peer closed connection without sending TLS close_notify: https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof","stale":true}

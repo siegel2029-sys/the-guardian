@@ -1,0 +1,1 @@
+{"type":"INSERT","table":"chat_messages","record":{"id":"diag-direct","patient_id":"patient-mpazi1ui-ic7ouo","therapist_id":"d8aa0460-da8c-4de3-95a0-9f5e45167894","from_patient":true,"ai_clinical_alert":false}}
