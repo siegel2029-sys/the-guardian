@@ -168,7 +168,6 @@ export default function PatientDailyView() {
   } = useAuth();
   const {
     selectedPatient,
-    selectedPatientId,
     messages,
     getExercisePlan,
     dailySessions,
