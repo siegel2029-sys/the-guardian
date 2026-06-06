@@ -8,6 +8,8 @@ import {
   Pencil,
   ChevronDown,
   ChevronUp,
+  FileText,
+  Lightbulb,
 } from 'lucide-react';
 import { PortalSelect } from '../../ui/PortalDropdown';
 import type { BodyArea, Exercise, PatientClinicalIntakeProfile } from '../../../types';
@@ -17,6 +19,13 @@ import StructuredClinicalIntakeTabs from './StructuredClinicalIntakeTabs';
 
 type Props = {
   clinicalDiagnosis: string;
+  onClinicalDiagnosisChange: (next: string) => void;
+  caseStory: string;
+  onCaseStoryChange: (next: string) => void;
+  vasScore: number | null;
+  onVasScoreChange: (next: number | null) => void;
+  clinicalConclusionsHe: string[];
+  onClinicalConclusionsChange: (next: string[]) => void;
   differentialDiagnosis: string[];
   precautionsHe: string[];
   recommendedTestsHe: string[];
@@ -38,7 +47,6 @@ type Props = {
   onSelectAllExercises: () => void;
   onClearExercises: () => void;
   sourceGemini?: boolean;
-  rationaleLinesHe?: string[];
 };
 
 function toggleArea(list: BodyArea[], area: BodyArea): BodyArea[] {
@@ -47,6 +55,13 @@ function toggleArea(list: BodyArea[], area: BodyArea): BodyArea[] {
 
 export default function IntakeActivationReviewPanel({
   clinicalDiagnosis,
+  onClinicalDiagnosisChange,
+  caseStory,
+  onCaseStoryChange,
+  vasScore,
+  onVasScoreChange,
+  clinicalConclusionsHe,
+  onClinicalConclusionsChange,
   differentialDiagnosis,
   precautionsHe,
   recommendedTestsHe,
@@ -68,7 +83,6 @@ export default function IntakeActivationReviewPanel({
   onSelectAllExercises,
   onClearExercises,
   sourceGemini,
-  rationaleLinesHe = [],
 }: Props) {
   const [painEditorOpen, setPainEditorOpen] = useState(false);
 
@@ -87,6 +101,20 @@ export default function IntakeActivationReviewPanel({
 
   return (
     <div className="space-y-4" dir="rtl">
+      <section className="rounded-xl border-2 border-teal-200 bg-gradient-to-br from-teal-50/80 to-white p-3.5 shadow-sm">
+        <h3 className="text-xs font-black text-teal-950 flex items-center gap-1.5 mb-2">
+          <FileText className="w-4 h-4 text-teal-700 shrink-0" aria-hidden />
+          תיאור מקרה / סיפור קליני
+        </h3>
+        <textarea
+          value={caseStory}
+          onChange={(e) => onCaseStoryChange(e.target.value)}
+          rows={5}
+          className="w-full rounded-xl border border-teal-200/90 bg-white px-3 py-2.5 text-sm text-slate-800 leading-relaxed resize-y min-h-[6rem] focus:outline-none focus:ring-2 focus:ring-teal-400/30"
+          placeholder="מה קרה, איך זה התפתח, ומה מצב המטופל היום…"
+        />
+      </section>
+
       {/* Diagnosis + pain map inline edit */}
       <header className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -94,11 +122,55 @@ export default function IntakeActivationReviewPanel({
             <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
               אבחון / רושם
             </p>
-            <p className="text-base font-black text-slate-900 mt-0.5 leading-snug">
-              {clinicalDiagnosis}
-            </p>
+            <input
+              type="text"
+              value={clinicalDiagnosis}
+              onChange={(e) => onClinicalDiagnosisChange(e.target.value)}
+              className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-base font-black text-slate-900 leading-snug focus:outline-none focus:ring-2 focus:ring-teal-400/25"
+              placeholder="רושם קליני / אבחנה עיקרית"
+            />
           </div>
-          <div className="flex flex-col items-end gap-1 shrink-0">
+          <div className="shrink-0 w-full sm:w-auto sm:min-w-[10rem]">
+            <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">
+              מדד כאב VAS
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={0}
+                max={10}
+                step={1}
+                value={vasScore ?? 0}
+                onChange={(e) => onVasScoreChange(Number.parseInt(e.target.value, 10))}
+                className="w-24 accent-teal-600"
+                aria-label="מדד כאב VAS"
+              />
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step={1}
+                value={vasScore ?? ''}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') {
+                    onVasScoreChange(null);
+                    return;
+                  }
+                  const n = Number.parseInt(raw, 10);
+                  if (Number.isFinite(n)) {
+                    onVasScoreChange(Math.min(10, Math.max(0, n)));
+                  }
+                }}
+                className="w-14 rounded-lg border border-slate-200 px-2 py-1.5 text-center text-sm font-black text-slate-900 tabular-nums"
+                aria-label="ציון VAS מספרי"
+              />
+              <span className="text-xs font-semibold text-slate-500 tabular-nums">
+                {vasScore != null ? `${vasScore}/10` : '—'}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-1 shrink-0 w-full sm:w-auto">
             <span className="text-[10px] font-semibold text-slate-500">מיקוד / מפת כאב</span>
             <div className="flex items-center gap-1.5 flex-wrap justify-end">
               <span
@@ -190,14 +262,49 @@ export default function IntakeActivationReviewPanel({
           </div>
         )}
 
-        {sourceGemini && rationaleLinesHe.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-slate-100 text-[11px] text-indigo-900/90 leading-relaxed space-y-1">
-            {rationaleLinesHe.slice(0, 3).map((line, i) => (
-              <p key={i}>{line}</p>
-            ))}
-          </div>
+        {sourceGemini && (
+          <p className="mt-2 pt-2 border-t border-slate-100 text-[11px] text-indigo-700/90">
+            ניתוח AI — ניתן לערוך כל שדה לפני אישור והפעלה.
+          </p>
         )}
       </header>
+
+      <section
+        className="rounded-xl border border-teal-200/90 bg-gradient-to-br from-teal-50/70 to-white p-3"
+        aria-label="מסקנות קליניות"
+      >
+        <h3 className="text-xs font-black text-teal-950 flex items-center gap-1.5 mb-2">
+          <Lightbulb className="w-4 h-4 text-teal-700 shrink-0" aria-hidden />
+          מסקנות קליניות
+        </h3>
+        <ul className="space-y-1.5">
+          {(clinicalConclusionsHe.length ? clinicalConclusionsHe : ['']).map((line, i) => (
+            <li key={i}>
+              <textarea
+                value={line}
+                onChange={(e) => {
+                  const next = [...clinicalConclusionsHe];
+                  if (next.length === 0) next.push('');
+                  next[i] = e.target.value;
+                  onClinicalConclusionsChange(
+                    next.filter((s, idx) => s.trim() || idx < next.length - 1 || next.length === 1)
+                  );
+                }}
+                rows={2}
+                className="w-full rounded-lg border border-teal-200/80 bg-white/90 px-2 py-1.5 text-sm text-teal-950 leading-relaxed resize-y min-h-[2.5rem]"
+                placeholder="מסקנה קלינית"
+              />
+            </li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          onClick={() => onClinicalConclusionsChange([...clinicalConclusionsHe, ''])}
+          className="mt-2 text-[10px] font-semibold text-teal-700 hover:underline"
+        >
+          + מסקנה
+        </button>
+      </section>
 
       {/* Always-visible clinical context */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">

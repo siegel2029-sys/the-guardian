@@ -1,4 +1,12 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import {
+  forwardRef,
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useImperativeHandle,
+} from 'react';
 import { X, Send, Loader2, Sparkles } from 'lucide-react';
 import PhysioshieldPortal from '../ui/PhysioshieldPortal';
 import type { Patient, PatientExercise } from '../../types';
@@ -12,6 +20,13 @@ import { screenPatientFreeTextForEmergency } from '../../safety/clinicalEmergenc
 import { usePatient } from '../../context/PatientContext';
 import { getGeminiApiKey } from '../../ai/geminiClient';
 import { guardiPatientChatWithGemini } from '../../ai/geminiGordyPatient';
+import PatientPortalAiChatInput, {
+  PATIENT_PORTAL_AI_CHAT_PLACEHOLDER,
+} from './PatientPortalAiChatInput';
+
+export type GuardianAssistantFABHandle = {
+  sendPortalMessage: (text: string) => void;
+};
 
 interface GuardianAssistantFABProps {
   patient: Patient;
@@ -27,25 +42,43 @@ interface GuardianAssistantFABProps {
   onTherapistClinicalAlert?: (detailHebrew?: string) => void;
   /** מילות מפתח חירום בטקסט המטופל — לזרימת הבטיחות */
   onPatientEmergencyText?: () => void;
+  /** מדווח לשורת הקלט החיצונית (מניעת רינדור מחדש של הדשבורד) */
+  onReplyLoadingChange?: (loading: boolean) => void;
   hidden?: boolean;
   /** מסתיר את שורת העוזר הצפה (למשל בטאב צ׳אט מטפל) */
   suppressPortalPeekBar?: boolean;
+  /** פורטל: שורת הקלט מרונדרת בטאב צ׳אט — כאן רק מודל השיחה */
+  suppressInlineInput?: boolean;
+  /** פורטל: `inline` = בתוך טאב צ׳אט בלבד; `fixed-peek` = סרגל צף גלובלי (ברירת מחדל ישנה) */
+  portalSurface?: 'fixed-peek' | 'inline';
   /** ניסוח רך לפורטל מטופל (ללא מונחי דשבורד מטפל) */
   variant?: 'default' | 'portal';
 }
 
-export default function GuardianAssistantFAB({
-  patient,
-  exerciseCount,
-  exercises,
-  onSubmitGuardianRepsRequest,
-  onTherapistClinicalAlert,
-  onPatientEmergencyText,
-  hidden,
-  suppressPortalPeekBar = false,
-  variant = 'default',
-}: GuardianAssistantFABProps) {
+const PORTAL_PEEK_INPUT_KEY_PREFIX = 'guardian-portal-peek';
+
+const GuardianAssistantFAB = forwardRef<GuardianAssistantFABHandle, GuardianAssistantFABProps>(
+  function GuardianAssistantFAB(
+    {
+      patient,
+      exerciseCount,
+      exercises,
+      onSubmitGuardianRepsRequest,
+      onTherapistClinicalAlert,
+      onPatientEmergencyText,
+      onReplyLoadingChange,
+      hidden,
+      suppressPortalPeekBar = false,
+      suppressInlineInput = false,
+      portalSurface = 'fixed-peek',
+      variant = 'default',
+    },
+    ref
+  ) {
   const isPortal = variant === 'portal';
+  const portalInline = isPortal && portalSurface === 'inline';
+  const showPortalFixedPeek =
+    isPortal && portalSurface === 'fixed-peek' && !suppressPortalPeekBar;
   const { screenAndHandleEmergencyText } = usePatient();
   const [open, setOpen] = useState(false);
   /** פורטל: סרגל מורחב נשאר פתוח אחרי לחיצה (עד לחיצה מחוץ או X) */
@@ -59,6 +92,21 @@ export default function GuardianAssistantFAB({
   const modalInputRef = useRef<HTMLInputElement>(null);
   const portalBarRef = useRef<HTMLDivElement>(null);
   const portalPeekInputRef = useRef<HTMLInputElement>(null);
+  const sendRef = useRef<(incomingText?: string) => Promise<void>>(async () => {});
+
+  const handlePortalInlineSend = useCallback((text: string) => {
+    void sendRef.current(text);
+  }, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      sendPortalMessage: (text: string) => {
+        void sendRef.current(text);
+      },
+    }),
+    []
+  );
 
   const portalBarExpanded = isPortal && (portalBarHover || portalBarSticky);
 
@@ -73,10 +121,10 @@ export default function GuardianAssistantFAB({
   }, [open, isPortal]);
 
   useLayoutEffect(() => {
-    if (!isPortal || !portalBarSticky || open) return;
+    if (!showPortalFixedPeek || !portalBarSticky || open) return;
     const id = requestAnimationFrame(() => portalPeekInputRef.current?.focus());
     return () => cancelAnimationFrame(id);
-  }, [isPortal, portalBarSticky, open]);
+  }, [showPortalFixedPeek, portalBarSticky, open]);
 
   useEffect(() => {
     if (open) {
@@ -86,7 +134,7 @@ export default function GuardianAssistantFAB({
   }, [open]);
 
   useEffect(() => {
-    if (!isPortal || !portalBarSticky) return;
+    if (!showPortalFixedPeek || !portalBarSticky) return;
     const onPointerDown = (e: MouseEvent | TouchEvent) => {
       const el = portalBarRef.current;
       const target = e.target as Node | null;
@@ -101,12 +149,10 @@ export default function GuardianAssistantFAB({
       document.removeEventListener('mousedown', onPointerDown);
       document.removeEventListener('touchstart', onPointerDown);
     };
-  }, [isPortal, portalBarSticky]);
+  }, [showPortalFixedPeek, portalBarSticky]);
 
-  if (hidden) return null;
-
-  const send = async () => {
-    const text = input.trim();
+  const send = async (incomingText?: string) => {
+    const text = (incomingText ?? input).trim();
     if (!text || replyLoading) return;
     if (!open) setOpen(true);
 
@@ -127,7 +173,7 @@ export default function GuardianAssistantFAB({
         },
       ]);
       setPendingOffer(null);
-      setInput('');
+      if (!portalInline) setInput('');
       setOpen(false);
       setPortalBarSticky(false);
       setPortalBarHover(false);
@@ -157,7 +203,7 @@ export default function GuardianAssistantFAB({
           },
         ]);
         setPendingOffer(null);
-        setInput('');
+        if (!portalInline) setInput('');
         return;
       }
       onSubmitGuardianRepsRequest(
@@ -177,7 +223,7 @@ export default function GuardianAssistantFAB({
         },
       ]);
       setPendingOffer(null);
-      setInput('');
+      if (!portalInline) setInput('');
       return;
     }
 
@@ -193,11 +239,12 @@ export default function GuardianAssistantFAB({
 
     setMessages((m) => [...m, { role: 'user', text }]);
     setPendingOffer(offer);
-    setInput('');
+    if (!portalInline) setInput('');
 
     let assistantText = reply;
     if (getGeminiApiKey()) {
       setReplyLoading(true);
+      onReplyLoadingChange?.(true);
       try {
         assistantText = await guardiPatientChatWithGemini({
           patient,
@@ -211,19 +258,42 @@ export default function GuardianAssistantFAB({
         assistantText = reply;
       } finally {
         setReplyLoading(false);
+        onReplyLoadingChange?.(false);
       }
     }
 
     setMessages((m) => [...m, { role: 'assistant', text: assistantText }]);
   };
 
+  sendRef.current = send;
+
   const portalBarBottom = 'calc(6.25rem + env(safe-area-inset-bottom, 0px))';
   const portalBarLeft = 'max(12px, env(safe-area-inset-left, 0px))';
-  const PORTAL_INPUT_PLACEHOLDER = 'יש לך שאלה על השיקום? כתוב כאן';
+
+  const portalInputRow = (
+    <input
+      key={`${PORTAL_PEEK_INPUT_KEY_PREFIX}-${patient.id}`}
+      ref={portalPeekInputRef}
+      type="text"
+      value={input}
+      onChange={(e) => setInput(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !replyLoading && input.trim()) {
+          e.preventDefault();
+          void send();
+        }
+      }}
+      readOnly={!portalBarSticky}
+      tabIndex={portalBarSticky ? 0 : -1}
+      placeholder={PATIENT_PORTAL_AI_CHAT_PLACEHOLDER}
+      className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-end text-[0.9375rem] font-medium text-slate-800 placeholder:text-slate-500 focus:border-indigo-200/80 focus:outline-none focus:ring-2 focus:ring-indigo-400/25"
+      aria-label={PATIENT_PORTAL_AI_CHAT_PLACEHOLDER}
+    />
+  );
 
   const chrome = (
     <>
-      {isPortal && !open && !suppressPortalPeekBar && (
+      {showPortalFixedPeek && !open && (
         <div
           ref={portalBarRef}
           className={`fixed z-[20] flex items-center overflow-hidden border border-slate-200/70 bg-white/92 shadow-sm backdrop-blur-md motion-safe:transition-[width,min-width,height,border-radius,box-shadow] motion-safe:duration-300 motion-safe:ease-out pointer-events-auto ${
@@ -265,23 +335,7 @@ export default function GuardianAssistantFAB({
             }`}
             dir="rtl"
           >
-            <input
-              ref={portalPeekInputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !replyLoading && portalBarSticky && input.trim()) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-              readOnly={!portalBarSticky}
-              tabIndex={portalBarSticky ? 0 : -1}
-              placeholder={PORTAL_INPUT_PLACEHOLDER}
-              className="min-w-0 flex-1 rounded-xl border border-transparent bg-transparent py-2 text-end text-[0.9375rem] font-medium text-slate-800 placeholder:text-slate-500 read-only:cursor-default read-only:placeholder:text-slate-500 focus:border-indigo-200/80 focus:outline-none focus:ring-2 focus:ring-indigo-400/25"
-              aria-label={PORTAL_INPUT_PLACEHOLDER}
-            />
+            {portalInputRow}
             {portalBarSticky && (
               <>
                 <button
@@ -422,30 +476,39 @@ export default function GuardianAssistantFAB({
             </div>
 
             <div className="p-3 border-t shrink-0 flex gap-2" style={{ borderColor: '#e0e7ff' }}>
-              <input
-                ref={modalInputRef}
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !replyLoading && void send()}
-                placeholder={
-                  isPortal
-                    ? PORTAL_INPUT_PLACEHOLDER
-                    : 'שאלה או «כן» לאישור שליחה למטפל…'
-                }
-                className="flex-1 min-w-0 rounded-2xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
-                style={{ background: '#fafafa' }}
-              />
-              <button
-                type="button"
-                onClick={() => void send()}
-                disabled={!input.trim() || replyLoading}
-                className="shrink-0 w-11 h-11 rounded-2xl flex items-center justify-center text-white disabled:opacity-40"
-                style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}
-                aria-label="שלח"
-              >
-                <Send className="w-5 h-5" />
-              </button>
+              {!portalInline && (
+                <>
+                  <input
+                    ref={modalInputRef}
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !replyLoading && void send()}
+                    placeholder={
+                      isPortal
+                        ? PATIENT_PORTAL_AI_CHAT_PLACEHOLDER
+                        : 'שאלה או «כן» לאישור שליחה למטפל…'
+                    }
+                    className="flex-1 min-w-0 rounded-2xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                    style={{ background: '#fafafa' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void send()}
+                    disabled={!input.trim() || replyLoading}
+                    className="shrink-0 w-11 h-11 rounded-2xl flex items-center justify-center text-white disabled:opacity-40"
+                    style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}
+                    aria-label="שלח"
+                  >
+                    <Send className="w-5 h-5" />
+                  </button>
+                </>
+              )}
+              {portalInline && (
+                <p className="w-full text-center text-xs text-indigo-600/90 py-1">
+                  המשיכו לכתוב בשורת הקלט למטה
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -453,5 +516,26 @@ export default function GuardianAssistantFAB({
     </>
   );
 
+  if (hidden) return null;
+
+  if (portalInline) {
+    if (suppressInlineInput) {
+      return open ? <PhysioshieldPortal>{chrome}</PhysioshieldPortal> : null;
+    }
+    return (
+      <>
+        <PatientPortalAiChatInput
+          patientId={patient.id}
+          onSend={handlePortalInlineSend}
+          replyLoading={replyLoading}
+        />
+        {open && <PhysioshieldPortal>{chrome}</PhysioshieldPortal>}
+      </>
+    );
+  }
+
   return <PhysioshieldPortal>{chrome}</PhysioshieldPortal>;
-}
+  }
+);
+
+export default GuardianAssistantFAB;

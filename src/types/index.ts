@@ -200,6 +200,12 @@ export interface Patient {
    */
   clinicalReasoningHe?: string[];
   /**
+   * תובנות AI מובנות מאינטייק (אבחנה מבדלת, אזהרות, המלצות) — לתצוגת דשבורד קליני.
+   */
+  clinicalIntakeAiInsights?: ClinicalIntakeAiInsights;
+  /** מדד כאב VAS (0–10) בזמן האינטייק — נשמר ב־payload */
+  intakeVasScore?: number;
+  /**
    * מטא-דאטה רפואי מרקע — מirror של `clinicalIntakeProfile.medical_history` לתאימות.
    */
   medicalProfileMetadata?: PatientMedicalProfileMetadata;
@@ -345,6 +351,16 @@ export type PatientClinicalIntakeProfile = {
 /** @deprecated השתמשו ב־`clinicalIntakeProfile.medical_history` — נשמר לתאימות */
 export type PatientMedicalProfileMetadata = PatientClinicalIntakeMedicalHistory;
 
+/** תובנות AI מובנות מאינטייק קליני — לתצוגה ולשמירה ב־payload */
+export type ClinicalIntakeAiInsights = {
+  differentialDiagnosis?: string[];
+  precautionsHe?: string[];
+  recommendedTestsHe?: string[];
+  redFlags?: string[];
+  redFlagAnalysis?: string;
+  clinicalConclusionsHe?: string[];
+};
+
 /** שדות נוספים לשמירת פרופיל קליני ראשוני (אינטייק AI) */
 export type InitialClinicalProfileExtras = {
   displayName?: string;
@@ -353,8 +369,12 @@ export type InitialClinicalProfileExtras = {
   clinicalIntakeProfile?: PatientClinicalIntakeProfile;
   /** @deprecated — mirror של medical_history; נשמר לתאימות */
   medicalProfileMetadata?: PatientMedicalProfileMetadata;
-  /** @deprecated נימוקי AI ישנים — לחילוץ legacy בלבד */
+  /** נימוקי AI / מסקנות קליניות */
   clinicalReasoningHe?: string[];
+  /** תובנות AI מובנות — אבחנה מבדלת, אזהרות, המלצות */
+  clinicalIntakeAiInsights?: ClinicalIntakeAiInsights;
+  /** מדד כאב VAS (0–10) בזמן האינטייק */
+  intakeVasScore?: number;
   /** מפרקים להדגשה אדומה (מוקד פגיעה) */
   injuryHighlightSegments?: BodyArea[];
   /** מפרקים משניים — כתום במפה */

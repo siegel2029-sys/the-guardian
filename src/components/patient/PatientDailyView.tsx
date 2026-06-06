@@ -7,10 +7,6 @@ import {
   Coins,
   Activity,
   LogOut,
-  Send,
-  User,
-  Bot,
-  Clock,
   Settings,
   Home,
   ShoppingBag,
@@ -18,7 +14,6 @@ import {
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
-import { getTherapistDisplayName } from '../../context/authPersistence';
 import BodyMap3D from '../body-map/BodyMap3D';
 import GuardiVictorySequence from './GordyVictorySequence';
 import GuardiCompanion, { type GuardiTransientAppearance } from './GordyCompanion';
@@ -30,7 +25,8 @@ import ExerciseVideoTimerModal from './ExerciseVideoTimerModal';
 import ExerciseTrainingFeedbackModal, {
   type ExerciseTrainingFeedbackPayload,
 } from './ExerciseTrainingFeedbackModal';
-import GuardianAssistantFAB from './GuardianAssistantFAB';
+import PatientPortalMessagesTab from './PatientPortalMessagesTab';
+import PatientPortalHomeAiChatDock from './PatientPortalHomeAiChatDock';
 import { PatientDidYouKnowAnchorButton } from './PatientDidYouKnowPortal';
 import { formatPatientRepsLabel } from '../../utils/patientExerciseRepsLabel';
 import { patientFacingExerciseInstructions } from '../../utils/patientFacingExerciseInstructions';
@@ -172,13 +168,12 @@ export default function PatientDailyView() {
   } = useAuth();
   const {
     selectedPatient,
+    selectedPatientId,
     messages,
     getExercisePlan,
     dailySessions,
     submitExerciseReport,
-    sendPatientMessage,
     getPatientMessages,
-    markMessageRead,
     submitPatientAiPlanAdjustmentRequest,
     hasDailyLoginBonusPending,
     getPatientGear,
@@ -188,8 +183,6 @@ export default function PatientDailyView() {
     claimDailyLoginBonusIfNeeded,
     rewardFeedback,
     clearRewardFeedback,
-    submitGuardianRepsIncreaseRequest,
-    sendAiClinicalAlert,
     emergencyModalPatientId,
     setEmergencyModalPatientId,
     isPatientExerciseSafetyLocked,
@@ -239,7 +232,8 @@ export default function PatientDailyView() {
     return getGuardiMountainAmbientLine(clinicalToday, selectedPatient.level);
   }, [guardiFlowerBloomLine, clinicalToday, selectedPatient, getGuardiMountainAmbientLine]);
 
-  const [messageText, setMessageText] = useState('');
+  const [messageDraftSeed, setMessageDraftSeed] = useState<string | null>(null);
+  const consumeMessageDraftSeed = useCallback(() => setMessageDraftSeed(null), []);
   const [painAnalyticsOpen, setPainAnalyticsOpen] = useState(false);
   const [loadSafetyNudge, setLoadSafetyNudge] = useState<string | null>(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
@@ -252,6 +246,15 @@ export default function PatientDailyView() {
     tabFromPortalPath(typeof window !== 'undefined' ? window.location.pathname : '/patient-portal')
   );
   const [guardiTransient, setGuardiTransient] = useState<GuardiTransientAppearance | null>(null);
+  const handlePatientEmergencyText = useCallback(() => {
+    setGuardiTransient({
+      key: `redflag_text_${Date.now()}`,
+      mood: 'concerned',
+      bubble:
+        'זיהינו ניסוח שעשוי להצביע על מצב דחוף — צוות הטיפול עודכן. אם יש סיכון מיידי, התקשרו ל־101.',
+      until: Date.now() + 9000,
+    });
+  }, []);
   const [pilot11GuardiAmbientOverride, setPilot11GuardiAmbientOverride] = useState<string | null>(
     null
   );
@@ -379,16 +382,6 @@ export default function PatientDailyView() {
   const [aiSteadyBannerDismissed, setAiSteadyBannerDismissed] = useState(false);
   const [sessionCelebrationBurst, setSessionCelebrationBurst] = useState(0);
 
-  const careGiverName = useMemo(
-    () => (selectedPatient ? getTherapistDisplayName(selectedPatient.therapistId) : ''),
-    [selectedPatient?.therapistId]
-  );
-
-  const careGiverShort = useMemo(() => {
-    if (!careGiverName) return '';
-    return careGiverName.replace(/^ד"ר\s+/u, '').split(/\s+/)[0] || careGiverName;
-  }, [careGiverName]);
-
   const portalMessages = useMemo(
     () => (selectedPatient ? getPatientMessages(selectedPatient.id) : []),
     [selectedPatient, getPatientMessages, messages]
@@ -401,16 +394,6 @@ export default function PatientDailyView() {
       ).length,
     [portalMessages]
   );
-
-  useEffect(() => {
-    if (!selectedPatient || portalTab !== 'messages') return;
-    const unreadIds = portalMessages
-      .filter((m) => !m.fromPatient && !m.isRead)
-      .map((m) => m.id);
-    if (unreadIds.length > 0) {
-      unreadIds.forEach((id) => markMessageRead(id));
-    }
-  }, [selectedPatient?.id, portalTab, portalMessages, markMessageRead]);
 
   /** תוכנית אימון: PatientContext (מקור לוגי useExercisePlan) — תמיד גרסה פעילה. */
   const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
@@ -688,14 +671,6 @@ export default function PatientDailyView() {
       clearTrainingSession();
     }
   }, [sessionNextOptionalPoolItem?.poolKey, fullOptionalPool, exerciseVideoModal, clearTrainingSession]);
-
-  const combinedMissionItems = useMemo((): MissionRow[] => {
-    const rehab: MissionRow[] = clinicalRehabExercises.map((exercise) => ({
-      kind: 'rehab' as const,
-      exercise,
-    }));
-    return [...rehab, ...strengthMissionRows];
-  }, [clinicalRehabExercises, strengthMissionRows]);
 
   /** ספירת משימות: כל תרגילי התוכנית שהמטפל הגדיר + תרגילי כוח (אזורי בחירה) */
   const totalMissions = exercises.length + strengthMissionRows.length;
@@ -1103,7 +1078,7 @@ export default function PatientDailyView() {
     toggleSelfCareZone(selectedPatient.id, area);
   };
 
-  const lastPainRecord = selectedPatient?.analytics.painHistory.slice(-1)[0];
+  const lastPainRecord = selectedPatient?.analytics?.painHistory?.slice(-1)?.[0];
 
   const submitPasswordChange = async () => {
     setPwFormError(null);
@@ -1358,7 +1333,13 @@ export default function PatientDailyView() {
         </div>
       </header>
 
-      <div className="flex-1 px-4 py-4 pb-36">
+      <div
+        className={
+          portalTab === 'messages'
+            ? 'flex-1 flex flex-col min-h-0 overflow-hidden px-3 pt-2 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))]'
+            : 'flex-1 px-4 py-4 pb-36'
+        }
+      >
         {(portalTab === 'home' || portalTab === 'activity') &&
           !exerciseVideoModal &&
           !trainingFeedbackOpen && <PatientDidYouKnowAnchorButton />}
@@ -1484,116 +1465,14 @@ export default function PatientDailyView() {
           </section>
         )}
 
-        {portalTab === 'messages' && selectedPatient && (
-          <section className="mb-5 rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden flex flex-col min-h-[min(70vh,520px)] max-h-[calc(100dvh-11rem)]">
-            <div className="px-4 py-3 border-b border-slate-100 bg-white shrink-0">
-              <div className="flex items-center gap-3">
-                <MessageCircle className="w-7 h-7 text-medical-primary shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xl font-bold text-slate-900">מרכז הודעות</p>
-                  <p className="text-sm text-slate-500 truncate">שיחה עם {careGiverName}</p>
-                </div>
-                {unreadForPatient > 0 && (
-                  <span className="shrink-0 min-w-[1.75rem] h-8 px-2 rounded-full text-sm font-black flex items-center justify-center text-white bg-medical-primary">
-                    {unreadForPatient > 9 ? '9+' : unreadForPatient}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="flex-1 flex flex-col gap-3 p-3 min-h-0 bg-slate-50/80">
-              <div className="flex-1 overflow-y-auto space-y-2 min-h-[160px] ps-0.5 pe-0.5">
-                {portalMessages.length === 0 ? (
-                  <p className="text-sm text-slate-500 text-center py-10">אין הודעות עדיין</p>
-                ) : (
-                  [...portalMessages]
-                    .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-                    .map((msg) => {
-                      const fromMe = msg.fromPatient && !msg.aiClinicalAlert;
-                      const isAi = !!msg.aiClinicalAlert;
-                      const tier = msg.clinicalSafetyTier;
-                      const alignEnd = fromMe;
-                      const alertStyle =
-                        isAi && tier === 'emergency'
-                          ? { background: '#fef2f2', borderColor: '#f87171' }
-                          : isAi && tier === 'high_priority'
-                            ? { background: '#fffbeb', borderColor: '#fbbf24' }
-                            : isAi
-                              ? { background: '#eef2ff', borderColor: '#a5b4fc' }
-                              : fromMe
-                                ? { background: '#ecfdf5', borderColor: '#6ee7b7' }
-                                : { background: '#ffffff', borderColor: '#e2e8f0' };
-                      const senderLabel = isAi
-                        ? tier === 'emergency'
-                          ? 'עדכון דחוף'
-                          : tier === 'high_priority'
-                            ? 'עדכון בטיחות'
-                            : 'עדכון מהמערכת'
-                        : fromMe
-                          ? 'אני'
-                          : careGiverName;
-                      return (
-                        <div
-                          key={msg.id}
-                          className={`flex ${alignEnd ? 'justify-end' : 'justify-start'}`}
-                        >
-                          <div
-                            className="max-w-[88%] rounded-2xl px-3 py-2.5 border-2 shadow-sm"
-                            style={alertStyle}
-                          >
-                            <div className="flex items-center gap-1.5 mb-1">
-                              {isAi ? (
-                                <Bot className="w-4 h-4 text-indigo-600 shrink-0" />
-                              ) : (
-                                <User className="w-4 h-4 text-medical-primary shrink-0" />
-                              )}
-                              <span className="text-xs font-bold text-slate-600">{senderLabel}</span>
-                            </div>
-                            <p className="text-base text-slate-800 whitespace-pre-wrap leading-relaxed">
-                              {msg.content}
-                            </p>
-                            <div className="flex items-center gap-1 mt-1.5">
-                              <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              <span className="text-xs text-slate-500">
-                                {new Date(msg.timestamp).toLocaleString('he-IL', {
-                                  day: 'numeric',
-                                  month: 'short',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                )}
-              </div>
-              <div className="relative z-40 flex gap-2 items-end border-t-2 border-slate-200 pt-3 pb-1 shrink-0 bg-slate-50/95">
-                <textarea
-                  value={messageText}
-                  onChange={(e) => setMessageText(e.target.value)}
-                  placeholder={`הודעה ל־${careGiverShort}…`}
-                  rows={2}
-                  disabled={false}
-                  aria-disabled={false}
-                  className="flex-1 resize-none rounded-xl border-2 border-slate-200 px-3 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-medical-primary/30 bg-white pointer-events-auto touch-manipulation"
-                />
-                <button
-                  type="button"
-                  disabled={!messageText.trim()}
-                  onClick={() => {
-                    if (!selectedPatient || !messageText.trim()) return;
-                    sendPatientMessage(selectedPatient.id, messageText.trim());
-                    setMessageText('');
-                  }}
-                  className="shrink-0 h-12 w-12 rounded-xl flex items-center justify-center text-white disabled:opacity-40 bg-medical-primary shadow-md"
-                  aria-label="שלח הודעה"
-                >
-                  <Send className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-          </section>
+        {portalTab === 'messages' && (
+          <PatientPortalMessagesTab
+            patient={selectedPatient}
+            exercises={exercises}
+            draftSeed={messageDraftSeed}
+            onDraftSeedConsumed={consumeMessageDraftSeed}
+            onPatientEmergencyText={handlePatientEmergencyText}
+          />
         )}
 
         {portalTab === 'activity' && (
@@ -1778,14 +1657,16 @@ export default function PatientDailyView() {
           />
         )}
 
-        <footer className="mt-10 pt-6 border-t border-slate-200/80 flex justify-center shrink-0">
-          <a
-            href="/accessibility"
-            className="text-[11px] text-slate-500 hover:text-teal-600 underline underline-offset-2 transition-colors py-2"
-          >
-            הצהרת נגישות
-          </a>
-        </footer>
+        {portalTab !== 'messages' && (
+          <footer className="mt-10 pt-6 border-t border-slate-200/80 flex justify-center shrink-0">
+            <a
+              href="/accessibility"
+              className="text-[11px] text-slate-500 hover:text-teal-600 underline underline-offset-2 transition-colors py-2"
+            >
+              הצהרת נגישות
+            </a>
+          </footer>
+        )}
       </div>
 
       {import.meta.env.DEV && (
@@ -1796,6 +1677,18 @@ export default function PatientDailyView() {
           )}
         </>
       )}
+
+      {portalTab === 'home' &&
+        selectedPatient &&
+        !patientMustChangePassword &&
+        !exerciseVideoModal &&
+        !trainingFeedbackOpen && (
+          <PatientPortalHomeAiChatDock
+            patient={selectedPatient}
+            exercises={exercises}
+            onPatientEmergencyText={handlePatientEmergencyText}
+          />
+        )}
 
       <nav
         className="fixed bottom-0 inset-x-0 z-[35] rounded-t-2xl border border-slate-200/90 border-b-0 flex justify-center bg-white shadow-[0_-8px_30px_rgba(15,23,42,0.08)]"
@@ -1886,43 +1779,6 @@ export default function PatientDailyView() {
           onClose={endSessionCelebration}
         />
       )}
-
-      <GuardianAssistantFAB
-        patient={selectedPatient}
-        exerciseCount={combinedMissionItems.length}
-        exercises={exercises}
-        variant="portal"
-        onSubmitGuardianRepsRequest={(exerciseId, exerciseName, fromReps, toReps) =>
-          submitGuardianRepsIncreaseRequest(
-            selectedPatient.id,
-            exerciseId,
-            exerciseName,
-            fromReps,
-            toReps
-          )
-        }
-        onTherapistClinicalAlert={(detail) => sendAiClinicalAlert(selectedPatient.id, detail)}
-        onPatientEmergencyText={() =>
-          setGuardiTransient({
-            key: `redflag_text_${Date.now()}`,
-            mood: 'concerned',
-            bubble:
-              'זיהינו ניסוח שעשוי להצביע על מצב דחוף — צוות הטיפול עודכן. אם יש סיכון מיידי, התקשרו ל־101.',
-            until: Date.now() + 9000,
-          })
-        }
-        suppressPortalPeekBar={portalTab === 'messages'}
-        hidden={
-          !!exerciseVideoModal ||
-          trainingFeedbackOpen ||
-          exercisesLocked ||
-          patientMustChangePassword ||
-          sessionCelebrationBurst > 0 ||
-          trainingAiPlanModalOpen ||
-          portalFrozenUiLock ||
-          portalTab === 'messages'
-        }
-      />
 
       {selectedPatient && (
         <PatientAiPlanSuggestionModal
@@ -2042,7 +1898,7 @@ export default function PatientDailyView() {
         onAcknowledge={() => setEmergencyModalPatientId(null)}
         onOpenTherapistMessage={() => {
           setEmergencyModalPatientId(null);
-          setMessageText(
+          setMessageDraftSeed(
             'דחוף: דיווחתי על תסמינים שעלולים לחייב בדיקה רפואית דחופה. נא ליצור קשר בהקדם.'
           );
           navigate(portalHrefForTab('messages'));

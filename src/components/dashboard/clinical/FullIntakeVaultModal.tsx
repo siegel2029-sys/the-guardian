@@ -9,10 +9,6 @@ import { buildSupabaseClinicalDatastoreJson } from '../../../utils/buildSupabase
 import { deriveDiagnosisHeadline } from '../../../utils/clinicalNarrative';
 import { resolveCoreLegacyIntakeSummaryText } from '../../../utils/clinicalIntakeProfileMigration';
 import ClinicalIntakeProfilePanel from './ClinicalIntakeProfilePanel';
-import {
-  buildClinicalIntakeProfileSlots,
-  resolvePatientClinicalIntakeProfile,
-} from '../../../utils/clinicalIntakeProfileDisplay';
 
 type Props = {
   patient: Patient;
@@ -69,58 +65,22 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
     setNoteDraft('');
   }, [patient.id]);
 
-  const intakeFields = useMemo(() => {
+  const intakeMetaFields = useMemo(() => {
     const ex = intake.extras ?? {};
-    const profile =
-      patient.clinicalIntakeProfile ??
-      ex.clinicalIntakeProfile ??
-      resolvePatientClinicalIntakeProfile(patient);
-    const slots = buildClinicalIntakeProfileSlots(profile);
+    const injury =
+      (ex.injuryHighlightSegments ?? []).map((a) => bodyAreaLabels[a]).join(', ') || null;
+    const secondary =
+      (ex.secondaryClinicalBodyAreas ?? []).map((a) => bodyAreaLabels[a]).join(', ') || null;
 
-    const structuredRows = slots.flatMap((slot) => {
-      if (!slot.hasData) return [];
-      if (slot.lines.length <= 1) {
-        return [{ label: slot.titleHe, value: slot.lines[0] ?? '—' }];
-      }
-      return slot.lines.map((line, i) => ({
-        label: i === 0 ? slot.titleHe : `${slot.titleHe} (${i + 1})`,
-        value: line,
-      }));
-    });
-
-    return [
-      { label: 'תאריך צילום אינטייק', value: new Date(intake.capturedAt).toLocaleString('he-IL') },
-      { label: 'מוקד ראשי (אינטייק)', value: bodyAreaLabels[intake.primaryBodyArea] },
-      { label: 'אבחנה (שדה קצר)', value: intake.diagnosis || '—' },
-      ...structuredRows,
-      { label: 'הערות / סיפור אינטייק (מלא)', value: intake.therapistNotes || '—' },
-      {
-        label: 'סיכום AI באינטייק',
-        value: intake.geminiClinicalNarrative ?? ex.geminiClinicalNarrative ?? '—',
-      },
-      { label: 'אבחון קליני (טקסט אינטייק)', value: ex.clinicalDiagnosis ?? '—' },
-      { label: 'שם תצוגה באינטייק', value: intake.displayName ?? ex.displayName ?? '—' },
-      {
-        label: 'הדגשת פגיעה (אדום) באינטייק',
-        value:
-          (ex.injuryHighlightSegments ?? [])
-            .map((a) => bodyAreaLabels[a])
-            .join(', ') || '—',
-      },
-      {
-        label: 'משני קליני (כתום) באינטייק',
-        value:
-          (ex.secondaryClinicalBodyAreas ?? [])
-            .map((a) => bodyAreaLabels[a])
-            .join(', ') || '—',
-      },
-      { label: 'דגל אדום באינטייק', value: ex.intakeRedFlag ? 'כן' : 'לא' },
-      {
-        label: 'מזהי תרגילים מהספרייה',
-        value: intake.libraryExerciseIds?.length ? intake.libraryExerciseIds.join(', ') : '—',
-      },
+    const rows: { label: string; value: string }[] = [
+      { label: 'תאריך צילום', value: new Date(intake.capturedAt).toLocaleString('he-IL') },
+      { label: 'מוקד ראשי', value: bodyAreaLabels[intake.primaryBodyArea] },
     ];
-  }, [intake, patient]);
+    if (injury) rows.push({ label: 'הדגשת פגיעה', value: injury });
+    if (secondary) rows.push({ label: 'משני קליני', value: secondary });
+    if (ex.intakeRedFlag) rows.push({ label: 'דגל אדום באינטייק', value: 'כן' });
+    return rows;
+  }, [intake]);
 
   const runComparative = useCallback(async () => {
     if (!getGeminiApiKey()) {
@@ -202,24 +162,24 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
 
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="p-5 space-y-8">
-            <section>
-              <h3 className="text-sm font-bold text-slate-950 mb-3">פרופיל אינטייק מובנה</h3>
-              <ClinicalIntakeProfilePanel patient={patient} className="mb-6" />
-            </section>
+            <ClinicalIntakeProfilePanel patient={patient} />
 
-            <section>
-              <h3 className="text-sm font-bold text-slate-950 mb-3">שדות האינטייק</h3>
-              <dl className="rounded-xl border border-slate-200 divide-y divide-slate-100 bg-white">
-                {intakeFields.map((row) => (
-                  <div key={row.label} className="px-4 py-3 flex flex-col sm:flex-row sm:gap-4 text-sm">
-                    <dt className="font-bold text-slate-600 shrink-0 sm:w-44">{row.label}</dt>
-                    <dd className="text-slate-900 whitespace-pre-wrap leading-relaxed flex-1 min-w-0 mt-1 sm:mt-0">
-                      {row.value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
+            {intakeMetaFields.length > 0 && (
+              <section>
+                <h3 className="text-sm font-bold text-slate-950 mb-3">מטא־נתונים</h3>
+                <dl className="rounded-xl border border-slate-200 divide-y divide-slate-100 bg-white">
+                  {intakeMetaFields.map((row) => (
+                    <div
+                      key={row.label}
+                      className="px-4 py-2.5 flex flex-col sm:flex-row sm:gap-4 text-sm"
+                    >
+                      <dt className="font-bold text-slate-600 shrink-0 sm:w-36">{row.label}</dt>
+                      <dd className="text-slate-900 flex-1 min-w-0 mt-0.5 sm:mt-0">{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            )}
 
             <section className="rounded-2xl border border-violet-200 bg-violet-50/30 p-4 space-y-4">
               <h3 className="text-sm font-black text-violet-950">ניתוח השוואתי AI</h3>

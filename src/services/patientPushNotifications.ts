@@ -110,6 +110,52 @@ function coercePatientPayloadRoot(payload: unknown): Record<string, unknown> | n
   return p as Record<string, unknown>;
 }
 
+/** Merge Web Push keys into the existing patient JSON document — never replace the whole payload blindly. */
+function mergeWebPushIntoPatientPayload(
+  existingPayload: unknown,
+  subscription: WebPushSubscriptionPayload,
+): Record<string, unknown> | null {
+  const base = coercePatientPayloadRoot(existingPayload);
+  if (!base || typeof base.id !== 'string' || !base.id.trim()) {
+    return null;
+  }
+  const next = { ...base };
+  next.webPushSubscription = JSON.parse(
+    JSON.stringify(normalizeCanonicalWebPushSubscription(subscription)),
+  ) as Patient['webPushSubscription'];
+  return next;
+}
+
+function stripWebPushFromPatientPayload(existingPayload: unknown): Record<string, unknown> | null {
+  const base = coercePatientPayloadRoot(existingPayload);
+  if (!base || typeof base.id !== 'string' || !base.id.trim()) {
+    return null;
+  }
+  delete base.webPushSubscription;
+  delete base.web_push_subscription;
+  delete base.WebPushSubscription;
+  return base;
+}
+
+function isMissingColumnPatchError(message: string): boolean {
+  return /push_invalidated_at|push_last_error|column.*does not exist|could not find the .* column/i.test(
+    message,
+  );
+}
+
+async function patchPatientRow(
+  patientId: string,
+  values: Record<string, unknown>,
+): Promise<{ data: { id: string } | null; error: { message: string } | null }> {
+  const { data, error } = await supabase!
+    .from('patients')
+    .update(values)
+    .eq('id', patientId)
+    .select('id')
+    .maybeSingle();
+  return { data: data as { id: string } | null, error };
+}
+
 function isPatientWebPushHttpsToken(token: string): boolean {
   return token.trim().toLowerCase().startsWith('https://');
 }
@@ -138,10 +184,22 @@ export async function syncWebPushDatabasePayloadIfStale(patientId: string): Prom
   const rawSub = root?.webPushSubscription;
   const dbSub =
     rawSub && typeof rawSub === 'object' && !Array.isArray(rawSub) ? rawSub : null;
-  if (!pushSubscriptionJsonLacksKeys(dbSub)) return;
+
+  const dbEndpoint =
+    dbSub && typeof (dbSub as { endpoint?: unknown }).endpoint === 'string'
+      ? (dbSub as { endpoint: string }).endpoint.trim()
+      : '';
+  const lacksKeys = pushSubscriptionJsonLacksKeys(dbSub);
+  // The Edge Function logs "push_token endpoint differs from payload.webPushSubscription.endpoint"
+  // and would encrypt with mismatched keys when these diverge — so treat any endpoint drift as stale
+  // too, not just missing keys, and re-sync both fields from the live browser registration.
+  const endpointDrift = dbEndpoint !== token;
+  if (!lacksKeys && !endpointDrift) return;
 
   console.warn(
-    '[PhysioShield push] patients.payload.webPushSubscription missing encryption keys — repairing for Web Push',
+    lacksKeys
+      ? '[PhysioShield push] patients.payload.webPushSubscription missing encryption keys — repairing for Web Push'
+      : '[PhysioShield push] patients.payload.webPushSubscription endpoint differs from push_token — re-syncing both fields',
   );
 
   try {
@@ -572,21 +630,13 @@ export async function clearPatientWebPushFieldsInDatabase(patientId: string): Pr
   if (fetchErr) return { ok: false, message: fetchErr.message };
   if (!row) return { ok: false, message: 'patient_not_found_or_unauthorized' };
 
-  const existing = row.payload;
-  const base =
-    existing && typeof existing === 'object' && !Array.isArray(existing)
-      ? { ...(existing as Record<string, unknown>) }
-      : {};
-  delete base.webPushSubscription;
-  delete base.web_push_subscription;
-  delete base.WebPushSubscription;
+  const clearedPayload = stripWebPushFromPatientPayload(row.payload);
+  const clearPatch: Record<string, unknown> = { push_token: null };
+  if (clearedPayload) {
+    clearPatch.payload = clearedPayload;
+  }
 
-  const { data: updated, error } = await supabase
-    .from('patients')
-    .update({ push_token: null, payload: base })
-    .eq('id', patientId)
-    .select('id')
-    .maybeSingle();
+  const { data: updated, error } = await patchPatientRow(patientId, clearPatch);
 
   if (error) return { ok: false, message: error.message };
   if (!updated?.id) {
@@ -690,17 +740,27 @@ export async function persistPatientPushProfile(params: {
       ? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC'
       : 'UTC';
 
+  // The Edge Function (`parseWebPushSubscriptionFromPayload`) treats `push_token` as the authoritative
+  // endpoint but reads encryption `keys` from `payload.webPushSubscription`. If the two describe
+  // different subscriptions the push is signed with mismatched keys (the logged "endpoint differs"
+  // warning). So whenever we have a full subscription, force `push_token` to its canonical endpoint —
+  // both columns are then written from the same object and can never drift out of sync.
+  const canonicalSubscription = params.webPushSubscription
+    ? normalizeCanonicalWebPushSubscription(params.webPushSubscription)
+    : undefined;
+  const canonicalEndpoint = canonicalSubscription?.endpoint?.trim();
+  const tokenToPersist =
+    canonicalEndpoint && isPatientWebPushHttpsToken(canonicalEndpoint)
+      ? canonicalEndpoint
+      : params.token;
+
   const patch: Record<string, unknown> = {
-    push_token: params.token,
+    push_token: tokenToPersist,
     reminder_timezone: tz,
-    // Heartbeat on every refresh so reminder-cron "momentum" eligibility + stale-token triage stay current.
     last_activity_timestamp: new Date().toISOString(),
-    // A fresh, valid registration clears any prior stale flag set by the Edge Functions.
-    push_invalidated_at: null,
-    push_last_error: null,
   };
 
-  if (params.webPushSubscription) {
+  if (canonicalSubscription) {
     const { data: row, error: fetchErr } = await supabase
       .from('patients')
       .select('payload')
@@ -714,32 +774,30 @@ export async function persistPatientPushProfile(params: {
       return { ok: false, message: 'patient_not_found_or_unauthorized' };
     }
 
-    const existing = row.payload;
-    const base =
-      existing && typeof existing === 'object' && !Array.isArray(existing)
-        ? { ...(existing as Record<string, unknown>) }
-        : {};
-    const canonical = normalizeCanonicalWebPushSubscription(params.webPushSubscription);
-    base.webPushSubscription = JSON.parse(JSON.stringify(canonical)) as Patient['webPushSubscription'];
-    patch.payload = base;
+    const mergedPayload = mergeWebPushIntoPatientPayload(row.payload, canonicalSubscription);
+    if (mergedPayload) {
+      patch.payload = mergedPayload;
+    } else {
+      console.warn(
+        '[PhysioShield push] Skipping payload.webPushSubscription merge — patient payload unreadable; updating push_token only.',
+      );
+    }
   }
 
-  const runUpdate = async (values: Record<string, unknown>) =>
-    supabase!
-      .from('patients')
-      .update(values)
-      .eq('id', params.patientId)
-      .select('id')
-      .maybeSingle();
+  let { data: updated, error } = await patchPatientRow(params.patientId, patch);
 
-  let { data: updated, error } = await runUpdate(patch);
+  // Fallback: drop payload merge if JSONB patch is rejected.
+  if (error && patch.payload !== undefined) {
+    const { payload: _payload, ...tokenOnly } = patch;
+    void _payload;
+    ({ data: updated, error } = await patchPatientRow(params.patientId, tokenOnly));
+  }
 
-  // Graceful fallback when push-health columns haven't been migrated yet on this environment.
-  if (error && /push_invalidated_at|push_last_error|column.*does not exist/i.test(error.message)) {
-    const { push_invalidated_at: _pia, push_last_error: _ple, ...legacyPatch } = patch;
-    void _pia;
-    void _ple;
-    ({ data: updated, error } = await runUpdate(legacyPatch));
+  // Fallback: scalar columns only (older schemas).
+  if (error && isMissingColumnPatchError(error.message)) {
+    ({ data: updated, error } = await patchPatientRow(params.patientId, {
+      push_token: tokenToPersist,
+    }));
   }
 
   if (error) {

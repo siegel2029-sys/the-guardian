@@ -713,7 +713,13 @@ export default function PatientOverview() {
         </div>
 
         <div className="mb-6">
-          <ClinicalIntakeProfilePanel patient={p} />
+          <ClinicalIntakeProfilePanel
+            patient={p}
+            onSaveInsights={async (patch) => {
+              updatePatient(p.id, patch);
+              await savePersistedStateToCloud({ immediate: true });
+            }}
+          />
         </div>
 
         <TreatmentDocumentation patient={p} />

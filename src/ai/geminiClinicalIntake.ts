@@ -333,7 +333,7 @@ export async function analyzeIntakeStoryWithGemini(
 {
   "primaryInjuryZoneJoint": "<BodyArea ID יחיד מתוך רשימת המפרקים המורשית>",
   "chainReactionZoneJoints": ["<BodyArea IDs>", "..."],
-  "clinicalDiagnosis": "<אבחנה עיקרית בעברית>",
+  "clinicalDiagnosis": "<שורת אבחנה/מצב אחת תמציתית בעברית — מצב, מנגנון, תאריך אם ידוע; ללא פסקאות>",
   "differentialDiagnosis": ["<חלופה 1 בעברית>", "<חלופה 2 בעברית>", "<חלופה 3 בעברית>"],
   "clinicalReasoningHe": ["<שורת נימוק 1>", "<שורת נימוק 2>", "..."],
   "redFlags": ["<דגלים שזוהו, אם אין — מערך ריק>"],
@@ -359,7 +359,9 @@ export async function analyzeIntakeStoryWithGemini(
 - exerciseLibraryIds: בדיוק 5 מזהים, כל אחד חייב להופיע בקטלוג התרגילים שסופק (שדה id בלבד).
 - אם אין דגלים אדומים — redFlags: [] ו-redFlagAnalysis בעברית מקצועית שמסבירה שאין אזהרות מיידיות מהטקסט.
 - patientQuestions ו-suggestedAnswers: אותו אורך מערך ככל האפשר (שאלה↔תשובה) לפי הסיפור.
-- clinicalIntakeProfile: חובה. שדות ריקים — ranges/special_tests/goals: [] ; muscle_strength: "" ; medical_history: «ללא» לשני השדות.${followUpBlock}`;
+- clinicalIntakeProfile: חובה. שדות ריקים — ranges/special_tests/goals: [] ; muscle_strength: "" ; medical_history: «ללא» לשני השדות.
+- clinicalDiagnosis: משפט קליני אחד קצר (לא רשימה ולא כפילות של ROM/כוח/מטרות — אלה רק ב-clinicalIntakeProfile).
+- clinicalReasoningHe: עד 3 שורות נימוק, ללא חזרה על אבחנה או ROM.${followUpBlock}`;
 
   const userText = `רשימת מפרקים מורשית (BodyArea IDs בלבד):
 ${jointIds}

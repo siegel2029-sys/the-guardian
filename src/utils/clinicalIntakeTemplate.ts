@@ -43,7 +43,7 @@ function escapeRegExp(s: string): string {
 }
 
 /** חילוץ ערך שדה — תומך בשורה יחידה או בבלוק עד לשדה/כותרת הבאה. */
-function extractIntakeFieldBlock(text: string, labelPrefix: string): string | undefined {
+export function extractIntakeFieldBlock(text: string, labelPrefix: string): string | undefined {
   const inlineRe = new RegExp(
     `${escapeRegExp(labelPrefix)}[^:\\n]*:\\s*([^\\n]+)`,
     'i'

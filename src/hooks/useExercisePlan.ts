@@ -1055,6 +1055,15 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             ...p.initialIntakeArchive?.extras,
             ...(clinicalIntakeProfile ? { clinicalIntakeProfile } : {}),
             ...(medicalProfileMetadata ? { medicalProfileMetadata } : {}),
+            ...(extras?.clinicalReasoningHe?.length
+              ? { clinicalReasoningHe: [...extras.clinicalReasoningHe] }
+              : {}),
+            ...(extras?.clinicalIntakeAiInsights
+              ? { clinicalIntakeAiInsights: { ...extras.clinicalIntakeAiInsights } }
+              : {}),
+            ...(extras?.intakeVasScore != null && Number.isFinite(extras.intakeVasScore)
+              ? { intakeVasScore: extras.intakeVasScore }
+              : {}),
           };
           const archive: PatientIntakeArchive | undefined = p.initialIntakeArchive
             ? {
@@ -1096,6 +1105,15 @@ export function useExercisePlan(params: UseExercisePlanParams) {
                   ...(extras?.intakeRedFlag === true ? { intakeRedFlag: true } : {}),
                   ...(clinicalIntakeProfile ? { clinicalIntakeProfile } : {}),
                   ...(medicalProfileMetadata ? { medicalProfileMetadata } : {}),
+                  ...(extras?.clinicalReasoningHe?.length
+                    ? { clinicalReasoningHe: [...extras.clinicalReasoningHe] }
+                    : {}),
+                  ...(extras?.clinicalIntakeAiInsights
+                    ? { clinicalIntakeAiInsights: { ...extras.clinicalIntakeAiInsights } }
+                    : {}),
+                  ...(extras?.intakeVasScore != null && Number.isFinite(extras.intakeVasScore)
+                    ? { intakeVasScore: extras.intakeVasScore }
+                    : {}),
                 },
               };
           return {
@@ -1112,6 +1130,15 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               : {}),
             ...(clinicalIntakeProfile ? { clinicalIntakeProfile } : {}),
             ...(medicalProfileMetadata ? { medicalProfileMetadata } : {}),
+            ...(extras?.clinicalReasoningHe?.length
+              ? { clinicalReasoningHe: [...extras.clinicalReasoningHe] }
+              : {}),
+            ...(extras?.clinicalIntakeAiInsights
+              ? { clinicalIntakeAiInsights: { ...extras.clinicalIntakeAiInsights } }
+              : {}),
+            ...(extras?.intakeVasScore != null && Number.isFinite(extras.intakeVasScore)
+              ? { intakeVasScore: extras.intakeVasScore }
+              : {}),
             therapistNotes,
             injuryHighlightSegments: injury,
             secondaryClinicalBodyAreas: secondary,

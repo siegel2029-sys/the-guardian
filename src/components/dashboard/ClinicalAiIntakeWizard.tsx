@@ -41,6 +41,14 @@ import {
   medicalHistoryToProfileMetadata,
   parseClinicalIntakeProfileFromStory,
 } from '../../utils/clinicalIntakeTemplate';
+import {
+  buildCondensedIntakeSnapshot,
+  formatCondensedIntakeSnapshotAsNarrative,
+} from '../../utils/clinicalIntakeSnapshotCondenser';
+import {
+  clinicalInsightsToSavePayload,
+  formatClinicalIntakeInsightsNarrative,
+} from '../../utils/clinicalIntakeInsightsDisplay';
 
 export type ClinicalProfileSaveExtras = InitialClinicalProfileExtras;
 
@@ -279,6 +287,9 @@ export default function ClinicalAiIntakeWizard({
   const [differentialDiagnosis, setDifferentialDiagnosis] = useState<string[]>([]);
   const [precautionsHe, setPrecautionsHe] = useState<string[]>([]);
   const [recommendedTestsHe, setRecommendedTestsHe] = useState<string[]>([]);
+  const [clinicalConclusionsHe, setClinicalConclusionsHe] = useState<string[]>([]);
+  const [reviewClinicalDiagnosis, setReviewClinicalDiagnosis] = useState('');
+  const [intakeVasScore, setIntakeVasScore] = useState<number | null>(null);
   const [injuryHighlightSegments, setInjuryHighlightSegments] = useState<BodyArea[]>([]);
   const [secondaryClinicalBodyAreas, setSecondaryClinicalBodyAreas] = useState<BodyArea[]>([]);
 
@@ -330,6 +341,9 @@ export default function ClinicalAiIntakeWizard({
       setDifferentialDiagnosis([...bundle.differentialDiagnosis]);
       setPrecautionsHe([...bundle.precautionsHe]);
       setRecommendedTestsHe([...bundle.recommendedTestsHe]);
+      setClinicalConclusionsHe([...bundle.rationaleLinesHe]);
+      setReviewClinicalDiagnosis(bundle.clinicalDiagnosis);
+      setIntakeVasScore(null);
       setInjuryHighlightSegments([...bundle.injuryHighlightSegments]);
       setSecondaryClinicalBodyAreas([...bundle.secondaryClinicalBodyAreas]);
       setStep('review');
@@ -358,27 +372,73 @@ export default function ClinicalAiIntakeWizard({
     const out: ClinicalProfileSaveExtras = {};
     if (name) out.displayName = name;
     if (story) out.intakeStory = story;
+    if (intakeVasScore != null && Number.isFinite(intakeVasScore)) {
+      out.intakeVasScore = Math.min(10, Math.max(0, Math.round(intakeVasScore)));
+    }
     if (analysisBundle) {
       out.injuryHighlightSegments = [...injuryHighlightSegments];
       out.secondaryClinicalBodyAreas = [...secondaryClinicalBodyAreas];
-      out.clinicalDiagnosis = analysisBundle.clinicalDiagnosis;
-      const narrativeParts: string[] = [analysisBundle.clinicalDiagnosis];
-      const diff = differentialDiagnosis.filter((s) => s.trim());
-      if (diff.length > 0) {
-        narrativeParts.push('', 'אבחנה מבדלת:', ...diff.map((d) => `• ${d}`));
+      out.clinicalDiagnosis = reviewClinicalDiagnosis.trim() || analysisBundle.clinicalDiagnosis;
+      const storyBrief = buildCondensedIntakeSnapshot({
+        profile: { ...reviewProfile },
+        diagnosis: out.clinicalDiagnosis,
+        clinicalDiagnosis: out.clinicalDiagnosis,
+        intakeStory: story,
+        intakeRedFlag: analysisBundle.redFlagDetected,
+        primaryBodyArea: primary,
+      }).sections.find((s) => s.id === 'story_brief')?.text;
+
+      const clinicalConclusions = clinicalConclusionsHe.filter((l) => l.trim());
+      const redFromBundle = analysisBundle.redFlags.filter((f) => f.trim());
+
+      out.clinicalReasoningHe = clinicalConclusions;
+      out.clinicalIntakeAiInsights = clinicalInsightsToSavePayload({
+        differentialDiagnosis,
+        precautionsHe,
+        recommendedTestsHe,
+        redFlags: redFromBundle,
+        clinicalConclusions,
+      });
+
+      out.geminiClinicalNarrative = formatClinicalIntakeInsightsNarrative({
+        diagnosis: out.clinicalDiagnosis,
+        differentialDiagnosis: differentialDiagnosis.filter((d) => d.trim()),
+        clinicalConclusions,
+        precautions: precautionsHe.filter((p) => p.trim()),
+        redFlags: redFromBundle,
+        recommendedTests: recommendedTestsHe.filter((t) => t.trim()),
+        storySummary: storyBrief,
+      });
+
+      // גיבוי תמצית קצרה לשדות legacy
+      if (!out.geminiClinicalNarrative.trim()) {
+        const condensed = buildCondensedIntakeSnapshot({
+          profile: { ...reviewProfile },
+          diagnosis: analysisBundle.clinicalDiagnosis,
+          clinicalDiagnosis: analysisBundle.clinicalDiagnosis,
+          intakeStory: story,
+          intakeRedFlag: analysisBundle.redFlagDetected,
+          primaryBodyArea: primary,
+        });
+        if (redFromBundle.length > 0) {
+          const redSection = condensed.sections.find((s) => s.id === 'neurological_red_flags');
+          const mergedRed = redSection
+            ? `${redSection.text}; ${redFromBundle.join('; ')}`
+            : redFromBundle.join('; ');
+          const idx = condensed.sections.findIndex((s) => s.id === 'neurological_red_flags');
+          if (idx >= 0) {
+            condensed.sections[idx] = { ...condensed.sections[idx], text: mergedRed };
+          } else {
+            condensed.sections.push({
+              id: 'neurological_red_flags',
+              titleHe: 'דגלים אדומים',
+              text: mergedRed,
+              emphasis: 'danger',
+            });
+          }
+        }
+        out.geminiClinicalNarrative = formatCondensedIntakeSnapshotAsNarrative(condensed);
       }
-      const precautions = precautionsHe.filter((s) => s.trim());
-      if (precautions.length > 0) {
-        narrativeParts.push('', 'דגשים:', ...precautions.map((p) => `• ${p}`));
-      }
-      const tests = recommendedTestsHe.filter((s) => s.trim());
-      if (tests.length > 0) {
-        narrativeParts.push('', 'בדיקות מומלצות:', ...tests.map((t) => `• ${t}`));
-      }
-      if (analysisBundle.redFlags.length > 0) {
-        narrativeParts.push('', 'דגלים:', ...analysisBundle.redFlags.map((f) => `• ${f}`));
-      }
-      out.geminiClinicalNarrative = narrativeParts.join('\n');
       if (analysisBundle.redFlagDetected) out.intakeRedFlag = true;
       out.clinicalIntakeProfile = { ...reviewProfile };
       out.medicalProfileMetadata = medicalHistoryToProfileMetadata(
@@ -572,7 +632,14 @@ export default function ClinicalAiIntakeWizard({
 
           {step === 'review' && analysisBundle && (
             <IntakeActivationReviewPanel
-              clinicalDiagnosis={analysisBundle.clinicalDiagnosis}
+              clinicalDiagnosis={reviewClinicalDiagnosis || analysisBundle.clinicalDiagnosis}
+              onClinicalDiagnosisChange={setReviewClinicalDiagnosis}
+              caseStory={intakeStory}
+              onCaseStoryChange={setIntakeStory}
+              vasScore={intakeVasScore}
+              onVasScoreChange={setIntakeVasScore}
+              clinicalConclusionsHe={clinicalConclusionsHe}
+              onClinicalConclusionsChange={setClinicalConclusionsHe}
               differentialDiagnosis={differentialDiagnosis}
               onDifferentialChange={setDifferentialDiagnosis}
               precautionsHe={precautionsHe}
@@ -598,7 +665,6 @@ export default function ClinicalAiIntakeWizard({
               }
               onClearExercises={clearSelection}
               sourceGemini={analysisBundle.source === 'gemini'}
-              rationaleLinesHe={analysisBundle.rationaleLinesHe}
             />
           )}
         </div>
