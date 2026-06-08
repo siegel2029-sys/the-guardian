@@ -31,14 +31,16 @@ type Props = {
     fields: ClinicalIntakeEditableFields
   ) => Promise<UpsertIntakeVersionResult | null>;
   onCreateSuccessiveVersion?: (
-    sourceVersion: PatientIntakeVersionEntry
+    sourceVersion: PatientIntakeVersionEntry,
+    tempId: string,
+    optimisticTimeline: PatientIntakeVersionEntry[]
   ) => Promise<UpsertIntakeVersionResult | null>;
   onDeleteIntakeVersion?: (
     versionId: string,
-    version: PatientIntakeVersionEntry
+    version: PatientIntakeVersionEntry,
+    optimisticTimeline: PatientIntakeVersionEntry[]
   ) => Promise<UpsertIntakeVersionResult | null>;
   cloneBusy?: boolean;
-  deleteBusy?: boolean;
   updatePatient?: (id: string, patch: Partial<Patient>) => void;
 };
 
@@ -56,7 +58,6 @@ export default function ClinicalIntakeProfilePanel({
   onCreateSuccessiveVersion,
   onDeleteIntakeVersion,
   cloneBusy = false,
-  deleteBusy = false,
   updatePatient,
 }: Props) {
   const resolvedProfile = useMemo(() => {
@@ -138,7 +139,6 @@ export default function ClinicalIntakeProfilePanel({
             onCreateSuccessiveVersion={onCreateSuccessiveVersion}
             onDeleteIntakeVersion={onDeleteIntakeVersion}
             cloneBusy={cloneBusy}
-            deleteBusy={deleteBusy}
             updatePatient={updatePatient}
           />
         ) : patient ? (

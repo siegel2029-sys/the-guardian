@@ -11,8 +11,8 @@ import { resolveCoreLegacyIntakeSummaryText } from '../utils/clinicalIntakeProfi
 import type { ClinicalIntakeEditableFields } from '../utils/clinicalIntakeEditableFields';
 import { mapAiResponseToFields } from '../utils/medicalIntakeSchema';
 import {
-  cloneSuccessiveIntakeVersion,
-  deleteIntakeVersion,
+  deleteIntakeVersionOptimistic,
+  insertSuccessiveIntakeVersionOptimistic,
   updateIntakeVersion,
   type UpsertIntakeVersionResult,
 } from '../utils/clinicalIntakeVersions';
@@ -135,21 +135,26 @@ export function useComparativeIntakeAnalysis({ patient, updatePatient, saveToClo
 
   const createSuccessiveVersion = useCallback(
     async (
-      sourceVersion: PatientIntakeVersionEntry
+      sourceVersion: PatientIntakeVersionEntry,
+      tempId: string,
+      optimisticTimeline: PatientIntakeVersionEntry[]
     ): Promise<UpsertIntakeVersionResult | null> => {
       setCloneBusy(true);
       setError(null);
       try {
         const currentPatient = patientRef.current;
-        return await cloneSuccessiveIntakeVersion(
+        return await insertSuccessiveIntakeVersionOptimistic(
           currentPatient.id,
           currentPatient,
           sourceVersion,
+          tempId,
+          optimisticTimeline,
           { updatePatient, saveToCloud }
         );
       } catch (e) {
-        setError(formatAiError(e));
-        return null;
+        const msg = formatAiError(e);
+        setError(msg);
+        throw e instanceof Error ? e : new Error(msg);
       } finally {
         setCloneBusy(false);
       }
@@ -160,22 +165,25 @@ export function useComparativeIntakeAnalysis({ patient, updatePatient, saveToClo
   const handleDeleteVersion = useCallback(
     async (
       versionId: string,
-      version: PatientIntakeVersionEntry
+      version: PatientIntakeVersionEntry,
+      optimisticTimeline: PatientIntakeVersionEntry[]
     ): Promise<UpsertIntakeVersionResult | null> => {
       setError(null);
       setDeleteBusy(true);
       try {
         const currentPatient = patientRef.current;
-        return await deleteIntakeVersion(
+        return await deleteIntakeVersionOptimistic(
           currentPatient.id,
           currentPatient,
           versionId,
           version,
+          optimisticTimeline,
           { updatePatient, saveToCloud }
         );
       } catch (e) {
-        setError(formatAiError(e));
-        return null;
+        const msg = formatAiError(e);
+        setError(msg);
+        throw e instanceof Error ? e : new Error(msg);
       } finally {
         setDeleteBusy(false);
       }

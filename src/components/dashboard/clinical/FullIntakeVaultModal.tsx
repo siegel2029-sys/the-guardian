@@ -103,14 +103,13 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
               onUpdateIntakeVersion={(versionId, version, fields) =>
                 comparative.handleUpdateVersion(versionId, version, fields)
               }
-              onCreateSuccessiveVersion={(sourceVersion) =>
-                comparative.createSuccessiveVersion(sourceVersion)
+              onCreateSuccessiveVersion={(sourceVersion, tempId, optimisticTimeline) =>
+                comparative.createSuccessiveVersion(sourceVersion, tempId, optimisticTimeline)
               }
-              onDeleteIntakeVersion={(versionId, version) =>
-                comparative.handleDeleteVersion(versionId, version)
+              onDeleteIntakeVersion={(versionId, version, optimisticTimeline) =>
+                comparative.handleDeleteVersion(versionId, version, optimisticTimeline)
               }
               cloneBusy={comparative.cloneBusy}
-              deleteBusy={comparative.deleteBusy}
               updatePatient={updatePatient}
             />
 

@@ -4,6 +4,7 @@ import type { Patient, PatientIntakeVersionEntry } from '../../../types';
 import type { ClinicalIntakeEditableFields } from '../../../utils/clinicalIntakeEditableFields';
 import {
   buildBootstrapTimelinePatchIfNeeded,
+  buildClonedVersionEntry,
   buildPatchForLatestVersionSave,
   formatIntakeVersionTabLabel,
   getActiveVersionId,
@@ -31,14 +32,16 @@ type Props = {
     fields: ClinicalIntakeEditableFields
   ) => Promise<UpsertIntakeVersionResult | null>;
   onCreateSuccessiveVersion?: (
-    sourceVersion: PatientIntakeVersionEntry
+    sourceVersion: PatientIntakeVersionEntry,
+    tempId: string,
+    optimisticTimeline: PatientIntakeVersionEntry[]
   ) => Promise<UpsertIntakeVersionResult | null>;
   onDeleteIntakeVersion?: (
     versionId: string,
-    version: PatientIntakeVersionEntry
+    version: PatientIntakeVersionEntry,
+    optimisticTimeline: PatientIntakeVersionEntry[]
   ) => Promise<UpsertIntakeVersionResult | null>;
   cloneBusy?: boolean;
-  deleteBusy?: boolean;
   updatePatient?: (id: string, patch: Partial<Patient>) => void;
   className?: string;
 };
@@ -51,12 +54,34 @@ function timelineSignature(timeline: PatientIntakeVersionEntry[]): string {
   return timeline.map((v) => `${v.id}:${v.createdAt}:${v.kind}`).join('|');
 }
 
+function isTempIntakeVersionId(id: string): boolean {
+  return id.startsWith('temp-');
+}
+
+type TabUiSnapshot = {
+  versions: PatientIntakeVersionEntry[];
+  activeId: string;
+  fields: ClinicalIntakeEditableFields | null;
+};
+
+function buildOptimisticVersionEntry(source: PatientIntakeVersionEntry): PatientIntakeVersionEntry {
+  return { ...buildClonedVersionEntry(source), id: `temp-${Date.now()}` };
+}
+
+function resolveActiveAfterDelete(
+  versions: PatientIntakeVersionEntry[],
+  deletedIndex: number
+): PatientIntakeVersionEntry | undefined {
+  if (versions.length === 0) return undefined;
+  const idx = Math.min(Math.max(0, deletedIndex - 1), versions.length - 1);
+  return versions[idx];
+}
+
 type IntakeVersionTabButtonProps = {
   version: PatientIntakeVersionEntry;
   index: number;
   active: boolean;
   canDelete: boolean;
-  deleteBusy: boolean;
   onSelect: (versionId: string) => void;
   onDelete: (version: PatientIntakeVersionEntry, index: number) => void;
 };
@@ -67,7 +92,6 @@ function IntakeVersionTabButton({
   index,
   active,
   canDelete,
-  deleteBusy,
   onSelect,
   onDelete,
 }: IntakeVersionTabButtonProps) {
@@ -104,7 +128,6 @@ function IntakeVersionTabButton({
             e.stopPropagation();
             onDelete(version, index);
           }}
-          disabled={deleteBusy}
           aria-label={`מחק גרסה ${label}`}
           title="מחק גרסה"
           className="absolute top-1 start-1 z-20 flex h-4 w-4 items-center justify-center rounded-sm text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
@@ -140,7 +163,6 @@ export default function ClinicalIntakeTabbedView({
   onCreateSuccessiveVersion,
   onDeleteIntakeVersion,
   cloneBusy = false,
-  deleteBusy = false,
   updatePatient,
   className = '',
 }: Props) {
@@ -166,6 +188,31 @@ export default function ClinicalIntakeTabbedView({
   const localEditVersionIdRef = useRef<string | null>(null);
   const keepActiveIdRef = useRef<string | null>(null);
   const skipPayloadSyncRef = useRef(false);
+  const isMutatingRef = useRef(false);
+  const pendingTempInsertsRef = useRef<Set<string>>(new Set());
+  const [tabActionError, setTabActionError] = useState<string | null>(null);
+  const [backgroundSync, setBackgroundSync] = useState(false);
+
+  const beginMutation = useCallback(() => {
+    isMutatingRef.current = true;
+    skipPayloadSyncRef.current = true;
+    setBackgroundSync(true);
+  }, []);
+
+  const endMutation = useCallback((localTimeline: PatientIntakeVersionEntry[]) => {
+    timelineSigRef.current = timelineSignature(localTimeline);
+    window.requestAnimationFrame(() => {
+      isMutatingRef.current = false;
+      skipPayloadSyncRef.current = false;
+      setBackgroundSync(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!tabActionError) return;
+    const t = window.setTimeout(() => setTabActionError(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [tabActionError]);
 
   useEffect(() => {
     bootstrapAttemptedRef.current = false;
@@ -173,6 +220,8 @@ export default function ClinicalIntakeTabbedView({
     localEditVersionIdRef.current = null;
     keepActiveIdRef.current = null;
     skipPayloadSyncRef.current = false;
+    isMutatingRef.current = false;
+    pendingTempInsertsRef.current.clear();
   }, [patient.id]);
 
   useEffect(() => {
@@ -180,9 +229,18 @@ export default function ClinicalIntakeTabbedView({
     let cancelled = false;
 
     void (async () => {
+      if (isMutatingRef.current) return;
+      const fetchStartSig = timelineSigRef.current;
       try {
         const timeline = await refreshIntakeVersionsFromDb(patient.id, patient, updatePatient);
-        if (cancelled || timeline.length === 0) return;
+        if (
+          cancelled ||
+          isMutatingRef.current ||
+          timelineSigRef.current !== fetchStartSig ||
+          timeline.length === 0
+        ) {
+          return;
+        }
 
         const sig = timelineSignature(timeline);
         if (sig === timelineSigRef.current) return;
@@ -208,7 +266,7 @@ export default function ClinicalIntakeTabbedView({
   const isLatestPersistedTab = activeVersionId === persistedLatestId;
 
   useEffect(() => {
-    if (skipPayloadSyncRef.current || comparativeBusy || cloneBusy || deleteBusy) return;
+    if (isMutatingRef.current || skipPayloadSyncRef.current || comparativeBusy) return;
 
     const sig = timelineSignature(resolvedTimeline);
     if (sig === timelineSigRef.current) return;
@@ -237,7 +295,7 @@ export default function ClinicalIntakeTabbedView({
       localEditVersionIdRef.current = null;
     }
     keepActiveIdRef.current = null;
-  }, [resolvedTimeline, comparativeBusy, cloneBusy, deleteBusy]);
+  }, [resolvedTimeline, comparativeBusy]);
 
   useEffect(() => {
     if (bootstrapAttemptedRef.current) return;
@@ -254,6 +312,11 @@ export default function ClinicalIntakeTabbedView({
     void onSaveTimelineRef.current(bootstrap);
   }, [patient.id, patient.intakeVersionTimeline]);
 
+  const activeTabIndex = useMemo(
+    () => Math.max(0, intakeVersions.findIndex((v) => v.id === activeVersionId)),
+    [intakeVersions, activeVersionId]
+  );
+
   const activeVersion = useMemo(
     () =>
       intakeVersions.find((v) => v.id === activeVersionId) ??
@@ -267,7 +330,8 @@ export default function ClinicalIntakeTabbedView({
     Boolean(onRunComparativeAnalysis) &&
     isAnalysisTab &&
     isLatestPersistedTab &&
-    !isInitialTab;
+    !isInitialTab &&
+    isPersistedIntakeVersionId(activeVersionId);
 
   const isReadOnly =
     activeVersion?.immutable === true ||
@@ -296,18 +360,20 @@ export default function ClinicalIntakeTabbedView({
     [isReadOnly, activeVersionId]
   );
 
-  /** After `+` — navigate to the newly inserted tab. */
-  const applyNewVersionTimeline = useCallback((saved: UpsertIntakeVersionResult) => {
-    skipPayloadSyncRef.current = true;
-    keepActiveIdRef.current = saved.newVersion.id;
-    timelineSigRef.current = timelineSignature(saved.timeline);
-    setIntakeVersions(saved.timeline);
-    setActiveVersionId(saved.newVersion.id);
-    setDraftFields(versionFieldsSnapshot(saved.newVersion));
-    localEditVersionIdRef.current = null;
-    window.setTimeout(() => {
-      skipPayloadSyncRef.current = false;
-    }, 0);
+  const captureTabSnapshot = useCallback((): TabUiSnapshot => {
+    return {
+      versions: intakeVersions,
+      activeId: activeVersionId,
+      fields: draftFields,
+    };
+  }, [intakeVersions, activeVersionId, draftFields]);
+
+  const revertTabSnapshot = useCallback((snapshot: TabUiSnapshot) => {
+    setIntakeVersions(snapshot.versions);
+    setActiveVersionId(snapshot.activeId);
+    if (snapshot.fields) setDraftFields(snapshot.fields);
+    timelineSigRef.current = timelineSignature(snapshot.versions);
+    skipPayloadSyncRef.current = false;
   }, []);
 
   /** After comparative UPDATE — refresh fields on the same tab (no new tab). */
@@ -320,23 +386,6 @@ export default function ClinicalIntakeTabbedView({
       const updated =
         saved.timeline.find((v) => v.id === preserveVersionId) ?? saved.newVersion;
       setDraftFields(versionFieldsSnapshot(updated));
-      localEditVersionIdRef.current = null;
-      window.setTimeout(() => {
-        skipPayloadSyncRef.current = false;
-      }, 0);
-    },
-    []
-  );
-
-  const applyDeletedVersion = useCallback(
-    (saved: UpsertIntakeVersionResult, deletedIndex: number) => {
-      skipPayloadSyncRef.current = true;
-      timelineSigRef.current = timelineSignature(saved.timeline);
-      setIntakeVersions(saved.timeline);
-      const fallbackIdx = Math.max(0, deletedIndex - 1);
-      const fallback = saved.timeline[fallbackIdx] ?? saved.newVersion;
-      setActiveVersionId(fallback.id);
-      setDraftFields(versionFieldsSnapshot(fallback));
       localEditVersionIdRef.current = null;
       window.setTimeout(() => {
         skipPayloadSyncRef.current = false;
@@ -388,26 +437,111 @@ export default function ClinicalIntakeTabbedView({
   ]);
 
   const handleDeleteVersion = useCallback(
-    async (version: PatientIntakeVersionEntry, index: number) => {
+    (version: PatientIntakeVersionEntry, index: number) => {
       if (!onDeleteIntakeVersion || version.kind === 'initial' || version.immutable || index === 0) {
         return;
       }
       const label = formatIntakeVersionTabLabel(version);
       const ok = window.confirm(`למחוק את הגרסה «${label}»? פעולה זו אינה ניתנת לביטול.`);
       if (!ok) return;
-      const saved = await onDeleteIntakeVersion(version.id, version);
-      if (saved) applyDeletedVersion(saved, index);
+
+      const snapshot = captureTabSnapshot();
+      const nextVersions = intakeVersions.filter((v) => v.id !== version.id);
+      const fallback = resolveActiveAfterDelete(nextVersions, index);
+
+      beginMutation();
+      setTabActionError(null);
+      setIntakeVersions(nextVersions);
+      if (fallback) {
+        setActiveVersionId(fallback.id);
+        setDraftFields(versionFieldsSnapshot(fallback));
+      }
+      timelineSigRef.current = timelineSignature(nextVersions);
+      localEditVersionIdRef.current = null;
+
+      if (isTempIntakeVersionId(version.id)) {
+        pendingTempInsertsRef.current.delete(version.id);
+        endMutation(nextVersions);
+        return;
+      }
+
+      void onDeleteIntakeVersion(version.id, version, nextVersions)
+        .then((saved) => {
+          if (!saved) throw new Error('שגיאה במחיקת גרסת אינטייק');
+          endMutation(nextVersions);
+        })
+        .catch((err: unknown) => {
+          isMutatingRef.current = false;
+          skipPayloadSyncRef.current = false;
+          setBackgroundSync(false);
+          revertTabSnapshot(snapshot);
+          setTabActionError(
+            err instanceof Error ? err.message : 'שגיאה במחיקת גרסת אינטייק — השינוי בוטל'
+          );
+        });
     },
-    [onDeleteIntakeVersion, applyDeletedVersion]
+    [
+      onDeleteIntakeVersion,
+      intakeVersions,
+      captureTabSnapshot,
+      revertTabSnapshot,
+      beginMutation,
+      endMutation,
+    ]
   );
 
-  const handleAddSuccessiveVersion = useCallback(async () => {
-    if (!onCreateSuccessiveVersion || cloneBusy) return;
+  const handleAddSuccessiveVersion = useCallback(() => {
+    if (!onCreateSuccessiveVersion) return;
     const source = intakeVersions[intakeVersions.length - 1];
     if (!source) return;
-    const saved = await onCreateSuccessiveVersion(source);
-    if (saved) applyNewVersionTimeline(saved);
-  }, [onCreateSuccessiveVersion, cloneBusy, intakeVersions, applyNewVersionTimeline]);
+
+    const snapshot = captureTabSnapshot();
+    const optimistic = buildOptimisticVersionEntry(source);
+    const tempId = optimistic.id;
+    const optimisticTimeline = [...intakeVersions, optimistic];
+
+    beginMutation();
+    pendingTempInsertsRef.current.add(tempId);
+    setTabActionError(null);
+    setIntakeVersions(optimisticTimeline);
+    setActiveVersionId(tempId);
+    setDraftFields(versionFieldsSnapshot(optimistic));
+    timelineSigRef.current = timelineSignature(optimisticTimeline);
+    localEditVersionIdRef.current = null;
+
+    void onCreateSuccessiveVersion(source, tempId, optimisticTimeline)
+      .then((saved) => {
+        if (!pendingTempInsertsRef.current.has(tempId)) return;
+        if (!saved) throw new Error('שגיאה ביצירת גרסת אינטייק חדשה');
+
+        pendingTempInsertsRef.current.delete(tempId);
+        const swappedTimeline = optimisticTimeline.map((v) =>
+          v.id === tempId ? saved.newVersion : v
+        );
+
+        setIntakeVersions(swappedTimeline);
+        setActiveVersionId(saved.newVersion.id);
+        setDraftFields(versionFieldsSnapshot(saved.newVersion));
+        endMutation(swappedTimeline);
+      })
+      .catch((err: unknown) => {
+        pendingTempInsertsRef.current.delete(tempId);
+        isMutatingRef.current = false;
+        skipPayloadSyncRef.current = false;
+        setBackgroundSync(false);
+        revertTabSnapshot(snapshot);
+        setTabActionError(
+          err instanceof Error ? err.message : 'שגיאה ביצירת גרסה — הטאב הוסר'
+        );
+      });
+  }, [
+    onCreateSuccessiveVersion,
+    intakeVersions,
+    captureTabSnapshot,
+    revertTabSnapshot,
+    beginMutation,
+    endMutation,
+  ]);
 
   if (!activeVersion || !draftFields) {
     return (
@@ -437,9 +571,8 @@ export default function ClinicalIntakeTabbedView({
               index={index}
               active={active}
               canDelete={canDelete}
-              deleteBusy={deleteBusy}
               onSelect={handleTabSelect}
-              onDelete={(v, i) => void handleDeleteVersion(v, i)}
+              onDelete={(v, i) => handleDeleteVersion(v, i)}
             />
           );
         })}
@@ -447,14 +580,13 @@ export default function ClinicalIntakeTabbedView({
         {onCreateSuccessiveVersion && (
           <button
             type="button"
-            onClick={() => void handleAddSuccessiveVersion()}
-            disabled={cloneBusy}
+            onClick={handleAddSuccessiveVersion}
             aria-label="הוסף גרסת אינטייק חדשה"
             title="צור גרסה חדשה — שכפול מהטאב האחרון"
-            className="shrink-0 inline-flex items-center justify-center w-8 h-8 mb-1 rounded-md border border-transparent text-slate-500 transition-colors hover:border-slate-200 hover:bg-white hover:text-teal-700 disabled:opacity-40"
+            className="shrink-0 inline-flex items-center justify-center w-8 h-8 mb-1 rounded-md border border-transparent text-slate-500 transition-colors hover:border-slate-200 hover:bg-white hover:text-teal-700"
           >
-            {cloneBusy ? (
-              <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+            {backgroundSync || cloneBusy ? (
+              <Loader2 className="w-4 h-4 animate-spin opacity-60" aria-hidden />
             ) : (
               <Plus className="w-4 h-4" aria-hidden />
             )}
@@ -468,6 +600,24 @@ export default function ClinicalIntakeTabbedView({
         id={`intake-version-panel-${activeVersionId}`}
         aria-labelledby={`intake-version-tab-${activeVersionId}`}
       >
+        {tabActionError && (
+          <div
+            className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800 shadow-sm"
+            role="alert"
+            aria-live="assertive"
+          >
+            <span className="leading-relaxed">{tabActionError}</span>
+            <button
+              type="button"
+              onClick={() => setTabActionError(null)}
+              className="shrink-0 text-red-600 hover:text-red-800"
+              aria-label="סגור הודעת שגיאה"
+            >
+              <X className="w-3.5 h-3.5" aria-hidden />
+            </button>
+          </div>
+        )}
+
         {isReadOnly && (
           <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-2.5 text-xs text-slate-600 mb-4">
             <span className="font-bold text-slate-800">תצוגה לקריאה בלבד — </span>
@@ -506,7 +656,7 @@ export default function ClinicalIntakeTabbedView({
         )}
 
         <IntakeVersionEditor
-          key={activeVersionId}
+          key={`intake-editor-slot-${activeTabIndex}`}
           fields={draftFields}
           onFieldsChange={handleFieldsChange}
           onSave={handleSaveFields}

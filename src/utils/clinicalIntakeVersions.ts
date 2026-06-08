@@ -534,6 +534,102 @@ export async function cloneSuccessiveIntakeVersion(
   return insertIntakeVersion(patientId, patient, draft, fields, save);
 }
 
+/**
+ * Optimistic INSERT — writes one row, swaps `tempId` in caller timeline (no refetch).
+ */
+export async function insertSuccessiveIntakeVersionOptimistic(
+  patientId: string,
+  patient: Patient,
+  sourceVersion: PatientIntakeVersionEntry,
+  tempId: string,
+  optimisticTimeline: PatientIntakeVersionEntry[],
+  save: IntakeSaveDeps
+): Promise<UpsertIntakeVersionResult> {
+  const draft = buildClonedVersionEntry(sourceVersion);
+  const fields = fieldsToSnapshot(draft.fields as ClinicalIntakeEditableFields);
+
+  if (supabase) {
+    await migrateTimelineEntriesToDbIfNeeded(
+      supabase,
+      patientId,
+      resolveIntakeVersionTimeline(patient)
+    );
+    const inserted = await insertPatientIntakeVersion(supabase, patientId, draft, fields);
+    const finalTimeline = dedupeIntakeTimeline(
+      optimisticTimeline.map((v) => (v.id === tempId ? inserted : v))
+    );
+    await syncPatientAfterIntakeSave(patientId, finalTimeline, fields, save);
+    return {
+      patch: { intakeVersionTimeline: finalTimeline },
+      newVersion: inserted,
+      timeline: finalTimeline,
+    };
+  }
+
+  const insertedLocal: PatientIntakeVersionEntry = {
+    ...draft,
+    id: `local-intake-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    fields: fieldsToSnapshot(fields),
+  };
+  const finalTimeline = dedupeIntakeTimeline(
+    optimisticTimeline.map((v) => (v.id === tempId ? insertedLocal : v))
+  );
+  const patch: Partial<Patient> = {
+    ...buildPatientPatchFromEditableIntakeFields(fields),
+    intakeVersionTimeline: finalTimeline,
+  };
+  save.updatePatient(patientId, patch);
+  const ok = await save.saveToCloud();
+  if (ok === false) throw new Error('שגיאת שמירה לענן — הגרסה לא נשמרה.');
+  return { patch, newVersion: insertedLocal, timeline: finalTimeline };
+}
+
+/**
+ * Optimistic DELETE — removes one row, persists caller timeline (no refetch).
+ */
+export async function deleteIntakeVersionOptimistic(
+  patientId: string,
+  patient: Patient,
+  versionId: string,
+  version: PatientIntakeVersionEntry,
+  optimisticTimeline: PatientIntakeVersionEntry[],
+  save: IntakeSaveDeps
+): Promise<UpsertIntakeVersionResult> {
+  if (version.kind === 'initial' || version.immutable) {
+    throw new Error('לא ניתן למחוק את קבלה ראשונית');
+  }
+  if (!isPersistedIntakeVersionId(versionId)) {
+    throw new Error('deleteIntakeVersionOptimistic: נדרש מזהה UUID שמור');
+  }
+
+  const deduped = dedupeIntakeTimeline(optimisticTimeline);
+  const latest = getActiveIntakeVersion(deduped);
+  const latestFields = latest
+    ? (latest.fields as ClinicalIntakeEditableFields)
+    : loadLatestIntakeFields({ ...patient, intakeVersionTimeline: deduped });
+
+  if (supabase) {
+    await deletePatientIntakeVersion(supabase, versionId);
+    await syncPatientAfterIntakeSave(patientId, deduped, latestFields, save);
+    const fallback = deduped[deduped.length - 1] ?? deduped[0];
+    return {
+      patch: { intakeVersionTimeline: deduped },
+      newVersion: fallback,
+      timeline: deduped,
+    };
+  }
+
+  const patch: Partial<Patient> = {
+    ...buildPatientPatchFromEditableIntakeFields(latestFields),
+    intakeVersionTimeline: deduped,
+  };
+  save.updatePatient(patientId, patch);
+  const ok = await save.saveToCloud();
+  if (ok === false) throw new Error('שגיאת שמירה לענן — הגרסה לא נמחקה.');
+  const fallback = deduped[deduped.length - 1] ?? deduped[0];
+  return { patch, newVersion: fallback, timeline: deduped };
+}
+
 /** DELETE a non-initial intake version row and refresh the timeline from DB. */
 export async function deleteIntakeVersion(
   patientId: string,
