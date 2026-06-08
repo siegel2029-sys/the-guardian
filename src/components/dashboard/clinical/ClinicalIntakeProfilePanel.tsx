@@ -1,21 +1,45 @@
 import { useCallback, useMemo } from 'react';
 import { LayoutDashboard } from 'lucide-react';
-import type { Patient, PatientClinicalIntakeProfile } from '../../../types';
+import type { Patient, PatientClinicalIntakeProfile, PatientIntakeVersionEntry } from '../../../types';
 import { resolvePatientClinicalIntakeProfile } from '../../../utils/clinicalIntakeProfileDisplay';
 import { buildClinicalIntakeInsightsDisplay } from '../../../utils/clinicalIntakeInsightsDisplay';
-import { buildPatientPatchFromEditableIntakeFields } from '../../../utils/clinicalIntakeEditableFields';
-import ClinicalIntakeEditableInsightsPanel from './ClinicalIntakeEditableInsightsPanel';
+import type { ClinicalIntakeEditableFields } from '../../../utils/clinicalIntakeEditableFields';
+import {
+  resolveIntakeVersionTimeline,
+  type UpsertIntakeVersionResult,
+} from '../../../utils/clinicalIntakeVersions';
+import ClinicalIntakeTabbedView from './ClinicalIntakeTabbedView';
 
 type Props = {
   patient?: Patient;
-  /** תצוגה ישירה (למשל שלב סקירה באשף) — ללא patient */
   profile?: PatientClinicalIntakeProfile;
   compact?: boolean;
   className?: string;
-  /** שמירת עריכות AI לפרופיל המטופל (דשבורד מטפל) */
-  onSaveInsights?: (
-    patch: ReturnType<typeof buildPatientPatchFromEditableIntakeFields>
-  ) => void | Promise<void>;
+  tabbed?: boolean;
+  onSaveTimeline?: (patch: Partial<Patient>) => void | Promise<void>;
+  onRunComparativeAnalysis?: (
+    currentFields: ClinicalIntakeEditableFields
+  ) => void | Promise<unknown>;
+  comparativeBusy?: boolean;
+  comparativeError?: string | null;
+  pendingVersion?: PatientIntakeVersionEntry | null;
+  pendingFields?: ClinicalIntakeEditableFields | null;
+  onPendingFieldsChange?: (fields: ClinicalIntakeEditableFields) => void;
+  onConfirmPending?: (
+    fields: ClinicalIntakeEditableFields
+  ) => Promise<UpsertIntakeVersionResult | null>;
+  onUpdateIntakeVersion?: (
+    versionId: string,
+    version: PatientIntakeVersionEntry,
+    fields: ClinicalIntakeEditableFields
+  ) => Promise<UpsertIntakeVersionResult | null>;
+  onDiscardPending?: () => void;
+  onCreateSuccessiveVersion?: (
+    sourceVersion: PatientIntakeVersionEntry
+  ) => Promise<UpsertIntakeVersionResult | null>;
+  confirmBusy?: boolean;
+  cloneBusy?: boolean;
+  updatePatient?: (id: string, patch: Partial<Patient>) => void;
 };
 
 export default function ClinicalIntakeProfilePanel({
@@ -23,12 +47,31 @@ export default function ClinicalIntakeProfilePanel({
   profile: profileProp,
   compact = false,
   className = '',
-  onSaveInsights,
+  tabbed = true,
+  onSaveTimeline,
+  onRunComparativeAnalysis,
+  comparativeBusy = false,
+  comparativeError = null,
+  pendingVersion = null,
+  pendingFields = null,
+  onPendingFieldsChange,
+  onConfirmPending,
+  onUpdateIntakeVersion,
+  onDiscardPending,
+  onCreateSuccessiveVersion,
+  confirmBusy = false,
+  cloneBusy = false,
+  updatePatient,
 }: Props) {
   const resolvedProfile = useMemo(() => {
     if (patient) return resolvePatientClinicalIntakeProfile(patient);
     return profileProp;
   }, [patient, profileProp]);
+
+  const timeline = useMemo(
+    () => (patient ? resolveIntakeVersionTimeline(patient) : []),
+    [patient]
+  );
 
   const hasInsights = useMemo(
     () => (patient ? buildClinicalIntakeInsightsDisplay(patient).hasAnyInsights : false),
@@ -46,18 +89,23 @@ export default function ClinicalIntakeProfilePanel({
     );
   }, [resolvedProfile]);
 
-  const handleSaveInsights = useCallback(
-    (patch: ReturnType<typeof buildPatientPatchFromEditableIntakeFields>) => {
-      if (!onSaveInsights) return;
-      return onSaveInsights(patch);
+  const handleSaveTimeline = useCallback(
+    (patch: Partial<Patient>) => {
+      if (!onSaveTimeline) return;
+      return onSaveTimeline(patch);
     },
-    [onSaveInsights]
+    [onSaveTimeline]
   );
+
+  const hasAnyIntakeData =
+    hasInsights ||
+    hasProfileData ||
+    timeline.length > 0;
 
   return (
     <section
       className={`rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden ${className}`}
-      aria-label="דשבורד אינטייק קליני"
+      aria-label="תיק אינטייק קליני"
       dir="rtl"
     >
       <div
@@ -71,30 +119,46 @@ export default function ClinicalIntakeProfilePanel({
         />
         <div className="min-w-0">
           <h3 className={`font-black text-slate-900 ${compact ? 'text-xs' : 'text-sm'}`}>
-            דשבורד אינטייק קליני
+            תיק אינטייק קליני
           </h3>
           <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-            דוח מקטעים — סיפור, ממצאים אובייקטיביים, תובנות AI
+            ציר גרסאות — קבלה ראשונית וניתוחים השוואתיים במבנה רפואי אחיד
           </p>
         </div>
       </div>
 
-      <div className={compact ? 'p-3 space-y-4' : 'p-5 space-y-5'}>
-        {patient ? (
-          <ClinicalIntakeEditableInsightsPanel
+      <div className={compact ? 'p-3' : 'p-4 sm:p-5'}>
+        {patient && tabbed && onSaveTimeline ? (
+          <ClinicalIntakeTabbedView
             patient={patient}
             compact={compact}
-            onSave={handleSaveInsights}
-            showSaveButton={Boolean(onSaveInsights)}
+            onSaveTimeline={handleSaveTimeline}
+            onRunComparativeAnalysis={onRunComparativeAnalysis}
+            comparativeBusy={comparativeBusy}
+            comparativeError={comparativeError}
+            pendingVersion={pendingVersion}
+            pendingFields={pendingFields}
+            onPendingFieldsChange={onPendingFieldsChange}
+            onConfirmPending={onConfirmPending}
+            onUpdateIntakeVersion={onUpdateIntakeVersion}
+            onDiscardPending={onDiscardPending}
+            onCreateSuccessiveVersion={onCreateSuccessiveVersion}
+            confirmBusy={confirmBusy}
+            cloneBusy={cloneBusy}
+            updatePatient={updatePatient}
           />
+        ) : patient ? (
+          <p className="text-sm text-slate-500 italic text-center py-2">
+            אין הרשאת שמירה לתצוגת אינטייק.
+          </p>
         ) : (
           <p className="text-sm text-slate-500 italic text-center py-2">
             אין נתוני מטופל לתצוגת דוח אינטייק.
           </p>
         )}
 
-        {!hasInsights && !hasProfileData && patient && (
-          <p className="text-sm text-slate-500 italic text-center py-2">
+        {!hasAnyIntakeData && patient && (
+          <p className="text-sm text-slate-500 italic text-center py-2 mt-4">
             אין עדיין נתוני אינטייק — השלימו אינטייק קליני.
           </p>
         )}

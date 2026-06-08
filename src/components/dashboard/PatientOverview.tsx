@@ -33,7 +33,7 @@ import TherapistClinicalConsultantFAB from './clinical/TherapistClinicalConsulta
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import TreatmentDocumentation from './clinical/TreatmentDocumentation';
 import FullIntakeVaultModal from './clinical/FullIntakeVaultModal';
-import ClinicalIntakeProfilePanel from './clinical/ClinicalIntakeProfilePanel';
+import PatientClinicalIntakeSection from './clinical/PatientClinicalIntakeSection';
 import ManagePainAreasModal from './clinical/ManagePainAreasModal';
 import TherapistPatientGrid, { type RosterFilterKey } from './TherapistPatientGrid';
 import { bodyAreaLabels } from '../../types';
@@ -713,13 +713,7 @@ export default function PatientOverview() {
         </div>
 
         <div className="mb-6">
-          <ClinicalIntakeProfilePanel
-            patient={p}
-            onSaveInsights={async (patch) => {
-              updatePatient(p.id, patch);
-              await savePersistedStateToCloud({ immediate: true });
-            }}
-          />
+          <PatientClinicalIntakeSection patient={p} />
         </div>
 
         <TreatmentDocumentation patient={p} />

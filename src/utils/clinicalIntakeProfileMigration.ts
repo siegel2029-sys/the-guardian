@@ -593,6 +593,10 @@ export function migratePatientClinicalIntakeProfile(
   }
 }
 
+/** @see normalizeLegacyIntake — alias for text-blob normalization */
+export { normalizeLegacyIntake } from './normalizeLegacyIntake';
+export type { NormalizedLegacyIntake } from './normalizeLegacyIntake';
+
 /** מיגרציה אצווה — בטוחה; שגיאות per-patient לא עוצרות את השאר. */
 export function migratePatientsClinicalIntakeProfiles(
   patients: Patient[]

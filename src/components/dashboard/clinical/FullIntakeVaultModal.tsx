@@ -1,13 +1,9 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
-import { X, Loader2, Sparkles, CheckCircle2, Archive } from 'lucide-react';
-import type { ClinicalTimelineEntry, Patient, PatientIntakeArchive } from '../../../types';
+import { useCallback, useMemo, useRef } from 'react';
+import { X, Archive } from 'lucide-react';
+import type { Patient } from '../../../types';
 import { bodyAreaLabels } from '../../../types';
 import { usePatient } from '../../../context/PatientContext';
-import { getGeminiApiKey, GeminiRateLimitedError } from '../../../ai/geminiClient';
-import { analyzeIntakeVersusCurrentCare, type IntakeComparativeAiResult } from '../../../ai/geminiIntakeComparativeFollowup';
-import { buildSupabaseClinicalDatastoreJson } from '../../../utils/buildSupabaseClinicalDatastoreJson';
-import { deriveDiagnosisHeadline } from '../../../utils/clinicalNarrative';
-import { resolveCoreLegacyIntakeSummaryText } from '../../../utils/clinicalIntakeProfileMigration';
+import { useComparativeIntakeAnalysis } from '../../../hooks/useComparativeIntakeAnalysis';
 import ClinicalIntakeProfilePanel from './ClinicalIntakeProfilePanel';
 
 type Props = {
@@ -15,57 +11,25 @@ type Props = {
   onClose: () => void;
 };
 
-function fallbackIntakeFromPatient(p: Patient): PatientIntakeArchive {
-  const coreIntakeText = resolveCoreLegacyIntakeSummaryText(p) ?? p.therapistNotes;
-  return {
-    capturedAt: p.joinDate,
-    primaryBodyArea: p.primaryBodyArea,
-    libraryExerciseIds: [],
-    diagnosis: p.diagnosis,
-    therapistNotes: coreIntakeText,
-    ...(p.geminiClinicalNarrative?.trim()
-      ? { geminiClinicalNarrative: p.geminiClinicalNarrative.trim() }
-      : {}),
-    ...(p.displayAlias?.trim() || p.name
-      ? { displayName: (p.displayAlias ?? p.name).trim() }
-      : {}),
-    extras: {
-      intakeStory: coreIntakeText,
-      ...(p.clinicalIntakeProfile ? { clinicalIntakeProfile: p.clinicalIntakeProfile } : {}),
-      injuryHighlightSegments: [...(p.injuryHighlightSegments ?? [])],
-      secondaryClinicalBodyAreas: [...(p.secondaryClinicalBodyAreas ?? [])],
-      clinicalDiagnosis: p.diagnosis,
-      ...(p.geminiClinicalNarrative?.trim()
-        ? { geminiClinicalNarrative: p.geminiClinicalNarrative.trim() }
-        : {}),
-    },
-  };
-}
-
-function formatAiError(err: unknown): string {
-  if (err instanceof GeminiRateLimitedError) return err.message;
-  if (err instanceof Error) return err.message;
-  return 'שגיאה בניתוח';
-}
-
 export default function FullIntakeVaultModal({ patient, onClose }: Props) {
   const { updatePatient, savePersistedStateToCloud } = usePatient();
-  const intake = patient.initialIntakeArchive ?? fallbackIntakeFromPatient(patient);
+  const intake = patient.initialIntakeArchive;
   const usingFallback = !patient.initialIntakeArchive;
+  const patientIdRef = useRef(patient.id);
+  patientIdRef.current = patient.id;
 
-  const [comparativeBusy, setComparativeBusy] = useState(false);
-  const [comparativeError, setComparativeError] = useState<string | null>(null);
-  const [comparativeResult, setComparativeResult] = useState<IntakeComparativeAiResult | null>(null);
-  const [noteDraft, setNoteDraft] = useState('');
-  const [approveBusy, setApproveBusy] = useState(false);
+  const saveToCloud = useCallback(async () => {
+    return savePersistedStateToCloud({ immediate: true });
+  }, [savePersistedStateToCloud]);
 
-  useEffect(() => {
-    setComparativeError(null);
-    setComparativeResult(null);
-    setNoteDraft('');
-  }, [patient.id]);
+  const comparative = useComparativeIntakeAnalysis({
+    patient,
+    updatePatient,
+    saveToCloud,
+  });
 
   const intakeMetaFields = useMemo(() => {
+    if (!intake) return [];
     const ex = intake.extras ?? {};
     const injury =
       (ex.injuryHighlightSegments ?? []).map((a) => bodyAreaLabels[a]).join(', ') || null;
@@ -82,48 +46,13 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
     return rows;
   }, [intake]);
 
-  const runComparative = useCallback(async () => {
-    if (!getGeminiApiKey()) {
-      setComparativeError('הגדירו Supabase ופרסמו את gemini-proxy עם GEMINI_API_KEY.');
-      return;
-    }
-    setComparativeBusy(true);
-    setComparativeError(null);
-    try {
-      const datastoreJson = await buildSupabaseClinicalDatastoreJson(patient.id);
-      const result = await analyzeIntakeVersusCurrentCare(patient, intake, datastoreJson);
-      setComparativeResult(result);
-      setNoteDraft(result.comparativeNoteDraft);
-    } catch (e) {
-      setComparativeError(formatAiError(e));
-    } finally {
-      setComparativeBusy(false);
-    }
-  }, [patient, intake]);
-
-  const timeline = patient.clinicalTimeline ?? [];
-
-  const handleApprove = useCallback(async () => {
-    const text = noteDraft.trim();
-    if (!text) return;
-    setApproveBusy(true);
-    try {
-      const entry: ClinicalTimelineEntry = {
-        id: `intake-cmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        createdAt: new Date().toISOString(),
-        text: `[השוואת אינטייק — אושר ידנית]\n${text}`,
-      };
-      updatePatient(patient.id, {
-        clinicalTimeline: [...timeline, entry],
-        geminiClinicalNarrative: text,
-        diagnosis: deriveDiagnosisHeadline(text) || patient.diagnosis,
-      });
-      await savePersistedStateToCloud();
-      onClose();
-    } finally {
-      setApproveBusy(false);
-    }
-  }, [noteDraft, patient.id, patient.diagnosis, timeline, updatePatient, savePersistedStateToCloud, onClose]);
+  const handleSaveTimeline = useCallback(
+    async (patch: Partial<Patient>) => {
+      updatePatient(patientIdRef.current, patch);
+      await savePersistedStateToCloud({ immediate: true });
+    },
+    [updatePatient, savePersistedStateToCloud]
+  );
 
   return (
     <div
@@ -133,7 +62,7 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
       aria-labelledby="full-intake-vault-title"
       dir="rtl"
     >
-      <div className="w-full sm:max-w-3xl max-h-[min(92dvh,900px)] flex flex-col bg-white sm:rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+      <div className="w-full sm:max-w-4xl max-h-[min(92dvh,900px)] flex flex-col bg-white sm:rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-200 bg-slate-50 shrink-0">
           <div className="flex items-start gap-3 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-teal-700 text-white flex items-center justify-center shrink-0">
@@ -141,11 +70,11 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
             </div>
             <div className="min-w-0">
               <h2 id="full-intake-vault-title" className="text-lg font-black text-slate-950">
-                סיכום אינטייק מלא
+                תיק אינטייק — ציר גרסאות
               </h2>
               {usingFallback && (
                 <p className="text-xs text-amber-800 font-bold mt-1">
-                  אין צילום אינטייק שמור — מוצגים נתוני בסיס מהפרופיל הנוכחי.
+                  אין צילום אינטייק שמור — מוצגת גרסת בסיס.
                 </p>
               )}
             </div>
@@ -162,11 +91,28 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
 
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="p-5 space-y-8">
-            <ClinicalIntakeProfilePanel patient={patient} />
+            <ClinicalIntakeProfilePanel
+              patient={patient}
+              tabbed
+              onSaveTimeline={handleSaveTimeline}
+              onRunComparativeAnalysis={(fields) => comparative.runComparative(fields)}
+              comparativeBusy={comparative.busy}
+              comparativeError={comparative.error}
+              pendingVersion={comparative.pendingVersion}
+              pendingFields={comparative.pendingFields}
+              onPendingFieldsChange={comparative.updatePendingFields}
+              onConfirmPending={comparative.handleConfirm}
+              onUpdateIntakeVersion={(versionId, version, fields) =>
+                comparative.handleUpdateVersion(versionId, version, fields)
+              }
+              onDiscardPending={comparative.discardPending}
+              confirmBusy={comparative.confirmBusy}
+              updatePatient={updatePatient}
+            />
 
             {intakeMetaFields.length > 0 && (
               <section>
-                <h3 className="text-sm font-bold text-slate-950 mb-3">מטא־נתונים</h3>
+                <h3 className="text-sm font-bold text-slate-950 mb-3">מטא־נתונים — קבלה ראשונית</h3>
                 <dl className="rounded-xl border border-slate-200 divide-y divide-slate-100 bg-white">
                   {intakeMetaFields.map((row) => (
                     <div
@@ -180,80 +126,6 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
                 </dl>
               </section>
             )}
-
-            <section className="rounded-2xl border border-violet-200 bg-violet-50/30 p-4 space-y-4">
-              <h3 className="text-sm font-black text-violet-950">ניתוח השוואתי AI</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                ההשוואה נשענת על ארכיון האינטייק, היסטוריית סשנים ותוכניות מ־Supabase, והמצב הנוכחי של
-                המטופל. הטקסט אינו נכנס לציר הזמן עד שתאשרו.
-              </p>
-              <button
-                type="button"
-                onClick={() => void runComparative()}
-                disabled={comparativeBusy}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-violet-700 hover:bg-violet-800 disabled:opacity-40"
-              >
-                {comparativeBusy ? (
-                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
-                ) : (
-                  <Sparkles className="w-4 h-4" aria-hidden />
-                )}
-                הרץ ניתוח השוואתי
-              </button>
-              {comparativeError && (
-                <p className="text-sm text-red-700 whitespace-pre-wrap">{comparativeError}</p>
-              )}
-              {comparativeResult && (
-                <div className="space-y-3 text-sm">
-                  <div>
-                    <p className="text-xs font-bold text-slate-600 mb-1">פערים / סתירות</p>
-                    {comparativeResult.discrepancies.length > 0 ? (
-                      <ul className="list-disc list-inside space-y-1 text-slate-800 leading-relaxed">
-                        {comparativeResult.discrepancies.map((d, i) => (
-                          <li key={i}>{d}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-slate-500">—</p>
-                    )}
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                    <p className="text-xs font-bold text-slate-600 mb-1">הערכה מחדש</p>
-                    <p className="font-semibold text-slate-900">
-                      {comparativeResult.reevaluation.needed ? 'מומלץ לשקול הערכה מחדש' : 'לא חובה'}
-                    </p>
-                    <p className="text-slate-700 mt-1 leading-relaxed">
-                      {comparativeResult.reevaluation.rationaleHe}
-                    </p>
-                  </div>
-                </div>
-              )}
-              <div>
-                <label htmlFor="intake-comparative-draft" className="text-xs font-bold text-slate-700 block mb-1">
-                  טיוטה לעריכה ואישור
-                </label>
-                <textarea
-                  id="intake-comparative-draft"
-                  value={noteDraft}
-                  onChange={(e) => setNoteDraft(e.target.value)}
-                  rows={10}
-                  className="w-full rounded-xl border border-violet-200 bg-white px-3 py-3 text-sm text-slate-900 leading-relaxed focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/35"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleApprove()}
-                disabled={approveBusy || !noteDraft.trim()}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40"
-              >
-                {approveBusy ? (
-                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
-                ) : (
-                  <CheckCircle2 className="w-4 h-4" aria-hidden />
-                )}
-                אשר ושמור לציר הזמן
-              </button>
-            </section>
           </div>
         </div>
       </div>

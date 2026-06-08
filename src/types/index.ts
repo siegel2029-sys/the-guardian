@@ -260,6 +260,11 @@ export interface Patient {
   /** צילום האינטייק הראשון — לא מתעדכן אחרי השמירה הראשונה */
   initialIntakeArchive?: PatientIntakeArchive;
   /**
+   * ציר גרסאות אינטייק (קבלה + ניתוחים השוואתיים) — נשמר ב־payload.
+   * הטאב האחרון = הגרסה הפעילה; קבלה ראשונית immutable.
+   */
+  intakeVersionTimeline?: PatientIntakeVersionEntry[];
+  /**
    * סטטוס אינטייק קליני — `pending` מיצירת מטופל עד שמירת האינטייק; `complete` לאחר שמירה.
    * נשמר ב־payload ומסונכרן ל־Supabase.
    */
@@ -350,6 +355,46 @@ export type PatientClinicalIntakeProfile = {
 
 /** @deprecated השתמשו ב־`clinicalIntakeProfile.medical_history` — נשמר לתאימות */
 export type PatientMedicalProfileMetadata = PatientClinicalIntakeMedicalHistory;
+
+/** שדות גרסת אינטייק — snapshot לציר הגרסאות */
+export type IntakeVersionFieldsSnapshot = {
+  caseStory: string;
+  vasScore: number | null;
+  diagnosis: string;
+  differentialDiagnosis: string[];
+  precautionsHe: string[];
+  recommendedTestsHe: string[];
+  clinicalConclusionsHe: string[];
+  redFlags: string[];
+  clinicalIntakeProfile: PatientClinicalIntakeProfile;
+};
+
+export type PatientIntakeVersionKind = 'initial' | 'analysis';
+
+/** רשומה בציר גרסאות האינטייק — קבלה ראשונית (immutable) או ניתוח השוואתי */
+export type PatientIntakeVersionEntry = {
+  id: string;
+  createdAt: string;
+  kind: PatientIntakeVersionKind;
+  label?: string;
+  /** קבלה ראשונית — לא ניתנת לעריכה או מחיקה */
+  immutable?: boolean;
+  /** ארכיון רך — מוסתר מהטאבים אך נשמר בהיסטוריה */
+  archived?: boolean;
+  fields: IntakeVersionFieldsSnapshot;
+  medicalSchema?: {
+    clinical_story: string;
+    pain_score: number | null;
+    strength_metrics: string | Record<string, string>;
+    rom_metrics: string | Record<string, string>;
+    ai_conclusions: string[];
+    recommendations: string[];
+  };
+  comparativeMeta?: {
+    discrepancies: string[];
+    reevaluation: { needed: boolean; rationaleHe: string };
+  };
+};
 
 /** תובנות AI מובנות מאינטייק קליני — לתצוגה ולשמירה ב־payload */
 export type ClinicalIntakeAiInsights = {

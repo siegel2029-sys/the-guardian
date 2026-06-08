@@ -119,6 +119,35 @@ type EditableListCardProps = {
   onChange: (next: string[]) => void;
 };
 
+function ReadOnlyAiSegmentCard({ segmentKey, items }: { segmentKey: AiSegmentKey; items: string[] }) {
+  const cfg = AI_CARD_CONFIG[segmentKey];
+  const Icon = cfg.icon;
+  const list = items.map((s) => s.trim()).filter(Boolean);
+
+  return (
+    <div className="space-y-2" aria-label={cfg.title}>
+      <h4 className={`text-sm font-bold flex items-center gap-2 ${cfg.accentClass}`}>
+        <Icon className="w-4 h-4 shrink-0" aria-hidden />
+        {cfg.title}
+      </h4>
+      {list.length > 0 ? (
+        <ul className="space-y-1.5 text-sm text-slate-800 leading-relaxed pr-1">
+          {list.map((item, i) => (
+            <li key={i} className="flex gap-2 items-start">
+              <span className={`font-bold shrink-0 text-xs mt-0.5 ${cfg.accentClass}`} aria-hidden>
+                •
+              </span>
+              <span className="flex-1 whitespace-pre-wrap">{item}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-slate-400 italic pr-1">—</p>
+      )}
+    </div>
+  );
+}
+
 function EditableAiSegmentCard({ segmentKey, items, onChange }: EditableListCardProps) {
   const cfg = AI_CARD_CONFIG[segmentKey];
   const Icon = cfg.icon;
@@ -174,6 +203,20 @@ type VasScoreCardProps = {
   value: number | null;
   onChange: (next: number | null) => void;
 };
+
+function VasScoreReadOnly({ value }: { value: number | null }) {
+  const display = value != null ? `${value}/10` : '—';
+  const painColor =
+    value == null ? '#64748b' : value >= 7 ? '#dc2626' : value >= 4 ? '#d97706' : '#0d9488';
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-4" aria-label="מדד כאב VAS">
+      <p className="text-sm font-bold text-slate-900 mb-1">מדד כאב VAS</p>
+      <p className="text-2xl font-black tabular-nums" style={{ color: painColor }}>
+        {display}
+      </p>
+    </div>
+  );
+}
 
 function VasScoreInline({ value, onChange }: VasScoreCardProps) {
   const display = value != null ? `${value}/10` : '—';
@@ -247,9 +290,13 @@ type SectionedReportProps = {
   profile?: PatientClinicalIntakeProfile;
   onProfileChange?: (next: PatientClinicalIntakeProfile) => void;
   objectiveEditable?: boolean;
+  /** Historical / archive view — no inputs */
+  readOnly?: boolean;
   compact?: boolean;
   sourceGemini?: boolean;
   showRedFlags?: boolean;
+  /** When false, the legacy AI insights block is omitted (use ClinicalIntelligencePanel instead). */
+  showAiInsights?: boolean;
   children?: ReactNode;
   className?: string;
 };
@@ -275,9 +322,11 @@ export function MedicalIntakeSectionedReport({
   profile,
   onProfileChange,
   objectiveEditable = false,
+  readOnly = false,
   compact = false,
   sourceGemini = false,
   showRedFlags = false,
+  showAiInsights = true,
   children,
   className = '',
 }: SectionedReportProps) {
@@ -320,22 +369,27 @@ export function MedicalIntakeSectionedReport({
       >
         <div className="space-y-4">
           <div>
-            <label
-              htmlFor="medical-intake-diagnosis"
-              className="text-sm font-bold text-slate-900 block mb-2"
-            >
-              אבחון / רושם קליני
-            </label>
-            <input
-              id="medical-intake-diagnosis"
-              type="text"
-              value={clinicalDiagnosis}
-              onChange={(e) => onClinicalDiagnosisChange(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-400/25"
-              placeholder="רושם קליני / אבחנה עיקרית"
-            />
+            <p className="text-sm font-bold text-slate-900 mb-2">אבחון / רושם קליני</p>
+            {readOnly ? (
+              <p className="text-sm font-semibold text-slate-800 leading-relaxed">
+                {clinicalDiagnosis.trim() || '—'}
+              </p>
+            ) : (
+              <input
+                id="medical-intake-diagnosis"
+                type="text"
+                value={clinicalDiagnosis}
+                onChange={(e) => onClinicalDiagnosisChange(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-400/25"
+                placeholder="רושם קליני / אבחנה עיקרית"
+              />
+            )}
           </div>
-          <VasScoreInline value={vasScore} onChange={onVasScoreChange} />
+          {readOnly ? (
+            <VasScoreReadOnly value={vasScore} />
+          ) : (
+            <VasScoreInline value={vasScore} onChange={onVasScoreChange} />
+          )}
         </div>
       </ReportSection>
 
@@ -344,14 +398,20 @@ export function MedicalIntakeSectionedReport({
         icon={FileText}
         subtitle="סובייקטיבי — תלונה, מנגנון פציעה, מצב נוכחי"
       >
-        <textarea
-          id="medical-intake-case-story"
-          value={caseStory}
-          onChange={(e) => onCaseStoryChange(e.target.value)}
-          rows={compact ? 6 : 8}
-          className="w-full rounded-lg border border-slate-200 bg-slate-50/30 px-4 py-3 text-sm text-slate-800 leading-relaxed resize-y min-h-[9rem] focus:outline-none focus:ring-2 focus:ring-teal-400/30 focus:bg-white"
-          placeholder="תלונת המטופל, מנגנון הפציעה, התנהגות הכאב, הגבלה תפקודית…"
-        />
+        {readOnly ? (
+          <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap min-h-[6rem]">
+            {caseStory.trim() || '—'}
+          </p>
+        ) : (
+          <textarea
+            id="medical-intake-case-story"
+            value={caseStory}
+            onChange={(e) => onCaseStoryChange(e.target.value)}
+            rows={compact ? 6 : 8}
+            className="w-full rounded-lg border border-slate-200 bg-slate-50/30 px-4 py-3 text-sm text-slate-800 leading-relaxed resize-y min-h-[9rem] focus:outline-none focus:ring-2 focus:ring-teal-400/30 focus:bg-white"
+            placeholder="תלונת המטופל, מנגנון הפציעה, התנהגות הכאב, הגבלה תפקודית…"
+          />
+        )}
       </ReportSection>
 
       <ReportSection
@@ -368,35 +428,43 @@ export function MedicalIntakeSectionedReport({
 
       {children}
 
-      <ReportSection
-        title="ניתוח AI — השלמות קליניות"
-        icon={Stethoscope}
-        subtitle="רשימות מובנות — לא מעורבבות בסיפור המקרה"
-        className="border-sky-200/80"
-      >
-        <div className="flex items-center justify-between gap-2 mb-5 pb-3 border-b border-sky-100">
-          <p className="text-xs text-sky-900/80 leading-relaxed">
-            תובנות AI מוצגות כרשימות נפרדות. ניתן לערוך לפני שמירה.
-          </p>
-          {sourceGemini && (
-            <span className="inline-flex items-center gap-1 shrink-0 rounded-full bg-indigo-100 border border-indigo-200/80 px-2 py-0.5 text-[10px] font-semibold text-indigo-800">
-              <Sparkles className="w-3 h-3" aria-hidden />
-              Gemini
-            </span>
-          )}
-        </div>
-        <div className="space-y-6 divide-y divide-slate-100">
-          {aiSegmentOrder.map((key) => (
-            <div key={key} className="pt-5 first:pt-0">
-              <EditableAiSegmentCard
-                segmentKey={key}
-                items={segmentProps[key].items}
-                onChange={segmentProps[key].onChange}
-              />
-            </div>
-          ))}
-        </div>
-      </ReportSection>
+      {showAiInsights && (
+        <ReportSection
+          title="ניתוח AI — השלמות קליניות"
+          icon={Stethoscope}
+          subtitle="רשימות מובנות — לא מעורבבות בסיפור המקרה"
+          className="border-sky-200/80"
+        >
+          <div className="flex items-center justify-between gap-2 mb-5 pb-3 border-b border-sky-100">
+            <p className="text-xs text-sky-900/80 leading-relaxed">
+              {readOnly
+                ? 'תובנות AI כפי שנשמרו בגרסה זו — לקריאה בלבד.'
+                : 'תובנות AI מוצגות כרשימות נפרדות. ניתן לערוך לפני שמירה.'}
+            </p>
+            {sourceGemini && (
+              <span className="inline-flex items-center gap-1 shrink-0 rounded-full bg-indigo-100 border border-indigo-200/80 px-2 py-0.5 text-[10px] font-semibold text-indigo-800">
+                <Sparkles className="w-3 h-3" aria-hidden />
+                Gemini
+              </span>
+            )}
+          </div>
+          <div className="space-y-6 divide-y divide-slate-100">
+            {aiSegmentOrder.map((key) => (
+              <div key={key} className="pt-5 first:pt-0">
+                {readOnly ? (
+                  <ReadOnlyAiSegmentCard segmentKey={key} items={segmentProps[key].items} />
+                ) : (
+                  <EditableAiSegmentCard
+                    segmentKey={key}
+                    items={segmentProps[key].items}
+                    onChange={segmentProps[key].onChange}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </ReportSection>
+      )}
     </div>
   );
 }

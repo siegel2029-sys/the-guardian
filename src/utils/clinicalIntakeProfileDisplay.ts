@@ -1,13 +1,19 @@
 import type { Patient, PatientClinicalIntakeProfile } from '../types';
 import { isClinicalIntakeTextFieldAnswered } from './clinicalIntakeFieldAnswers';
+import { isClinicalIntakeProfileEmpty } from './clinicalIntakeTemplate';
 import { resolveClinicalIntakeProfileForDisplay } from './clinicalIntakeProfileMigration';
+import { loadLatestIntakeFields } from './clinicalIntakeVersions';
 
 /**
- * מקור אמת לתצוגה: `patient.clinicalIntakeProfile` → ארכיון → parsing מטקסט legacy.
+ * מקור אמת לתצוגה: גרסת אינטייק אחרונה → `patient.clinicalIntakeProfile` → ארכיון → legacy.
  */
 export function resolvePatientClinicalIntakeProfile(
   patient: Patient
 ): PatientClinicalIntakeProfile | undefined {
+  const latestFields = loadLatestIntakeFields(patient, { skipLegacyRestore: true });
+  if (!isClinicalIntakeProfileEmpty(latestFields.clinicalIntakeProfile)) {
+    return latestFields.clinicalIntakeProfile;
+  }
   return resolveClinicalIntakeProfileForDisplay(patient);
 }
 
