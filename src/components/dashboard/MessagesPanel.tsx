@@ -3,8 +3,18 @@ import { Send, MessageSquare, Clock, User, Bot } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
+type MessagesPanelProps = {
+  /** מוטמע בתוך כרטיס פרופיל — כותרת קומפקטית ללא אווטאר כפול */
+  embedded?: boolean;
+  /** בחלון מוטמע — גובה מקסימלי לאזור ההודעות (גלילה פנימית) */
+  embeddedMessageMaxHeight?: number;
+};
+
 /** צ׳אט ישיר מטפל ↔ המטופל הנבחר (המטופל רואה בפורטל) */
-export default function MessagesPanel() {
+export default function MessagesPanel({
+  embedded = false,
+  embeddedMessageMaxHeight = 380,
+}: MessagesPanelProps) {
   const {
     selectedPatient,
     selectedPatientId,
@@ -35,9 +45,16 @@ export default function MessagesPanel() {
     [allMessages, threadPatientId]
   );
 
+  const sortedMessages = useMemo(
+    () => [...messages].sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
+    [messages]
+  );
+
+  const olderMessageCount = Math.max(0, sortedMessages.length - 15);
+
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-  }, [threadPatientId, threadSignature]);
+  }, [threadPatientId, threadSignature, sortedMessages.length]);
 
   useEffect(() => {
     if (!threadPatientId) return;
@@ -85,24 +102,42 @@ export default function MessagesPanel() {
   };
 
   return (
-    <div className="h-full flex flex-col min-h-0 bg-[#f8fafc]" dir="rtl">
+    <div
+      className={`flex flex-col min-h-0 bg-[#f8fafc] ${
+        embedded ? 'h-full max-h-full overflow-hidden' : 'h-full'
+      }`}
+      dir="rtl"
+    >
       <div
-        className="shrink-0 px-6 py-4 border-b border-teal-100 flex flex-wrap items-center justify-between gap-3"
+        className={`shrink-0 border-b border-teal-100 flex flex-wrap items-center justify-between gap-3 ${
+          embedded ? 'px-4 py-3' : 'px-6 py-4'
+        }`}
         style={{ background: 'rgba(255,255,255,0.97)' }}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-md"
-            style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
-          >
-            {displayName.charAt(0)}
-          </div>
+          {!embedded && (
+            <div
+              className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-md"
+              style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
+            >
+              {displayName.charAt(0)}
+            </div>
+          )}
           <div className="min-w-0">
-            <h2 className="text-lg font-bold text-slate-800 truncate flex items-center gap-2">
-              <MessageSquare className="w-5 h-5 text-teal-600 shrink-0" />
-              צ׳אט עם {displayName}
+            <h2
+              className={`font-bold text-slate-800 truncate flex items-center gap-2 ${
+                embedded ? 'text-base' : 'text-lg'
+              }`}
+            >
+              <MessageSquare className="w-5 h-5 text-teal-600 shrink-0" aria-hidden="true" />
+              {embedded ? 'הודעות' : `צ׳אט עם ${displayName}`}
+              {embedded && unreadIds.length > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-teal-600 text-white text-[10px] font-black">
+                  {unreadIds.length}
+                </span>
+              )}
             </h2>
-            {selectedPatient?.diagnosis ? (
+            {!embedded && selectedPatient?.diagnosis ? (
               <p className="text-xs text-slate-500 truncate">{selectedPatient.diagnosis}</p>
             ) : null}
           </div>
@@ -118,17 +153,27 @@ export default function MessagesPanel() {
         )}
       </div>
 
-      <div ref={listRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 py-4 min-h-0">
-        <div className="max-w-4xl mx-auto w-full space-y-3 pb-4">
-          {messages.length === 0 ? (
+      <div
+        ref={listRef}
+        className={`overflow-y-auto overflow-x-hidden px-4 sm:px-6 py-4 min-h-0 ${
+          embedded ? 'flex-1 shrink' : 'flex-1'
+        }`}
+        style={embedded ? { maxHeight: embeddedMessageMaxHeight } : undefined}
+        aria-label="היסטוריית הודעות"
+      >
+        <div className="max-w-4xl mx-auto w-full space-y-3 pb-2">
+          {embedded && olderMessageCount > 0 && (
+            <p className="sticky top-0 z-10 text-center text-[10px] font-semibold text-slate-400 bg-[#f8fafc]/95 py-1.5 rounded-lg border border-dashed border-slate-200">
+              {olderMessageCount} הודעות קודמות — גללו למעלה
+            </p>
+          )}
+          {sortedMessages.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-teal-200 bg-white p-10 text-center text-slate-400">
               <MessageSquare className="w-10 h-10 mx-auto mb-2 opacity-40" />
               <p className="text-sm">אין הודעות עדיין — שלחו את ההודעה הראשונה למטופל</p>
             </div>
           ) : (
-            [...messages]
-              .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-              .map((msg) => {
+            sortedMessages.map((msg) => {
                 const isFromPatient = msg.fromPatient;
                 const isAiAlert = msg.aiClinicalAlert;
                 const tier = msg.clinicalSafetyTier;
@@ -206,23 +251,27 @@ export default function MessagesPanel() {
       </div>
 
       <div
-        className="shrink-0 border-t border-teal-100 px-4 sm:px-6 py-4"
+        className={`shrink-0 border-t border-teal-100 px-4 sm:px-6 ${
+          embedded ? 'py-3' : 'py-4'
+        }`}
         style={{ background: 'rgba(255,255,255,0.98)' }}
       >
         <form
-          className="max-w-3xl mx-auto space-y-2"
+          className={`mx-auto space-y-2 ${embedded ? 'max-w-none' : 'max-w-3xl'}`}
           onSubmit={(e) => {
             e.preventDefault();
             handleSend();
           }}
         >
-          <p className="text-xs font-semibold text-slate-600 mb-2">הודעה חדשה למטופל</p>
+          {!embedded && (
+            <p className="text-xs font-semibold text-slate-600 mb-2">הודעה חדשה למטופל</p>
+          )}
           <div className="flex gap-2 items-end">
             <textarea
               value={replyText}
               onChange={(e) => setReplyText(e.target.value)}
               placeholder="כתבו כאן… ההודעה תופיע מיד בפורטל המטופל"
-              rows={3}
+              rows={embedded ? 2 : 3}
               aria-label="הודעה חדשה למטופל"
               className="flex-1 resize-none rounded-2xl border border-teal-200/90 px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/40 placeholder:text-slate-400"
               style={{ background: '#fafefd' }}
@@ -248,7 +297,9 @@ export default function MessagesPanel() {
               שלח
             </button>
           </div>
-          <p className="text-[10px] text-slate-400 mt-2">Enter לשליחה · Shift+Enter לשורה חדשה</p>
+          {!embedded && (
+            <p className="text-[10px] text-slate-400 mt-2">Enter לשליחה · Shift+Enter לשורה חדשה</p>
+          )}
         </form>
       </div>
     </div>

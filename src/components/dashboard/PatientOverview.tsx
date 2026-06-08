@@ -4,8 +4,6 @@ import {
   Stethoscope,
   ClipboardList,
   AlertTriangle,
-  MessageSquare,
-  BarChart3,
   Archive,
   Pencil,
   Trash2,
@@ -27,7 +25,6 @@ import PendingApprovalsPanel from './PendingApprovalsPanel';
 import ManagePlanModal from './ManagePlanModal';
 import ClinicalAiIntakeWizard from './ClinicalAiIntakeWizard';
 import ClinicalIntakeCompletionModal from './clinical/ClinicalIntakeCompletionModal';
-import TherapistQuickChat from './clinical/TherapistQuickChat';
 import TherapistAiInsightsPanel from './clinical/TherapistAiInsightsPanel';
 import TherapistClinicalConsultantFAB from './clinical/TherapistClinicalConsultantFAB';
 import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
@@ -35,6 +32,7 @@ import TreatmentDocumentation from './clinical/TreatmentDocumentation';
 import FullIntakeVaultModal from './clinical/FullIntakeVaultModal';
 import PatientClinicalIntakeSection from './clinical/PatientClinicalIntakeSection';
 import ManagePainAreasModal from './clinical/ManagePainAreasModal';
+import MessagesPanel from './MessagesPanel';
 import TherapistPatientGrid, { type RosterFilterKey } from './TherapistPatientGrid';
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
@@ -73,12 +71,9 @@ export default function PatientOverview() {
   const {
     selectedPatient,
     getExercisePlan,
-    getPatientMessages,
-    messages,
     isPatientExerciseSafetyLocked,
     clearPatientExerciseSafetyLock,
     applyInitialClinicalProfile,
-    setActiveSection,
     patients,
     updatePatient,
     savePersistedStateToCloud,
@@ -116,13 +111,6 @@ export default function PatientOverview() {
       setDemoFreeText(selectedPatient.demographicsFreeText ?? '');
     }
   }, [selectedPatient?.id]);
-
-  const unreadFromPatient = useMemo(() => {
-    if (!selectedPatient) return 0;
-    return getPatientMessages(selectedPatient.id).filter(
-      (m) => m.fromPatient && !m.aiClinicalAlert && !m.isRead
-    ).length;
-  }, [selectedPatient, getPatientMessages, messages]);
 
   const safetyAlertsForSelected = useMemo(() => {
     if (!selectedPatient) return [];
@@ -306,7 +294,7 @@ export default function PatientOverview() {
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50" dir="rtl">
-      <div className="p-4 md:p-8 max-w-6xl mx-auto">
+      <div className="p-4 md:p-8 max-w-7xl mx-auto">
         {p.hasRedFlag && <RedFlagAlert patient={p} />}
 
         {highlightDataUpdateFields && (
@@ -422,55 +410,171 @@ export default function PatientOverview() {
           </div>
         )}
 
-        <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm p-5 md:p-6 mb-6">
-          <div className="flex flex-col gap-6 md:flex-row md:items-start">
-            {/* עמודת זהות — ב־RTL ראשון ב־DOM = ימין */}
-            <div className="flex flex-col items-center md:items-start shrink-0 w-full md:w-[200px] gap-3">
-              <div className="flex flex-row flex-wrap items-center gap-3 w-full justify-center md:justify-start">
-                <div className="w-24 h-24 rounded-xl flex items-center justify-center text-white shadow-md px-1.5 py-1 bg-teal-600 ring-1 ring-teal-700/20 shrink-0">
-                  <span className="text-center text-2xl md:text-[1.65rem] font-bold leading-tight break-words">
-                    {displayName}
-                  </span>
-                </div>
-                {!isPatientSessionLocked && (
+        <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm mb-6 overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-3 lg:h-[560px] lg:max-h-[560px]">
+            <aside
+              className="lg:col-span-1 p-4 md:p-5 lg:border-e border-slate-200/80 flex flex-col gap-4 min-h-0"
+              aria-label="פרופיל מטופל וניהול קליני"
+            >
+              <div
+                className="rounded-xl border border-slate-200/90 bg-gradient-to-b from-slate-50/90 to-white p-4 space-y-3 shrink-0"
+                aria-label="פרופיל וניהול קליני"
+              >
+                <div className="flex flex-row items-start gap-3">
+                  <div className="flex flex-1 min-w-0 items-start gap-3">
+                    <div
+                      className="w-16 h-16 rounded-xl flex items-center justify-center text-white text-2xl font-black shadow-md bg-teal-600 ring-1 ring-teal-700/20 shrink-0"
+                      aria-hidden="true"
+                    >
+                      {displayName.charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h2 className="text-lg font-black text-slate-900 leading-tight truncate">
+                        {displayName}
+                      </h2>
+                      <p className="text-sm text-slate-600 tabular-nums mt-0.5">
+                        {p.age > 0 ? `גיל ${p.age}` : 'גיל —'}
+                      </p>
+                      {!isPatientSessionLocked && (
+                        <div
+                          className="flex flex-row items-center gap-1.5 mt-1.5"
+                          aria-label="פעולות ניהול מטופל"
+                        >
+                          <button
+                            type="button"
+                            title={
+                              p.accountFrozen
+                                ? 'שחרור הקפאה — דורש אישור כפול'
+                                : 'הקפאת פורטל — דורש אישור כפול'
+                            }
+                            aria-label={
+                              p.accountFrozen ? 'שחרור הקפאת חשבון פורטל' : 'הקפאת חשבון פורטל'
+                            }
+                            onClick={() => {
+                              setFreezePendingIntent(!p.accountFrozen);
+                              setFreezeConfirmStep(1);
+                              setFreezeConfirmOpen(true);
+                            }}
+                            className="flex items-center justify-center w-8 h-8 rounded-lg border-2 border-sky-500 bg-sky-50 text-sky-700 hover:bg-sky-100 hover:border-sky-600 transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
+                          >
+                            <Snowflake className="w-3.5 h-3.5 text-sky-600" strokeWidth={2.25} aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            title="מחיקת מטופל — דורש אישור כפול"
+                            aria-label="מחיקת מטופל"
+                            onClick={() => {
+                              setDestructiveDeleteError(null);
+                              setDestructiveDeleteStep(1);
+                              setDestructiveDeleteOpen(true);
+                            }}
+                            className="flex items-center justify-center w-8 h-8 rounded-lg border-2 border-red-400 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-500 transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-red-600" strokeWidth={2.25} aria-hidden />
+                          </button>
+                        </div>
+                      )}
+                      <div className="mt-2">
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600 mb-0.5">
+                          אזור פעיל
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowPainAreasModal(true)}
+                          className="text-start text-sm font-semibold text-red-600 underline-offset-2 hover:underline decoration-red-400/80 leading-snug"
+                        >
+                          {activeAreaSummary}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
                   <div
-                    className="flex flex-row items-center gap-2 shrink-0"
-                    aria-label="פעולות ניהול מטופל"
+                    className="flex flex-col gap-2 shrink-0 w-[6.75rem] sm:w-28"
+                    aria-label="פעולות קליניות ראשיות"
                   >
                     <button
                       type="button"
-                      title={
-                        p.accountFrozen ? 'שחרור הקפאה — דורש אישור כפול' : 'הקפאת פורטל — דורש אישור כפול'
-                      }
-                      aria-label={
-                        p.accountFrozen ? 'שחרור הקפאת חשבון פורטל' : 'הקפאת חשבון פורטל'
-                      }
-                      onClick={() => {
-                        setFreezePendingIntent(!p.accountFrozen);
-                        setFreezeConfirmStep(1);
-                        setFreezeConfirmOpen(true);
-                      }}
-                      className="flex items-center justify-center w-11 h-11 rounded-xl border-2 border-sky-500 bg-sky-50 text-sky-700 hover:bg-sky-100 hover:border-sky-600 transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
+                      onClick={() => setShowIntakeVault(true)}
+                      className="inline-flex flex-col justify-center items-center gap-1 px-2 min-h-[52px] rounded-xl text-[11px] font-bold leading-tight text-white shadow-md bg-violet-600 hover:bg-violet-700 active:scale-[0.99] transition-colors text-center"
                     >
-                      <Snowflake className="w-5 h-5 text-sky-600" strokeWidth={2.25} aria-hidden />
+                      <Archive className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      סיכום אינטייק מלא
                     </button>
                     <button
                       type="button"
-                      title="מחיקת מטופל — דורש אישור כפול"
-                      aria-label="מחיקת מטופל"
-                      onClick={() => {
-                        setDestructiveDeleteError(null);
-                        setDestructiveDeleteStep(1);
-                        setDestructiveDeleteOpen(true);
-                      }}
-                      className="flex items-center justify-center w-11 h-11 rounded-xl border-2 border-red-400 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-500 transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
+                      onClick={() => setShowManageModal(true)}
+                      className="inline-flex flex-col justify-center items-center gap-1 px-2 min-h-[52px] rounded-xl text-[11px] font-bold leading-tight text-white shadow-md bg-teal-600 hover:bg-teal-700 active:scale-[0.99] transition-colors text-center"
+                      title="עדכון תוכנית תרגול"
                     >
-                      <Trash2 className="w-5 h-5 text-red-600" strokeWidth={2.25} aria-hidden />
+                      <span className="inline-flex items-center gap-1">
+                        <ClipboardList className="w-4 h-4 shrink-0" aria-hidden="true" />
+                        {exerciseCount > 0 && (
+                          <span className="min-w-[1.125rem] h-[1.125rem] px-0.5 rounded-full bg-white/25 flex items-center justify-center text-[10px] font-black">
+                            {exerciseCount}
+                          </span>
+                        )}
+                      </span>
+                      עדכן תכנית
                     </button>
                   </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(() => {
+                    const rosterBadge = patientRosterStatusBadge(p);
+                    if (!rosterBadge) return null;
+                    return (
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${rosterBadge.className}`}
+                      >
+                        {rosterBadge.label}
+                      </span>
+                    );
+                  })()}
+                  {p.hasRedFlag && (
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border"
+                      style={{
+                        background: '#fef2f2',
+                        color: '#b91c1c',
+                        borderColor: '#fecaca',
+                      }}
+                    >
+                      <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                      דגל אדום
+                    </span>
+                  )}
+                  {p.accountFrozen && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border border-sky-300 bg-sky-50 text-sky-900">
+                      <Snowflake className="w-3 h-3 shrink-0 text-sky-600" strokeWidth={2.25} aria-hidden />
+                      פורטל מוקפא
+                    </span>
+                  )}
+                </div>
+
+                {showIntakeAction && (
+                  <button
+                    type="button"
+                    onClick={openClinicalIntakeModal}
+                    className={`w-full inline-flex justify-center items-center gap-2 px-3 min-h-[40px] rounded-xl text-sm font-semibold active:scale-[0.99] transition-colors ${
+                      showIntakeHighlight
+                        ? DATA_UPDATE_ACTION_HIGHLIGHT
+                        : 'border border-amber-500 text-amber-900 bg-amber-50 hover:bg-amber-100'
+                    }`}
+                    title={
+                      showIntakeHighlight
+                        ? 'השלמת אינטייק קליני — שדה חסר'
+                        : 'הגדרת פרופיל קליני'
+                    }
+                  >
+                    <Stethoscope className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    {showIntakeHighlight ? 'השלמת אינטייק קליני' : 'הגדרת פרופיל'}
+                  </button>
                 )}
               </div>
-              <div className="w-full max-w-[260px] space-y-3 text-sm text-slate-700">
+
+              <div className="space-y-3 text-sm text-slate-700 min-h-0 overflow-y-auto">
                 <div>
                   <div className="flex items-center justify-between gap-1 mb-0.5">
                     <button
@@ -584,131 +688,24 @@ export default function PatientOverview() {
                   <MissingFieldHint show={showIntakeHighlight} />
                 </div>
 
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-red-600 mb-0.5">
-                    אזור פעיל
-                  </div>
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => setShowPainAreasModal(true)}
-                      className="text-start font-semibold text-red-600 underline-offset-2 hover:underline decoration-red-400/80"
-                    >
-                      {activeAreaSummary}
-                    </button>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2 text-slate-600">
-                  <CalendarDays className="w-4 h-4 shrink-0 mt-0.5 text-slate-400" />
+                <div className="flex items-start gap-2 text-slate-600 text-xs">
+                  <CalendarDays className="w-4 h-4 shrink-0 mt-0.5 text-slate-400" aria-hidden="true" />
                   <div>
                     <div className="tabular-nums">הצטרף: {new Date(p.joinDate).toLocaleDateString('he-IL')}</div>
-                    <div className="tabular-nums mt-1">אימון אחרון: {new Date(p.lastSessionDate).toLocaleDateString('he-IL')}</div>
+                    <div className="tabular-nums mt-1">
+                      אימון אחרון: {new Date(p.lastSessionDate).toLocaleDateString('he-IL')}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            </aside>
 
-            <div className="flex-1 min-w-0 flex flex-col gap-5">
-              <div className="flex flex-wrap items-center gap-2">
-                {(() => {
-                  const rosterBadge = patientRosterStatusBadge(p);
-                  if (!rosterBadge) return null;
-                  return (
-                    <span
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${rosterBadge.className}`}
-                    >
-                      {rosterBadge.label}
-                    </span>
-                  );
-                })()}
-                {p.hasRedFlag && (
-                  <span
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border"
-                    style={{
-                      background: '#fef2f2',
-                      color: '#b91c1c',
-                      borderColor: '#fecaca',
-                    }}
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    דגל אדום
-                  </span>
-                )}
-                {p.accountFrozen && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border border-sky-300 bg-sky-50 text-sky-900">
-                    <Snowflake className="w-3.5 h-3.5 shrink-0 text-sky-600" strokeWidth={2.25} aria-hidden />
-                    פורטל מוקפא
-                  </span>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowIntakeVault(true)}
-                  className="inline-flex justify-center items-center gap-2 px-4 min-h-[48px] rounded-xl text-sm font-bold text-white shadow-md bg-violet-600 hover:bg-violet-700 active:scale-[0.99] transition-colors"
-                >
-                  <Archive className="w-4 h-4 shrink-0" />
-                  סיכום אינטייק מלא
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveSection('analytics')}
-                  className="inline-flex justify-center items-center gap-2 px-4 min-h-[48px] rounded-xl text-sm font-bold text-white shadow-md bg-slate-700 hover:bg-slate-800 active:scale-[0.99] transition-colors"
-                >
-                  <BarChart3 className="w-4 h-4 shrink-0" />
-                  התקדמות
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowManageModal(true)}
-                  className="inline-flex justify-center items-center gap-2 px-4 min-h-[48px] rounded-xl text-sm font-bold text-white shadow-md bg-teal-600 hover:bg-teal-700 active:scale-[0.99] transition-colors"
-                  title="עדכון תוכנית תרגול"
-                >
-                  <ClipboardList className="w-4 h-4 shrink-0" />
-                  עדכן תוכנית
-                  {exerciseCount > 0 && (
-                    <span className="w-6 h-6 rounded-full bg-white/25 flex items-center justify-center text-xs font-black shrink-0">
-                      {exerciseCount}
-                    </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveSection('messages')}
-                  className="inline-flex justify-center items-center gap-2 px-4 min-h-[48px] rounded-xl text-sm font-bold border-2 border-teal-600 text-teal-800 bg-teal-50 hover:bg-teal-100 active:scale-[0.99] transition-colors"
-                  title="שלח הודעה למטופל — פותח מסך הודעות וצ׳אט"
-                >
-                  <MessageSquare className="w-4 h-4 shrink-0" />
-                  שלח הודעה
-                  {unreadFromPatient > 0 && (
-                    <span className="w-6 h-6 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs font-black shrink-0">
-                      {unreadFromPatient}
-                    </span>
-                  )}
-                </button>
-              </div>
-
-              {showIntakeAction && (
-                <button
-                  type="button"
-                  onClick={openClinicalIntakeModal}
-                  className={`w-full sm:w-auto inline-flex justify-center items-center gap-2 px-4 min-h-[44px] rounded-xl text-sm font-semibold active:scale-[0.99] transition-colors ${
-                    showIntakeHighlight
-                      ? DATA_UPDATE_ACTION_HIGHLIGHT
-                      : 'border border-amber-500 text-amber-900 bg-amber-50 hover:bg-amber-100'
-                  }`}
-                  title={
-                    showIntakeHighlight
-                      ? 'השלמת אינטייק קליני — שדה חסר'
-                      : 'הגדרת פרופיל קליני'
-                  }
-                >
-                  <Stethoscope className="w-4 h-4 shrink-0" />
-                  {showIntakeHighlight ? 'השלמת אינטייק קליני' : 'הגדרת פרופיל'}
-                </button>
-              )}
-            </div>
+            <section
+              className="lg:col-span-2 min-h-[420px] lg:min-h-0 lg:h-full flex flex-col overflow-hidden border-t lg:border-t-0 lg:border-s border-slate-200/80 bg-[#f8fafc]"
+              aria-label="הודעות מטופל"
+            >
+              <MessagesPanel embedded embeddedMessageMaxHeight={340} />
+            </section>
           </div>
         </div>
 
@@ -717,10 +714,6 @@ export default function PatientOverview() {
         </div>
 
         <TreatmentDocumentation patient={p} />
-
-        <div className="mb-5">
-          <TherapistQuickChat patientId={p.id} patientName={getPatientDisplayName(p)} />
-        </div>
 
         <div className="mb-5">
           <ClinicalDeepDiveTabs patient={p} />
