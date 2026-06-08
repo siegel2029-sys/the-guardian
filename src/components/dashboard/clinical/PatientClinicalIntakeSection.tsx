@@ -1,58 +1,52 @@
-import { useCallback, useRef } from 'react';
 import type { Patient } from '../../../types';
-import { usePatient } from '../../../context/PatientContext';
-import { useComparativeIntakeAnalysis } from '../../../hooks/useComparativeIntakeAnalysis';
-import ClinicalIntakeProfilePanel from './ClinicalIntakeProfilePanel';
+import { loadLatestIntakeFields } from '../../../utils/clinicalIntakeVersions';
+import { MedicalIntakeSectionedReport } from './MedicalIntakeDashboard';
 
 type Props = {
   patient: Patient;
 };
 
+/** Read-only intake snapshot for the daily patient view — no versioning controls. */
 export default function PatientClinicalIntakeSection({ patient }: Props) {
-  const { updatePatient, savePersistedStateToCloud } = usePatient();
-  const patientIdRef = useRef(patient.id);
-  patientIdRef.current = patient.id;
-
-  const saveToCloud = useCallback(async () => {
-    return savePersistedStateToCloud({ immediate: true });
-  }, [savePersistedStateToCloud]);
-
-  const comparative = useComparativeIntakeAnalysis({
-    patient,
-    updatePatient,
-    saveToCloud,
-  });
-
-  const handleSaveTimeline = useCallback(
-    async (patch: Partial<Patient>) => {
-      updatePatient(patientIdRef.current, patch);
-      await savePersistedStateToCloud({ immediate: true });
-    },
-    [updatePatient, savePersistedStateToCloud]
-  );
+  const fields = loadLatestIntakeFields(patient);
+  const noop = () => undefined;
+  const noopList = () => undefined;
 
   return (
-    <ClinicalIntakeProfilePanel
-      patient={patient}
-      tabbed
-      onSaveTimeline={handleSaveTimeline}
-      onRunComparativeAnalysis={(currentFields) => comparative.runComparative(currentFields)}
-      comparativeBusy={comparative.busy}
-      comparativeError={comparative.error}
-      pendingVersion={comparative.pendingVersion}
-      pendingFields={comparative.pendingFields}
-      onPendingFieldsChange={comparative.updatePendingFields}
-      onConfirmPending={comparative.handleConfirm}
-      onUpdateIntakeVersion={(versionId, version, fields) =>
-        comparative.handleUpdateVersion(versionId, version, fields)
-      }
-      onCreateSuccessiveVersion={(sourceVersion) =>
-        comparative.createSuccessiveVersion(sourceVersion)
-      }
-      onDiscardPending={comparative.discardPending}
-      confirmBusy={comparative.confirmBusy}
-      cloneBusy={comparative.cloneBusy}
-      updatePatient={updatePatient}
-    />
+    <section
+      className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+      aria-label="תמצית אינטייק קליני"
+      dir="rtl"
+    >
+      <div className="px-4 py-3 border-b border-slate-100 bg-gradient-to-l from-sky-50/80 to-slate-50/80">
+        <h3 className="text-sm font-black text-slate-900">תמצית אינטייק</h3>
+        <p className="text-[11px] text-slate-500 mt-0.5">
+          לצפייה מלאה, עריכה וניתוח השוואתי — פתחו «סיכום אינטייק מלא».
+        </p>
+      </div>
+      <div className="p-4 sm:p-5">
+        <MedicalIntakeSectionedReport
+          readOnly
+          showRedFlags
+          showAiInsights={false}
+          caseStory={fields.caseStory}
+          onCaseStoryChange={noop}
+          vasScore={fields.vasScore}
+          onVasScoreChange={noop}
+          clinicalDiagnosis={fields.diagnosis}
+          onClinicalDiagnosisChange={noop}
+          differentialDiagnosis={fields.differentialDiagnosis}
+          onDifferentialChange={noopList}
+          clinicalConclusionsHe={fields.clinicalConclusionsHe}
+          onClinicalConclusionsChange={noopList}
+          precautionsHe={fields.precautionsHe}
+          onPrecautionsChange={noopList}
+          recommendedTestsHe={fields.recommendedTestsHe}
+          onRecommendedTestsChange={noopList}
+          redFlags={fields.redFlags}
+          profile={fields.clinicalIntakeProfile}
+        />
+      </div>
+    </section>
   );
 }

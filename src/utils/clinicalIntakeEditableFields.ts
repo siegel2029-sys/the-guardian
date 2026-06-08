@@ -3,7 +3,6 @@ import { isClinicalIntakeProfileEmpty, medicalHistoryToProfileMetadata } from '.
 import { resolveCoreLegacyIntakeSummaryText } from './clinicalIntakeProfileMigration';
 import { resolvePatientClinicalIntakeProfile } from './clinicalIntakeProfileDisplay';
 import { normalizeClinicalIntakeProfileForStorage } from './clinicalIntakeProfilePersist';
-import { buildClinicalIntakeInsightsDisplay } from './clinicalIntakeInsightsDisplay';
 import {
   clinicalInsightsToSavePayload,
   formatClinicalIntakeInsightsNarrative,

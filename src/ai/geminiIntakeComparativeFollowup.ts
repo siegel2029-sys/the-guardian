@@ -279,7 +279,6 @@ export function buildPatientPatchFromComparativeResult(
   result: IntakeComparativeAiResult,
   existing: Pick<Patient, 'diagnosis'>
 ): Partial<Patient> {
-  const mapped = mapMedicalSchemaToEditableFields(result.medicalSchema);
   const si = result.structuredInsights;
 
   return {

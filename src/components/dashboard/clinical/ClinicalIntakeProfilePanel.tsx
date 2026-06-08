@@ -15,30 +15,30 @@ type Props = {
   profile?: PatientClinicalIntakeProfile;
   compact?: boolean;
   className?: string;
-  tabbed?: boolean;
+  /** Versioning (+, comparative) — only inside סיכום אינטייק modal */
+  enableVersioning?: boolean;
   onSaveTimeline?: (patch: Partial<Patient>) => void | Promise<void>;
   onRunComparativeAnalysis?: (
-    currentFields: ClinicalIntakeEditableFields
-  ) => void | Promise<unknown>;
+    currentFields: ClinicalIntakeEditableFields,
+    activeVersion: PatientIntakeVersionEntry,
+    versionId: string
+  ) => Promise<UpsertIntakeVersionResult | null>;
   comparativeBusy?: boolean;
   comparativeError?: string | null;
-  pendingVersion?: PatientIntakeVersionEntry | null;
-  pendingFields?: ClinicalIntakeEditableFields | null;
-  onPendingFieldsChange?: (fields: ClinicalIntakeEditableFields) => void;
-  onConfirmPending?: (
-    fields: ClinicalIntakeEditableFields
-  ) => Promise<UpsertIntakeVersionResult | null>;
   onUpdateIntakeVersion?: (
     versionId: string,
     version: PatientIntakeVersionEntry,
     fields: ClinicalIntakeEditableFields
   ) => Promise<UpsertIntakeVersionResult | null>;
-  onDiscardPending?: () => void;
   onCreateSuccessiveVersion?: (
     sourceVersion: PatientIntakeVersionEntry
   ) => Promise<UpsertIntakeVersionResult | null>;
-  confirmBusy?: boolean;
+  onDeleteIntakeVersion?: (
+    versionId: string,
+    version: PatientIntakeVersionEntry
+  ) => Promise<UpsertIntakeVersionResult | null>;
   cloneBusy?: boolean;
+  deleteBusy?: boolean;
   updatePatient?: (id: string, patch: Partial<Patient>) => void;
 };
 
@@ -47,20 +47,16 @@ export default function ClinicalIntakeProfilePanel({
   profile: profileProp,
   compact = false,
   className = '',
-  tabbed = true,
+  enableVersioning = false,
   onSaveTimeline,
   onRunComparativeAnalysis,
   comparativeBusy = false,
   comparativeError = null,
-  pendingVersion = null,
-  pendingFields = null,
-  onPendingFieldsChange,
-  onConfirmPending,
   onUpdateIntakeVersion,
-  onDiscardPending,
   onCreateSuccessiveVersion,
-  confirmBusy = false,
+  onDeleteIntakeVersion,
   cloneBusy = false,
+  deleteBusy = false,
   updatePatient,
 }: Props) {
   const resolvedProfile = useMemo(() => {
@@ -122,13 +118,15 @@ export default function ClinicalIntakeProfilePanel({
             תיק אינטייק קליני
           </h3>
           <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-            ציר גרסאות — קבלה ראשונית וניתוחים השוואתיים במבנה רפואי אחיד
+            {enableVersioning
+              ? 'קבלה ראשונית + גרסה עוקבת — ניהול גרסאות בלבד במסך זה'
+              : 'תצוגת תיק אינטייק'}
           </p>
         </div>
       </div>
 
       <div className={compact ? 'p-3' : 'p-4 sm:p-5'}>
-        {patient && tabbed && onSaveTimeline ? (
+        {patient && enableVersioning && onSaveTimeline ? (
           <ClinicalIntakeTabbedView
             patient={patient}
             compact={compact}
@@ -136,15 +134,11 @@ export default function ClinicalIntakeProfilePanel({
             onRunComparativeAnalysis={onRunComparativeAnalysis}
             comparativeBusy={comparativeBusy}
             comparativeError={comparativeError}
-            pendingVersion={pendingVersion}
-            pendingFields={pendingFields}
-            onPendingFieldsChange={onPendingFieldsChange}
-            onConfirmPending={onConfirmPending}
             onUpdateIntakeVersion={onUpdateIntakeVersion}
-            onDiscardPending={onDiscardPending}
             onCreateSuccessiveVersion={onCreateSuccessiveVersion}
-            confirmBusy={confirmBusy}
+            onDeleteIntakeVersion={onDeleteIntakeVersion}
             cloneBusy={cloneBusy}
+            deleteBusy={deleteBusy}
             updatePatient={updatePatient}
           />
         ) : patient ? (

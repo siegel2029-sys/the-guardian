@@ -158,7 +158,7 @@ export async function updatePatientIntakeVersion(
   return rowToVersionEntry(data as PatientIntakeRow);
 }
 
-/** One-time migration: copy payload timeline rows into patient_intakes when DB is empty. */
+/** One-time migration: seed only the initial intake row when DB is empty. */
 export async function migrateTimelineEntriesToDbIfNeeded(
   client: SupabaseClient,
   patientId: string,
@@ -168,20 +168,41 @@ export async function migrateTimelineEntriesToDbIfNeeded(
   if (existing.length > 0) return;
   if (timeline.length === 0) return;
 
+  const initial =
+    timeline.find((v) => !v.archived && v.kind === 'initial') ??
+    timeline.find((v) => !v.archived);
+  if (!initial) return;
+
   await ensureSupabaseSessionReady(client);
 
-  for (const version of timeline) {
-    if (version.archived) continue;
-    const fields = version.fields as ClinicalIntakeEditableFields;
-    const payload = versionEntryToIntakePayload(version, fields);
-    const { error } = await client.from('patient_intakes').insert({
-      patient_id: patientId,
-      created_at: version.createdAt,
-      intake_data: payload,
-    });
-    if (error) {
-      logSupabaseCallError('migrateTimelineEntriesToDbIfNeeded', error);
-      throw new Error(error.message || 'שגיאה בהעברת גרסאות אינטייק לענן');
-    }
+  const fields = initial.fields as ClinicalIntakeEditableFields;
+  const payload = versionEntryToIntakePayload(initial, fields);
+  const { error } = await client.from('patient_intakes').insert({
+    patient_id: patientId,
+    created_at: initial.createdAt,
+    intake_data: payload,
+  });
+  if (error) {
+    logSupabaseCallError('migrateTimelineEntriesToDbIfNeeded', error);
+    throw new Error(error.message || 'שגיאה בהעברת גרסת אינטייק ראשונית לענן');
+  }
+}
+
+/** Hard-delete a non-initial intake version row by UUID. */
+export async function deletePatientIntakeVersion(
+  client: SupabaseClient,
+  versionId: string
+): Promise<void> {
+  if (!isPersistedIntakeVersionId(versionId)) {
+    throw new Error('deletePatientIntakeVersion requires a persisted DB uuid');
+  }
+
+  await ensureSupabaseSessionReady(client);
+
+  const { error } = await client.from('patient_intakes').delete().eq('id', versionId);
+
+  if (error) {
+    logSupabaseCallError('deletePatientIntakeVersion', error);
+    throw new Error(error.message || 'שגיאה במחיקת גרסת אינטייק');
   }
 }

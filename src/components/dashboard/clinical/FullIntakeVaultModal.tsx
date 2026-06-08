@@ -70,7 +70,7 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
             </div>
             <div className="min-w-0">
               <h2 id="full-intake-vault-title" className="text-lg font-black text-slate-950">
-                תיק אינטייק — ציר גרסאות
+                סיכום אינטייק מלא
               </h2>
               {usingFallback && (
                 <p className="text-xs text-amber-800 font-bold mt-1">
@@ -93,20 +93,24 @@ export default function FullIntakeVaultModal({ patient, onClose }: Props) {
           <div className="p-5 space-y-8">
             <ClinicalIntakeProfilePanel
               patient={patient}
-              tabbed
+              enableVersioning
               onSaveTimeline={handleSaveTimeline}
-              onRunComparativeAnalysis={(fields) => comparative.runComparative(fields)}
+              onRunComparativeAnalysis={(fields, version, versionId) =>
+                comparative.runComparative(fields, version, versionId)
+              }
               comparativeBusy={comparative.busy}
               comparativeError={comparative.error}
-              pendingVersion={comparative.pendingVersion}
-              pendingFields={comparative.pendingFields}
-              onPendingFieldsChange={comparative.updatePendingFields}
-              onConfirmPending={comparative.handleConfirm}
               onUpdateIntakeVersion={(versionId, version, fields) =>
                 comparative.handleUpdateVersion(versionId, version, fields)
               }
-              onDiscardPending={comparative.discardPending}
-              confirmBusy={comparative.confirmBusy}
+              onCreateSuccessiveVersion={(sourceVersion) =>
+                comparative.createSuccessiveVersion(sourceVersion)
+              }
+              onDeleteIntakeVersion={(versionId, version) =>
+                comparative.handleDeleteVersion(versionId, version)
+              }
+              cloneBusy={comparative.cloneBusy}
+              deleteBusy={comparative.deleteBusy}
               updatePatient={updatePatient}
             />
 

@@ -22,6 +22,7 @@ import { mapAiResponseToFields } from './medicalIntakeSchema';
 import type { IntakeComparativeAiResult } from '../ai/geminiIntakeComparativeFollowup';
 import { supabase } from '../lib/supabase';
 import {
+  deletePatientIntakeVersion,
   fetchPatientIntakeVersions,
   insertPatientIntakeVersion,
   isClientDraftIntakeVersionId,
@@ -47,6 +48,19 @@ function ensureList(items: string[] | undefined, min = 1): string[] {
 
 function fieldsToSnapshot(fields: ClinicalIntakeEditableFields): ClinicalIntakeEditableFields {
   return JSON.parse(JSON.stringify(fields)) as ClinicalIntakeEditableFields;
+}
+
+/** Collapse duplicate ids — keeps the last occurrence (newest payload wins). */
+export function dedupeIntakeTimeline(
+  timeline: PatientIntakeVersionEntry[]
+): PatientIntakeVersionEntry[] {
+  const byId = new Map<string, PatientIntakeVersionEntry>();
+  for (const entry of timeline) {
+    if (!entry.archived) byId.set(entry.id, entry);
+  }
+  return [...byId.values()].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
 }
 
 function buildFallbackArchive(patient: Patient): PatientIntakeArchive {
@@ -211,12 +225,8 @@ function createInitialVersionEntry(patient: Patient): PatientIntakeVersionEntry 
 
 /** Build or restore the full version timeline from payload (bootstraps from archive if empty). */
 export function resolveIntakeVersionTimeline(patient: Patient): PatientIntakeVersionEntry[] {
-  const stored = (patient.intakeVersionTimeline ?? []).filter((v) => !v.archived);
-  if (stored.length > 0) {
-    return [...stored].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-  }
+  const stored = dedupeIntakeTimeline(patient.intakeVersionTimeline ?? []);
+  if (stored.length > 0) return stored;
 
   return [createInitialVersionEntry(patient)];
 }
@@ -381,14 +391,13 @@ function buildUpdateIntakeVersionPayloadPatch(
 
 async function syncPatientAfterIntakeSave(
   patientId: string,
-  patient: Patient,
   timeline: PatientIntakeVersionEntry[],
   latestFields: ClinicalIntakeEditableFields,
   save: IntakeSaveDeps
 ): Promise<void> {
   const patch: Partial<Patient> = {
     ...buildPatientPatchFromEditableIntakeFields(latestFields),
-    intakeVersionTimeline: timeline,
+    intakeVersionTimeline: dedupeIntakeTimeline(timeline),
   };
   save.updatePatient(patientId, patch);
   const ok = await save.saveToCloud();
@@ -422,8 +431,8 @@ export async function insertIntakeVersion(
       draftVersion,
       editedFields
     );
-    const timeline = await fetchPatientIntakeVersions(supabase, patientId);
-    await syncPatientAfterIntakeSave(patientId, patient, timeline, editedFields, save);
+    const timeline = dedupeIntakeTimeline(await fetchPatientIntakeVersions(supabase, patientId));
+    await syncPatientAfterIntakeSave(patientId, timeline, editedFields, save);
     return { patch: { intakeVersionTimeline: timeline }, newVersion: inserted, timeline };
   }
 
@@ -467,8 +476,8 @@ export async function updateIntakeVersion(
       version,
       editedFields
     );
-    const timeline = await fetchPatientIntakeVersions(supabase, patientId);
-    await syncPatientAfterIntakeSave(patientId, patient, timeline, editedFields, save);
+    const timeline = dedupeIntakeTimeline(await fetchPatientIntakeVersions(supabase, patientId));
+    await syncPatientAfterIntakeSave(patientId, timeline, editedFields, save);
     return { patch: { intakeVersionTimeline: timeline }, newVersion: updated, timeline };
   }
 
@@ -494,7 +503,7 @@ export async function refreshIntakeVersionsFromDb(
   if (!supabase) return payloadTimeline;
 
   await migrateTimelineEntriesToDbIfNeeded(supabase, patientId, payloadTimeline);
-  const timeline = await fetchPatientIntakeVersions(supabase, patientId);
+  const timeline = dedupeIntakeTimeline(await fetchPatientIntakeVersions(supabase, patientId));
   if (timeline.length > 0) {
     const latest = getActiveIntakeVersion(timeline);
     const patch: Partial<Patient> = { intakeVersionTimeline: timeline };
@@ -523,6 +532,55 @@ export async function cloneSuccessiveIntakeVersion(
   const draft = buildClonedVersionEntry(sourceVersion);
   const fields = fieldsToSnapshot(draft.fields as ClinicalIntakeEditableFields);
   return insertIntakeVersion(patientId, patient, draft, fields, save);
+}
+
+/** DELETE a non-initial intake version row and refresh the timeline from DB. */
+export async function deleteIntakeVersion(
+  patientId: string,
+  patient: Patient,
+  versionId: string,
+  version: PatientIntakeVersionEntry,
+  save: IntakeSaveDeps
+): Promise<UpsertIntakeVersionResult> {
+  if (version.kind === 'initial' || version.immutable) {
+    throw new Error('לא ניתן למחוק את קבלה ראשונית');
+  }
+  if (!isPersistedIntakeVersionId(versionId)) {
+    throw new Error('deleteIntakeVersion: נדרש מזהה UUID שמור');
+  }
+
+  if (supabase) {
+    await deletePatientIntakeVersion(supabase, versionId);
+    const timeline = dedupeIntakeTimeline(await fetchPatientIntakeVersions(supabase, patientId));
+    const latest = getActiveIntakeVersion(timeline);
+    const latestFields = latest
+      ? (latest.fields as ClinicalIntakeEditableFields)
+      : loadLatestIntakeFields(patient);
+    await syncPatientAfterIntakeSave(patientId, timeline, latestFields, save);
+    const fallback = timeline[timeline.length - 1] ?? timeline[0];
+    return {
+      patch: { intakeVersionTimeline: timeline },
+      newVersion: fallback,
+      timeline,
+    };
+  }
+
+  const nextTimeline = dedupeIntakeTimeline(
+    resolveIntakeVersionTimeline(patient).filter((v) => v.id !== versionId)
+  );
+  const latest = getActiveIntakeVersion(nextTimeline);
+  const latestFields = latest
+    ? (latest.fields as ClinicalIntakeEditableFields)
+    : loadLatestIntakeFields(patient);
+  const patch: Partial<Patient> = {
+    ...buildPatientPatchFromEditableIntakeFields(latestFields),
+    intakeVersionTimeline: nextTimeline,
+  };
+  save.updatePatient(patientId, patch);
+  const ok = await save.saveToCloud();
+  if (ok === false) throw new Error('שגיאת שמירה לענן — הגרסה לא נמחקה.');
+  const fallback = nextTimeline[nextTimeline.length - 1] ?? nextTimeline[0];
+  return { patch, newVersion: fallback, timeline: nextTimeline };
 }
 
 /** @deprecated Use insertIntakeVersion (confirm) or updateIntakeVersion (edit existing tab). */

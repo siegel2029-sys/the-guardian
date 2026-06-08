@@ -11,9 +11,8 @@ import { resolveCoreLegacyIntakeSummaryText } from '../utils/clinicalIntakeProfi
 import type { ClinicalIntakeEditableFields } from '../utils/clinicalIntakeEditableFields';
 import { mapAiResponseToFields } from '../utils/medicalIntakeSchema';
 import {
-  buildAnalysisVersionEntry,
   cloneSuccessiveIntakeVersion,
-  insertIntakeVersion,
+  deleteIntakeVersion,
   updateIntakeVersion,
   type UpsertIntakeVersionResult,
 } from '../utils/clinicalIntakeVersions';
@@ -52,27 +51,35 @@ type Options = {
 export function useComparativeIntakeAnalysis({ patient, updatePatient, saveToCloud }: Options) {
   const [busy, setBusy] = useState(false);
   const [cloneBusy, setCloneBusy] = useState(false);
-  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<IntakeComparativeAiResult | null>(null);
-  const [pendingVersion, setPendingVersion] = useState<PatientIntakeVersionEntry | null>(null);
-  const [pendingFields, setPendingFields] = useState<ClinicalIntakeEditableFields | null>(null);
 
   const patientRef = useRef(patient);
   patientRef.current = patient;
 
   const intake = patient.initialIntakeArchive ?? fallbackIntakeFromPatient(patient);
 
+  /** Run AI on the active analysis tab and UPDATE that row in place (no extra tab). */
   const runComparative = useCallback(
-    async (currentFields: ClinicalIntakeEditableFields) => {
+    async (
+      currentFields: ClinicalIntakeEditableFields,
+      activeVersion: PatientIntakeVersionEntry,
+      versionId: string
+    ): Promise<UpsertIntakeVersionResult | null> => {
       if (!getGeminiApiKey()) {
         setError('הגדירו Supabase ופרסמו את gemini-proxy עם GEMINI_API_KEY.');
+        return null;
+      }
+      if (activeVersion.kind === 'initial') {
+        setError('ניתוח השוואתי זמין רק בגרסה חדשה — לחצו + ליד קבלה ראשונית.');
         return null;
       }
       setBusy(true);
       setError(null);
       try {
-        const structured = buildStructuredIntakeForComparative(patient, intake);
+        const currentPatient = patientRef.current;
+        const structured = buildStructuredIntakeForComparative(currentPatient, intake);
         const normalizedArchive: PatientIntakeArchive = {
           ...intake,
           therapistNotes: structured.caseStory || intake.therapistNotes,
@@ -88,20 +95,34 @@ export function useComparativeIntakeAnalysis({ patient, updatePatient, saveToClo
           },
         };
 
-        const datastoreJson = await buildSupabaseClinicalDatastoreJson(patient.id);
+        const datastoreJson = await buildSupabaseClinicalDatastoreJson(currentPatient.id);
         const analysis = await analyzeIntakeVersusCurrentCare(
-          patient,
+          currentPatient,
           normalizedArchive,
           datastoreJson,
           currentFields
         );
         setResult(analysis);
 
-        const version = buildAnalysisVersionEntry(currentFields, analysis);
         const mappedFields = mapAiResponseToFields(analysis, currentFields);
-        setPendingVersion(version);
-        setPendingFields(mappedFields);
-        return analysis;
+        const updatedVersion: PatientIntakeVersionEntry = {
+          ...activeVersion,
+          fields: JSON.parse(JSON.stringify(mappedFields)) as PatientIntakeVersionEntry['fields'],
+          medicalSchema: analysis.medicalSchema,
+          comparativeMeta: {
+            discrepancies: analysis.discrepancies,
+            reevaluation: analysis.reevaluation,
+          },
+        };
+
+        return await updateIntakeVersion(
+          currentPatient.id,
+          currentPatient,
+          versionId,
+          updatedVersion,
+          mappedFields,
+          { updatePatient, saveToCloud }
+        );
       } catch (e) {
         setError(formatAiError(e));
         return null;
@@ -109,50 +130,8 @@ export function useComparativeIntakeAnalysis({ patient, updatePatient, saveToClo
         setBusy(false);
       }
     },
-    [patient, intake]
+    [intake, updatePatient, saveToCloud]
   );
-
-  const handleConfirm = useCallback(
-    async (editedFields: ClinicalIntakeEditableFields): Promise<UpsertIntakeVersionResult | null> => {
-      if (!pendingVersion) return null;
-      setConfirmBusy(true);
-      setError(null);
-      try {
-        const currentPatient = patientRef.current;
-        const saved = await insertIntakeVersion(
-          currentPatient.id,
-          currentPatient,
-          pendingVersion,
-          editedFields,
-          { updatePatient, saveToCloud }
-        );
-        setPendingVersion(null);
-        setPendingFields(null);
-        setResult(null);
-        return saved;
-      } catch (e) {
-        setError(formatAiError(e));
-        return null;
-      } finally {
-        setConfirmBusy(false);
-      }
-    },
-    [pendingVersion, updatePatient, saveToCloud]
-  );
-
-  const discardPending = useCallback(() => {
-    setPendingVersion(null);
-    setPendingFields(null);
-    setResult(null);
-    setError(null);
-  }, []);
-
-  const updatePendingFields = useCallback((fields: ClinicalIntakeEditableFields) => {
-    setPendingFields(fields);
-    setPendingVersion((prev) =>
-      prev ? { ...prev, fields: JSON.parse(JSON.stringify(fields)) } : prev
-    );
-  }, []);
 
   const createSuccessiveVersion = useCallback(
     async (
@@ -173,6 +152,32 @@ export function useComparativeIntakeAnalysis({ patient, updatePatient, saveToClo
         return null;
       } finally {
         setCloneBusy(false);
+      }
+    },
+    [updatePatient, saveToCloud]
+  );
+
+  const handleDeleteVersion = useCallback(
+    async (
+      versionId: string,
+      version: PatientIntakeVersionEntry
+    ): Promise<UpsertIntakeVersionResult | null> => {
+      setError(null);
+      setDeleteBusy(true);
+      try {
+        const currentPatient = patientRef.current;
+        return await deleteIntakeVersion(
+          currentPatient.id,
+          currentPatient,
+          versionId,
+          version,
+          { updatePatient, saveToCloud }
+        );
+      } catch (e) {
+        setError(formatAiError(e));
+        return null;
+      } finally {
+        setDeleteBusy(false);
       }
     },
     [updatePatient, saveToCloud]
@@ -206,24 +211,18 @@ export function useComparativeIntakeAnalysis({ patient, updatePatient, saveToClo
   const reset = useCallback(() => {
     setError(null);
     setResult(null);
-    setPendingVersion(null);
-    setPendingFields(null);
   }, []);
 
   return {
     busy,
     cloneBusy,
-    confirmBusy,
+    deleteBusy,
     error,
     result,
-    pendingVersion,
-    pendingFields,
     runComparative,
     createSuccessiveVersion,
-    handleConfirm,
+    handleDeleteVersion,
     handleUpdateVersion,
-    discardPending,
-    updatePendingFields,
     reset,
     intake,
   };
