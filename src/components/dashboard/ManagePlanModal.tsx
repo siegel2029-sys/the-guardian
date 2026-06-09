@@ -397,7 +397,8 @@ function PlanExerciseRow({
         PatientExercise,
         'patientReps' | 'patientSets' | 'isOptional' | 'customInstructions' | 'instructions'
       >
-    >
+    >,
+    options?: { mirrorToPatientPayloadCache?: boolean }
   ) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -449,12 +450,27 @@ function PlanExerciseRow({
     setInstructionsDraft(exercise.instructions ?? '');
   }, [exercise.instructions, exercise.id]);
 
-  const saveInstructions = () => {
-    const capped = instructionsDraft.slice(0, INSTRUCTIONS_MAX_LEN).trim();
-    onUpdate({ instructions: capped });
-    setInstructionsDraft(capped);
-    setEditingInstructions(false);
-  };
+  const persistInstructionsFromDraft = useCallback(
+    (raw: string) => {
+      const capped = raw.slice(0, INSTRUCTIONS_MAX_LEN);
+      setInstructionsDraft(capped);
+      onUpdate({ instructions: capped });
+    },
+    [onUpdate]
+  );
+
+  const commitInstructionsDraft = useCallback(
+    (options?: { closeEditor?: boolean }) => {
+      const trimmed = instructionsDraft.slice(0, INSTRUCTIONS_MAX_LEN).trim();
+      setInstructionsDraft(trimmed);
+      onUpdate(
+        { instructions: trimmed },
+        { mirrorToPatientPayloadCache: true }
+      );
+      if (options?.closeEditor) setEditingInstructions(false);
+    },
+    [instructionsDraft, onUpdate]
+  );
 
   const cancelInstructionsEdit = () => {
     setInstructionsDraft(exercise.instructions ?? '');
@@ -681,7 +697,8 @@ function PlanExerciseRow({
             <>
               <textarea
                 value={instructionsDraft}
-                onChange={(e) => setInstructionsDraft(e.target.value.slice(0, INSTRUCTIONS_MAX_LEN))}
+                onChange={(e) => persistInstructionsFromDraft(e.target.value)}
+                onBlur={() => commitInstructionsDraft()}
                 rows={4}
                 maxLength={INSTRUCTIONS_MAX_LEN}
                 placeholder="הוראות לביצוע התרגיל — יוצגו למטופל"
@@ -701,7 +718,7 @@ function PlanExerciseRow({
                   </button>
                   <button
                     type="button"
-                    onClick={saveInstructions}
+                    onClick={() => commitInstructionsDraft({ closeEditor: true })}
                     className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-white"
                     style={{ background: 'linear-gradient(135deg,#0d9488,#10b981)' }}
                   >
@@ -942,13 +959,14 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
         PatientExercise,
         'patientReps' | 'patientSets' | 'isOptional' | 'customInstructions' | 'instructions'
       >
-    >
+    >,
+    options?: { mirrorToPatientPayloadCache?: boolean }
   ) => {
     updateExerciseInPlan(selectedPatient.id, exerciseId, updates);
-    if (!Object.prototype.hasOwnProperty.call(updates, 'instructions')) return;
+    if (options?.mirrorToPatientPayloadCache !== true) return;
 
-    const nextExercises = currentExercises.map((e) =>
-      e.id === exerciseId ? { ...e, ...updates } : e
+    const nextExercises = (getExercisePlan(selectedPatient.id)?.exercises ?? currentExercises).map(
+      (e) => (e.id === exerciseId ? { ...e, ...updates } : e)
     );
     void persistExercisePlanCacheForPatient(selectedPatient.id, nextExercises);
   };
@@ -1143,7 +1161,9 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                       key={ex.id}
                       exercise={ex}
                       onRemove={() => removeExerciseFromPlan(selectedPatient.id, ex.id)}
-                      onUpdate={(updates) => handlePlanExerciseUpdate(ex.id, updates)}
+                      onUpdate={(updates, options) =>
+                        handlePlanExerciseUpdate(ex.id, updates, options)
+                      }
                     />
                   ))
                 )}
@@ -1276,9 +1296,11 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                 disabled={supabaseSyncStatus === 'saving'}
                 onClick={async () => {
                   setSuccessMsg(null);
+                  const latestExercises =
+                    getExercisePlan(selectedPatient.id)?.exercises ?? currentExercises;
                   const res = await saveExercisePlanForPatientToCloud(
                     selectedPatient.id,
-                    normalizeCachedPatientExercises(currentExercises),
+                    normalizeCachedPatientExercises(latestExercises),
                     { changeSummary: changeSummary.trim() }
                   );
                   if (res.ok) {

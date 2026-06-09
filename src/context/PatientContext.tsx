@@ -779,6 +779,8 @@ export function PatientProvider({
     const persisted = readPersistedOnce().patient;
     return persisted?.exercisePlans ?? [];
   });
+  const exercisePlansRef = useRef(exercisePlans);
+  exercisePlansRef.current = exercisePlans;
   const [dailySessions, setDailySessions] = useState<DailySession[]>(() => {
     if (isSupabaseAuthEnabled()) return [];
     const persisted = readPersistedOnce().patient;
@@ -2080,9 +2082,14 @@ export function PatientProvider({
 
         let failureMessage: string | null = null;
         const work = (async (): Promise<boolean> => {
+        const localPlan = pickCanonicalExercisePlan(exercisePlansRef.current, patientId);
+        const exercisesToPersist = normalizeCachedPatientExercises(
+          localPlan?.exercises?.length ? localPlan.exercises : exercises
+        );
+
         console.log('[Exercise cloud save] מתחיל שמירת תוכנית לענן', {
           patientId,
-          exerciseCount: exercises.length,
+          exerciseCount: exercisesToPersist.length,
           changeSummary: options?.changeSummary ?? null,
         });
 
@@ -2115,7 +2122,7 @@ export function PatientProvider({
         const upd = await updatePatientExercises(
           supabaseClient,
           patientId,
-          normalizeCachedPatientExercises(exercises),
+          exercisesToPersist,
           undefined,
           {
             changeSummary: options?.changeSummary,
@@ -2138,7 +2145,7 @@ export function PatientProvider({
           const clinicalDayMerge = getClinicalDate();
           const patientWithCache = mergePatientPayloadForUpsert(
             patientForCache,
-            { ...patientForCache, _exercisePlanCache: exercises },
+            { ...patientForCache, _exercisePlanCache: exercisesToPersist },
             { clinicalToday: clinicalDayMerge }
           );
           setAllPatients((prev) =>
@@ -2148,7 +2155,7 @@ export function PatientProvider({
           if (cacheResult.ok === false) {
             console.warn('[Exercise cloud save] עדכון _exercisePlanCache ב-patients נכשל (לא קריטי):', cacheResult.message, { patientId });
           } else {
-            console.log('[Exercise cloud save] _exercisePlanCache עודכן ב-patients.payload', { patientId, exerciseCount: exercises.length });
+            console.log('[Exercise cloud save] _exercisePlanCache עודכן ב-patients.payload', { patientId, exerciseCount: exercisesToPersist.length });
           }
         }
 
@@ -2163,7 +2170,7 @@ export function PatientProvider({
             const localPlan = prev.find((ep) => ep.patientId === patientId);
             const fallback = mergeFetchedExercisePlanWithLocal(
               localPlan,
-              { patientId, exercises },
+              { patientId, exercises: exercisesToPersist },
               patientId
             );
             return [...rest, fallback];
@@ -2174,7 +2181,7 @@ export function PatientProvider({
           const rest = prev.filter((ep) => ep.patientId !== patientId);
           const localPlan = prev.find((ep) => ep.patientId === patientId);
           const remoteSlice =
-            fresh.exercisePlan ?? ({ patientId, exercises } as ExercisePlan);
+            fresh.exercisePlan ?? ({ patientId, exercises: exercisesToPersist } as ExercisePlan);
           return [
             ...rest,
             mergeFetchedExercisePlanWithLocal(localPlan, remoteSlice, patientId),
