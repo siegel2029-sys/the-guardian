@@ -450,12 +450,17 @@ function PlanExerciseRow({
   );
 
   useEffect(() => {
+    // While the notes panel is open the draft is the source of truth — a lagging/refetched
+    // parent prop must not clobber the therapist's in-progress edit.
+    if (therapistNotesOpen) return;
     setTherapistNotesDraft(exercise.customInstructions ?? '');
-  }, [exercise.customInstructions, exercise.id]);
+  }, [exercise.customInstructions, exercise.id, therapistNotesOpen]);
 
   useEffect(() => {
+    // Same guard for the instructions editor: never reset the textarea mid-edit.
+    if (editingInstructions) return;
     setInstructionsDraft(exercise.instructions ?? '');
-  }, [exercise.instructions, exercise.id]);
+  }, [exercise.instructions, exercise.id, editingInstructions]);
 
   useEffect(() => {
     if (!onRegisterPendingFlush) return;
@@ -995,7 +1000,12 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     flushSync(() => {
       updateExerciseInPlan(selectedPatient.id, exerciseId, updates);
     });
-    const base = getExercisePlan(selectedPatient.id)?.exercises ?? currentExercises;
+    // readExercisePlanSnapshot reads exercisePlansRef, which flushSync just updated synchronously.
+    // getExercisePlan here is a stale closure over the pre-update exercisePlans — using it as the
+    // base would rebuild the plan without this (and earlier) edits and wipe them via the full
+    // replace in persistExercisePlanCacheForPatient.
+    const snap = readExercisePlanSnapshot(selectedPatient.id);
+    const base = snap.length > 0 ? snap : currentExercises;
     const nextExercises = base.map((e) =>
       e.id === exerciseId ? { ...e, ...updates } : e
     );

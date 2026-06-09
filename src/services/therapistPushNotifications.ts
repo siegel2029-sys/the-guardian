@@ -30,9 +30,11 @@ async function requireTherapistAuthSession(scope: string): Promise<boolean> {
 }
 
 /**
- * Upserts the therapist's push registration onto their own `profiles` row (RLS: id = auth.uid()).
- * Updates device keys, `last_activity_timestamp`, and clears any prior stale flag set by the Edge
- * Functions. Falls back gracefully when the push-health columns have not been migrated yet.
+ * Upserts the therapist's push registration as a per-device row in `therapist_push_subscriptions`
+ * (RLS: user_id = auth.uid()), keyed on the unique subscription endpoint. Unlike the legacy
+ * single-column write on `profiles`, registering from a second device (PC + Mobile) adds a row
+ * instead of overwriting the previous device — `notify-new-message` fans out to ALL rows.
+ * Falls back gracefully when the table has not been migrated yet.
  */
 export async function persistTherapistPushProfile(params: {
   therapistId: string;
@@ -46,46 +48,57 @@ export async function persistTherapistPushProfile(params: {
     return { ok: false, message: 'auth_session_missing' };
   }
 
-  const patch: Record<string, unknown> = {
-    push_token: params.token,
-    last_activity_timestamp: new Date().toISOString(),
-    push_invalidated_at: null,
-    push_last_error: null,
-  };
-
-  if (params.webPushSubscription) {
-    const canonical = normalizeCanonicalWebPushSubscription(params.webPushSubscription);
-    patch.push_payload = JSON.parse(JSON.stringify({ webPushSubscription: canonical }));
+  const endpoint = params.token.trim();
+  // Only HTTPS Web Push endpoints belong in therapist_push_subscriptions (Expo tokens excluded).
+  if (!endpoint.toLowerCase().startsWith('https://')) {
+    return { ok: false, message: 'token_is_not_web_push_endpoint' };
   }
 
-  const runUpdate = async (values: Record<string, unknown>) =>
-    supabase!
-      .from('profiles')
-      .update(values)
-      .eq('id', params.therapistId)
-      .select('id')
-      .maybeSingle();
+  // Without p256dh/auth keys the endpoint is undeliverable — nothing useful to persist.
+  if (!params.webPushSubscription) {
+    return { ok: false, message: 'missing_web_push_subscription_keys' };
+  }
+  const canonical = normalizeCanonicalWebPushSubscription(params.webPushSubscription);
+  const subscriptionData = JSON.parse(
+    JSON.stringify({ webPushSubscription: canonical })
+  ) as Record<string, unknown>;
 
-  let { data: updated, error } = await runUpdate(patch);
-
-  // Graceful fallback when the therapist push columns haven't been migrated on this environment yet.
-  if (error && /push_token|push_payload|push_invalidated_at|push_last_error|last_activity_timestamp|column.*does not exist/i.test(error.message)) {
-    console.warn(
-      '[PhysioShield therapist push] profiles push columns missing — apply migration 20260605120200_profiles_push_subscription.sql.',
+  const { error } = await supabase
+    .from('therapist_push_subscriptions')
+    .upsert(
+      {
+        user_id: params.therapistId,
+        endpoint,
+        subscription_data: subscriptionData,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'endpoint' }
     );
-    return { ok: false, message: `profiles_push_columns_missing: ${error.message}` };
+
+  // Graceful fallback when the multi-device table hasn't been migrated on this environment yet.
+  if (error && /therapist_push_subscriptions|relation.*does not exist|schema cache/i.test(error.message)) {
+    console.warn(
+      '[PhysioShield therapist push] therapist_push_subscriptions table missing — apply migration 20260610120000_therapist_push_subscriptions.sql.',
+    );
+    return { ok: false, message: `therapist_push_subscriptions_missing: ${error.message}` };
   }
 
   if (error) {
     return { ok: false, message: error.message };
   }
-  if (!updated?.id) {
-    return {
-      ok: false,
-      message:
-        'profile_update_returned_no_rows (check RLS and profiles.id matches the signed-in therapist auth.uid())',
-    };
+
+  // Non-fatal: keep profiles.last_activity_timestamp fresh for push-health triage.
+  const { error: activityError } = await supabase
+    .from('profiles')
+    .update({ last_activity_timestamp: new Date().toISOString() })
+    .eq('id', params.therapistId);
+  if (activityError) {
+    console.warn(
+      '[PhysioShield therapist push] last_activity_timestamp update failed (non-fatal):',
+      activityError.message,
+    );
   }
+
   return { ok: true };
 }
 

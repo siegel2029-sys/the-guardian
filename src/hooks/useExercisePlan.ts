@@ -288,20 +288,44 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         >
       >
     ) => {
-      setExercisePlans((prev) =>
-        prev.map((ep) =>
-          ep.patientId === patientId
-            ? {
-                ...ep,
-                exercises: ep.exercises.map((e) =>
-                  e.id === exerciseId ? { ...e, ...updates } : e
-                ),
-              }
-            : ep
-        )
-      );
+      setExercisePlans((prev) => {
+        const slice = pickCanonicalExercisePlan(prev, patientId);
+        if (slice && slice.exercises.length > 0) {
+          return prev.map((ep) =>
+            ep.patientId === patientId
+              ? {
+                  ...ep,
+                  exercises: ep.exercises.map((e) =>
+                    e.id === exerciseId ? { ...e, ...updates } : e
+                  ),
+                }
+              : ep
+          );
+        }
+        // No canonical slice (plan rendered from patients.payload._exercisePlanCache fallback):
+        // seed it from the cache and apply the update, instead of silently dropping the edit.
+        const patient =
+          patients.find((p) => p.id === patientId) ??
+          allPatients.find((p) => p.id === patientId);
+        const seeded = exercisePlanFromPatientCache(patientId, patient?._exercisePlanCache, {
+          planRowId: slice?.planRowId,
+          versionNumber: slice?.versionNumber,
+          isActive: slice?.isActive,
+        });
+        if (!seeded) return prev;
+        const rest = prev.filter((ep) => ep.patientId !== patientId);
+        return [
+          ...rest,
+          {
+            ...seeded,
+            exercises: seeded.exercises.map((e) =>
+              e.id === exerciseId ? { ...e, ...updates } : e
+            ),
+          },
+        ];
+      });
     },
-    []
+    [patients, allPatients]
   );
 
   // ── Daily sessions ─────────────────────────────────────────────

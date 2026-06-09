@@ -217,6 +217,27 @@ async function markPushTokenStale(
   }
 }
 
+/** Delete a single stale device row (410 Gone / 404 / 403) without touching the therapist's other devices. */
+async function deleteStaleTherapistSubscription(
+  supabase: SupabaseClient,
+  rowId: string,
+  detail: string,
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from("therapist_push_subscriptions")
+      .delete()
+      .eq("id", rowId);
+    if (error) {
+      console.error(`therapist-push: failed to delete stale subscription id=${rowId}: ${error.message}`);
+    } else {
+      console.log(`therapist-push: deleted stale subscription id=${rowId} (${detail.slice(0, 120)}).`);
+    }
+  } catch (e) {
+    console.error(`therapist-push: exception deleting stale subscription id=${rowId}:`, e instanceof Error ? e.message : String(e));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Webhook routing
 // ---------------------------------------------------------------------------
@@ -348,6 +369,12 @@ async function notifyPatient(supabase: SupabaseClient, record: Record<string, un
   return jsonResponse({ ok: true, sent: true, recipient: "patient", patientId: recipientId });
 }
 
+type TherapistSubscriptionRow = {
+  id: string;
+  endpoint: string;
+  subscription_data: unknown;
+};
+
 async function notifyTherapist(supabase: SupabaseClient, record: Record<string, unknown> | null): Promise<Response> {
   const therapistId = pickId(record, ["therapist_id", "therapistId", "to_therapist_id"]);
   if (!therapistId) {
@@ -355,7 +382,70 @@ async function notifyTherapist(supabase: SupabaseClient, record: Record<string, 
   }
 
   const isAiAlert = coerceBool(record?.ai_clinical_alert);
+  const notifyBody = isAiAlert ? THERAPIST_ALERT_NOTIFY_BODY : THERAPIST_CHAT_NOTIFY_BODY;
+  const notifyExtras = {
+    data: { url: THERAPIST_MESSAGES_PATH, intent: isAiAlert ? "clinical_alert" : "chat" },
+    tag: isAiAlert ? "physioshield-clinical-alert" : "physioshield-therapist-chat",
+  };
 
+  // Multi-device path: one row per registered device in therapist_push_subscriptions.
+  const { data: subRows, error: subErr } = await supabase
+    .from("therapist_push_subscriptions")
+    .select("id, endpoint, subscription_data")
+    .eq("user_id", therapistId);
+
+  const tableMissing =
+    subErr != null && /therapist_push_subscriptions|relation.*does not exist|schema cache/i.test(subErr.message);
+  if (subErr && !tableMissing) {
+    return jsonResponse({ ok: false, error: subErr.message }, 503);
+  }
+  if (tableMissing) {
+    console.warn("[notify-new-message] therapist_push_subscriptions table missing — apply migration 20260610120000. Using legacy profiles path.");
+  }
+
+  const devices = ((subRows ?? []) as TherapistSubscriptionRow[]).filter((row) =>
+    hasDeliverableToken(row.endpoint ?? "")
+  );
+
+  // STRICT if/else: when device rows exist, the legacy profiles.push_token path is NEVER used,
+  // so a therapist registered on both paths can never receive duplicate notifications.
+  if (devices.length > 0) {
+    console.log(`[notify-new-message] Tokens resolved: ${devices.length} device subscription(s) for therapist(${therapistId}); fanning out...`);
+
+    const results = await Promise.allSettled(
+      devices.map((row) => sendWebPush(row.endpoint.trim(), row.subscription_data, notifyBody, notifyExtras)),
+    );
+
+    let sent = 0;
+    const failures: Array<{ endpointId: string; detail?: string; stale: boolean }> = [];
+    const cleanups: Promise<void>[] = [];
+
+    results.forEach((settled, i) => {
+      const row = devices[i];
+      const res: PushSendResult = settled.status === "fulfilled"
+        ? settled.value
+        : { ok: false, detail: settled.reason instanceof Error ? settled.reason.message : String(settled.reason) };
+      if (res.ok) {
+        sent++;
+        return;
+      }
+      failures.push({ endpointId: row.id, detail: res.detail, stale: res.stale ?? false });
+      if (res.stale) {
+        // 410 Gone (and 404/403) — this specific device subscription is dead; delete only its row.
+        cleanups.push(deleteStaleTherapistSubscription(supabase, row.id, `chat: ${res.detail ?? "stale"}`));
+      }
+    });
+    await Promise.allSettled(cleanups);
+
+    console.log(`[notify-new-message] Fan-out for therapist(${therapistId}): sent=${sent} failed=${failures.length} total=${devices.length}${failures.some((f) => f.stale) ? " [stale rows deleted]" : ""}`);
+
+    if (sent === 0) {
+      return jsonResponse({ ok: false, therapistId, sent, failed: failures.length, total: devices.length, failures }, 200);
+    }
+    return jsonResponse({ ok: true, recipient: "therapist", therapistId, sent, failed: failures.length, total: devices.length });
+  }
+
+  // Legacy single-device fallback: profiles.push_token / push_payload (devices not yet re-registered).
   let profile: Record<string, unknown> | null = null;
   let profileErr: { message: string } | null = null;
   ({ data: profile, error: profileErr } = await supabase
@@ -378,20 +468,12 @@ async function notifyTherapist(supabase: SupabaseClient, record: Record<string, 
 
   const token = (profile.push_token as string | null | undefined)?.trim() ?? "";
   if (!hasDeliverableToken(token)) {
-    console.log(`[notify-new-message] Tokens resolved: 0 for therapist (${therapistId}) — not registered on this device.`);
+    console.log(`[notify-new-message] Tokens resolved: 0 for therapist (${therapistId}) — not registered on any device.`);
     return jsonResponse({ ok: true, sent: false, therapistId, reason: "no_deliverable_push_token" });
   }
 
-  console.log(`[notify-new-message] Tokens resolved: 1 web_push token for therapist(${therapistId}); routing to gateway...`);
-  const res = await sendWebPush(
-    token,
-    profile.push_payload,
-    isAiAlert ? THERAPIST_ALERT_NOTIFY_BODY : THERAPIST_CHAT_NOTIFY_BODY,
-    {
-      data: { url: THERAPIST_MESSAGES_PATH, intent: isAiAlert ? "clinical_alert" : "chat" },
-      tag: isAiAlert ? "physioshield-clinical-alert" : "physioshield-therapist-chat",
-    },
-  );
+  console.log(`[notify-new-message] Tokens resolved: 1 legacy web_push token for therapist(${therapistId}); routing to gateway...`);
+  const res = await sendWebPush(token, profile.push_payload, notifyBody, notifyExtras);
   console.log(`[notify-new-message] Gateway response for therapist(${therapistId}): ${res.ok ? "sent_ok" : res.detail ?? "failed"}${res.stale ? " [STALE → clearing token]" : ""}`);
 
   if (!res.ok) {
