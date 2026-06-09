@@ -54,13 +54,17 @@ export function patientHasPendingAiAdjustments(
   );
 }
 
-export function patientIsActive(p: Pick<Patient, 'status'>): boolean {
-  return p.status === 'active';
+export function patientIsFrozenStatus(
+  p: Pick<Patient, 'status' | 'accountFrozen'>
+): boolean {
+  if (p.accountFrozen === true) return true;
+  /** Legacy roster statuses before `accountFrozen` flag. */
+  return p.status === 'paused' || p.status === 'frozen';
 }
 
-/** Roster «מוקפא» — legacy `paused` or explicit `frozen` status. */
-export function patientIsFrozenStatus(p: Pick<Patient, 'status'>): boolean {
-  return p.status === 'paused' || p.status === 'frozen';
+/** Active roster — clinical `active` status and portal not frozen by therapist. */
+export function patientIsActive(p: Pick<Patient, 'status' | 'accountFrozen'>): boolean {
+  return p.status === 'active' && !patientIsFrozenStatus(p);
 }
 
 export type RosterClinicalStats = {
