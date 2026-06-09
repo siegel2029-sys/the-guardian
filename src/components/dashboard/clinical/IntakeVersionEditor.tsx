@@ -4,6 +4,7 @@ import type { PatientClinicalIntakeProfile, PatientIntakeVersionEntry } from '..
 import type { ClinicalIntakeEditableFields } from '../../../utils/clinicalIntakeEditableFields';
 import ClinicalIntelligencePanel from './ClinicalIntelligencePanel';
 import { MedicalIntakeSectionedReport } from './MedicalIntakeDashboard';
+import TreatmentProtocolPrognosisCard from './TreatmentProtocolPrognosisCard';
 import { useDebouncedCallback } from './useDebouncedCallback';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -150,6 +151,16 @@ export default function IntakeVersionEditor({
         }
         objectiveEditable={!readOnly}
         showAiInsights={false}
+      />
+
+      <TreatmentProtocolPrognosisCard
+        treatmentProtocol={fields.treatmentProtocol}
+        prognosisHypothesis={fields.prognosisHypothesis}
+        protocolTrackingState={fields.protocolTrackingState}
+        readOnly={readOnly}
+        onTrackingChange={
+          readOnly ? undefined : (protocolTrackingState) => patch({ protocolTrackingState })
+        }
       />
 
       <ClinicalIntelligencePanel

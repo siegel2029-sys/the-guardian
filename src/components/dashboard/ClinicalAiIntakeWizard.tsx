@@ -14,6 +14,8 @@ import type {
   InitialClinicalProfileExtras,
   PatientClinicalIntakeProfile,
   PatientMedicalProfileMetadata,
+  ProtocolTrackingState,
+  TreatmentProtocolWeek,
 } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { exerciseMatchesPrimary } from '../../utils/clinicalBodyArea';
@@ -95,6 +97,9 @@ type AnalysisBundle = {
   intakeNoticeHe?: string;
   clinicalIntakeProfile?: PatientClinicalIntakeProfile;
   medicalProfileMetadata?: PatientMedicalProfileMetadata;
+  treatmentProtocol?: TreatmentProtocolWeek[] | string;
+  prognosisHypothesis?: string;
+  protocolTrackingState?: ProtocolTrackingState;
 };
 
 function buildReviewClinicalContext(
@@ -248,6 +253,9 @@ async function runIntakeAnalysis(
       medicalProfileMetadata: medicalHistoryToProfileMetadata(
         clinicalIntakeProfile?.medical_history ?? g.medicalProfileMetadata ?? undefined
       ),
+      treatmentProtocol: g.treatmentProtocol,
+      prognosisHypothesis: g.prognosisHypothesis,
+      protocolTrackingState: g.protocolTrackingState,
     };
   } catch (e) {
     const bundle = buildLocalBundle(trimmed, local);
@@ -468,6 +476,20 @@ export default function ClinicalAiIntakeWizard({
       out.medicalProfileMetadata = medicalHistoryToProfileMetadata(
         reviewProfile.medical_history ?? analysisBundle.medicalProfileMetadata
       );
+      if (
+        analysisBundle.treatmentProtocol !== undefined &&
+        (Array.isArray(analysisBundle.treatmentProtocol)
+          ? analysisBundle.treatmentProtocol.length > 0
+          : analysisBundle.treatmentProtocol.trim())
+      ) {
+        out.treatmentProtocol = analysisBundle.treatmentProtocol;
+      }
+      if (analysisBundle.prognosisHypothesis?.trim()) {
+        out.prognosisHypothesis = analysisBundle.prognosisHypothesis.trim();
+      }
+      if (analysisBundle.protocolTrackingState?.length) {
+        out.protocolTrackingState = analysisBundle.protocolTrackingState;
+      }
     }
     if (!out.clinicalIntakeProfile) {
       const parsed = parseClinicalIntakeProfileFromStory(caseStory);

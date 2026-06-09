@@ -10,6 +10,8 @@ import { normalizeLegacyIntake } from './normalizeLegacyIntake';
 import {
   applyLegacyNormalizationIfNeeded,
   buildPatientPatchFromEditableIntakeFields,
+  emptyProtocolFields,
+  normalizeEditableIntakeFields,
   type ClinicalIntakeEditableFields,
 } from './clinicalIntakeEditableFields';
 import {
@@ -47,7 +49,9 @@ function ensureList(items: string[] | undefined, min = 1): string[] {
 }
 
 function fieldsToSnapshot(fields: ClinicalIntakeEditableFields): ClinicalIntakeEditableFields {
-  return JSON.parse(JSON.stringify(fields)) as ClinicalIntakeEditableFields;
+  return normalizeEditableIntakeFields(
+    JSON.parse(JSON.stringify(fields)) as Partial<ClinicalIntakeEditableFields>
+  );
 }
 
 /** Collapse duplicate ids — keeps the last occurrence (newest payload wins). */
@@ -119,7 +123,7 @@ function fieldsFromArchiveSource(
     { narrative: caseStory, profile }
   );
 
-  return {
+  return normalizeEditableIntakeFields({
     caseStory,
     vasScore,
     diagnosis: archive.diagnosis?.trim() || ex.clinicalDiagnosis?.trim() || '',
@@ -129,7 +133,15 @@ function fieldsFromArchiveSource(
     clinicalConclusionsHe: ensureList(pruned.clinicalConclusionsHe),
     redFlags: ensureList(pruned.redFlags),
     clinicalIntakeProfile: profile,
-  };
+    ...emptyProtocolFields(),
+    ...(ex.treatmentProtocol !== undefined ? { treatmentProtocol: ex.treatmentProtocol } : {}),
+    ...(ex.prognosisHypothesis?.trim()
+      ? { prognosisHypothesis: ex.prognosisHypothesis.trim() }
+      : {}),
+    ...(ex.protocolTrackingState?.length
+      ? { protocolTrackingState: ex.protocolTrackingState }
+      : {}),
+  });
 }
 
 export function loadInitialIntakeFields(patient: Patient): ClinicalIntakeEditableFields {
@@ -165,7 +177,7 @@ function loadPatientRootIntakeFields(
     { narrative: caseStory, profile }
   );
 
-  const base: ClinicalIntakeEditableFields = {
+  const base: ClinicalIntakeEditableFields = normalizeEditableIntakeFields({
     caseStory,
     vasScore:
       vasFromPatient != null && Number.isFinite(vasFromPatient)
@@ -180,7 +192,8 @@ function loadPatientRootIntakeFields(
     clinicalConclusionsHe: ensureList(pruned.clinicalConclusionsHe),
     redFlags: ensureList(pruned.redFlags),
     clinicalIntakeProfile: profile,
-  };
+    ...emptyProtocolFields(),
+  });
 
   if (options?.skipLegacyRestore) return base;
   return applyLegacyNormalizationIfNeeded(patient, base).fields;
@@ -193,7 +206,7 @@ export function loadLatestIntakeFields(
   const persisted = (patient.intakeVersionTimeline ?? []).filter((v) => !v.archived);
   if (persisted.length > 0) {
     const active = getActiveIntakeVersion(persisted);
-    if (active) return fieldsToSnapshot(active.fields);
+    if (active) return fieldsToSnapshot(active.fields as ClinicalIntakeEditableFields);
   }
   return loadPatientRootIntakeFields(patient, options);
 }

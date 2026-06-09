@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { PatientIntakeVersionEntry } from '../types';
 import type { ClinicalIntakeEditableFields } from '../utils/clinicalIntakeEditableFields';
+import { normalizeEditableIntakeFields } from '../utils/clinicalIntakeEditableFields';
 import { ensureSupabaseSessionReady, logSupabaseCallError } from '../lib/supabaseSessionGuard';
 
 const UUID_RE =
@@ -25,7 +26,9 @@ type PatientIntakeVersionPayload = {
 };
 
 function fieldsToSnapshot(fields: ClinicalIntakeEditableFields): ClinicalIntakeEditableFields {
-  return JSON.parse(JSON.stringify(fields)) as ClinicalIntakeEditableFields;
+  return normalizeEditableIntakeFields(
+    JSON.parse(JSON.stringify(fields)) as Partial<ClinicalIntakeEditableFields>
+  );
 }
 
 /** True when the id is a Postgres-generated UUID (persisted row). */

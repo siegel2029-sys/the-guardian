@@ -4,6 +4,8 @@ import type {
   PatientClinicalIntakeMedicalHistory,
   PatientClinicalIntakeProfile,
   PatientMedicalProfileMetadata,
+  ProtocolTrackingState,
+  TreatmentProtocolWeek,
 } from '../types';
 import { EXERCISE_LIBRARY } from '../data/mockData';
 import { getExerciseBankIdListForPrompt } from '../data/exerciseBank';
@@ -14,6 +16,7 @@ import {
   getGeminiGenerateContentUrlForLogging,
   getGeminiModelId,
 } from './geminiClient';
+import { mapInitialIntakeProtocolFromRaw } from '../utils/medicalIntakeSchema';
 
 export { getGeminiApiKey, GeminiRateLimitedError } from './geminiClient';
 
@@ -36,6 +39,10 @@ export type GeminiClinicalCaseRaw = {
   clinicalIntakeProfile?: unknown;
   /** @deprecated — קרא מ־clinicalIntakeProfile.medical_history */
   medicalProfileMetadata?: unknown;
+  two_month_protocol?: unknown;
+  twoMonthProtocol?: unknown;
+  two_month_prognosis?: unknown;
+  twoMonthPrognosis?: unknown;
 };
 
 /** Normalized clinical case returned to the app. */
@@ -55,6 +62,9 @@ export type GeminiClinicalIntakeResult = {
   clinicalIntakeProfile: PatientClinicalIntakeProfile | null;
   /** mirror של medical_history לתאימות */
   medicalProfileMetadata: PatientMedicalProfileMetadata | null;
+  treatmentProtocol: TreatmentProtocolWeek[] | string;
+  prognosisHypothesis: string;
+  protocolTrackingState: ProtocolTrackingState;
 };
 
 function logInfo(message: string, detail?: Record<string, unknown>): void {
@@ -262,6 +272,8 @@ function normalizeClinicalCase(raw: unknown): GeminiClinicalIntakeResult {
     clinicalIntakeProfile?.medical_history ??
     normalizeMedicalProfileMetadata(o.medicalProfileMetadata);
 
+  const protocolFields = mapInitialIntakeProtocolFromRaw(o as Record<string, unknown>);
+
   return {
     primaryInjuryZoneJoint: primary,
     chainReactionZoneJoints: chain,
@@ -277,6 +289,9 @@ function normalizeClinicalCase(raw: unknown): GeminiClinicalIntakeResult {
     proposedExercises,
     clinicalIntakeProfile,
     medicalProfileMetadata,
+    treatmentProtocol: protocolFields.treatmentProtocol,
+    prognosisHypothesis: protocolFields.prognosisHypothesis,
+    protocolTrackingState: protocolFields.protocolTrackingState,
   };
 }
 
@@ -350,7 +365,11 @@ export async function analyzeIntakeStoryWithGemini(
       "chronicMedications": "<תרופות קבועות — «ללא» אם לא צוין>"
     },
     "goals": ["<מטרת שיקום 1>", "<מטרת שיקום 2>"]
-  }
+  },
+  "two_month_protocol": [
+    { "week": 1, "title": "שבוע 1 — …", "milestones": ["…", "…"] }
+  ],
+  "two_month_prognosis": "<תחזית מקצועית ומעודדת ל-2 חודשים בהנחת ציות — ללא התחייבות רפואית>"
 }
 
 כללים:
@@ -361,7 +380,9 @@ export async function analyzeIntakeStoryWithGemini(
 - patientQuestions ו-suggestedAnswers: אותו אורך מערך ככל האפשר (שאלה↔תשובה) לפי הסיפור.
 - clinicalIntakeProfile: חובה. שדות ריקים — ranges/special_tests/goals: [] ; muscle_strength: "" ; medical_history: «ללא» לשני השדות.
 - clinicalDiagnosis: משפט קליני אחד קצר (לא רשימה ולא כפילות של ROM/כוח/מטרות — אלה רק ב-clinicalIntakeProfile).
-- clinicalReasoningHe: עד 3 שורות נימוק, ללא חזרה על אבחנה או ROM.${followUpBlock}`;
+- clinicalReasoningHe: עד 3 שורות נימוק, ללא חזרה על אבחנה או ROM/כוח/מטרות.
+- two_month_protocol: מערך שבועות (מספר גמיש לפי המקרה, לרוב ~8) עם milestones קונקרטיים — מותאם ל-ROM/MMT/מטרות.
+- two_month_prognosis: תחזית מעודדת לציות — ללא התחייבות רפואית.${followUpBlock}`;
 
   const userText = `רשימת מפרקים מורשית (BodyArea IDs בלבד):
 ${jointIds}

@@ -356,6 +356,28 @@ export type PatientClinicalIntakeProfile = {
 /** @deprecated השתמשו ב־`clinicalIntakeProfile.medical_history` — נשמר לתאימות */
 export type PatientMedicalProfileMetadata = PatientClinicalIntakeMedicalHistory;
 
+/** שבוע בפרוטוקול טיפול — אורך דינמי (AI יכול להחזיר 4–12+ שבועות) */
+export type TreatmentProtocolWeek = {
+  weekNumber: number;
+  title: string;
+  milestones: string[];
+};
+
+export type ProtocolTrackingMilestone = {
+  id: string;
+  label: string;
+  completed: boolean;
+  completedAt?: string;
+};
+
+export type ProtocolTrackingWeek = {
+  weekNumber: number;
+  milestones: ProtocolTrackingMilestone[];
+};
+
+/** מצב מעקב שבועי — אורך תואם לפרוטוקול */
+export type ProtocolTrackingState = ProtocolTrackingWeek[];
+
 /** שדות גרסת אינטייק — snapshot לציר הגרסאות */
 export type IntakeVersionFieldsSnapshot = {
   caseStory: string;
@@ -367,6 +389,12 @@ export type IntakeVersionFieldsSnapshot = {
   clinicalConclusionsHe: string[];
   redFlags: string[];
   clinicalIntakeProfile: PatientClinicalIntakeProfile;
+  /** פרוטוקול טיפול — מערך שבועות או טקסט חופשי */
+  treatmentProtocol?: TreatmentProtocolWeek[] | string;
+  /** תחזית פרוגנוזה לטווח ~2 חודשים */
+  prognosisHypothesis?: string;
+  /** מעקב השלמת אבני דרך שבועיות */
+  protocolTrackingState?: ProtocolTrackingState;
 };
 
 export type PatientIntakeVersionKind = 'initial' | 'analysis';
@@ -389,6 +417,8 @@ export type PatientIntakeVersionEntry = {
     rom_metrics: string | Record<string, string>;
     ai_conclusions: string[];
     recommendations: string[];
+    two_month_protocol?: TreatmentProtocolWeek[] | string;
+    two_month_prognosis?: string;
   };
   comparativeMeta?: {
     discrepancies: string[];
@@ -430,6 +460,10 @@ export type InitialClinicalProfileExtras = {
   geminiClinicalNarrative?: string;
   /** דגל אדום שזוהה בסיפור — התראה למטפל */
   intakeRedFlag?: boolean;
+  /** פרוטוקול/פרוגנוזה — נשמרים בגרסת אינטייק בלבד (wizard transport) */
+  treatmentProtocol?: TreatmentProtocolWeek[] | string;
+  prognosisHypothesis?: string;
+  protocolTrackingState?: ProtocolTrackingState;
 };
 
 /** עקיפת נעילה קלינית ויזואלית במפת גוף — מול חישוב שרשרת אוטומטי */

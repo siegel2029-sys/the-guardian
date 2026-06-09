@@ -194,13 +194,20 @@ const MEDICAL_SCHEMA_PROMPT = `החזר **רק** JSON תקין עם המפתחו
     "differential_diagnosis": ["אבחנה מבדלת"],
     "precautions": ["ממה להיזהר"],
     "red_flags": ["דגל אדום"],
-    "diagnosis": "רושם קליני קצר"
+    "diagnosis": "רושם קליני קצר",
+    "two_month_protocol": [
+      { "week": 1, "title": "שבוע 1 — …", "milestones": ["…", "…"] }
+    ],
+    "two_month_prognosis": "תחזית מקצועית ומעודדת ל-2 חודשים בהנחת ציות מלא — ללא התחייבות רפואית"
   },
   "discrepancies": ["פער בין אינטייק לנוכחי"],
   "reevaluation": { "needed": false, "rationaleHe": "נימוק" }
 }
 
 חובה: medical_schema.clinical_story, pain_score (0-10 או null), strength_metrics, rom_metrics, ai_conclusions (מערך), recommendations (מערך).
+חובה גם: two_month_protocol (מערך שבועות — מספר שבועות גמיש לפי המקרה, לרוב ~8), two_month_prognosis (מחרוזת).
+two_month_protocol: התאם ל-ROM/MMT/סיפור המקרה; milestones קונקרטיים לכל שבוע.
+two_month_prognosis: תחזית מעודדת לציות — ללא התחייבות רפואית.
 אסור לשלב ROM/MMT/מסקנות בתוך clinical_story.`;
 
 export async function analyzeIntakeVersusCurrentCare(

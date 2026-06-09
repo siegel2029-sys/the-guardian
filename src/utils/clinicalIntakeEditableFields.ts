@@ -1,4 +1,10 @@
-import type { ClinicalIntakeAiInsights, Patient, PatientClinicalIntakeProfile } from '../types';
+import type {
+  ClinicalIntakeAiInsights,
+  Patient,
+  PatientClinicalIntakeProfile,
+  ProtocolTrackingState,
+  TreatmentProtocolWeek,
+} from '../types';
 import { isClinicalIntakeProfileEmpty, medicalHistoryToProfileMetadata } from './clinicalIntakeTemplate';
 import { resolveCoreLegacyIntakeSummaryText } from './clinicalIntakeProfileMigration';
 import { resolvePatientClinicalIntakeProfile } from './clinicalIntakeProfileDisplay';
@@ -25,7 +31,44 @@ export type ClinicalIntakeEditableFields = {
   redFlags: string[];
   /** Objective metrics — ROM, MMT, special tests, medical history, goals */
   clinicalIntakeProfile: PatientClinicalIntakeProfile;
+  treatmentProtocol: TreatmentProtocolWeek[] | string;
+  prognosisHypothesis: string;
+  protocolTrackingState: ProtocolTrackingState;
 };
+
+export function emptyProtocolFields(): Pick<
+  ClinicalIntakeEditableFields,
+  'treatmentProtocol' | 'prognosisHypothesis' | 'protocolTrackingState'
+> {
+  return {
+    treatmentProtocol: [],
+    prognosisHypothesis: '',
+    protocolTrackingState: [],
+  };
+}
+
+/** Normalize partial snapshot / legacy rows to full editable shape. */
+export function normalizeEditableIntakeFields(
+  raw: Partial<ClinicalIntakeEditableFields> & {
+    clinicalIntakeProfile?: PatientClinicalIntakeProfile;
+  }
+): ClinicalIntakeEditableFields {
+  const protocolDefaults = emptyProtocolFields();
+  return {
+    caseStory: raw.caseStory ?? '',
+    vasScore: raw.vasScore ?? null,
+    diagnosis: raw.diagnosis ?? '',
+    differentialDiagnosis: raw.differentialDiagnosis ?? [],
+    precautionsHe: raw.precautionsHe ?? [],
+    recommendedTestsHe: raw.recommendedTestsHe ?? [],
+    clinicalConclusionsHe: raw.clinicalConclusionsHe ?? [],
+    redFlags: raw.redFlags ?? [],
+    clinicalIntakeProfile: raw.clinicalIntakeProfile ?? {},
+    treatmentProtocol: raw.treatmentProtocol ?? protocolDefaults.treatmentProtocol,
+    prognosisHypothesis: raw.prognosisHypothesis ?? protocolDefaults.prognosisHypothesis,
+    protocolTrackingState: raw.protocolTrackingState ?? protocolDefaults.protocolTrackingState,
+  };
+}
 
 export type LegacyIntakeRestoreResult = {
   fields: ClinicalIntakeEditableFields;
@@ -199,6 +242,7 @@ export function loadClinicalIntakeEditableFields(
     clinicalConclusionsHe: ensureList(pruned.clinicalConclusionsHe),
     redFlags: ensureList(pruned.redFlags),
     clinicalIntakeProfile: profile,
+    ...emptyProtocolFields(),
   };
 
   if (options?.skipLegacyRestore) return base;

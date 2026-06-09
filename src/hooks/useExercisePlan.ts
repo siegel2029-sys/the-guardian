@@ -27,6 +27,11 @@ import { getTherapistAlertEmail, openClinicalMailto } from '../utils/clinicalAle
 import { medicalHistoryToProfileMetadata } from '../utils/clinicalIntakeTemplate';
 import { normalizeClinicalIntakeProfileForStorage } from '../utils/clinicalIntakeProfilePersist';
 import {
+  normalizeEditableIntakeFields,
+  type ClinicalIntakeEditableFields,
+} from '../utils/clinicalIntakeEditableFields';
+import { resolveIntakeVersionTimeline } from '../utils/clinicalIntakeVersions';
+import {
   PAIN_SURGE_PATIENT_COPY,
   DIFFICULTY_MAX_PATIENT_COPY,
 } from '../safety/clinicalEmergencyScreening';
@@ -1116,14 +1121,14 @@ export function useExercisePlan(params: UseExercisePlanParams) {
                     : {}),
                 },
               };
-          return {
+          const patientCore = {
             ...p,
             name,
             ...(extras?.displayName?.trim()
               ? { displayAlias: extras.displayName.trim() }
               : {}),
             primaryBodyArea,
-            status: 'active',
+            status: 'active' as const,
             diagnosis,
             ...(geminiClinicalNarrative != null
               ? { geminiClinicalNarrative }
@@ -1139,7 +1144,6 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             ...(extras?.intakeVasScore != null && Number.isFinite(extras.intakeVasScore)
               ? { intakeVasScore: extras.intakeVasScore }
               : {}),
-            /** clinical_story — סיפור המקרה (שדה נפרד מקטעי AI) */
             ...(extras?.intakeStory?.trim()
               ? { intakeStory: extras.intakeStory.trim() }
               : {}),
@@ -1148,7 +1152,41 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             secondaryClinicalBodyAreas: secondary,
             hasRedFlag: p.hasRedFlag || !!extras?.intakeRedFlag,
             initialIntakeArchive: archive,
-            intakeStatus: 'complete',
+            intakeStatus: 'complete' as const,
+          };
+
+          const hasProtocolFields =
+            extras?.treatmentProtocol !== undefined ||
+            Boolean(extras?.prognosisHypothesis?.trim()) ||
+            (extras?.protocolTrackingState?.length ?? 0) > 0;
+
+          if (!hasProtocolFields) {
+            return patientCore;
+          }
+
+          const timeline = resolveIntakeVersionTimeline(patientCore);
+          const initialIdx = timeline.findIndex((v) => v.immutable || v.kind === 'initial');
+          const targetIdx = initialIdx >= 0 ? initialIdx : 0;
+          const nextTimeline = [...timeline];
+          nextTimeline[targetIdx] = {
+            ...nextTimeline[targetIdx],
+            fields: normalizeEditableIntakeFields({
+              ...(nextTimeline[targetIdx].fields as Partial<ClinicalIntakeEditableFields>),
+              ...(extras?.treatmentProtocol !== undefined
+                ? { treatmentProtocol: extras.treatmentProtocol }
+                : {}),
+              ...(extras?.prognosisHypothesis?.trim()
+                ? { prognosisHypothesis: extras.prognosisHypothesis.trim() }
+                : {}),
+              ...(extras?.protocolTrackingState?.length
+                ? { protocolTrackingState: extras.protocolTrackingState }
+                : {}),
+            }),
+          };
+
+          return {
+            ...patientCore,
+            intakeVersionTimeline: nextTimeline,
           };
         })
       );

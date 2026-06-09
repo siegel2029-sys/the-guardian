@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, FileStack, Loader2, Plus, Sparkles, X } from 'lucide-react';
 import type { Patient, PatientIntakeVersionEntry } from '../../../types';
 import type { ClinicalIntakeEditableFields } from '../../../utils/clinicalIntakeEditableFields';
+import { normalizeEditableIntakeFields } from '../../../utils/clinicalIntakeEditableFields';
 import {
   buildBootstrapTimelinePatchIfNeeded,
   buildClonedVersionEntry,
@@ -47,7 +48,9 @@ type Props = {
 };
 
 function versionFieldsSnapshot(v: PatientIntakeVersionEntry): ClinicalIntakeEditableFields {
-  return JSON.parse(JSON.stringify(v.fields)) as ClinicalIntakeEditableFields;
+  return normalizeEditableIntakeFields(
+    JSON.parse(JSON.stringify(v.fields)) as Partial<ClinicalIntakeEditableFields>
+  );
 }
 
 function timelineSignature(timeline: PatientIntakeVersionEntry[]): string {

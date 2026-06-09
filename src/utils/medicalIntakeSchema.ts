@@ -1,7 +1,12 @@
 import type { IntakeComparativeAiResult } from '../ai/geminiIntakeComparativeFollowup';
-import type { PatientClinicalIntakeProfile } from '../types';
+import type { PatientClinicalIntakeProfile, TreatmentProtocolWeek } from '../types';
 import type { ClinicalIntakeEditableFields } from './clinicalIntakeEditableFields';
+import { emptyProtocolFields } from './clinicalIntakeEditableFields';
 import { normalizeClinicalIntakeProfileForStorage } from './clinicalIntakeProfilePersist';
+import {
+  parseTreatmentProtocolFromAi,
+  resolveProtocolTrackingState,
+} from './protocolTrackingState';
 
 /** Strict medical schema — AI must return structured JSON, never a single text blob. */
 export type MedicalIntakeAnalysisSchema = {
@@ -16,6 +21,8 @@ export type MedicalIntakeAnalysisSchema = {
   precautions?: string[];
   red_flags?: string[];
   diagnosis?: string;
+  two_month_protocol?: TreatmentProtocolWeek[] | string;
+  two_month_prognosis?: string;
 };
 
 function asStringList(v: unknown, max = 24): string[] {
@@ -74,6 +81,19 @@ function ensureList(items: string[] | undefined, min = 1): string[] {
   return clean.length > 0 ? clean : Array(min).fill('');
 }
 
+function parseTwoMonthPrognosis(ms: Record<string, unknown>): string {
+  const raw = ms.two_month_prognosis ?? ms.twoMonthPrognosis;
+  return typeof raw === 'string' ? raw.trim() : '';
+}
+
+function parseTwoMonthProtocol(ms: Record<string, unknown>): TreatmentProtocolWeek[] | string | undefined {
+  const raw = ms.two_month_protocol ?? ms.twoMonthProtocol;
+  if (raw == null) return undefined;
+  if (typeof raw === 'string') return raw.trim() || undefined;
+  const parsed = parseTreatmentProtocolFromAi(raw);
+  return parsed.length > 0 ? parsed : undefined;
+}
+
 /** Parse AI JSON into the strict medical schema. */
 export function parseMedicalIntakeSchemaFromAi(raw: Record<string, unknown>): MedicalIntakeAnalysisSchema | null {
   const ms = (raw.medical_schema ?? raw.medicalSchema ?? raw) as Record<string, unknown>;
@@ -91,6 +111,8 @@ export function parseMedicalIntakeSchemaFromAi(raw: Record<string, unknown>): Me
 
   const ai_conclusions = asStringList(ms.ai_conclusions ?? ms.aiConclusions);
   const recommendations = asStringList(ms.recommendations);
+  const two_month_prognosis = parseTwoMonthPrognosis(ms);
+  const two_month_protocol = parseTwoMonthProtocol(ms);
 
   if (
     !clinical_story &&
@@ -98,7 +120,9 @@ export function parseMedicalIntakeSchemaFromAi(raw: Record<string, unknown>): Me
     !metricsToString(strength_metrics) &&
     romMetricsToRanges(rom_metrics).length === 0 &&
     ai_conclusions.length === 0 &&
-    recommendations.length === 0
+    recommendations.length === 0 &&
+    !two_month_prognosis &&
+    !two_month_protocol
   ) {
     return null;
   }
@@ -123,6 +147,8 @@ export function parseMedicalIntakeSchemaFromAi(raw: Record<string, unknown>): Me
       typeof ms.diagnosis === 'string'
         ? ms.diagnosis.trim()
         : undefined,
+    ...(two_month_protocol !== undefined ? { two_month_protocol } : {}),
+    ...(two_month_prognosis ? { two_month_prognosis } : {}),
   };
 }
 
@@ -134,6 +160,33 @@ export function mapAiResponseToFields(
   const schema =
     'medicalSchema' in aiResponse ? aiResponse.medicalSchema : aiResponse;
   return mapMedicalSchemaToEditableFields(schema, base);
+}
+
+function mapProtocolFieldsFromSchema(
+  schema: MedicalIntakeAnalysisSchema,
+  base?: ClinicalIntakeEditableFields
+): Pick<
+  ClinicalIntakeEditableFields,
+  'treatmentProtocol' | 'prognosisHypothesis' | 'protocolTrackingState'
+> {
+  const defaults = emptyProtocolFields();
+  const rawProtocol = schema.two_month_protocol;
+  const treatmentProtocol =
+    rawProtocol !== undefined
+      ? typeof rawProtocol === 'string'
+        ? rawProtocol
+        : rawProtocol
+      : base?.treatmentProtocol ?? defaults.treatmentProtocol;
+
+  const prognosisHypothesis =
+    schema.two_month_prognosis?.trim() || base?.prognosisHypothesis || defaults.prognosisHypothesis;
+
+  const protocolTrackingState =
+    rawProtocol !== undefined
+      ? resolveProtocolTrackingState(treatmentProtocol, base?.protocolTrackingState)
+      : base?.protocolTrackingState ?? defaults.protocolTrackingState;
+
+  return { treatmentProtocol, prognosisHypothesis, protocolTrackingState };
 }
 
 /** Map medical schema → editable intake fields for the versioned UI. */
@@ -173,6 +226,7 @@ export function mapMedicalSchemaToEditableFields(
     ),
     redFlags: ensureList(schema.red_flags?.length ? schema.red_flags : base?.redFlags),
     clinicalIntakeProfile: profile,
+    ...mapProtocolFieldsFromSchema(schema, base),
   };
 }
 
@@ -191,5 +245,33 @@ export function mapEditableFieldsToMedicalSchema(
     precautions: fields.precautionsHe.map((s) => s.trim()).filter(Boolean),
     red_flags: fields.redFlags.map((s) => s.trim()).filter(Boolean),
     diagnosis: fields.diagnosis.trim() || undefined,
+    ...(fields.treatmentProtocol
+      ? { two_month_protocol: fields.treatmentProtocol }
+      : {}),
+    ...(fields.prognosisHypothesis.trim()
+      ? { two_month_prognosis: fields.prognosisHypothesis.trim() }
+      : {}),
+  };
+}
+
+/** Map initial intake wizard AI result → protocol fields for version timeline. */
+export function mapInitialIntakeProtocolFromRaw(raw: Record<string, unknown>): Pick<
+  ClinicalIntakeEditableFields,
+  'treatmentProtocol' | 'prognosisHypothesis' | 'protocolTrackingState'
+> {
+  const protocolRaw = raw.two_month_protocol ?? raw.twoMonthProtocol;
+  const prognosisRaw = raw.two_month_prognosis ?? raw.twoMonthPrognosis;
+  const treatmentProtocol =
+    protocolRaw != null
+      ? typeof protocolRaw === 'string'
+        ? protocolRaw.trim()
+        : parseTreatmentProtocolFromAi(protocolRaw)
+      : [];
+  const prognosisHypothesis =
+    typeof prognosisRaw === 'string' ? prognosisRaw.trim() : '';
+  return {
+    treatmentProtocol,
+    prognosisHypothesis,
+    protocolTrackingState: resolveProtocolTrackingState(treatmentProtocol),
   };
 }
