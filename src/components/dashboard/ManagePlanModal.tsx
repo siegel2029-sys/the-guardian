@@ -1,4 +1,5 @@
 import { useRef, useState, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import type { RefObject } from 'react';
 import {
   X, Plus, Trash2, Pencil, Check, Search, BookOpen,
@@ -388,6 +389,7 @@ function PlanExerciseRow({
   exercise,
   onRemove,
   onUpdate,
+  onRegisterPendingFlush,
 }: {
   exercise: PatientExercise;
   onRemove: () => void;
@@ -399,10 +401,14 @@ function PlanExerciseRow({
       >
     >
   ) => void;
+  /** Parent calls registered flushes before global Save (draft may lag exercisePlans state). */
+  onRegisterPendingFlush?: (flush: () => void) => () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editingInstructions, setEditingInstructions] = useState(false);
   const [instructionsDraft, setInstructionsDraft] = useState(exercise.instructions ?? '');
+  const instructionsDraftRef = useRef(instructionsDraft);
+  instructionsDraftRef.current = instructionsDraft;
   const [editSets, setEditSets] = useState(exercise.patientSets);
   const [editReps, setEditReps] = useState(exercise.patientReps);
   const [therapistNotesOpen, setTherapistNotesOpen] = useState(
@@ -411,6 +417,8 @@ function PlanExerciseRow({
   const [therapistNotesDraft, setTherapistNotesDraft] = useState(
     exercise.customInstructions ?? ''
   );
+  const therapistNotesDraftRef = useRef(therapistNotesDraft);
+  therapistNotesDraftRef.current = therapistNotesDraft;
   const [noteSaveFlash, setNoteSaveFlash] = useState(false);
   const notesTaRef = useRef<HTMLTextAreaElement>(null);
   const noteSaveFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -448,6 +456,24 @@ function PlanExerciseRow({
   useEffect(() => {
     setInstructionsDraft(exercise.instructions ?? '');
   }, [exercise.instructions, exercise.id]);
+
+  useEffect(() => {
+    if (!onRegisterPendingFlush) return;
+    const flush = () => {
+      if (editingInstructions) {
+        const capped = instructionsDraftRef.current.slice(0, INSTRUCTIONS_MAX_LEN);
+        onUpdate({ instructions: capped });
+      }
+      if (therapistNotesOpen) {
+        onUpdate({
+          customInstructions: normalizeCustomInstructionsForStore(
+            therapistNotesDraftRef.current
+          ),
+        });
+      }
+    };
+    return onRegisterPendingFlush(flush);
+  }, [onRegisterPendingFlush, editingInstructions, therapistNotesOpen, onUpdate]);
 
   const persistInstructionsFromDraft = useCallback(
     (raw: string) => {
@@ -881,6 +907,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     persistExercisePlanCacheForPatient,
     replaceExercisePlanForPatient,
     saveExercisePlanForPatientToCloud,
+    readExercisePlanSnapshot,
     exercisePlans,
     supabaseConfigured,
     supabaseSyncStatus,
@@ -897,6 +924,14 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
 
   const libraryTriggerRef = useRef<HTMLButtonElement>(null);
   const customTriggerRef = useRef<HTMLButtonElement>(null);
+  const pendingFlushesRef = useRef(new Set<() => void>());
+
+  const registerPendingFlush = useCallback((flush: () => void) => {
+    pendingFlushesRef.current.add(flush);
+    return () => {
+      pendingFlushesRef.current.delete(flush);
+    };
+  }, []);
 
   const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
   const currentExercises = useMemo(() => plan?.exercises ?? [], [plan]);
@@ -957,13 +992,23 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
       >
     >
   ) => {
-    updateExerciseInPlan(selectedPatient.id, exerciseId, updates);
+    flushSync(() => {
+      updateExerciseInPlan(selectedPatient.id, exerciseId, updates);
+    });
     const base = getExercisePlan(selectedPatient.id)?.exercises ?? currentExercises;
     const nextExercises = base.map((e) =>
       e.id === exerciseId ? { ...e, ...updates } : e
     );
     void persistExercisePlanCacheForPatient(selectedPatient.id, nextExercises);
   };
+
+  const resolveExercisesForCloudSave = useCallback((): PatientExercise[] => {
+    flushSync(() => {
+      pendingFlushesRef.current.forEach((flush) => flush());
+    });
+    const snap = readExercisePlanSnapshot(selectedPatient!.id);
+    return snap.length > 0 ? snap : normalizeCachedPatientExercises(currentExercises);
+  }, [currentExercises, readExercisePlanSnapshot, selectedPatient]);
 
   const handleAddCustom = (data: CustomFormData) => {
     const xpReward = data.difficulty * 8 + 12;
@@ -1156,6 +1201,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                       exercise={ex}
                       onRemove={() => removeExerciseFromPlan(selectedPatient.id, ex.id)}
                       onUpdate={(updates) => handlePlanExerciseUpdate(ex.id, updates)}
+                      onRegisterPendingFlush={registerPendingFlush}
                     />
                   ))
                 )}
@@ -1288,11 +1334,20 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                 disabled={supabaseSyncStatus === 'saving'}
                 onClick={async () => {
                   setSuccessMsg(null);
-                  const latestExercises =
-                    getExercisePlan(selectedPatient.id)?.exercises ?? currentExercises;
+                  const latestExercises = resolveExercisesForCloudSave();
+                  if (import.meta.env.DEV) {
+                    console.log('[ManagePlanModal] cloud save payload instructions sample', {
+                      patientId: selectedPatient.id,
+                      exercises: latestExercises.map((e) => ({
+                        id: e.id,
+                        instructions: e.instructions,
+                        customInstructions: e.customInstructions,
+                      })),
+                    });
+                  }
                   const res = await saveExercisePlanForPatientToCloud(
                     selectedPatient.id,
-                    normalizeCachedPatientExercises(latestExercises),
+                    latestExercises,
                     { changeSummary: changeSummary.trim(), forceSave: true }
                   );
                   if (res.ok) {

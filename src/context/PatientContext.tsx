@@ -400,6 +400,8 @@ interface PatientContextValue {
   // Exercise plans (mutable)
   exercisePlans: ExercisePlan[];
   getExercisePlan: (patientId: string) => ExercisePlan | undefined;
+  /** Reads exercisePlansRef — safe immediately after flushSync updates in the same event turn. */
+  readExercisePlanSnapshot: (patientId: string) => PatientExercise[];
   addExerciseToPlan: (patientId: string, exercise: Exercise) => void;
   removeExerciseFromPlan: (patientId: string, exerciseId: string) => void;
   updateExerciseInPlan: (
@@ -781,6 +783,12 @@ export function PatientProvider({
   });
   const exercisePlansRef = useRef(exercisePlans);
   exercisePlansRef.current = exercisePlans;
+
+  const readExercisePlanSnapshot = useCallback((patientId: string): PatientExercise[] => {
+    const plan = pickCanonicalExercisePlan(exercisePlansRef.current, patientId);
+    if (!plan?.exercises?.length) return [];
+    return normalizeCachedPatientExercises(plan.exercises);
+  }, []);
   const [dailySessions, setDailySessions] = useState<DailySession[]>(() => {
     if (isSupabaseAuthEnabled()) return [];
     const persisted = readPersistedOnce().patient;
@@ -2083,9 +2091,10 @@ export function PatientProvider({
 
         let failureMessage: string | null = null;
         const work = (async (): Promise<boolean> => {
-        const localPlan = pickCanonicalExercisePlan(exercisePlansRef.current, patientId);
         const exercisesToPersist = normalizeCachedPatientExercises(
-          localPlan?.exercises?.length ? localPlan.exercises : exercises
+          exercises.length > 0
+            ? exercises
+            : (pickCanonicalExercisePlan(exercisePlansRef.current, patientId)?.exercises ?? [])
         );
 
         console.log('[Exercise cloud save] מתחיל שמירת תוכנית לענן', {
@@ -3467,6 +3476,7 @@ export function PatientProvider({
         setPatientContactWhatsapp: clinical.setPatientContactWhatsapp,
         exercisePlans,
         getExercisePlan: exercise.getExercisePlan,
+        readExercisePlanSnapshot,
         addExerciseToPlan: exercise.addExerciseToPlan,
         removeExerciseFromPlan: exercise.removeExerciseFromPlan,
         updateExerciseInPlan: exercise.updateExerciseInPlan,
