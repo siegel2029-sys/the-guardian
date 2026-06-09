@@ -66,6 +66,7 @@ import {
 } from '../utils/exercisePlanCanonical';
 import { canPilot11DebugMutatePatient } from '../utils/pilot11GamificationDebug';
 import { completeExerciseSafe } from '../services/exerciseCompletionRpc';
+import { touchPatientLastWorkout } from '../services/patientPushNotifications';
 
 export type UseExercisePlanParams = {
   patients: Patient[];
@@ -544,6 +545,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               currentStreak = nextStreak;
               longestStreak = Math.max(longestStreak, currentStreak);
             }
+            // TODO: Refactor Streaks/Gamification — migrate streak tracking to last_workout_at TIMESTAMPTZ instead of payload.lastSessionDate.
             lastSessionDate = clinicalDay;
 
             const totalSessions = newDaySessionRow
@@ -827,6 +829,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             onExerciseCloudSyncError?.(`שמירת סשן יומי נכשלה: ${sRes.message}`);
             return false;
           }
+
+          await touchPatientLastWorkout(patientId);
 
           const latestPatient = getLatestPatient?.(patientId);
           if (latestPatient && persistPatientPayloadToCloud) {

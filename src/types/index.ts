@@ -307,8 +307,10 @@ export interface Patient {
   };
   /** Supabase `patients.push_token` — not stored inside JSON payload on upsert. */
   pushToken?: string | null;
-  /** Supabase `patients.last_activity_timestamp` — portal heartbeat / last open. */
-  lastActivityTimestamp?: string | null;
+  /** Supabase `patients.last_login_at` — portal authentication / last open. */
+  lastLoginAt?: string | null;
+  /** Supabase `patients.last_workout_at` — last exercise completion or daily progress. */
+  lastWorkoutAt?: string | null;
 }
 
 /** תובנות AI לסשן טיפול — נשמרות ברשומת התיעוד (payload מטופל → Supabase) */

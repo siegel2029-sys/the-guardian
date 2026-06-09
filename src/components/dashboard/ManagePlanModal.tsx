@@ -397,8 +397,7 @@ function PlanExerciseRow({
         PatientExercise,
         'patientReps' | 'patientSets' | 'isOptional' | 'customInstructions' | 'instructions'
       >
-    >,
-    options?: { mirrorToPatientPayloadCache?: boolean }
+    >
   ) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -463,10 +462,7 @@ function PlanExerciseRow({
     (options?: { closeEditor?: boolean }) => {
       const trimmed = instructionsDraft.slice(0, INSTRUCTIONS_MAX_LEN).trim();
       setInstructionsDraft(trimmed);
-      onUpdate(
-        { instructions: trimmed },
-        { mirrorToPatientPayloadCache: true }
-      );
+      onUpdate({ instructions: trimmed });
       if (options?.closeEditor) setEditingInstructions(false);
     },
     [instructionsDraft, onUpdate]
@@ -959,14 +955,12 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
         PatientExercise,
         'patientReps' | 'patientSets' | 'isOptional' | 'customInstructions' | 'instructions'
       >
-    >,
-    options?: { mirrorToPatientPayloadCache?: boolean }
+    >
   ) => {
     updateExerciseInPlan(selectedPatient.id, exerciseId, updates);
-    if (options?.mirrorToPatientPayloadCache !== true) return;
-
-    const nextExercises = (getExercisePlan(selectedPatient.id)?.exercises ?? currentExercises).map(
-      (e) => (e.id === exerciseId ? { ...e, ...updates } : e)
+    const base = getExercisePlan(selectedPatient.id)?.exercises ?? currentExercises;
+    const nextExercises = base.map((e) =>
+      e.id === exerciseId ? { ...e, ...updates } : e
     );
     void persistExercisePlanCacheForPatient(selectedPatient.id, nextExercises);
   };
@@ -1161,9 +1155,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                       key={ex.id}
                       exercise={ex}
                       onRemove={() => removeExerciseFromPlan(selectedPatient.id, ex.id)}
-                      onUpdate={(updates, options) =>
-                        handlePlanExerciseUpdate(ex.id, updates, options)
-                      }
+                      onUpdate={(updates) => handlePlanExerciseUpdate(ex.id, updates)}
                     />
                   ))
                 )}
@@ -1301,7 +1293,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                   const res = await saveExercisePlanForPatientToCloud(
                     selectedPatient.id,
                     normalizeCachedPatientExercises(latestExercises),
-                    { changeSummary: changeSummary.trim() }
+                    { changeSummary: changeSummary.trim(), forceSave: true }
                   );
                   if (res.ok) {
                     setSuccessMsg('נשמר לענן בהצלחה (exercise_plans).');

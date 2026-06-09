@@ -1405,7 +1405,7 @@ export async function upsertExercisePlan(
   client: SupabaseClient,
   patientId: string,
   exercises: PatientExercise[],
-  options?: { changeSummary?: string | null; now?: string }
+  options?: { changeSummary?: string | null; now?: string; forceSave?: boolean }
 ): Promise<ClinicalPushResult> {
   try {
     const trimmedPid = typeof patientId === 'string' ? patientId.trim() : '';
@@ -1414,11 +1414,20 @@ export async function upsertExercisePlan(
     }
     const now = options?.now ?? new Date().toISOString();
     const cs = options?.changeSummary?.trim();
+    const upsertOpts: UpsertExercisePlansOptions | undefined =
+      cs || options?.forceSave
+        ? {
+            ...(cs ? { changeSummaryByPatientId: { [trimmedPid]: cs } } : {}),
+            ...(options?.forceSave
+              ? { forceSavePatientIds: new Set([trimmedPid]) }
+              : {}),
+          }
+        : undefined;
     return await upsertExercisePlans(
       client,
       [{ patientId: trimmedPid, exercises }],
       now,
-      cs ? { changeSummaryByPatientId: { [trimmedPid]: cs } } : undefined
+      upsertOpts
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -1430,6 +1439,8 @@ export async function upsertExercisePlan(
 export type UpsertExercisePlansOptions = {
   /** Optional per-patient note stored on the new version row when content changes. */
   changeSummaryByPatientId?: Record<string, string>;
+  /** Bypass signature-equality skip (explicit therapist Save). */
+  forceSavePatientIds?: Set<string>;
 };
 
 /**
@@ -1472,6 +1483,7 @@ export async function upsertExercisePlans(
     }
 
     const changeSummaryByPatientId = options?.changeSummaryByPatientId ?? {};
+    const forceSavePatientIds = options?.forceSavePatientIds ?? new Set<string>();
 
     for (const plan of exercisePlans) {
       const { patientId: rawPatientId } = plan;
@@ -1572,7 +1584,9 @@ export async function upsertExercisePlans(
         return { ok: true };
       }
 
-      if (hadPrev) {
+      const forceSave = forceSavePatientIds.has(patientId);
+
+      if (hadPrev && !forceSave) {
         const dbSig = exercisesComparableSignatureFromUnknown(prevActive!.exercises);
         const incomingSig = exercisePlanExercisesComparableSignature(exercises);
         if (dbSig === incomingSig) {
@@ -1683,6 +1697,9 @@ function isPostgrestUnknownColumnError(err: { code?: string; message?: string })
 type PatientRowForTherapistFetch = {
   payload?: unknown;
   push_token?: string | null;
+  last_login_at?: string | null;
+  last_workout_at?: string | null;
+  /** Pre-migration fallback */
   last_activity_timestamp?: string | null;
 };
 
@@ -1699,11 +1716,51 @@ function patientsFromTherapistFetchRows(rows: PatientRowForTherapistFetch[] | nu
       out.push({
         ...(payload as Patient),
         pushToken: row.push_token ?? null,
-        lastActivityTimestamp: row.last_activity_timestamp ?? null,
+        lastLoginAt: row.last_login_at ?? row.last_activity_timestamp ?? null,
+        lastWorkoutAt: row.last_workout_at ?? null,
       });
     }
   }
   return out;
+}
+
+type ExercisePlanDbRow = {
+  id?: string;
+  patient_id: string;
+  exercises: unknown;
+  version_number?: number | null;
+  updated_at?: string | null;
+  is_active?: boolean | null;
+};
+
+/** Prefer active plan, then highest version_number, then newest updated_at. */
+export function pickCanonicalExercisePlanDbRow<T extends ExercisePlanDbRow>(
+  rows: T[]
+): T | null {
+  if (!rows.length) return null;
+  const active = rows.filter((r) => r.is_active === true);
+  const pool = active.length > 0 ? active : rows;
+  return pool.reduce((best, row) => {
+    const bestVn = best.version_number ?? 0;
+    const rowVn = row.version_number ?? 0;
+    if (rowVn !== bestVn) return rowVn > bestVn ? row : best;
+    const bestTs = best.updated_at ? new Date(best.updated_at).getTime() : 0;
+    const rowTs = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+    return rowTs > bestTs ? row : best;
+  });
+}
+
+function exercisePlanFromDbRow(row: ExercisePlanDbRow): ExercisePlan {
+  const exercises = Array.isArray(row.exercises)
+    ? (row.exercises as PatientExercise[])
+    : ([] as PatientExercise[]);
+  return {
+    patientId: row.patient_id,
+    exercises,
+    planRowId: typeof row.id === 'string' ? row.id : undefined,
+    versionNumber: typeof row.version_number === 'number' ? row.version_number : undefined,
+    isActive: row.is_active === true ? true : row.is_active === false ? false : undefined,
+  };
 }
 
 export async function fetchPatientPayloadsForTherapist(
@@ -1728,12 +1785,26 @@ export async function fetchPatientPayloadsForTherapist(
   // Defence-in-depth: filter by therapist_id in addition to RLS.
   const { data: fullData, error: fullError } = await client
     .from('patients')
-    .select('payload, push_token, last_activity_timestamp')
+    .select('payload, push_token, last_login_at, last_workout_at')
     .eq('therapist_id', therapistId)
     .order('updated_at', { ascending: false });
 
   let rows: PatientRowForTherapistFetch[] | null = (fullData ?? null) as PatientRowForTherapistFetch[] | null;
   let error = fullError;
+
+  if (error && isPostgrestUnknownColumnError(error)) {
+    console.warn(
+      '[fetchPatientPayloadsForTherapist] new timestamp columns missing — retrying with legacy last_activity_timestamp',
+      { message: error.message, code: error.code }
+    );
+    const { data: legacyData, error: legacyError } = await client
+      .from('patients')
+      .select('payload, push_token, last_activity_timestamp')
+      .eq('therapist_id', therapistId)
+      .order('updated_at', { ascending: false });
+    rows = (legacyData ?? null) as PatientRowForTherapistFetch[] | null;
+    error = legacyError;
+  }
 
   if (error && isPostgrestUnknownColumnError(error)) {
     console.warn(
@@ -1799,13 +1870,12 @@ export async function fetchActiveExercisePlansForPatientIds(
 
   const { data, error } = await client
     .from('exercise_plans')
-    .select('patient_id, exercises')
+    .select('id, patient_id, exercises, version_number, updated_at, is_active')
     .in('patient_id', ids);
 
   console.log('[fetchActiveExercisePlansForPatientIds] raw Supabase response', {
     patientIds: ids,
     rowCount: data?.length ?? 0,
-    data,
     error,
   });
 
@@ -1818,12 +1888,21 @@ export async function fetchActiveExercisePlansForPatientIds(
     return { ok: true, exercisePlans: [] };
   }
 
-  const exercisePlans: ExercisePlan[] = (data ?? []).map((row) => ({
-    patientId: row.patient_id as string,
-    exercises: Array.isArray(row.exercises)
-      ? (row.exercises as PatientExercise[])
-      : ([] as PatientExercise[]),
-  }));
+  const rowsByPatient = new Map<string, ExercisePlanDbRow[]>();
+  for (const row of data ?? []) {
+    const pid = row.patient_id as string;
+    const bucket = rowsByPatient.get(pid) ?? [];
+    bucket.push(row as ExercisePlanDbRow);
+    rowsByPatient.set(pid, bucket);
+  }
+
+  const exercisePlans: ExercisePlan[] = [];
+  for (const [, patientRows] of rowsByPatient) {
+    const canonical = pickCanonicalExercisePlanDbRow(patientRows);
+    if (canonical) {
+      exercisePlans.push(exercisePlanFromDbRow(canonical));
+    }
+  }
   return { ok: true, exercisePlans };
 }
 
@@ -1878,24 +1957,14 @@ export async function fetchActiveExercisePlanForPatient(
     );
   }
 
-  const row = rows[0];
-  if (!row) {
+  const canonical = pickCanonicalExercisePlanDbRow(rows as ExercisePlanDbRow[]);
+  if (!canonical) {
     return { ok: true, exercisePlan: null };
   }
 
-  const exercises = Array.isArray(row.exercises)
-    ? (row.exercises as PatientExercise[])
-    : ([] as PatientExercise[]);
-
   return {
     ok: true,
-    exercisePlan: {
-      patientId: row.patient_id as string,
-      exercises,
-      planRowId: row.id as string,
-      versionNumber: typeof row.version_number === 'number' ? row.version_number : undefined,
-      isActive: row.is_active === true ? true : row.is_active === false ? false : undefined,
-    },
+    exercisePlan: exercisePlanFromDbRow(canonical),
   };
 }
 
@@ -2028,11 +2097,12 @@ export async function updatePatientExercises(
   patientId: string,
   updatedExercises: PatientExercise[],
   now?: string,
-  options?: { changeSummary?: string | null }
+  options?: { changeSummary?: string | null; forceSave?: boolean }
 ): Promise<ClinicalPushResult> {
   return upsertExercisePlan(client, patientId, updatedExercises, {
     changeSummary: options?.changeSummary,
     now,
+    forceSave: options?.forceSave,
   });
 }
 

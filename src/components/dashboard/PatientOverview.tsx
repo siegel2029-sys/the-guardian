@@ -15,6 +15,7 @@ import {
   BellRing,
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
+import { formatPatientLastWorkoutHe } from '../../utils/patientPortalMeta';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { PI_PUSH_SYNC_TEST_PATIENT_ID } from '../../constants/pushSyncTestPatients';
 import { dispatchPatientPushSyncRequest } from '../../services/therapistChatPush';
@@ -693,7 +694,7 @@ export default function PatientOverview() {
                   <div>
                     <div className="tabular-nums">הצטרף: {new Date(p.joinDate).toLocaleDateString('he-IL')}</div>
                     <div className="tabular-nums mt-1">
-                      אימון אחרון: {new Date(p.lastSessionDate).toLocaleDateString('he-IL')}
+                      אימון אחרון: {formatPatientLastWorkoutHe(p)}
                     </div>
                   </div>
                 </div>

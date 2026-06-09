@@ -138,7 +138,7 @@ function stripWebPushFromPatientPayload(existingPayload: unknown): Record<string
 }
 
 function isMissingColumnPatchError(message: string): boolean {
-  return /push_invalidated_at|push_last_error|column.*does not exist|could not find the .* column/i.test(
+  return /push_invalidated_at|push_last_error|last_login_at|last_workout_at|last_activity_timestamp|column.*does not exist|could not find the .* column/i.test(
     message,
   );
 }
@@ -757,7 +757,7 @@ export async function persistPatientPushProfile(params: {
   const patch: Record<string, unknown> = {
     push_token: tokenToPersist,
     reminder_timezone: tz,
-    last_activity_timestamp: new Date().toISOString(),
+    last_login_at: new Date().toISOString(),
   };
 
   if (canonicalSubscription) {
@@ -813,24 +813,44 @@ export async function persistPatientPushProfile(params: {
   return { ok: true };
 }
 
-const lastActivityWriteByPatient = new Map<string, number>();
+const lastLoginWriteByPatient = new Map<string, number>();
 
 /**
  * Throttled heartbeat for reminder "momentum" logic (server compares to now).
  */
-export async function touchPatientLastActivityThrottled(
+export async function touchPatientLastLoginThrottled(
   patientId: string,
   minIntervalMs = 120_000
 ): Promise<void> {
   if (!supabase) return;
-  if (!(await requireSupabaseAuthSessionForWrite('touchPatientLastActivity'))) return;
+  if (!(await requireSupabaseAuthSessionForWrite('touchPatientLastLogin'))) return;
   const now = Date.now();
-  const prev = lastActivityWriteByPatient.get(patientId) ?? 0;
+  const prev = lastLoginWriteByPatient.get(patientId) ?? 0;
   if (now - prev < minIntervalMs) return;
-  lastActivityWriteByPatient.set(patientId, now);
+  lastLoginWriteByPatient.set(patientId, now);
+  const ts = new Date().toISOString();
+  const { error } = await supabase
+    .from('patients')
+    .update({ last_login_at: ts })
+    .eq('id', patientId);
+  if (error && /last_login_at|column.*does not exist/i.test(error.message)) {
+    await supabase
+      .from('patients')
+      .update({ last_activity_timestamp: ts })
+      .eq('id', patientId);
+  }
+}
+
+/** @deprecated Use touchPatientLastLoginThrottled */
+export const touchPatientLastActivityThrottled = touchPatientLastLoginThrottled;
+
+/** Stamp last_workout_at when patient completes an exercise (portal auth session). */
+export async function touchPatientLastWorkout(patientId: string): Promise<void> {
+  if (!supabase) return;
+  if (!(await requireSupabaseAuthSessionForWrite('touchPatientLastWorkout'))) return;
   await supabase
     .from('patients')
-    .update({ last_activity_timestamp: new Date().toISOString() })
+    .update({ last_workout_at: new Date().toISOString() })
     .eq('id', patientId);
 }
 

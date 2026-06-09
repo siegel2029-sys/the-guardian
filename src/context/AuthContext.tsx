@@ -43,6 +43,7 @@ import {
   isValidPortalUsername,
   linkPatientAuthUserRow,
 } from '../lib/patientPortalAuth';
+import { touchPatientLastLoginThrottled } from '../services/patientPushNotifications';
 
 /** Only `VITE_USE_LEGACY_AUTH=true` enables local demo users — any other value is treated as false. */
 const LEGACY_AUTH_ENABLED = import.meta.env.VITE_USE_LEGACY_AUTH === 'true';
@@ -277,6 +278,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setPatientSessionId(pid);
         setSession({ role: 'patient', patientId: pid });
         setProfile(null);
+        void touchPatientLastLoginThrottled(pid, 0);
         return;
       }
 

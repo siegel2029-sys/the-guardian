@@ -51,7 +51,7 @@ type PatientRow = {
   push_token: string | null;
   /** Includes `webPushSubscription` (keys) for VAPID Web Push. */
   payload: unknown;
-  last_activity_timestamp: string | null;
+  last_login_at: string | null;
   reminder_timezone: string | null;
   last_momentum_reminder_local_date: string | null;
   last_standard_reminder_local_date: string | null;
@@ -232,15 +232,15 @@ async function runReminderDispatch(params: {
     }
     const { ymd: localYmd, hour: localHour } = wall;
 
-    const msSinceActivity = p.last_activity_timestamp
-      ? nowMs - new Date(p.last_activity_timestamp).getTime()
+    const msSinceActivity = p.last_login_at
+      ? nowMs - new Date(p.last_login_at).getTime()
       : Number.POSITIVE_INFINITY;
     const hoursSinceActivity =
-      p.last_activity_timestamp != null && Number.isFinite(msSinceActivity)
+      p.last_login_at != null && Number.isFinite(msSinceActivity)
         ? msSinceActivity / 3_600_000
         : null;
     const within3h =
-      p.last_activity_timestamp != null &&
+      p.last_login_at != null &&
       Number.isFinite(msSinceActivity) &&
       msSinceActivity <= THREE_HOURS_MS &&
       msSinceActivity >= 0;
@@ -328,10 +328,10 @@ async function runReminderDispatch(params: {
 
     const momentumBlockedReasons: string[] = [];
     if (hasWorkToday) momentumBlockedReasons.push("has_work_today");
-    if (!p.last_activity_timestamp) momentumBlockedReasons.push("missing_last_activity_timestamp");
-    if (p.last_activity_timestamp && !within3h) {
+    if (!p.last_login_at) momentumBlockedReasons.push("missing_last_login_at");
+    if (p.last_login_at && !within3h) {
       momentumBlockedReasons.push(
-        `last_activity_older_than_3h (${Math.round(msSinceActivity / 60000)} min ago)`,
+        `last_login_older_than_3h (${Math.round(msSinceActivity / 60000)} min ago)`,
       );
     }
     if (p.last_momentum_reminder_local_date === localYmd) {
@@ -345,7 +345,7 @@ async function runReminderDispatch(params: {
 
     const momentumEligible =
       !hasWorkToday &&
-      Boolean(p.last_activity_timestamp) &&
+      Boolean(p.last_login_at) &&
       within3h &&
       p.last_momentum_reminder_local_date !== localYmd &&
       inMomentumDayWindow;
@@ -358,8 +358,8 @@ async function runReminderDispatch(params: {
 
     if (
       !hasWorkToday &&
-      p.last_activity_timestamp &&
-      nowMs - new Date(p.last_activity_timestamp).getTime() <= THREE_HOURS_MS &&
+      p.last_login_at &&
+      nowMs - new Date(p.last_login_at).getTime() <= THREE_HOURS_MS &&
       p.last_momentum_reminder_local_date !== localYmd &&
       inMomentumDayWindow
     ) {
@@ -592,7 +592,7 @@ Deno.serve(async (req) => {
     const { data: patients, error: listErr } = await supabase
       .from("patients")
       .select(
-        "id, first_name, push_token, payload, last_activity_timestamp, reminder_timezone, last_momentum_reminder_local_date, last_standard_reminder_local_date",
+        "id, first_name, push_token, payload, last_login_at, reminder_timezone, last_momentum_reminder_local_date, last_standard_reminder_local_date",
       )
       .not("auth_user_id", "is", null);
 

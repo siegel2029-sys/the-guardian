@@ -22,7 +22,7 @@ export function patientLastVisitTone(label: PatientLastVisitLabel): PatientLastV
 
 export type PatientLastVisitValuePart = { text: string; className?: string };
 
-/** Styled segments for the dynamic value after "ביקור אחרון:" (prefix stays neutral). */
+/** Styled segments for the dynamic value after "ביקור אחרון:" / "כניסה אחרונה:" (prefix stays neutral). */
 export function patientLastVisitValueParts(label: PatientLastVisitLabel): PatientLastVisitValuePart[] {
   const tone = patientLastVisitTone(label);
   if (tone === 'today') {
@@ -115,6 +115,21 @@ function clinicalDaysBetween(earlierYmd: string, laterYmd: string): number {
   const diffMs =
     clinicalDateToMidnight(laterYmd).getTime() - clinicalDateToMidnight(earlierYmd).getTime();
   return Math.max(0, Math.round(diffMs / (24 * 60 * 60 * 1000)));
+}
+
+/** Hebrew date for profile sidebar "אימון אחרון:" — prefers last_workout_at column. */
+export function formatPatientLastWorkoutHe(p: Patient): string {
+  const iso =
+    p.lastWorkoutAt ??
+    (p.lastSessionDate?.trim() ? `${p.lastSessionDate.slice(0, 10)}T12:00:00.000Z` : null);
+  if (!iso) return 'טרם התאמן';
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return 'לא ידוע';
+  return parsed.toLocaleDateString('he-IL', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 export function formatPatientLastVisitHe(

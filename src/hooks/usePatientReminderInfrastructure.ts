@@ -5,7 +5,7 @@ import {
   persistPatientPushProfile,
   registerPatientPushForSupabase,
   syncWebPushDatabasePayloadIfStale,
-  touchPatientLastActivityThrottled,
+  touchPatientLastLoginThrottled,
 } from '../services/patientPushNotifications';
 
 export function usePatientReminderInfrastructure(opts: {
@@ -53,14 +53,14 @@ export function usePatientReminderInfrastructure(opts: {
 
     const onVis = () => {
       if (document.visibilityState === 'visible') {
-        void touchPatientLastActivityThrottled(patientId);
+        void touchPatientLastLoginThrottled(patientId);
       }
     };
     const onPointer = () => {
-      void touchPatientLastActivityThrottled(patientId);
+      void touchPatientLastLoginThrottled(patientId);
     };
 
-    void touchPatientLastActivityThrottled(patientId, 0);
+    void touchPatientLastLoginThrottled(patientId, 0);
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('pointerdown', onPointer, { passive: true });
 

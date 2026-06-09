@@ -644,7 +644,7 @@ interface PatientContextValue {
   saveExercisePlanForPatientToCloud: (
     patientId: string,
     exercises: PatientExercise[],
-    options?: { changeSummary?: string }
+    options?: { changeSummary?: string; forceSave?: boolean }
   ) => Promise<{ ok: true } | { ok: false; message: string }>;
   /** עדכון `patients.payload._exercisePlanCache` בלבד (ללא `exercise_plans`) — למסלול תוכנית ידנית / RLS */
   persistExercisePlanCacheForPatient: (
@@ -1662,7 +1662,8 @@ export function PatientProvider({
             ...p,
             ...server,
             pushToken: server.pushToken ?? p.pushToken,
-            lastActivityTimestamp: server.lastActivityTimestamp ?? p.lastActivityTimestamp,
+            lastLoginAt: server.lastLoginAt ?? p.lastLoginAt,
+            lastWorkoutAt: server.lastWorkoutAt ?? p.lastWorkoutAt,
           };
         });
       });
@@ -2031,7 +2032,7 @@ export function PatientProvider({
     async (
       patientId: string,
       exercises: PatientExercise[],
-      options?: { changeSummary?: string }
+      options?: { changeSummary?: string; forceSave?: boolean }
     ): Promise<{ ok: true } | { ok: false; message: string }> => {
       const fail = (msg: string): { ok: false; message: string } => ({ ok: false, message: msg });
 
@@ -2126,6 +2127,7 @@ export function PatientProvider({
           undefined,
           {
             changeSummary: options?.changeSummary,
+            forceSave: options?.forceSave,
           }
         );
         if (upd.ok === false) {
@@ -2165,28 +2167,47 @@ export function PatientProvider({
             '[Exercise cloud save] רענון תוכנית מהשרת נכשל לאחר שמירה — משמרים תוכנית מקומית ממוזגת',
             { patientId, reason: fresh.message }
           );
+          const fallback = mergeFetchedExercisePlanWithLocal(
+            pickCanonicalExercisePlan(exercisePlansRef.current, patientId),
+            { patientId, exercises: exercisesToPersist },
+            patientId,
+            exercisesToPersist
+          );
           setExercisePlans((prev) => {
             const rest = prev.filter((ep) => ep.patientId !== patientId);
-            const localPlan = prev.find((ep) => ep.patientId === patientId);
-            const fallback = mergeFetchedExercisePlanWithLocal(
-              localPlan,
-              { patientId, exercises: exercisesToPersist },
-              patientId
-            );
             return [...rest, fallback];
           });
+          exercisePlansSessionBaselineRef.current = cloneExercisePlansForBaseline(
+            exercisePlansRef.current
+              .filter((ep) => ep.patientId !== patientId)
+              .concat([fallback])
+          );
+          setAllPatients((prev) =>
+            prev.map((p) =>
+              p.id === patientId ? { ...p, _exercisePlanCache: exercisesToPersist } : p
+            )
+          );
           return true;
         }
+        const mergedPlan = mergeFetchedExercisePlanWithLocal(
+          pickCanonicalExercisePlan(exercisePlansRef.current, patientId),
+          fresh.exercisePlan ?? ({ patientId, exercises: exercisesToPersist } as ExercisePlan),
+          patientId,
+          exercisesToPersist
+        );
         setExercisePlans((prev) => {
           const rest = prev.filter((ep) => ep.patientId !== patientId);
-          const localPlan = prev.find((ep) => ep.patientId === patientId);
-          const remoteSlice =
-            fresh.exercisePlan ?? ({ patientId, exercises: exercisesToPersist } as ExercisePlan);
-          return [
-            ...rest,
-            mergeFetchedExercisePlanWithLocal(localPlan, remoteSlice, patientId),
-          ];
+          return [...rest, mergedPlan];
         });
+        const nextPlans = exercisePlansRef.current
+          .filter((ep) => ep.patientId !== patientId)
+          .concat([mergedPlan]);
+        exercisePlansSessionBaselineRef.current = cloneExercisePlansForBaseline(nextPlans);
+        setAllPatients((prev) =>
+          prev.map((p) =>
+            p.id === patientId ? { ...p, _exercisePlanCache: exercisesToPersist } : p
+          )
+        );
         return true;
         })();
 
