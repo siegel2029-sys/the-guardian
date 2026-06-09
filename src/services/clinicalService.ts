@@ -1275,6 +1275,127 @@ async function deactivateAllActiveExercisePlansForPatient(
   return { ok: true };
 }
 
+/** Stop INSERT-versioning above this; at/above cap we UPDATE the canonical active row in place. */
+const EXERCISE_PLAN_VERSION_INSERT_CAP = 20;
+
+type ActiveExercisePlanRow = {
+  id: string;
+  version_number: number;
+  exercises: unknown;
+};
+
+/**
+ * Pick the canonical plan row for writes when multiple rows exist per patient (legacy drift /
+ * concurrent tabs). Prefer `is_active=true`, then highest `version_number`, then newest `updated_at`.
+ */
+async function fetchCanonicalActiveExercisePlanRow(
+  client: SupabaseClient,
+  patientId: string
+): Promise<
+  | { ok: true; row: ActiveExercisePlanRow | null }
+  | { ok: false; message: string; httpStatus?: number }
+> {
+  const { data, error } = await client
+    .from('exercise_plans')
+    .select('id, version_number, exercises, is_active, updated_at')
+    .eq('patient_id', patientId)
+    .order('is_active', { ascending: false })
+    .order('version_number', { ascending: false })
+    .order('updated_at', { ascending: false })
+    .limit(1);
+
+  if (error) {
+    logExercisePlansSupabaseError('שגיאה בשליפת תוכנית פעילה', error, { patientId });
+    return clinicalPushFail(`exercise_plans: ${error.message}`, error);
+  }
+
+  const hit = data?.[0];
+  if (!hit) return { ok: true, row: null };
+  return {
+    ok: true,
+    row: {
+      id: hit.id as string,
+      version_number: typeof hit.version_number === 'number' ? hit.version_number : 0,
+      exercises: hit.exercises,
+    },
+  };
+}
+
+type UpdateActivePlanInPlaceArgs = {
+  planRowId: string;
+  patientId: string;
+  exercises: PatientExercise[];
+  now: string;
+  changeSummary: string | null;
+  authUid: string;
+  rowTherapistId: string | null;
+  prevExercises: unknown;
+  therapistId: string;
+};
+
+/** Overwrite exercises on the existing active row — no new version row (used at version cap). */
+async function updateActiveExercisePlanInPlace(
+  client: SupabaseClient,
+  args: UpdateActivePlanInPlaceArgs
+): Promise<ClinicalPushResult> {
+  const updatePayload: Record<string, unknown> = {
+    exercises: args.exercises,
+    updated_at: args.now,
+    is_active: true,
+  };
+  if (args.changeSummary?.trim()) {
+    updatePayload.change_summary = args.changeSummary.trim();
+  }
+
+  logUpsertPayload('exercise_plans UPDATE (in-place at version cap)', updatePayload, {
+    auth_uid: args.authUid,
+    row_therapist_id: args.rowTherapistId,
+    plan_row_id: args.planRowId,
+    patient_id: args.patientId,
+  });
+
+  const { data, error } = await client
+    .from('exercise_plans')
+    .update(updatePayload)
+    .eq('id', args.planRowId)
+    .eq('patient_id', args.patientId)
+    .select('id');
+
+  if (error) {
+    logExercisePlansSupabaseError('שגיאת update in-place ל-exercise_plans', error, {
+      patientId: args.patientId,
+      planRowId: args.planRowId,
+      auth_uid: args.authUid,
+    });
+    return clinicalPushFail(`exercise_plans: ${error.message}`, error);
+  }
+  if (!data?.length) {
+    return {
+      ok: false,
+      message:
+        'exercise_plans: update in-place returned no rows (check RLS and plan row id)',
+    };
+  }
+
+  console.log('[upsertExercisePlans] in-place update OK', {
+    patientId: args.patientId,
+    planRowId: args.planRowId,
+    exerciseCount: args.exercises.length,
+  });
+
+  const audit = await insertClinicalAuditLog(client, {
+    therapistId: args.therapistId,
+    patientId: args.patientId,
+    entityType: 'plan',
+    action: 'update',
+    oldValue: { exercises: args.prevExercises },
+    newValue: { exercises: args.exercises },
+  });
+  if (!audit.ok) return audit;
+
+  return { ok: true };
+}
+
 type InsertActivePlanVersionArgs = {
   patientId: string;
   exercises: PatientExercise[];
@@ -1446,7 +1567,10 @@ export type UpsertExercisePlansOptions = {
 /**
  * Syncs exercise plans to Supabase with versioning: deactivates the active row and inserts a new
  * version **only when the exercises payload differs** from the active row (deep-stable comparison).
- * First-time creates still insert v1. {@link clinical_audit_logs} on real creates/updates.
+ * First-time creates still insert v1. At {@link EXERCISE_PLAN_VERSION_INSERT_CAP}+ versions, writes
+ * UPDATE the canonical active row in place (no new version row) so clinical edits are never dropped.
+ * Explicit therapist Save (`forceSavePatientIds`) bypasses signature skip and session halt guards.
+ * {@link clinical_audit_logs} on real creates/updates.
  */
 export async function upsertExercisePlans(
   client: SupabaseClient,
@@ -1475,15 +1599,20 @@ export async function upsertExercisePlans(
     }
     const authUid = authUser.id;
 
-    if (haltExercisePlanUpsertsThisSession) {
+    const changeSummaryByPatientId = options?.changeSummaryByPatientId ?? {};
+    const forceSavePatientIds = options?.forceSavePatientIds ?? new Set<string>();
+
+    const batchHasForceSave = exercisePlans.some((p) => {
+      const pid = typeof p.patientId === 'string' ? p.patientId.trim() : '';
+      return pid.length > 0 && forceSavePatientIds.has(pid);
+    });
+
+    if (haltExercisePlanUpsertsThisSession && !batchHasForceSave) {
       console.error(
         '[CRITICAL] exercise_plans upserts halted this session — skipping batch (see earlier version guard)'
       );
       return { ok: true };
     }
-
-    const changeSummaryByPatientId = options?.changeSummaryByPatientId ?? {};
-    const forceSavePatientIds = options?.forceSavePatientIds ?? new Set<string>();
 
     for (const plan of exercisePlans) {
       const { patientId: rawPatientId } = plan;
@@ -1541,50 +1670,21 @@ export async function upsertExercisePlans(
         );
       }
 
-      // ── Fetch current active row ─────────────────────────────────────────
-      const { data: active, error: selErr } = await client
-        .from('exercise_plans')
-        .select('id, version_number, exercises')
-        .eq('patient_id', patientId)
-        .eq('is_active', true)
-        .maybeSingle();
+      // ── Fetch canonical active row (handles multiple is_active / version rows) ──
+      const activeFetch = await fetchCanonicalActiveExercisePlanRow(client, patientId);
+      if (!activeFetch.ok) return activeFetch;
 
-      if (selErr) {
-        logExercisePlansSupabaseError('שגיאה בשליפת תוכנית פעילה', selErr, {
-          patientId,
-          auth_uid: authUid,
-        });
-        return clinicalPushFail(`exercise_plans: ${selErr.message}`, selErr);
-      }
-
-      // Previous active row (for version chain + audit). Re-fetch if a concurrent tab
-      // inserted an active row between our first select and here.
-      let prevActive = active as { id: string; version_number: number; exercises: unknown } | null;
+      let prevActive = activeFetch.row;
       if (!prevActive) {
-        const { data: recheck } = await client
-          .from('exercise_plans')
-          .select('id, version_number, exercises')
-          .eq('patient_id', patientId)
-          .eq('is_active', true)
-          .maybeSingle();
-        if (recheck) {
-          prevActive = recheck as { id: string; version_number: number; exercises: unknown };
-        }
+        const recheck = await fetchCanonicalActiveExercisePlanRow(client, patientId);
+        if (!recheck.ok) return recheck;
+        prevActive = recheck.row;
       }
 
       const hadPrev = prevActive != null;
       const currentVn = prevActive?.version_number ?? 0;
-
-      if (currentVn >= 20) {
-        haltExercisePlanUpsertsThisSession = true;
-        console.error(
-          '[CRITICAL] exercise_plans version_number >= 20 — halting auto-save to prevent DB exhaustion',
-          { patientId, version_number: currentVn }
-        );
-        return { ok: true };
-      }
-
       const forceSave = forceSavePatientIds.has(patientId);
+      const atVersionCap = currentVn >= EXERCISE_PLAN_VERSION_INSERT_CAP;
 
       if (hadPrev && !forceSave) {
         const dbSig = exercisesComparableSignatureFromUnknown(prevActive!.exercises);
@@ -1608,7 +1708,41 @@ export async function upsertExercisePlans(
         is_active: true,
         changeSummary,
         now,
+        version_number: currentVn,
+        atVersionCap,
+        forceSave,
+        saveMode: atVersionCap && hadPrev ? 'update_in_place' : 'insert_new_version',
       });
+
+      // At version cap: UPDATE the canonical active row instead of INSERTing another version.
+      // forceSave bypasses the old session halt; auto-save also uses in-place update (never drops edits).
+      if (atVersionCap && hadPrev) {
+        if (!forceSave) {
+          console.warn(
+            `[upsertExercisePlans] version_number >= ${EXERCISE_PLAN_VERSION_INSERT_CAP} — in-place UPDATE (auto-save)`,
+            { patientId, version_number: currentVn }
+          );
+        } else {
+          console.log(
+            `[upsertExercisePlans] version_number >= ${EXERCISE_PLAN_VERSION_INSERT_CAP} — in-place UPDATE (explicit forceSave)`,
+            { patientId, version_number: currentVn }
+          );
+        }
+
+        const upd = await updateActiveExercisePlanInPlace(client, {
+          planRowId: prevActive!.id,
+          patientId,
+          exercises,
+          now,
+          changeSummary,
+          authUid,
+          rowTherapistId,
+          prevExercises: prevActive!.exercises,
+          therapistId,
+        });
+        if (!upd.ok) return upd;
+        continue;
+      }
 
       const nextVersion = hadPrev ? (prevActive!.version_number ?? 1) + 1 : 1;
       const parentPlanId = hadPrev ? prevActive!.id : null;
