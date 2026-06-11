@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ClipboardList, X } from 'lucide-react';
 import {
   LineChart,
   Line,
@@ -19,6 +19,7 @@ import {
   buildProgressChartDisplaySeries,
   formatProgressWindowRangeHe,
 } from '../../../utils/patientProgressChartData';
+import TherapistReportsView from './TherapistReportsView';
 
 type Props = {
   patient: Patient;
@@ -65,9 +66,11 @@ export default function PatientProgressChart({ patient }: Props) {
   );
 
   const [windowEnd, setWindowEnd] = useState(clinicalToday);
+  const [showFinishReports, setShowFinishReports] = useState(false);
 
   useEffect(() => {
     setWindowEnd(clinicalToday);
+    setShowFinishReports(false);
   }, [patient.id, clinicalToday]);
 
   const canGoNext = windowEnd < clinicalToday;
@@ -100,10 +103,20 @@ export default function PatientProgressChart({ patient }: Props) {
       aria-label="מעקב התקדמות"
       dir="rtl"
     >
-      <div className="flex flex-col gap-3 border-b border-slate-200/80 px-4 py-4 sm:px-5 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-sm font-black text-slate-900 shrink-0">מעקב התקדמות</h3>
+      <div className="border-b border-slate-200/80 px-4 py-4 sm:px-5">
+        <div className="flex justify-between items-center gap-3 mb-4">
+          <h3 className="text-sm font-black text-slate-900 shrink-0">מעקב התקדמות</h3>
+          <button
+            type="button"
+            onClick={() => setShowFinishReports(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors shrink-0"
+          >
+            <ClipboardList className="w-3.5 h-3.5" aria-hidden="true" />
+            דיווחי סיום תרגול
+          </button>
+        </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center justify-center gap-2 shrink-0">
           <button
             type="button"
             onClick={goToPreviousWindow}
@@ -138,6 +151,40 @@ export default function PatientProgressChart({ patient }: Props) {
           )}
         </div>
       </div>
+
+      {showFinishReports && (
+        <div
+          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="finish-reports-modal-title"
+          dir="rtl"
+        >
+          <div className="w-full sm:max-w-4xl max-h-[min(92dvh,900px)] flex flex-col bg-white sm:rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200 bg-slate-50 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-slate-800 text-white flex items-center justify-center shrink-0">
+                  <ClipboardList className="w-5 h-5" aria-hidden="true" />
+                </div>
+                <h2 id="finish-reports-modal-title" className="text-lg font-black text-slate-950">
+                  דיווחי סיום תרגול
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFinishReports(false)}
+                className="p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 shrink-0"
+                aria-label="סגור"
+              >
+                <X className="w-5 h-5" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto min-h-0">
+              <TherapistReportsView patient={patient} />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="p-4 sm:p-5">
         {!hasSignal ? (

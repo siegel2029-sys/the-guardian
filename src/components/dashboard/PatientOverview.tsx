@@ -28,10 +28,9 @@ import ClinicalAiIntakeWizard from './ClinicalAiIntakeWizard';
 import ClinicalIntakeCompletionModal from './clinical/ClinicalIntakeCompletionModal';
 import TherapistAiInsightsPanel from './clinical/TherapistAiInsightsPanel';
 import TherapistClinicalConsultantFAB from './clinical/TherapistClinicalConsultantFAB';
-import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import TreatmentDocumentation from './clinical/TreatmentDocumentation';
 import FullIntakeVaultModal from './clinical/FullIntakeVaultModal';
-import PatientClinicalIntakeSection from './clinical/PatientClinicalIntakeSection';
+import PatientContinuationProtocolSection from './clinical/PatientContinuationProtocolSection';
 import PatientProgressChart from './clinical/PatientProgressChart';
 import ManagePainAreasModal from './clinical/ManagePainAreasModal';
 import MessagesPanel from './MessagesPanel';
@@ -91,6 +90,7 @@ export default function PatientOverview() {
     'none'
   );
   const [showIntakeVault, setShowIntakeVault] = useState(false);
+  const [showTreatmentDocs, setShowTreatmentDocs] = useState(false);
   const [showPainAreasModal, setShowPainAreasModal] = useState(false);
   const [destructiveDeleteOpen, setDestructiveDeleteOpen] = useState(false);
   const [destructiveDeleteStep, setDestructiveDeleteStep] = useState<1 | 2>(1);
@@ -107,6 +107,7 @@ export default function PatientOverview() {
   const [rosterFilterKey, setRosterFilterKey] = useState<RosterFilterKey>('active');
 
   useEffect(() => {
+    setShowTreatmentDocs(false);
     setEditingDemographics(false);
     setPortalBannerDismissed(false);
     if (selectedPatient) {
@@ -496,6 +497,14 @@ export default function PatientOverview() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => setShowTreatmentDocs(true)}
+                      className="inline-flex flex-col justify-center items-center gap-1 px-2 min-h-[52px] rounded-xl text-[11px] font-bold leading-tight text-white shadow-md bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] transition-colors text-center"
+                    >
+                      <Sparkles className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      תיעוד והערות AI
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setShowManageModal(true)}
                       className="inline-flex flex-col justify-center items-center gap-1 px-2 min-h-[52px] rounded-xl text-[11px] font-bold leading-tight text-white shadow-md bg-teal-600 hover:bg-teal-700 active:scale-[0.99] transition-colors text-center"
                       title="עדכון תוכנית תרגול"
@@ -702,13 +711,10 @@ export default function PatientOverview() {
         </div>
 
         <div className="mb-6">
-          <PatientClinicalIntakeSection patient={p} />
-        </div>
-
-        <TreatmentDocumentation patient={p} />
-
-        <div className="mb-5">
-          <ClinicalDeepDiveTabs patient={p} />
+          <PatientContinuationProtocolSection
+            patient={p}
+            onEditClick={() => setShowIntakeVault(true)}
+          />
         </div>
 
         <TherapistAiInsightsPanel patient={p} />
@@ -863,6 +869,40 @@ export default function PatientOverview() {
 
         {showIntakeVault && (
           <FullIntakeVaultModal patient={p} onClose={() => setShowIntakeVault(false)} />
+        )}
+
+        {showTreatmentDocs && (
+          <div
+            className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="treatment-docs-modal-title"
+            dir="rtl"
+          >
+            <div className="w-full sm:max-w-3xl max-h-[min(92dvh,900px)] flex flex-col bg-white sm:rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+              <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200 bg-slate-50 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                    <Sparkles className="w-5 h-5" aria-hidden="true" />
+                  </div>
+                  <h2 id="treatment-docs-modal-title" className="text-lg font-black text-slate-950">
+                    תיעוד והערות AI
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTreatmentDocs(false)}
+                  className="p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 shrink-0"
+                  aria-label="סגור"
+                >
+                  <X className="w-5 h-5" aria-hidden="true" />
+                </button>
+              </div>
+              <div className="p-5 overflow-y-auto min-h-0">
+                <TreatmentDocumentation patient={p} embedded />
+              </div>
+            </div>
+          </div>
         )}
 
         {showPainAreasModal && (

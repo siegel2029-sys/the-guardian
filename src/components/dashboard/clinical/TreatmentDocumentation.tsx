@@ -13,7 +13,7 @@ function formatAiError(err: unknown): string {
   return 'שגיאה בהפקת הערות AI';
 }
 
-type Props = { patient: Patient };
+type Props = { patient: Patient; embedded?: boolean };
 
 function sortTimelineDesc(entries: ClinicalTimelineEntry[]): ClinicalTimelineEntry[] {
   return [...entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -60,7 +60,7 @@ function InsightsSections({ insights }: { insights: TreatmentAiInsights }) {
   );
 }
 
-export default function TreatmentDocumentation({ patient }: Props) {
+export default function TreatmentDocumentation({ patient, embedded = false }: Props) {
   const { updatePatient, saveSinglePatientPayloadToCloud } = usePatient();
 
   const [draftNote, setDraftNote] = useState('');
@@ -188,17 +188,8 @@ export default function TreatmentDocumentation({ patient }: Props) {
     setAiModalOpen(true);
   };
 
-  return (
-    <div
-      id="treatment-documentation-panel"
-      className="rounded-2xl border border-slate-200 bg-white shadow-sm mb-5 overflow-hidden scroll-mt-24"
-      dir="rtl"
-    >
-      <div className="px-5 py-4 border-b border-slate-200 bg-slate-50">
-        <h2 className="text-base font-bold text-slate-950">תיעוד טיפולים</h2>
-      </div>
-
-      <div className="p-5 space-y-6">
+  const panelBody = (
+    <div className={embedded ? 'space-y-6' : 'p-5 space-y-6'}>
         <section className="space-y-2" aria-labelledby="last-treatment-heading">
           <h3 id="last-treatment-heading" className="text-sm font-bold text-slate-950">
             טיפול אחרון
@@ -272,7 +263,26 @@ export default function TreatmentDocumentation({ patient }: Props) {
             </button>
           </div>
         </section>
-      </div>
+    </div>
+  );
+
+  return (
+    <div
+      id="treatment-documentation-panel"
+      className={
+        embedded
+          ? ''
+          : 'rounded-2xl border border-slate-200 bg-white shadow-sm mb-5 overflow-hidden scroll-mt-24'
+      }
+      dir="rtl"
+    >
+      {!embedded && (
+        <div className="px-5 py-4 border-b border-slate-200 bg-slate-50">
+          <h2 className="text-base font-bold text-slate-950">תיעוד טיפולים</h2>
+        </div>
+      )}
+
+      {panelBody}
 
       {historyOpen && (
         <div
