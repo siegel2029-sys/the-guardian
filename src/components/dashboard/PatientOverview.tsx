@@ -32,6 +32,7 @@ import ClinicalDeepDiveTabs from './clinical/ClinicalDeepDiveTabs';
 import TreatmentDocumentation from './clinical/TreatmentDocumentation';
 import FullIntakeVaultModal from './clinical/FullIntakeVaultModal';
 import PatientClinicalIntakeSection from './clinical/PatientClinicalIntakeSection';
+import PatientProgressChart from './clinical/PatientProgressChart';
 import ManagePainAreasModal from './clinical/ManagePainAreasModal';
 import MessagesPanel from './MessagesPanel';
 import TherapistPatientGrid, { type RosterFilterKey } from './TherapistPatientGrid';
@@ -694,6 +695,10 @@ export default function PatientOverview() {
               <MessagesPanel embedded embeddedMessageMaxHeight={340} />
             </section>
           </div>
+        </div>
+
+        <div className="mb-6">
+          <PatientProgressChart patient={p} />
         </div>
 
         <div className="mb-6">

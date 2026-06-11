@@ -1,64 +1,14 @@
 import { useState, useMemo } from 'react';
-import { LineChart, Dumbbell, ClipboardCheck } from 'lucide-react';
+import { Dumbbell, ClipboardCheck } from 'lucide-react';
 import type { Patient } from '../../../types';
-import { bodyAreaLabels } from '../../../types';
-import ClinicalSessionLineChart from './ClinicalSessionLineChart';
 import TherapistReportsView from './TherapistReportsView';
 
-type TabId = 'pain' | 'exercise' | 'finishReports';
+type TabId = 'exercise' | 'finishReports';
 
-const tabs: { id: TabId; label: string; icon: typeof LineChart }[] = [
-  { id: 'pain', label: 'דוחות כאב', icon: LineChart },
+const tabs: { id: TabId; label: string; icon: typeof Dumbbell }[] = [
   { id: 'exercise', label: 'היסטוריית תרגול', icon: Dumbbell },
   { id: 'finishReports', label: 'דיווחי סיום תרגול', icon: ClipboardCheck },
 ];
-
-function PainTrendPanel({ patient }: { patient: Patient }) {
-  const sorted = useMemo(
-    () => [...patient.analytics.painHistory].sort((a, b) => a.date.localeCompare(b.date)),
-    [patient.analytics.painHistory]
-  );
-
-  return (
-    <div className="space-y-6">
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <ClinicalSessionLineChart patient={patient} />
-      </div>
-
-      <div className="rounded-lg border border-slate-200 overflow-hidden">
-        <table className="w-full text-xs text-end">
-          <thead className="bg-slate-50 text-slate-600 font-semibold">
-            <tr>
-              <th className="p-2">תאריך</th>
-              <th className="p-2">כאב</th>
-              <th className="p-2">אזור</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.length === 0 ? (
-              <tr>
-                <td colSpan={3} className="p-6 text-center text-slate-400 text-sm">
-                  אין דוחות כאב רשומים
-                </td>
-              </tr>
-            ) : (
-              sorted
-                .slice(-14)
-                .reverse()
-                .map((r) => (
-                  <tr key={`${r.date}-${r.bodyArea}`} className="border-t border-slate-100">
-                    <td className="p-2">{r.date}</td>
-                    <td className="p-2 font-mono">{r.painLevel}/10</td>
-                    <td className="p-2">{bodyAreaLabels[r.bodyArea]}</td>
-                  </tr>
-                ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
 
 const difficultyHe: Record<number, string> = {
   1: 'קל מאוד',
@@ -116,7 +66,7 @@ function ExerciseHistoryPanel({ patient }: { patient: Patient }) {
 }
 
 export default function ClinicalDeepDiveTabs({ patient }: { patient: Patient }) {
-  const [tab, setTab] = useState<TabId>('pain');
+  const [tab, setTab] = useState<TabId>('exercise');
 
   return (
     <div
@@ -146,7 +96,6 @@ export default function ClinicalDeepDiveTabs({ patient }: { patient: Patient }) 
         })}
       </div>
       <div className="p-5">
-        {tab === 'pain' && <PainTrendPanel patient={patient} />}
         {tab === 'exercise' && <ExerciseHistoryPanel patient={patient} />}
         {tab === 'finishReports' && <TherapistReportsView patient={patient} />}
       </div>
