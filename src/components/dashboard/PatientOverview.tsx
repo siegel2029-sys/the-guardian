@@ -422,25 +422,29 @@ export default function PatientOverview() {
                 aria-label="פרופיל וניהול קליני"
               >
                 <div className="flex flex-row items-start gap-3">
-                  <div className="flex flex-1 min-w-0 items-start gap-3">
-                    <div
-                      className="w-16 h-16 rounded-xl flex items-center justify-center text-white text-2xl font-black shadow-md bg-teal-600 ring-1 ring-teal-700/20 shrink-0"
-                      aria-hidden="true"
-                    >
-                      {displayName.charAt(0)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h2 className="text-lg font-black text-slate-900 leading-tight truncate">
-                        {displayName}
+                  <div className="flex flex-col shrink-0">
+                    <div className="flex flex-col items-stretch gap-2 w-[4.5rem]">
+                      <h2 className="w-full px-2 py-2 min-h-[3rem] rounded-xl flex items-center justify-center text-white text-sm font-black shadow-md bg-teal-600 ring-1 ring-teal-700/20 leading-tight text-center">
+                        <span className="line-clamp-2 break-words">{displayName}</span>
                       </h2>
-                      <p className="text-sm text-slate-600 tabular-nums mt-0.5">
-                        {p.age > 0 ? `גיל ${p.age}` : 'גיל —'}
-                      </p>
                       {!isPatientSessionLocked && (
                         <div
-                          className="flex flex-row items-center gap-1.5 mt-1.5"
+                          className="flex flex-row gap-2 w-full"
                           aria-label="פעולות ניהול מטופל"
                         >
+                          <button
+                            type="button"
+                            title="מחיקת מטופל — דורש אישור כפול"
+                            aria-label="מחיקת מטופל"
+                            onClick={() => {
+                              setDestructiveDeleteError(null);
+                              setDestructiveDeleteStep(1);
+                              setDestructiveDeleteOpen(true);
+                            }}
+                            className="flex items-center justify-center w-8 h-8 rounded-lg border-2 border-red-400 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-500 transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-red-600" strokeWidth={2.25} aria-hidden />
+                          </button>
                           <button
                             type="button"
                             title={
@@ -460,33 +464,20 @@ export default function PatientOverview() {
                           >
                             <Snowflake className="w-3.5 h-3.5 text-sky-600" strokeWidth={2.25} aria-hidden />
                           </button>
-                          <button
-                            type="button"
-                            title="מחיקת מטופל — דורש אישור כפול"
-                            aria-label="מחיקת מטופל"
-                            onClick={() => {
-                              setDestructiveDeleteError(null);
-                              setDestructiveDeleteStep(1);
-                              setDestructiveDeleteOpen(true);
-                            }}
-                            className="flex items-center justify-center w-8 h-8 rounded-lg border-2 border-red-400 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-500 transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-red-600" strokeWidth={2.25} aria-hidden />
-                          </button>
                         </div>
                       )}
-                      <div className="mt-2">
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600 mb-0.5">
-                          אזור פעיל
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setShowPainAreasModal(true)}
-                          className="text-start text-sm font-semibold text-red-600 underline-offset-2 hover:underline decoration-red-400/80 leading-snug"
-                        >
-                          {activeAreaSummary}
-                        </button>
+                    </div>
+                    <div className="mt-2 w-[4.5rem]">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600 mb-0.5">
+                        אזור פעיל
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowPainAreasModal(true)}
+                        className="text-start text-sm font-semibold text-red-600 underline-offset-2 hover:underline decoration-red-400/80 leading-snug break-words"
+                      >
+                        {activeAreaSummary}
+                      </button>
                     </div>
                   </div>
 
@@ -668,26 +659,21 @@ export default function PatientOverview() {
                   <MissingFieldHint show={showDemographicsHighlight} />
                 </div>
 
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">
-                    אינטייק קליני
+                {intakeIncomplete && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={openClinicalIntakeModal}
+                      className={`w-full text-start py-2 px-2.5 text-sm font-medium transition-colors min-h-[2.25rem] ${dataUpdateBoxClassName(
+                        showIntakeHighlight,
+                        intakeIncomplete
+                      )} text-purple-600 hover:bg-purple-50/50`}
+                    >
+                      חסרים נתונים באינטייק
+                    </button>
+                    <MissingFieldHint show={showIntakeHighlight} />
                   </div>
-                  <button
-                    type="button"
-                    onClick={openClinicalIntakeModal}
-                    className={`w-full text-start py-2 px-2.5 text-sm font-medium transition-colors min-h-[2.25rem] ${dataUpdateBoxClassName(
-                      showIntakeHighlight,
-                      intakeIncomplete
-                    )} ${
-                      intakeIncomplete
-                        ? 'text-purple-900 hover:bg-purple-50/50'
-                        : 'text-emerald-800 hover:bg-emerald-50/50'
-                    }`}
-                  >
-                    {intakeIncomplete ? 'טרם הושלם — לחץ להשלמה' : 'הושלם ✓'}
-                  </button>
-                  <MissingFieldHint show={showIntakeHighlight} />
-                </div>
+                )}
 
                 <div className="flex items-start gap-2 text-slate-600 text-xs">
                   <CalendarDays className="w-4 h-4 shrink-0 mt-0.5 text-slate-400" aria-hidden="true" />
