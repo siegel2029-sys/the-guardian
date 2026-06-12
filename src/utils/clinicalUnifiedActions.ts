@@ -54,8 +54,6 @@ export type UnifiedClinicalAction =
 
 type LoadDirection = 'increase' | 'decrease' | 'neutral';
 
-const MAX_RATIONALE_LEN = 120;
-
 function fieldLabelHe(field: AiSuggestionField): string {
   if (field === 'reps') return 'חזרות';
   if (field === 'sets') return 'סטים';
@@ -88,27 +86,6 @@ function pendingLoadLabelDisplay(s: AiSuggestion): ClinicalActionLabelDisplay {
     currentValue: s.currentValue,
     suggestedValue: s.suggestedValue,
   };
-}
-
-function pendingShortRationale(s: AiSuggestion): string {
-  if (s.type === 'add_exercise') return 'בקשה להוספת תרגיל לתוכנית.';
-  const direction =
-    s.suggestedValue > s.currentValue
-      ? 'הגברה'
-      : s.suggestedValue < s.currentValue
-        ? 'הפחתה'
-        : 'עדכון';
-  return `${direction} ${fieldLabelHe(s.field)} — ${s.source === 'guardian_patient' ? 'בקשת מטופל' : 'המלצת מערכת'}.`;
-}
-
-/** One short sentence for display — never long-form notes. */
-export function truncateClinicalRationale(text: string, maxLen = MAX_RATIONALE_LEN): string {
-  const trimmed = text.trim();
-  if (!trimmed) return '';
-  const sentenceMatch = trimmed.match(/^[^.!?…\n]+[.!?…]?/);
-  const sentence = (sentenceMatch?.[0] ?? trimmed).trim();
-  if (sentence.length <= maxLen) return sentence;
-  return `${sentence.slice(0, maxLen - 1).trim()}…`;
 }
 
 /** Normalize plan-scoped ids for conflict matching. */
@@ -272,9 +249,7 @@ export function buildUnifiedClinicalActions(params: {
         sourceTag: 'המלצת AI',
         label: labelDisplayToPlainText(labelDisplay),
         labelDisplay,
-        rationale: mod.rationale.trim()
-          ? truncateClinicalRationale(mod.rationale, 200)
-          : 'המלצת המערכת ללא נימוק מפורט — יש לבדוק לפני אישור.',
+        rationale: mod.rationale?.trim() ?? '',
         kind: 'ai_modification',
         exerciseId: mod.currentExerciseId,
         actionType: mod.type,
@@ -293,7 +268,7 @@ export function buildUnifiedClinicalActions(params: {
       sourceTag: pendingSourceTag(s.source),
       label: labelDisplayToPlainText(labelDisplay),
       labelDisplay,
-      rationale: pendingShortRationale(s),
+      rationale: s.reason.trim(),
       kind: 'pending_approval',
       exerciseId: s.exerciseId,
       actionType: pendingActionType(s.type),

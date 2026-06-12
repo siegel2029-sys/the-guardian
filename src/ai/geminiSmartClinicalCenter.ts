@@ -27,7 +27,7 @@ Output ONLY a single raw JSON object — NO markdown, NO code fences, NO prefixe
 
 RULES:
 1. Return EXACTLY this structure and NOTHING else.
-2. All label and rationale text MUST be in Hebrew (one short sentence for rationale).
+2. All label and rationale text MUST be in Hebrew.
 3. Use id/newId from exerciseCatalog: id from currentPlanExercises, newId from availableCatalogExercises.
 4. If no plan changes needed, return { "modifications": [] }.
 5. EXPLICIT NAMING: For EVERY modification (REPLACE, REMOVE, ADD, LOAD_ADJUST), the label and rationale MUST explicitly state the name of the target exercise. Never use generic terms like "הפחתת עומס". Instead write explicitly: "הפחתת עומס בתרגיל פנדולום". If multiple exercises are involved, specify them clearly.
@@ -35,7 +35,7 @@ RULES:
 7. CONTRADICTION GUARD: If you output a REPLACE or REMOVE action for a specific exercise ID, you MUST NOT include a LOAD_ADJUST action for that same ID in the same response.
 8. REPLACE GUARD: If type is REPLACE, you MUST select a valid newId from exerciseCatalog.availableCatalogExercises.
 9. LOAD_ADJUST GUARD: Include raw reps and/or sets numbers in the JSON fields. Do NOT write "increase", "decrease", "הגברה", or "הפחתה" in the label — the system calculates direction dynamically.
-10. RATIONALE REQUIRED: You MUST provide a rationale field for EVERY modification. Write exactly one short sentence in Hebrew explaining WHY you are changing the exercise, reps, or sets (e.g., "המטופל מדווח על כאב נמוך, לכן נעלה את מספר החזרות כדי להגביר עומס"). Never omit rationale.
+10. RATIONALE REQUIRED: You MUST provide a rationale field for EVERY modification. The rationale MUST be extremely concise, limited to a MAXIMUM of 1 to 2 short sentences. Use sharp, professional clinical Hebrew. Do not write long paragraphs or over-explain. (Example of acceptable length: "המטופל מציג עמידה מלאה ביעדים ללא כאב. לכן נעלה את העומס כדי לאתגר את השריר"). Never omit rationale.
 11. Do NOT contradict continuationProtocol or intakePrognosis in the payload.
 
 JSON OUTPUT SCHEMA:
@@ -48,12 +48,12 @@ JSON OUTPUT SCHEMA:
       "reps": number | null,
       "sets": number | null,
       "label": string,
-      "rationale": string
+      "rationale": "1–2 short sentences in Hebrew (concise clinical WHY)"
     }
   ]
 }
 
-Every modification object MUST include rationale (non-empty Hebrew string).`;
+Every modification object MUST include rationale (non-empty; max 1–2 short Hebrew sentences).`;
 
 /** Strip markdown code fences and other non-JSON wrappers from model output. */
 export function stripMarkdownCodeFences(text: string): string {

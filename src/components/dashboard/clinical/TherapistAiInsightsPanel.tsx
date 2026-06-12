@@ -193,9 +193,11 @@ function ModificationCard({
       <h4 className="text-sm font-black text-slate-900">
         <ActionLabel display={labelDisplay} />
       </h4>
-      <p className="text-sm text-gray-600 italic mt-1 mb-3">
-        {rationale.trim() || 'אין נימוק קליני זמין.'}
-      </p>
+      {rationale.trim() ? (
+        <p className="text-sm text-gray-600 italic mt-1 mb-3">{rationale.trim()}</p>
+      ) : (
+        <div className="mb-3" />
+      )}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"

@@ -15,7 +15,8 @@ export type ClinicalModification = {
   currentExerciseId: string | null;
   newExerciseChainId: string | null;
   label: string;
-  rationale: string;
+  /** Full Hebrew clinical sentence — why this change is suggested. */
+  rationale?: string;
   reps?: number | null;
   sets?: number | null;
 };
@@ -67,6 +68,25 @@ export type LlmClinicalNarrative = Omit<
 
 function trimStr(value: unknown, maxLen: number): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLen) : '';
+}
+
+/** Pull clinical rationale from raw JSON — Gemini may use alternate key names. */
+function extractClinicalModificationRationale(o: Record<string, unknown>): string {
+  const candidates = [
+    o.rationale,
+    o.rationaleHe,
+    o.rationale_he,
+    o.clinicalRationale,
+    o.clinicalRationaleHebrew,
+    o.reason,
+    o.reasonHebrew,
+    o.clinicalReason,
+  ];
+  for (const value of candidates) {
+    const text = trimStr(value, 500);
+    if (text) return text;
+  }
+  return '';
 }
 
 function nullableId(value: unknown): string | null {
@@ -301,6 +321,7 @@ export function finalizeClinicalModifications(
   return filterModificationConflicts(
     filterInvalidReplacements(modifications, catalog).map((mod) => ({
       ...mod,
+      rationale: mod.rationale?.trim() ?? '',
       label: labelDisplayToPlainText(resolveModificationLabelDisplay(mod, catalog)),
     }))
   );
@@ -347,8 +368,8 @@ export function normalizeClinicalModification(raw: unknown): ClinicalModificatio
     nullableId(o.currentExerciseId) ?? nullableId(o.id);
   const newExerciseChainId =
     nullableId(o.newExerciseChainId) ?? nullableId(o.newId);
-  const label = trimStr(o.label, 80) || type;
-  const rationale = trimStr(o.rationale, 160);
+  const label = trimStr(o.label, 120) || type;
+  const rationale = extractClinicalModificationRationale(o);
   const reps = nullableInt(o.reps);
   const sets = nullableInt(o.sets);
 
