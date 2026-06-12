@@ -7,14 +7,17 @@ import type { ClinicalInsightsAggregated, ClinicalDayPoint } from '../services/c
 import type { ClinicalProgressInsight } from './clinicalCommandInsight';
 import { bodyAreaLabels } from '../types';
 import type { ClinicalExerciseCatalog } from '../utils/clinicalExerciseCatalog';
+import { findCatalogExerciseById } from '../utils/clinicalExerciseCatalog';
+import { filterModificationConflicts } from '../utils/clinicalUnifiedActions';
 
 export type ClinicalModification = {
   type: 'REPLACE' | 'REMOVE' | 'ADD' | 'LOAD_ADJUST';
-  id: string | null;
-  newId: string | null;
+  currentExerciseId: string | null;
+  newExerciseChainId: string | null;
   label: string;
-  reps: number | null;
-  sets: number | null;
+  rationale: string;
+  reps?: number | null;
+  sets?: number | null;
 };
 
 export type UnifiedClinicalNarrative = {
@@ -61,10 +64,6 @@ export type LlmClinicalNarrative = Omit<
   UnifiedClinicalNarrative,
   'adherencePercent' | 'adherenceStatus' | 'hasRecentGap'
 >;
-
-function fmtPct(n: number): string {
-  return `${Math.round(Math.abs(n))}%`;
-}
 
 function trimStr(value: unknown, maxLen: number): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLen) : '';
@@ -144,21 +143,196 @@ export function modificationToExerciseChange(mod: ClinicalModification): Suggest
   if (mod.type === 'LOAD_ADJUST') return null;
   return {
     action: mod.type,
-    currentExerciseId: mod.id ?? undefined,
-    newExerciseChainId: mod.newId ?? undefined,
+    currentExerciseId: mod.currentExerciseId ?? undefined,
+    newExerciseChainId: mod.newExerciseChainId ?? undefined,
     label: mod.label,
   };
 }
 
 export function modificationToLoadAdjustment(mod: ClinicalModification): LoadAdjustment | null {
   if (mod.type !== 'LOAD_ADJUST') return null;
-  if (!mod.id) return null;
+  if (!mod.currentExerciseId) return null;
   return {
-    exerciseId: mod.id,
+    exerciseId: mod.currentExerciseId,
     suggestedReps: mod.reps ?? undefined,
     suggestedSets: mod.sets ?? undefined,
     label: mod.label,
   };
+}
+
+function resolvePlanExerciseName(
+  exerciseId: string | null | undefined,
+  catalog?: ClinicalExerciseCatalog
+): string | null {
+  if (!exerciseId || !catalog) return null;
+  const planEx = catalog.currentPlanExercises.find(
+    (ex) => ex.id === exerciseId || ex.id.includes(exerciseId)
+  );
+  return planEx?.name ?? null;
+}
+
+function resolveCatalogExerciseName(catalogId: string | null | undefined): string | null {
+  if (!catalogId) return null;
+  const found = findCatalogExerciseById(catalogId);
+  if (!found) return null;
+  if (found.source === 'library') return (found.exercise as { name: string }).name;
+  return (found.exercise as { name: string }).name;
+}
+
+export type ClinicalActionLabelDisplay =
+  | { kind: 'plain'; text: string }
+  | {
+      kind: 'load_adjust';
+      prefix: 'העלאת עומס' | 'הפחתת עומס';
+      exerciseName: string;
+      fieldLabel: string;
+      currentValue: number;
+      suggestedValue: number;
+    };
+
+function findPlanCatalogExercise(
+  catalog: ClinicalExerciseCatalog,
+  exerciseId: string
+): ClinicalExerciseCatalog['currentPlanExercises'][number] | undefined {
+  return catalog.currentPlanExercises.find(
+    (ex) => ex.id === exerciseId || ex.id.includes(exerciseId)
+  );
+}
+
+function loadAdjustPrefix(
+  current: number,
+  suggested: number
+): 'העלאת עומס' | 'הפחתת עומס' {
+  return suggested > current ? 'העלאת עומס' : 'הפחתת עומס';
+}
+
+function parseNumericPairFromLabel(label: string): { current: number; suggested: number } | null {
+  const match = label.match(/(\d+)\s*(?:→|➔|->|—|-)\s*(\d+)/);
+  if (!match) return null;
+  return { current: Number(match[1]), suggested: Number(match[2]) };
+}
+
+/** Drop REPLACE actions missing newId or with an unknown catalog id. */
+export function filterInvalidReplacements(
+  modifications: ClinicalModification[],
+  catalog?: ClinicalExerciseCatalog
+): ClinicalModification[] {
+  const validCatalogIds = catalog
+    ? new Set(catalog.availableCatalogExercises.map((ex) => ex.id))
+    : null;
+
+  return modifications.filter((mod) => {
+    if (mod.type !== 'REPLACE') return true;
+    if (!mod.newExerciseChainId) return false;
+    if (validCatalogIds && !validCatalogIds.has(mod.newExerciseChainId)) return false;
+    return true;
+  });
+}
+
+export function buildLoadAdjustLabelDisplay(
+  mod: ClinicalModification,
+  catalog?: ClinicalExerciseCatalog
+): ClinicalActionLabelDisplay {
+  const planEx =
+    mod.currentExerciseId && catalog
+      ? findPlanCatalogExercise(catalog, mod.currentExerciseId)
+      : undefined;
+  const exerciseName =
+    planEx?.name ??
+    resolvePlanExerciseName(mod.currentExerciseId, catalog) ??
+    mod.currentExerciseId ??
+    'תרגיל';
+
+  if (mod.reps != null && planEx) {
+    return {
+      kind: 'load_adjust',
+      prefix: loadAdjustPrefix(planEx.patientReps, mod.reps),
+      exerciseName,
+      fieldLabel: 'חזרות',
+      currentValue: planEx.patientReps,
+      suggestedValue: mod.reps,
+    };
+  }
+  if (mod.sets != null && planEx) {
+    return {
+      kind: 'load_adjust',
+      prefix: loadAdjustPrefix(planEx.patientSets, mod.sets),
+      exerciseName,
+      fieldLabel: 'סטים',
+      currentValue: planEx.patientSets,
+      suggestedValue: mod.sets,
+    };
+  }
+
+  const parsed = parseNumericPairFromLabel(mod.label);
+  if (parsed) {
+    return {
+      kind: 'load_adjust',
+      prefix: loadAdjustPrefix(parsed.current, parsed.suggested),
+      exerciseName,
+      fieldLabel: 'חזרות',
+      currentValue: parsed.current,
+      suggestedValue: parsed.suggested,
+    };
+  }
+
+  return { kind: 'plain', text: mod.label.trim() || `עדכון עומס בתרגיל ${exerciseName}` };
+}
+
+export function resolveModificationLabelDisplay(
+  mod: ClinicalModification,
+  catalog?: ClinicalExerciseCatalog
+): ClinicalActionLabelDisplay {
+  if (mod.type === 'LOAD_ADJUST') {
+    return buildLoadAdjustLabelDisplay(mod, catalog);
+  }
+  return { kind: 'plain', text: formatModificationDisplayHe(mod, catalog) };
+}
+
+export function labelDisplayToPlainText(display: ClinicalActionLabelDisplay): string {
+  if (display.kind === 'plain') return display.text;
+  return `${display.prefix} בתרגיל ${display.exerciseName}: ${display.fieldLabel} ${display.currentValue} ➔ ${display.suggestedValue}`;
+}
+
+export function finalizeClinicalModifications(
+  modifications: ClinicalModification[],
+  catalog?: ClinicalExerciseCatalog
+): ClinicalModification[] {
+  return filterModificationConflicts(
+    filterInvalidReplacements(modifications, catalog).map((mod) => ({
+      ...mod,
+      label: labelDisplayToPlainText(resolveModificationLabelDisplay(mod, catalog)),
+    }))
+  );
+}
+
+/** Deterministic Hebrew display — never uses long LLM label text for REPLACE/REMOVE. */
+export function formatModificationDisplayHe(
+  mod: ClinicalModification,
+  catalog?: ClinicalExerciseCatalog
+): string {
+  const currentName =
+    resolvePlanExerciseName(mod.currentExerciseId, catalog) ??
+    mod.currentExerciseId ??
+    'תרגיל';
+  const newName =
+    resolveCatalogExerciseName(mod.newExerciseChainId) ??
+    resolvePlanExerciseName(mod.newExerciseChainId, catalog) ??
+    mod.newExerciseChainId ??
+    'תרגיל';
+
+  switch (mod.type) {
+    case 'REPLACE':
+      return `החלף ${currentName} ב-${newName}`;
+    case 'REMOVE':
+      return `הסר את ${currentName}`;
+    case 'ADD':
+      return `הוסף ${newName}`;
+    case 'LOAD_ADJUST':
+      return labelDisplayToPlainText(buildLoadAdjustLabelDisplay(mod, catalog));
+    default:
+      return mod.label;
+  }
 }
 
 export function normalizeClinicalModification(raw: unknown): ClinicalModification | null {
@@ -168,70 +342,59 @@ export function normalizeClinicalModification(raw: unknown): ClinicalModificatio
   if (type !== 'REPLACE' && type !== 'REMOVE' && type !== 'ADD' && type !== 'LOAD_ADJUST') {
     return null;
   }
-  const label = trimStr(o.label, 120);
-  if (!label) return null;
 
-  const id = nullableId(o.id);
-  const newId = nullableId(o.newId);
+  const currentExerciseId =
+    nullableId(o.currentExerciseId) ?? nullableId(o.id);
+  const newExerciseChainId =
+    nullableId(o.newExerciseChainId) ?? nullableId(o.newId);
+  const label = trimStr(o.label, 80) || type;
+  const rationale = trimStr(o.rationale, 160);
   const reps = nullableInt(o.reps);
   const sets = nullableInt(o.sets);
 
   if (type === 'REPLACE') {
-    if (!id || !newId) return null;
-    return { type, id, newId, label, reps: null, sets: null };
+    if (!currentExerciseId || !newExerciseChainId || !rationale || !label) return null;
+    return { type, currentExerciseId, newExerciseChainId, label, rationale, reps: null, sets: null };
   }
   if (type === 'REMOVE') {
-    if (!id) return null;
-    return { type, id, newId: null, label, reps: null, sets: null };
+    if (!currentExerciseId || !rationale || !label) return null;
+    return {
+      type,
+      currentExerciseId,
+      newExerciseChainId: null,
+      label,
+      rationale,
+      reps: null,
+      sets: null,
+    };
   }
   if (type === 'ADD') {
-    if (!newId) return null;
-    return { type, id, newId, label, reps: null, sets: null };
+    if (!newExerciseChainId || !rationale || !label) return null;
+    return { type, currentExerciseId, newExerciseChainId, label, rationale, reps: null, sets: null };
   }
-  if (!id) return null;
-  if (reps == null && sets == null) return null;
-  return { type, id, newId: null, label, reps, sets };
+  if (!currentExerciseId || !rationale || !label) return null;
+  return { type, currentExerciseId, newExerciseChainId: null, label, rationale, reps, sets };
 }
 
 export function normalizeUnifiedClinicalNarrative(raw: unknown): LlmClinicalNarrative {
   const o = raw as Record<string, unknown>;
-  const summaryRaw = o.summary as Record<string, unknown> | undefined;
-  const consistency = trimStr(summaryRaw?.consistency, 120);
-  const painLoad = trimStr(summaryRaw?.painLoad, 120);
-
-  if (!consistency || !painLoad) {
-    throw new Error('Invalid AI response: summary incomplete');
-  }
-
-  const actionItems = Array.isArray(o.actionItems)
-    ? o.actionItems
-        .filter((x): x is string => typeof x === 'string')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .slice(0, 6)
-    : [];
 
   const modifications = Array.isArray(o.modifications)
-    ? o.modifications
-        .map(normalizeClinicalModification)
-        .filter((x): x is ClinicalModification => x != null)
-        .slice(0, 6)
+    ? filterInvalidReplacements(
+        filterModificationConflicts(
+          o.modifications
+            .map(normalizeClinicalModification)
+            .filter((x): x is ClinicalModification => x != null)
+            .slice(0, 6)
+        )
+      )
     : [];
 
-  const prognosis = trimStr(o.prognosis, 200);
-  if (!prognosis) {
-    throw new Error('Invalid AI response: empty prognosis');
-  }
-
-  if (actionItems.length === 0) {
-    throw new Error('Invalid AI response: actionItems empty');
-  }
-
   return {
-    summary: { consistency, painLoad },
-    actionItems,
+    summary: { consistency: '', painLoad: '' },
+    actionItems: [],
     modifications,
-    prognosis,
+    prognosis: '',
   };
 }
 
@@ -246,31 +409,28 @@ export function buildUnifiedClinicalNarrative(
   const adherencePct = agg.adherencePercent;
   const fullTrend = fullHistoryPainTrend(agg);
   const activeTrend = painVisualTrendActive(agg.daySeriesActive);
-  const pt = agg.painTrendPercent;
   const shortStreak = streak.activeStreakDayCount > 0 && streak.activeStreakDayCount < 3;
 
   let consistency: string;
   if (streak.actualStartDate == null) {
-    consistency = '• אין סשנים מתועדים עדיין';
+    consistency = 'אין סשנים מתועדים עדיין.';
   } else if (agg.hasRecentGap && shortStreak) {
-    consistency = `• חזרה לאחר הפסקה של ${streak.lastGapDays} ימים · מסלול קצר (${streak.activeStreakDayCount} ימ')`;
+    consistency = `חזרה לאחר הפסקה של ${streak.lastGapDays} ימים — מסלול קצר.`;
   } else if (agg.hasRecentGap) {
-    consistency = `• חזרה לתרגול לאחר הפסקה · עמידה ${adherencePct ?? '—'}%`;
-  } else if (agg.trainingPhaseHistory.length > 1) {
-    consistency = `• ${agg.trainingPhaseHistory.length} מסלולים · פעיל מ-${streak.activeStreakStart}`;
+    consistency = `חזרה לתרגול לאחר הפסקה · עמידה ${adherencePct ?? '—'}%.`;
   } else {
-    consistency = `• תרגול רציף · עמידה ${adherencePct ?? '—'}%`;
+    consistency = `עמידה במסלול הפעיל ${adherencePct ?? '—'}%.`;
   }
 
   let painLoad: string;
   if (fullTrend === 'down') {
-    painLoad = `• כאב יורד ב${areaLabel}${pt != null ? ` (~${fmtPct(pt)})` : ''}`;
+    painLoad = `מגמת כאב יורדת ב${areaLabel}.`;
   } else if (fullTrend === 'up') {
-    painLoad = `• כאב עולה · בדיקת עומס${agg.avgEffort1to5 != null && agg.avgEffort1to5 >= 4 ? ' (מאמץ גבוה)' : ''}`;
+    painLoad = 'מגמת כאב עולה — בדיקת עומס נדרשת.';
   } else if (activeTrend === 'down') {
-    painLoad = '• כאב משתפר במסלול הפעיל';
+    painLoad = 'כאב משתפר במסלול הפעיל.';
   } else {
-    painLoad = '• כאב ועומס יציבים — מעקב';
+    painLoad = 'כאב ועומס יציבים.';
   }
 
   const actionItems: string[] = [];
@@ -297,11 +457,10 @@ export function buildUnifiedClinicalNarrative(
   ) {
     modifications.push({
       type: 'REPLACE',
-      id: firstPlanEx.id,
-      newId: catalogId,
-      label: `החלפת ${firstPlanEx.name} — התקדמות`,
-      reps: null,
-      sets: null,
+      currentExerciseId: firstPlanEx.id,
+      newExerciseChainId: catalogId,
+      label: firstPlanEx.name,
+      rationale: 'עמידה טובה — התקדמות לתרגיל מאתגר יותר.',
     });
   } else if (
     (progressInsight?.category === 'load_decrease' ||
@@ -311,9 +470,10 @@ export function buildUnifiedClinicalNarrative(
     const reps = Math.max(1, Math.floor(firstPlanEx.patientReps * 0.75));
     modifications.push({
       type: 'LOAD_ADJUST',
-      id: firstPlanEx.id,
-      newId: null,
+      currentExerciseId: firstPlanEx.id,
+      newExerciseChainId: null,
       label: `${firstPlanEx.name}: ${firstPlanEx.patientSets}×${reps}`,
+      rationale: 'כאב/עומס גבוה — הפחתת נפח תרגיל.',
       reps,
       sets: firstPlanEx.patientSets,
     });
@@ -330,7 +490,10 @@ export function buildUnifiedClinicalNarrative(
     {
       summary: { consistency, painLoad },
       actionItems: actionItems.slice(0, 5),
-      modifications,
+      modifications: finalizeClinicalModifications(
+        filterModificationConflicts(modifications),
+        catalog
+      ),
       prognosis,
     },
     { adherencePercent: adherencePct, hasRecentGap: agg.hasRecentGap }

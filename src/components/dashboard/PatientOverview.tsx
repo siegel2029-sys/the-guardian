@@ -22,7 +22,6 @@ import { dispatchPatientPushSyncRequest } from '../../services/therapistChatPush
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
 import RedFlagAlert from './RedFlagAlert';
 import AiSuggestionsPanel from './AiSuggestionsPanel';
-import PendingApprovalsPanel from './PendingApprovalsPanel';
 import ManagePlanModal from './ManagePlanModal';
 import ClinicalAiIntakeWizard from './ClinicalAiIntakeWizard';
 import ClinicalIntakeCompletionModal from './clinical/ClinicalIntakeCompletionModal';
@@ -719,7 +718,6 @@ export default function PatientOverview() {
 
         <TherapistAiInsightsPanel patient={p} />
 
-        <PendingApprovalsPanel />
         <AiSuggestionsPanel />
 
         <AccessibilityFooterLink />

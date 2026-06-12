@@ -1,5 +1,5 @@
 /**
- * Stream 2 — Gemini clinical narrative (v3 strict JSON). Stream 1 facts are read-only in payload.
+ * Stream 2 — Physio-Shield Clinical Narrative Engine (Gemini).
  */
 
 import type { ClinicalInsightsAggregated } from '../services/clinicalInsightsAggregation';
@@ -10,6 +10,7 @@ import { parseJsonObject } from './geminiClinicalIntake';
 import type { ClinicalProgressInsight } from './clinicalCommandInsight';
 import {
   formatAdherenceStatus,
+  finalizeClinicalModifications,
   injectServerClinicalFacts,
   normalizeUnifiedClinicalNarrative,
   type UnifiedClinicalNarrative,
@@ -21,36 +22,44 @@ export { getGeminiApiKey, GeminiRateLimitedError } from './geminiClient';
 
 const LOG_PREFIX = '[GeminiSmartClinicalCenter]';
 
-const CLINICAL_ENGINE_PROMPT = `You are a machine-readable Clinical Engine. Output ONLY a single raw JSON object.
+const CLINICAL_NARRATIVE_ENGINE_PROMPT = `You are the Physio-Shield Clinical Narrative Engine.
+Output ONLY a single raw JSON object — NO markdown, NO code fences, NO prefixes, NO extra keys.
 
-STRICT RULES — NO EXCEPTIONS:
-1. Return ONLY raw JSON. NO markdown. NO code fences. NO explanations. NO conversational filler before or after the JSON.
-2. If status is 'Modify', you MUST return a populated 'modifications' array with all required fields.
-3. If 'modifications' is empty, status is considered 'Keep'.
-4. All clinical labels, summaries, actionItems, and prognosis MUST be in HEBREW.
-5. DATA INTEGRITY: activePhaseStats.adherencePercent and activePhaseStats.hasRecentGap are server-computed. DO NOT recalculate. Echo adherencePercent as adherenceStatus (e.g. "82%").
-6. Exercise IDs in modifications MUST come from exerciseCatalog in the payload only.
-7. Do NOT suggest modifications, tests, or actions that contradict continuationProtocol or intakePrognosis.
+RULES:
+1. Return EXACTLY this structure and NOTHING else.
+2. All label and rationale text MUST be in Hebrew (one short sentence for rationale).
+3. Use id/newId from exerciseCatalog: id from currentPlanExercises, newId from availableCatalogExercises.
+4. If no plan changes needed, return { "modifications": [] }.
+5. EXPLICIT NAMING: For EVERY modification (REPLACE, REMOVE, ADD, LOAD_ADJUST), the label and rationale MUST explicitly state the name of the target exercise. Never use generic terms like "הפחתת עומס". Instead write explicitly: "הפחתת עומס בתרגיל פנדולום". If multiple exercises are involved, specify them clearly.
+6. PROTOCOL ALIGNMENT: You are provided with currentProtocolName and currentProtocolWeek. ALL proposed modifications MUST strictly adhere to the physiological healing timeframes for this specific week. Do not suggest aggressive progressions that violate the protocol.
+7. CONTRADICTION GUARD: If you output a REPLACE or REMOVE action for a specific exercise ID, you MUST NOT include a LOAD_ADJUST action for that same ID in the same response.
+8. REPLACE GUARD: If type is REPLACE, you MUST select a valid newId from exerciseCatalog.availableCatalogExercises.
+9. LOAD_ADJUST GUARD: Include raw reps and/or sets numbers in the JSON fields. Do NOT write "increase", "decrease", "הגברה", or "הפחתה" in the label — the system calculates direction dynamically.
+10. Do NOT contradict continuationProtocol or intakePrognosis in the payload.
 
-SCHEMA (output exactly this shape):
+JSON OUTPUT SCHEMA:
 {
-  "adherenceStatus": "X%",
-  "summary": { "consistency": "Short string", "painLoad": "Short string" },
-  "actionItems": ["Short bullet"],
   "modifications": [
-    { "type": "REPLACE" | "REMOVE" | "ADD" | "LOAD_ADJUST", "id": "...", "newId": "...", "label": "...", "reps": null, "sets": null }
-  ],
-  "prognosis": "One short sentence."
+    {
+      "type": "REPLACE" | "REMOVE" | "ADD" | "LOAD_ADJUST",
+      "id": string | null,
+      "newId": string | null,
+      "reps": number | null,
+      "sets": number | null,
+      "label": string,
+      "rationale": string
+    }
+  ]
 }`;
-
-function logInfo(message: string, detail?: Record<string, unknown>): void {
-  if (detail) console.info(`${LOG_PREFIX} ${message}`, detail);
-  else console.info(`${LOG_PREFIX} ${message}`);
-}
 
 /** Strip markdown code fences and other non-JSON wrappers from model output. */
 export function stripMarkdownCodeFences(text: string): string {
   return text.replace(/```json|```/g, '').trim();
+}
+
+function logInfo(message: string, detail?: Record<string, unknown>): void {
+  if (detail) console.info(`${LOG_PREFIX} ${message}`, detail);
+  else console.info(`${LOG_PREFIX} ${message}`);
 }
 
 function aggregatedPayloadForPrompt(
@@ -72,6 +81,9 @@ function aggregatedPayloadForPrompt(
     accountJoinDate: joinDate,
     daysSinceJoin,
     actualStartDate: agg.actualStartDate,
+    daysSinceProtocolStart: agg.daysSinceProtocolStart,
+    currentProtocolName: agg.currentProtocolName,
+    currentProtocolWeek: agg.currentProtocolWeek,
     continuationProtocol: continuationProtocol || null,
     intakePrognosis: prognosis || null,
     trainingPhaseHistory: agg.trainingPhaseHistory,
@@ -87,11 +99,8 @@ function aggregatedPayloadForPrompt(
       adherenceStatus: formatAdherenceStatus(agg.adherencePercent),
       hasRecentGap: agg.hasRecentGap,
       adherenceCountableDays: agg.adherenceCountableDays,
-      adherenceCompletedSum: agg.adherenceCompletedSum,
-      adherencePlannedSum: agg.adherencePlannedSum,
       painTrendPercent: agg.painTrendPercent,
       avgPainPrimary: agg.avgPainActiveStreakPrimary,
-      avgEffort1to5: agg.avgEffort1to5,
       shortStreakWarning: streak.activeStreakDayCount > 0 && streak.activeStreakDayCount < 3,
     },
     fullHistoryForClinicalReasoning: {
@@ -102,15 +111,28 @@ function aggregatedPayloadForPrompt(
         pain0to10: r.painLevel,
       })),
       trainingPhaseHistory: agg.trainingPhaseHistory,
-      priorStreakStats: agg.priorStreakStats,
     },
     daySeriesActive: agg.daySeriesActive.map((d) => ({
       date: d.date,
       pain0to10: d.pain,
       effort1to5: d.effort1to5,
     })),
-    selfSelectedZoneLabels: agg.selfSelectedZones.map((a) => bodyAreaLabels[a]),
-    exerciseCatalog: catalog,
+    exerciseCatalog: {
+      currentPlanExercises: catalog.currentPlanExercises.map((ex) => ({
+        id: ex.id,
+        name: ex.name,
+        reps: ex.patientReps,
+        sets: ex.patientSets,
+        holdSeconds: ex.holdSeconds,
+        targetArea: ex.targetArea,
+      })),
+      availableCatalogExercises: catalog.availableCatalogExercises.map((ex) => ({
+        id: ex.id,
+        name: ex.name,
+        targetArea: ex.targetArea,
+        level: ex.level,
+      })),
+    },
   };
 }
 
@@ -129,10 +151,10 @@ export async function analyzeSmartClinicalCenterWithGemini(params: {
   const streakDays = params.aggregated.activeStreak.activeStreakDayCount;
   const shortStreakRule =
     streakDays > 0 && streakDays < 3
-      ? `\nAdditional: Active streak is short (${streakDays} days). Do not praise perfect adherence; acknowledge recent restart if hasRecentGap is true.`
+      ? `\nNote: Active streak is short (${streakDays} days). Prefer empty modifications unless clinically necessary.`
       : '';
 
-  const systemInstruction = `${CLINICAL_ENGINE_PROMPT}${shortStreakRule}`;
+  const systemInstruction = `${CLINICAL_NARRATIVE_ENGINE_PROMPT}${shortStreakRule}`;
 
   const userText = `Patient data (JSON):
 ${JSON.stringify(
@@ -147,7 +169,7 @@ ${JSON.stringify(
   2
 )}
 
-System recommendation:
+System recommendation (reference only — output modifications JSON only):
 ${JSON.stringify(params.progressInsight, null, 2)}`;
 
   logInfo('Starting smart clinical center analysis', {
@@ -159,7 +181,7 @@ ${JSON.stringify(params.progressInsight, null, 2)}`;
   const responseText = await geminiGenerateText({
     systemInstruction,
     userText,
-    temperature: 0.22,
+    temperature: 0.2,
     responseMimeType: 'application/json',
     logPrefix: LOG_PREFIX,
     logDetail: { patientId: params.aggregated.patientId },
@@ -167,7 +189,11 @@ ${JSON.stringify(params.progressInsight, null, 2)}`;
 
   const parsed = parseJsonObject(stripMarkdownCodeFences(responseText));
   const normalized = normalizeUnifiedClinicalNarrative(parsed);
-  return injectServerClinicalFacts(normalized, {
+  const finalized = {
+    ...normalized,
+    modifications: finalizeClinicalModifications(normalized.modifications, params.catalog),
+  };
+  return injectServerClinicalFacts(finalized, {
     adherencePercent: params.aggregated.adherencePercent,
     hasRecentGap: params.aggregated.hasRecentGap,
   });

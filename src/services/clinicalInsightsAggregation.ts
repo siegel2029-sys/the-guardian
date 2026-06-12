@@ -11,6 +11,7 @@ import type {
   Patient,
   PatientExerciseFinishReport,
   SelfCareSessionReport,
+  TreatmentProtocolWeek,
 } from '../types';
 import { clinicalDateToLocalMidnight, toLocalYmd } from '../utils/clinicalCalendar';
 import { STRENGTH_EXERCISE_CHAINS } from '../data/strengthExerciseDatabase';
@@ -21,6 +22,7 @@ import {
   type TrainingPhaseSegment,
 } from '../utils/clinicalActiveStreak';
 import { computeGraceAwareAdherence } from '../utils/clinicalAdherence';
+import { computeClinicalProtocolContext } from '../utils/clinicalProtocolWeek';
 
 export type ClinicalDayPoint = {
   date: string;
@@ -46,6 +48,10 @@ export type ClinicalInsightsAggregated = {
   exerciseHistory: ExerciseSession[];
   activeStreak: ClinicalActiveStreakContext;
   actualStartDate: string | null;
+  /** 1-based week within treatment protocol (floor(daysSinceStart / 7) + 1) */
+  currentProtocolWeek: number | null;
+  currentProtocolName: string | null;
+  daysSinceProtocolStart: number | null;
   trainingPhaseHistory: TrainingPhaseSegment[];
   /** Stream 1 — grace-aware adherence, current phase only (server hard fact) */
   adherencePercent: number | null;
@@ -249,6 +255,7 @@ export function aggregateClinicalInsights(params: {
   selfSelectedZones: BodyArea[];
   selfCareReports: SelfCareSessionReport[];
   finishReports: PatientExerciseFinishReport[];
+  treatmentProtocol?: TreatmentProtocolWeek[] | string;
 }): ClinicalInsightsAggregated {
   const {
     patient,
@@ -258,6 +265,7 @@ export function aggregateClinicalInsights(params: {
     selfSelectedZones,
     selfCareReports,
     finishReports,
+    treatmentProtocol,
   } = params;
 
   const painHistory = patient.analytics?.painHistory ?? [];
@@ -387,6 +395,12 @@ export function aggregateClinicalInsights(params: {
     }
   }
 
+  const protocolContext = computeClinicalProtocolContext({
+    protocolStartDate: activeStreak.actualStartDate,
+    clinicalToday,
+    treatmentProtocol,
+  });
+
   return {
     patientId: patient.id,
     clinicalToday,
@@ -394,6 +408,9 @@ export function aggregateClinicalInsights(params: {
     exerciseHistory,
     activeStreak,
     actualStartDate: activeStreak.actualStartDate,
+    currentProtocolWeek: protocolContext.currentProtocolWeek,
+    currentProtocolName: protocolContext.currentProtocolName,
+    daysSinceProtocolStart: protocolContext.daysSinceProtocolStart,
     trainingPhaseHistory: activeStreak.trainingPhaseHistory,
     adherencePercent: graceAdherence.adherencePercent,
     hasRecentGap: activeStreak.lastGapDays != null,

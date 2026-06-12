@@ -13,18 +13,23 @@ type Props = {
   treatmentProtocol?: TreatmentProtocolWeek[] | string;
   prognosisHypothesis?: string;
   protocolTrackingState?: ProtocolTrackingState;
+  currentProtocolWeek?: number | null;
   readOnly?: boolean;
   onTrackingChange?: (next: ProtocolTrackingState) => void;
   className?: string;
+  /** Patient portal — show "אתה כאן" on the active week */
+  showYouAreHereBadge?: boolean;
 };
 
 export default function TreatmentProtocolPrognosisCard({
   treatmentProtocol,
   prognosisHypothesis,
   protocolTrackingState = [],
+  currentProtocolWeek = null,
   readOnly = false,
   onTrackingChange,
   className = '',
+  showYouAreHereBadge = false,
 }: Props) {
   const protocolWeeks = useMemo(
     () => normalizeProtocolWeeksForDisplay(treatmentProtocol),
@@ -42,9 +47,13 @@ export default function TreatmentProtocolPrognosisCard({
     if (protocolWeeks.length === 0) return;
     setExpandedWeeks((prev) => {
       if (prev.size > 0) return prev;
-      return new Set([protocolWeeks[0].weekNumber]);
+      const initialWeek =
+        currentProtocolWeek != null
+          ? currentProtocolWeek
+          : protocolWeeks[0].weekNumber;
+      return new Set([initialWeek]);
     });
-  }, [protocolWeeks]);
+  }, [protocolWeeks, currentProtocolWeek]);
 
   const prognosis = prognosisHypothesis?.trim() ?? '';
   const hasProtocol = protocolWeeks.length > 0;
@@ -152,21 +161,38 @@ export default function TreatmentProtocolPrognosisCard({
               protocolWeeks.map((week, weekIdx) => {
                 const trackingWeek = trackingState[weekIdx];
                 const expanded = expandedWeeks.has(week.weekNumber);
+                const isCurrentWeek =
+                  currentProtocolWeek != null && week.weekNumber === currentProtocolWeek;
                 const weekHeaderId = `protocol-week-${week.weekNumber}`;
                 return (
                   <div
                     key={`week-${week.weekNumber}-${weekIdx}`}
-                    className="rounded-lg border border-slate-200 overflow-hidden"
+                    className={`rounded-lg border overflow-hidden ${
+                      isCurrentWeek
+                        ? 'bg-yellow-100 border-yellow-500 border-2 shadow-sm'
+                        : 'border-slate-200'
+                    }`}
                   >
                     <button
                       type="button"
                       id={weekHeaderId}
                       onClick={() => toggleWeek(week.weekNumber)}
-                      className="w-full flex items-center justify-between gap-2 px-3 py-2.5 bg-slate-50/80 hover:bg-slate-100/80 text-start transition-colors"
+                      className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-start transition-colors ${
+                        isCurrentWeek
+                          ? 'bg-yellow-50/90 hover:bg-yellow-100/90'
+                          : 'bg-slate-50/80 hover:bg-slate-100/80'
+                      }`}
                       aria-expanded={expanded}
                     >
-                      <span className="text-sm font-semibold text-slate-900">
-                        {week.title || `שבוע ${week.weekNumber}`}
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-semibold text-slate-900">
+                          {week.title || `שבוע ${week.weekNumber}`}
+                        </span>
+                        {isCurrentWeek && showYouAreHereBadge && (
+                          <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-200 text-yellow-900 border border-yellow-400">
+                            אתה כאן
+                          </span>
+                        )}
                       </span>
                       {expanded ? (
                         <ChevronUp className="w-4 h-4 text-slate-500 shrink-0" aria-hidden />

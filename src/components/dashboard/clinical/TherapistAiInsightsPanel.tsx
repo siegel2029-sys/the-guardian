@@ -1,16 +1,8 @@
-import {
-  Brain,
-  Loader2,
-  ListChecks,
-  Check,
-  ClipboardList,
-  Route,
-  Activity,
-} from 'lucide-react';
+import type { ClinicalActionLabelDisplay } from '../../../ai/clinicalInsightsNarrative';
+import { Brain, Loader2, Route, Activity } from 'lucide-react';
 import type { Patient } from '../../../types';
 import { useTherapistPatientSmartClinical } from '../../../hooks/useTherapistPatientSmartClinical';
 import { bodyAreaLabels } from '../../../types';
-import { approvableRowKey } from '../../../ai/clinicalInsightsNarrative';
 
 type Props = { patient: Patient | null | undefined };
 
@@ -22,9 +14,10 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
     narrativeSource = null,
     geminiLoading = false,
     geminiError = null,
-    visibleApprovableRows = [],
+    unifiedActions = [],
     isLoading = false,
-    approveApprovableRow,
+    approveUnifiedAction,
+    dismissUnifiedAction,
     planModificationFeedback,
   } = useTherapistPatientSmartClinical(patient);
 
@@ -42,7 +35,7 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
 
   const hasMetrics = progressInsight != null;
   const hasNarrative = narrative != null;
-  const hasContent = hasMetrics || hasNarrative;
+  const hasContent = hasMetrics || hasNarrative || unifiedActions.length > 0;
   const showEmptyState = !isLoading && !geminiLoading && !hasContent;
 
   const streakSubtitle =
@@ -139,63 +132,29 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
           </div>
         </section>
 
-        {hasNarrative && narrative && (
-          <>
-            <section>
-              <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2">
-                סיכום קליני
-              </h4>
-              <div className="space-y-2 text-sm text-slate-800">
-                <p className="leading-snug bg-white/80 rounded-xl border border-slate-100 px-3 py-2">
-                  {narrative.summary.consistency}
-                </p>
-                <p className="leading-snug bg-white/80 rounded-xl border border-slate-100 px-3 py-2">
-                  {narrative.summary.painLoad}
-                </p>
-              </div>
-            </section>
-
-            {narrative.actionItems.length > 0 && (
-              <section>
-                <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                  <ListChecks className="w-3.5 h-3.5" aria-hidden="true" />
-                  פעולות נדרשות
-                </h4>
-                <BulletList items={narrative.actionItems} />
-              </section>
-            )}
-
-            <section>
-              <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                <Route className="w-3.5 h-3.5" aria-hidden="true" />
-                שינויים בתכנית
-              </h4>
-              {visibleApprovableRows.length > 0 ? (
-                <div className="space-y-2 mt-2">
-                  {visibleApprovableRows.map((row) => (
-                    <ModificationRow
-                      key={approvableRowKey(row)}
-                      label={row.item.label}
-                      onApprove={() => approveApprovableRow(row)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-slate-500">אין שינויים בתכנית</p>
-              )}
-            </section>
-
-            <section>
-              <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                <ClipboardList className="w-3.5 h-3.5" aria-hidden="true" />
-                פרוגנוזה
-              </h4>
-              <p className="text-sm text-slate-800 leading-snug bg-violet-50/40 rounded-xl border border-violet-100/60 px-3 py-2">
-                {narrative.prognosis}
-              </p>
-            </section>
-          </>
-        )}
+        <section>
+          <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+            <Route className="w-3.5 h-3.5" aria-hidden="true" />
+            שינויים בתכנית
+          </h4>
+          {unifiedActions.length > 0 ? (
+            <div className="space-y-3 mt-2">
+              {unifiedActions.map((action) => (
+                <ModificationCard
+                  key={action.id}
+                  sourceTag={action.sourceTag}
+                  labelDisplay={action.labelDisplay}
+                  label={action.label}
+                  rationale={action.rationale}
+                  onApprove={() => approveUnifiedAction(action)}
+                  onDismiss={() => dismissUnifiedAction(action)}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">אין שינויים בתכנית</p>
+          )}
+        </section>
 
         {showEmptyState && (
           <p className="text-sm text-slate-500 text-center py-4">
@@ -211,42 +170,67 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
   );
 }
 
-function ModificationRow({
+function ModificationCard({
+  sourceTag,
+  labelDisplay,
   label,
+  rationale,
   onApprove,
+  onDismiss,
 }: {
+  sourceTag: string;
+  labelDisplay: ClinicalActionLabelDisplay;
   label: string;
+  rationale: string;
   onApprove: () => void;
+  onDismiss: () => void;
 }) {
   return (
-    <article className="flex items-center gap-3 rounded-xl border border-violet-100 bg-white px-3 py-2.5">
-      <span className="flex-1 min-w-0 text-sm font-bold text-slate-800">{label}</span>
-      <button
-        type="button"
-        onClick={onApprove}
-        className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
-        aria-label={`אישור: ${label}`}
-      >
-        <Check className="w-3.5 h-3.5" aria-hidden="true" />
-        אישור
-      </button>
+    <article className="rounded-xl border border-violet-100 bg-white px-4 py-3 shadow-sm">
+      <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 mb-2">
+        {sourceTag}
+      </span>
+      <h4 className="text-sm font-black text-slate-900 mb-1">
+        <ActionLabel display={labelDisplay} />
+      </h4>
+      {rationale && (
+        <p className="text-sm text-slate-600 mb-3">
+          <em>{rationale}</em>
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onApprove}
+          className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700"
+          aria-label={`אשר ועדכן תוכנית: ${label}`}
+        >
+          אשר ועדכן תוכנית
+        </button>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
+          aria-label={`דחה: ${label}`}
+        >
+          דחה
+        </button>
+      </div>
     </article>
   );
 }
 
-function BulletList({ items }: { items: string[] }) {
+function ActionLabel({ display }: { display: ClinicalActionLabelDisplay }) {
+  if (display.kind === 'plain') {
+    return <>{display.text}</>;
+  }
   return (
-    <ul className="space-y-1.5">
-      {items.map((item, index) => (
-        <li
-          key={`${item}-${index}`}
-          className="text-sm text-slate-800 flex gap-2 bg-teal-50/60 rounded-xl px-3 py-2 border border-teal-100/60"
-        >
-          <span className="text-teal-600 shrink-0">•</span>
-          <span>{item}</span>
-        </li>
-      ))}
-    </ul>
+    <>
+      {display.prefix} בתרגיל {display.exerciseName}: {display.fieldLabel}{' '}
+      <span dir="ltr" className="inline-block unicode-bidi-isolate font-mono tabular-nums">
+        {display.currentValue} ➔ {display.suggestedValue}
+      </span>
+    </>
   );
 }
 

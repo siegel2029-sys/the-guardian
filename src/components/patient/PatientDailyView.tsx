@@ -38,6 +38,7 @@ import PatientAiPlanSuggestionModal from './PatientAiPlanSuggestionModal';
 import PainAnalyticsModal from './PainAnalyticsModal';
 import ClinicalMonthCalendar from './ClinicalMonthCalendar';
 import PatientTwoMonthGoalCard from './PatientTwoMonthGoalCard';
+import PatientProtocolTimelineCard from './PatientProtocolTimelineCard';
 import type { AiSuggestion, PatientExercise, BodyArea, DailySession } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import {
@@ -1380,6 +1381,12 @@ export default function PatientDailyView() {
             </div>
 
             <PatientTwoMonthGoalCard patient={selectedPatient} />
+
+            <PatientProtocolTimelineCard
+              patient={selectedPatient}
+              clinicalToday={clinicalToday}
+              className="mt-4"
+            />
 
             {!patientMustChangePassword && totalMissions > 0 && (
               <div
