@@ -1,110 +1,159 @@
 /**
- * ניתוח מרכז ניתוח קליני חכם דרך Gemini — מבוסס סדרת 7 ימים ומדדי עמידה.
+ * Stream 2 — Gemini clinical narrative (v3 strict JSON). Stream 1 facts are read-only in payload.
  */
 
 import type { ClinicalInsightsAggregated } from '../services/clinicalInsightsAggregation';
+import type { Patient } from '../types';
 import { bodyAreaLabels } from '../types';
 import { geminiGenerateText, getGeminiApiKey } from './geminiClient';
 import { parseJsonObject } from './geminiClinicalIntake';
 import type { ClinicalProgressInsight } from './clinicalCommandInsight';
-import type { UnifiedClinicalNarrative } from './clinicalInsightsNarrative';
+import {
+  formatAdherenceStatus,
+  injectServerClinicalFacts,
+  normalizeUnifiedClinicalNarrative,
+  type UnifiedClinicalNarrative,
+} from './clinicalInsightsNarrative';
+import type { ClinicalExerciseCatalog } from '../utils/clinicalExerciseCatalog';
+import { clinicalDaysBetween } from '../utils/patientProgressChartData';
 
 export { getGeminiApiKey, GeminiRateLimitedError } from './geminiClient';
 
 const LOG_PREFIX = '[GeminiSmartClinicalCenter]';
+
+const CLINICAL_ENGINE_PROMPT = `You are a machine-readable Clinical Engine. Output ONLY a single raw JSON object.
+
+STRICT RULES — NO EXCEPTIONS:
+1. Return ONLY raw JSON. NO markdown. NO code fences. NO explanations. NO conversational filler before or after the JSON.
+2. If status is 'Modify', you MUST return a populated 'modifications' array with all required fields.
+3. If 'modifications' is empty, status is considered 'Keep'.
+4. All clinical labels, summaries, actionItems, and prognosis MUST be in HEBREW.
+5. DATA INTEGRITY: activePhaseStats.adherencePercent and activePhaseStats.hasRecentGap are server-computed. DO NOT recalculate. Echo adherencePercent as adherenceStatus (e.g. "82%").
+6. Exercise IDs in modifications MUST come from exerciseCatalog in the payload only.
+7. Do NOT suggest modifications, tests, or actions that contradict continuationProtocol or intakePrognosis.
+
+SCHEMA (output exactly this shape):
+{
+  "adherenceStatus": "X%",
+  "summary": { "consistency": "Short string", "painLoad": "Short string" },
+  "actionItems": ["Short bullet"],
+  "modifications": [
+    { "type": "REPLACE" | "REMOVE" | "ADD" | "LOAD_ADJUST", "id": "...", "newId": "...", "label": "...", "reps": null, "sets": null }
+  ],
+  "prognosis": "One short sentence."
+}`;
 
 function logInfo(message: string, detail?: Record<string, unknown>): void {
   if (detail) console.info(`${LOG_PREFIX} ${message}`, detail);
   else console.info(`${LOG_PREFIX} ${message}`);
 }
 
-function aggregatedPayloadForPrompt(agg: ClinicalInsightsAggregated): Record<string, unknown> {
+/** Strip markdown code fences and other non-JSON wrappers from model output. */
+export function stripMarkdownCodeFences(text: string): string {
+  return text.replace(/```json|```/g, '').trim();
+}
+
+function aggregatedPayloadForPrompt(
+  agg: ClinicalInsightsAggregated,
+  patient: Patient,
+  catalog: ClinicalExerciseCatalog,
+  continuationProtocol: string,
+  prognosis: string
+): Record<string, unknown> {
+  const streak = agg.activeStreak;
+  const joinDate = patient.joinDate?.slice(0, 10) ?? null;
+  const daysSinceJoin =
+    joinDate != null ? clinicalDaysBetween(joinDate, agg.clinicalToday) : null;
+
   return {
     clinicalToday: agg.clinicalToday,
     primaryBodyArea: agg.primaryBodyArea,
     primaryBodyAreaLabel: bodyAreaLabels[agg.primaryBodyArea],
-    painTrendPercent: agg.painTrendPercent,
-    avgPain7dPrimary: agg.avgPain7dPrimary,
-    avgEffort1to5: agg.avgEffort1to5,
-    compliance: agg.compliance,
-    selfSelectedZoneLabels: agg.selfSelectedZones.map((a) => bodyAreaLabels[a]),
-    offPlanSelfCareZoneLabels: agg.offPlanSelfCareZones.map((a) => bodyAreaLabels[a]),
-    daySeries7: agg.daySeries7.map((d) => ({
+    accountJoinDate: joinDate,
+    daysSinceJoin,
+    actualStartDate: agg.actualStartDate,
+    continuationProtocol: continuationProtocol || null,
+    intakePrognosis: prognosis || null,
+    trainingPhaseHistory: agg.trainingPhaseHistory,
+    activeStreak: {
+      activeStreakStart: streak.activeStreakStart,
+      activeStreakDayCount: streak.activeStreakDayCount,
+      lastGapDays: streak.lastGapDays,
+      priorStreak: streak.priorStreak,
+    },
+    priorStreakStats: agg.priorStreakStats,
+    activePhaseStats: {
+      adherencePercent: agg.adherencePercent,
+      adherenceStatus: formatAdherenceStatus(agg.adherencePercent),
+      hasRecentGap: agg.hasRecentGap,
+      adherenceCountableDays: agg.adherenceCountableDays,
+      adherenceCompletedSum: agg.adherenceCompletedSum,
+      adherencePlannedSum: agg.adherencePlannedSum,
+      painTrendPercent: agg.painTrendPercent,
+      avgPainPrimary: agg.avgPainActiveStreakPrimary,
+      avgEffort1to5: agg.avgEffort1to5,
+      shortStreakWarning: streak.activeStreakDayCount > 0 && streak.activeStreakDayCount < 3,
+    },
+    fullHistoryForClinicalReasoning: {
+      fullSessionTimeline: agg.fullSessionTimeline,
+      fullPainHistory: agg.fullPainHistory.map((r) => ({
+        date: r.date,
+        bodyArea: r.bodyArea,
+        pain0to10: r.painLevel,
+      })),
+      trainingPhaseHistory: agg.trainingPhaseHistory,
+      priorStreakStats: agg.priorStreakStats,
+    },
+    daySeriesActive: agg.daySeriesActive.map((d) => ({
       date: d.date,
-      label: d.label,
-      weekdayHe: d.weekdayHe,
       pain0to10: d.pain,
       effort1to5: d.effort1to5,
     })),
-    highPainWithStrongCompliance: agg.highPainWithStrongCompliance,
-    highPainLowCompletionDays: agg.highPainLowCompletionDays,
-    selfCareSessionsLast7d: agg.selfCareReportsLast7d.length,
-    offPlanSelfCareSessionsLast7d: agg.offPlanSelfCareReportsLast7d.length,
+    selfSelectedZoneLabels: agg.selfSelectedZones.map((a) => bodyAreaLabels[a]),
+    exerciseCatalog: catalog,
   };
 }
 
-function normalizeNarrative(raw: unknown): UnifiedClinicalNarrative {
-  const o = raw as {
-    graphAnchoredSummary?: unknown;
-    recommendedActions?: unknown;
-  };
-  const graphAnchoredSummary =
-    typeof o.graphAnchoredSummary === 'string' ? o.graphAnchoredSummary.trim() : '';
-  const recommendedActions = Array.isArray(o.recommendedActions)
-    ? o.recommendedActions
-        .filter((x): x is string => typeof x === 'string')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .slice(0, 10)
-    : [];
-
-  if (!graphAnchoredSummary) {
-    throw new Error('Invalid AI response: empty graphAnchoredSummary');
-  }
-  if (recommendedActions.length === 0) {
-    throw new Error('Invalid AI response: recommendedActions empty');
-  }
-
-  return { graphAnchoredSummary, recommendedActions };
-}
-
-/**
- * מפיק סיכום קליני ופעולות מומלצות בעברית, מבוסס אך ורק על ה-JSON שסופק (כולל נקודות הגרף).
- */
 export async function analyzeSmartClinicalCenterWithGemini(params: {
   aggregated: ClinicalInsightsAggregated;
+  patient: Patient;
   progressInsight: ClinicalProgressInsight;
+  catalog: ClinicalExerciseCatalog;
+  continuationProtocol: string;
+  prognosis: string;
 }): Promise<UnifiedClinicalNarrative> {
   if (!getGeminiApiKey()) {
     throw new Error('Missing Supabase / gemini-proxy AI setup');
   }
 
-  const systemInstruction = `אתה עוזר קליני לפיזיותרפיסט במערכת ניהול תרגולי בית.
-המשימה: נתח את נתוני המעקב (7 ימים קליניים אחרונים) והמלצת המערכת, והפק סיכום מקצועי בעברית.
+  const streakDays = params.aggregated.activeStreak.activeStreakDayCount;
+  const shortStreakRule =
+    streakDays > 0 && streakDays < 3
+      ? `\nAdditional: Active streak is short (${streakDays} days). Do not praise perfect adherence; acknowledge recent restart if hasRecentGap is true.`
+      : '';
 
-כללים קשיחים:
-- התבסס אך ורק על ה-JSON שסופק; אל תמציא מטופלים, תאריכים או מספרים שלא הופיעו.
-- הזכר במפורש את שני צירי הגרף כשזה רלוונטי: כאב 0–10 באזור המוקד, ומאמץ מדווח 1–5.
-- אל תכלול שמות פרטיים בפלט; השתמש ב"המטופל" או "במקרה זה" בלבד.
-- אל תקבע אבחנה רפואית סופית; הצע רק הערכה, מגמות והמלצות להמשך מעקב/טיפול.
-- טון: מקצועי, תמציתי, מכבד.
-- הפלט חייב להיות אך ורק JSON תקף, ללא טקסט לפני או אחרי, ללא Markdown.
+  const systemInstruction = `${CLINICAL_ENGINE_PROMPT}${shortStreakRule}`;
 
-מבנה JSON נדרש (שמות שדות בדיוק):
-{
-  "graphAnchoredSummary": "<2–5 פסקאות קצרות בעברית, כולל התייחסות לגרף כאב/מאמץ כשיש נקודות>",
-  "recommendedActions": ["<פעולה 1>", "<פעולה 2>", "... עד 6 פריטים"]
-}`;
+  const userText = `Patient data (JSON):
+${JSON.stringify(
+  aggregatedPayloadForPrompt(
+    params.aggregated,
+    params.patient,
+    params.catalog,
+    params.continuationProtocol,
+    params.prognosis
+  ),
+  null,
+  2
+)}
 
-  const userText = `נתונים מאוגדים (JSON):
-${JSON.stringify(aggregatedPayloadForPrompt(params.aggregated), null, 2)}
-
-המלצת מערכת (דטרמיניסטית, לשילוב בהקשר):
+System recommendation:
 ${JSON.stringify(params.progressInsight, null, 2)}`;
 
   logInfo('Starting smart clinical center analysis', {
     patientId: params.aggregated.patientId,
-    days: params.aggregated.daySeries7.length,
+    adherencePercent: params.aggregated.adherencePercent,
+    hasRecentGap: params.aggregated.hasRecentGap,
   });
 
   const responseText = await geminiGenerateText({
@@ -116,6 +165,10 @@ ${JSON.stringify(params.progressInsight, null, 2)}`;
     logDetail: { patientId: params.aggregated.patientId },
   });
 
-  const parsed = parseJsonObject(responseText);
-  return normalizeNarrative(parsed);
+  const parsed = parseJsonObject(stripMarkdownCodeFences(responseText));
+  const normalized = normalizeUnifiedClinicalNarrative(parsed);
+  return injectServerClinicalFacts(normalized, {
+    adherencePercent: params.aggregated.adherencePercent,
+    hasRecentGap: params.aggregated.hasRecentGap,
+  });
 }

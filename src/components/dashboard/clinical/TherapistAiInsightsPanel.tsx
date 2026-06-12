@@ -1,24 +1,16 @@
-import { Brain, Loader2, Sparkles, TrendingDown, TrendingUp, AlertCircle, ListChecks } from 'lucide-react';
-import type { Patient } from '../../../types';
 import {
-  useTherapistPatientSmartClinical,
-  type PendingClinicalRecommendation,
-} from '../../../hooks/useTherapistPatientSmartClinical';
+  Brain,
+  Loader2,
+  ListChecks,
+  Check,
+  ClipboardList,
+  Route,
+  Activity,
+} from 'lucide-react';
+import type { Patient } from '../../../types';
+import { useTherapistPatientSmartClinical } from '../../../hooks/useTherapistPatientSmartClinical';
 import { bodyAreaLabels } from '../../../types';
-
-const typeLabel: Record<string, string> = {
-  increase_reps: 'הגברת חזרות',
-  increase_sets: 'הגברת סטים',
-  reduce_reps: 'הפחתת עומס',
-  add_exercise: 'שינוי מכני / תרגיל',
-};
-
-const fieldLabel: Record<string, string> = {
-  reps: 'חזרות',
-  sets: 'סטים',
-  weight: 'משקל (ק״ג)',
-  holdSeconds: 'זמן החזקה (שנ׳)',
-};
+import { approvableRowKey } from '../../../ai/clinicalInsightsNarrative';
 
 type Props = { patient: Patient | null | undefined };
 
@@ -30,26 +22,35 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
     narrativeSource = null,
     geminiLoading = false,
     geminiError = null,
-    recommendedActions = [],
-    pendingRecommendations = [],
+    visibleApprovableRows = [],
     isLoading = false,
+    approveApprovableRow,
+    planModificationFeedback,
   } = useTherapistPatientSmartClinical(patient);
 
-  const pending: PendingClinicalRecommendation[] = pendingRecommendations ?? [];
-  const actions: string[] = recommendedActions ?? [];
-  const narrativeSummary = narrative?.graphAnchoredSummary?.trim() ?? '';
-
-  const compliancePct =
-    aggregated?.compliance?.rate != null
+  const adherencePct =
+    aggregated?.adherencePercent ??
+    (aggregated?.compliance?.rate != null
       ? Math.round(aggregated.compliance.rate * 100)
-      : null;
+      : null);
+
+  const streakStart = aggregated?.activeStreak.activeStreakStart;
+  const streakDays = aggregated?.activeStreak.activeStreakDayCount ?? 0;
+  const gapDays = aggregated?.activeStreak.lastGapDays;
+  const hasRecentGap = aggregated?.hasRecentGap ?? false;
+  const countableDays = aggregated?.adherenceCountableDays ?? 0;
 
   const hasMetrics = progressInsight != null;
-  const hasNarrative = narrativeSummary.length > 0;
-  const hasActions = actions.length > 0;
-  const hasPending = pending.length > 0;
-  const hasContent = hasMetrics || hasNarrative || hasActions || hasPending;
+  const hasNarrative = narrative != null;
+  const hasContent = hasMetrics || hasNarrative;
   const showEmptyState = !isLoading && !geminiLoading && !hasContent;
+
+  const streakSubtitle =
+    streakStart && streakDays > 0
+      ? gapDays != null
+        ? `מסלול פעיל מ-${streakStart} · לאחר הפסקה ${gapDays} ימים`
+        : `מסלול פעיל · ${streakDays} ימים`
+      : 'מעקב קליני · המלצות מערכת';
 
   return (
     <div
@@ -70,7 +71,7 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-black text-slate-900">תובנות AI קליניות</h3>
           <p className="text-xs text-slate-500">
-            סיכום 7 ימים · המלצות מערכת · נימוקים למטפל
+            {streakSubtitle}
             {narrativeSource === 'gemini' && (
               <span className="ms-1 text-teal-700 font-semibold">(Gemini)</span>
             )}
@@ -82,28 +83,15 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
       </div>
 
       <div className="p-5 space-y-5">
+        {planModificationFeedback && (
+          <p className="text-xs text-teal-800 bg-teal-50 border border-teal-100 rounded-xl px-3 py-2">
+            {planModificationFeedback}
+          </p>
+        )}
+
         {hasMetrics && progressInsight && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <MetricCard
-              label="מגמת מערכת"
-              value={progressInsight.titleHe ?? '—'}
-              sub={progressInsight.basisHe?.slice(0, 120)}
-            />
-            <MetricCard
-              label="עמידה (3 סשנים)"
-              value={
-                compliancePct != null
-                  ? `${compliancePct}%`
-                  : progressInsight.compliance3d != null
-                    ? `${Math.round(progressInsight.compliance3d * 100)}%`
-                    : '—'
-              }
-              sub={
-                aggregated?.compliance
-                  ? `7 ימים: ${aggregated.compliance.completedSum ?? 0}/${aggregated.compliance.plannedSum ?? 0} תרגילים`
-                  : undefined
-              }
-            />
+            <MetricCard label="מגמת מערכת" value={progressInsight.titleHe ?? '—'} />
             <MetricCard
               label="כאב מוקד"
               value={
@@ -113,11 +101,12 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
                     ? `${progressInsight.avgPain7d.toFixed(1)} ממוצע`
                     : '—'
               }
-              sub={
-                patient?.primaryBodyArea
-                  ? bodyAreaLabels[patient.primaryBodyArea]
-                  : undefined
-              }
+              sub={patient?.primaryBodyArea ? bodyAreaLabels[patient.primaryBodyArea] : undefined}
+            />
+            <MetricCard
+              label="מסלול פעיל"
+              value={streakDays > 0 ? `${streakDays} ימים` : '—'}
+              sub={streakStart ? `מ-${streakStart}` : undefined}
             />
           </div>
         )}
@@ -128,107 +117,136 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
           </p>
         )}
 
-        {hasNarrative && (
-          <section>
-            <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-              סיכום retrospective (7 ימים)
-            </h4>
-            <div className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap bg-white/80 rounded-xl border border-teal-100/80 px-4 py-3">
-              {narrativeSummary}
-            </div>
-          </section>
-        )}
+        <section>
+          <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+            <Activity className="w-3.5 h-3.5" aria-hidden="true" />
+            סטטוס עמידה
+          </h4>
+          <div className="rounded-xl border border-teal-100 bg-white/90 px-4 py-3">
+            <p className="text-2xl font-black text-teal-800">
+              {adherencePct != null ? `${adherencePct}%` : '—'}
+            </p>
+            <p className="text-xs text-slate-500 mt-1">
+              {countableDays > 0
+                ? `${aggregated?.adherenceCompletedSum ?? 0}/${aggregated?.adherencePlannedSum ?? 0} תרגילים · ${countableDays} ימים נספרים (מסלול פעיל)`
+                : 'אין נתוני עמידה במסלול הפעיל'}
+              {hasRecentGap && gapDays != null && (
+                <span className="block mt-0.5 text-amber-700">
+                  חזרה לתרגול לאחר הפסקה של {gapDays} ימים
+                </span>
+              )}
+            </p>
+          </div>
+        </section>
 
-        {hasActions && (
-          <section>
-            <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-              <ListChecks className="w-3.5 h-3.5" aria-hidden="true" />
-              פעולות מומלצות
-            </h4>
-            <ul className="space-y-2">
-              {actions.map((action, index) => (
-                <li
-                  key={`${action}-${index}`}
-                  className="text-sm text-slate-800 leading-relaxed flex gap-2 bg-teal-50/60 rounded-xl px-3 py-2 border border-teal-100/60"
-                >
-                  <span className="text-teal-600 shrink-0 mt-0.5">•</span>
-                  <span>{action}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+        {hasNarrative && narrative && (
+          <>
+            <section>
+              <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2">
+                סיכום קליני
+              </h4>
+              <div className="space-y-2 text-sm text-slate-800">
+                <p className="leading-snug bg-white/80 rounded-xl border border-slate-100 px-3 py-2">
+                  {narrative.summary.consistency}
+                </p>
+                <p className="leading-snug bg-white/80 rounded-xl border border-slate-100 px-3 py-2">
+                  {narrative.summary.painLoad}
+                </p>
+              </div>
+            </section>
 
-        {hasPending && (
-          <section>
-            <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5" aria-hidden="true" />
-              המלצות ממתינות — נימוק קליני
-            </h4>
-            <div className="space-y-3">
-              {pending.map((rec) => {
-                const isIncrease =
-                  rec.type === 'increase_reps' || rec.type === 'increase_sets';
-                const Icon = isIncrease ? TrendingUp : TrendingDown;
-                return (
-                  <article
-                    key={rec.id}
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div
-                        className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-                        style={{
-                          background: isIncrease ? '#d1fae5' : '#fef3c7',
-                          color: isIncrease ? '#059669' : '#b45309',
-                        }}
-                      >
-                        <Icon className="w-4 h-4" aria-hidden="true" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 mb-1">
-                          <span className="text-sm font-bold text-slate-800">
-                            {rec.exerciseName ?? 'תרגיל'}
-                          </span>
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                            {typeLabel[rec.type] ?? rec.type ?? 'המלצה'}
-                          </span>
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
-                            {rec.status === 'awaiting_therapist'
-                              ? 'ממתין לאישור מטפל'
-                              : 'ממתין למטופל'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 mb-2">
-                          {fieldLabel[rec.field] ?? rec.field ?? 'ערך'}:{' '}
-                          <span className="line-through">{rec.currentValue ?? '—'}</span>
-                          {' → '}
-                          <span className="font-bold text-slate-800">{rec.suggestedValue ?? '—'}</span>
-                        </p>
-                        <p className="text-sm text-slate-700 leading-relaxed border-r-2 border-teal-400 pr-3">
-                          {rec.reason || 'אין נימוק זמין.'}
-                        </p>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
+            {narrative.actionItems.length > 0 && (
+              <section>
+                <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  <ListChecks className="w-3.5 h-3.5" aria-hidden="true" />
+                  פעולות נדרשות
+                </h4>
+                <BulletList items={narrative.actionItems} />
+              </section>
+            )}
+
+            <section>
+              <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <Route className="w-3.5 h-3.5" aria-hidden="true" />
+                שינויים בתכנית
+              </h4>
+              {visibleApprovableRows.length > 0 ? (
+                <div className="space-y-2 mt-2">
+                  {visibleApprovableRows.map((row) => (
+                    <ModificationRow
+                      key={approvableRowKey(row)}
+                      label={row.item.label}
+                      onApprove={() => approveApprovableRow(row)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">אין שינויים בתכנית</p>
+              )}
+            </section>
+
+            <section>
+              <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <ClipboardList className="w-3.5 h-3.5" aria-hidden="true" />
+                פרוגנוזה
+              </h4>
+              <p className="text-sm text-slate-800 leading-snug bg-violet-50/40 rounded-xl border border-violet-100/60 px-3 py-2">
+                {narrative.prognosis}
+              </p>
+            </section>
+          </>
         )}
 
         {showEmptyState && (
           <p className="text-sm text-slate-500 text-center py-4">
-            אין תובנות קליניות או המלצות זמינות עבור מטופל זה כרגע.
+            אין תובנות קליניות זמינות כרגע.
           </p>
         )}
 
         {isLoading && (
-          <p className="text-sm text-slate-400 text-center py-4">טוען נתוני מעקב קליניים…</p>
+          <p className="text-sm text-slate-400 text-center py-4">טוען נתוני מעקב…</p>
         )}
       </div>
     </div>
+  );
+}
+
+function ModificationRow({
+  label,
+  onApprove,
+}: {
+  label: string;
+  onApprove: () => void;
+}) {
+  return (
+    <article className="flex items-center gap-3 rounded-xl border border-violet-100 bg-white px-3 py-2.5">
+      <span className="flex-1 min-w-0 text-sm font-bold text-slate-800">{label}</span>
+      <button
+        type="button"
+        onClick={onApprove}
+        className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+        aria-label={`אישור: ${label}`}
+      >
+        <Check className="w-3.5 h-3.5" aria-hidden="true" />
+        אישור
+      </button>
+    </article>
+  );
+}
+
+function BulletList({ items }: { items: string[] }) {
+  return (
+    <ul className="space-y-1.5">
+      {items.map((item, index) => (
+        <li
+          key={`${item}-${index}`}
+          className="text-sm text-slate-800 flex gap-2 bg-teal-50/60 rounded-xl px-3 py-2 border border-teal-100/60"
+        >
+          <span className="text-teal-600 shrink-0">•</span>
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -245,7 +263,7 @@ function MetricCard({
     <div className="rounded-xl border border-slate-100 bg-white px-3 py-2.5">
       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">{label}</p>
       <p className="text-sm font-black text-slate-900 mt-0.5">{value}</p>
-      {sub && <p className="text-[10px] text-slate-500 mt-1 leading-snug">{sub}</p>}
+      {sub && <p className="text-[10px] text-slate-500 mt-1">{sub}</p>}
     </div>
   );
 }

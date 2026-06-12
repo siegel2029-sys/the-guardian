@@ -1,5 +1,5 @@
 /**
- * איסוף נתונים קליניים למנוע «תובנות AI» — תרגול, כאב, עמידה בתוכנית, אזורי Avatar.
+ * איסוף נתונים קליניים למנוע «תובנות AI» — מסלול פעיל, כאב, עמידה, אזורי Avatar.
  */
 
 import type {
@@ -12,30 +12,53 @@ import type {
   PatientExerciseFinishReport,
   SelfCareSessionReport,
 } from '../types';
-import { addClinicalDays, clinicalDateToLocalMidnight, toLocalYmd } from '../utils/clinicalCalendar';
+import { clinicalDateToLocalMidnight, toLocalYmd } from '../utils/clinicalCalendar';
 import { STRENGTH_EXERCISE_CHAINS } from '../data/strengthExerciseDatabase';
+import {
+  eachClinicalDayInRange,
+  resolveClinicalActiveStreak,
+  type ClinicalActiveStreakContext,
+  type TrainingPhaseSegment,
+} from '../utils/clinicalActiveStreak';
+import { computeGraceAwareAdherence } from '../utils/clinicalAdherence';
 
 export type ClinicalDayPoint = {
   date: string;
-  /** תווית לציר X (יום + תאריך קצר) */
   label: string;
-  /** שם יום מלא בעברית לניסוח AI */
   weekdayHe: string;
   pain: number | null;
-  /** מאמץ מדווח 1–5 (ממוצע אם יש כמה דיווחים באותו יום) */
   effort1to5: number | null;
+};
+
+export type PriorStreakStats = {
+  startDate: string;
+  endDate: string;
+  sessionDayCount: number;
+  avgComplianceRate: number | null;
+  avgPainPrimary: number | null;
+  avgEffort1to5: number | null;
 };
 
 export type ClinicalInsightsAggregated = {
   patientId: string;
   clinicalToday: string;
   primaryBodyArea: BodyArea;
-  /** היסטוריית סשנים כפי שנשמרה באנליטיקה */
   exerciseHistory: ExerciseSession[];
-  painRecordsLast7ClinicalDays: PainRecord[];
-  /** שינוי יחסי בממוצע כאב (אזור ראשי) בין חציון מוקדם לחציון מאוחר בחלון 7 ימים */
+  activeStreak: ClinicalActiveStreakContext;
+  actualStartDate: string | null;
+  trainingPhaseHistory: TrainingPhaseSegment[];
+  /** Stream 1 — grace-aware adherence, current phase only (server hard fact) */
+  adherencePercent: number | null;
+  /** true when current active phase started after a gap > 4 days */
+  hasRecentGap: boolean;
+  adherenceCountableDays: number;
+  adherenceCompletedSum: number;
+  adherencePlannedSum: number;
+  priorStreakStats: PriorStreakStats | null;
+  painRecordsInActiveStreak: PainRecord[];
+  fullPainHistory: PainRecord[];
   painTrendPercent: number | null;
-  avgPain7dPrimary: number | null;
+  avgPainActiveStreakPrimary: number | null;
   avgEffort1to5: number | null;
   compliance: {
     completedSum: number;
@@ -43,19 +66,23 @@ export type ClinicalInsightsAggregated = {
     rate: number | null;
     daysPlanned: number;
   };
-  /** אזורים שנבחרו במפת Avatar לפרהאב עצמאי */
   selfSelectedZones: BodyArea[];
-  /** אזורי Avatar שאינם חלק מאזורי המוקד הקליני (ראשי + תרגילים בתוכנית) */
   offPlanSelfCareZones: BodyArea[];
-  daySeries7: ClinicalDayPoint[];
-  selfCareReportsLast7d: SelfCareSessionReport[];
-  /** דיווחי self-care באזור שלא בתוכנית, בחלון */
-  offPlanSelfCareReportsLast7d: SelfCareSessionReport[];
-  /** דגל: כאב מורגש לצד עמידה גבוהה בתוכנית */
+  daySeriesActive: ClinicalDayPoint[];
+  fullSessionTimeline: {
+    date: string;
+    exercisesCompleted: number;
+    totalExercises: number;
+    difficultyRating: number;
+    completionRate: number | null;
+  }[];
+  selfCareReportsInActiveStreak: SelfCareSessionReport[];
+  offPlanSelfCareReportsInActiveStreak: SelfCareSessionReport[];
   highPainWithStrongCompliance: boolean;
-  /** ימים עם דיווח כאב גבוה (≥7) וללא השלמה יחסית */
   highPainLowCompletionDays: number;
 };
+
+const DAY_SERIES_ACTIVE_CAP = 30;
 
 function strengthExerciseBodyArea(exerciseId: string): BodyArea | null {
   for (const chain of STRENGTH_EXERCISE_CHAINS) {
@@ -100,8 +127,7 @@ function effortRaw1to5ForClinicalDay(
 
   const finishes = finishReports.filter((r) => toLocalYmd(new Date(r.timestamp)) === ymd);
   if (finishes.length > 0) {
-    const avg =
-      finishes.reduce((sum, r) => sum + r.difficultyScore, 0) / finishes.length;
+    const avg = finishes.reduce((sum, r) => sum + r.difficultyScore, 0) / finishes.length;
     return clampEffort15(avg);
   }
 
@@ -119,10 +145,7 @@ function painForDayPrimary(ymd: string, ph: PainRecord[], primary: BodyArea): nu
   return day.reduce((s, r) => s + r.painLevel, 0) / day.length;
 }
 
-function painTrendPercentInWindow(
-  records: PainRecord[],
-  primary: BodyArea
-): number | null {
+function painTrendPercentInWindow(records: PainRecord[], primary: BodyArea): number | null {
   const filtered = records.filter((r) => r.bodyArea === primary);
   if (filtered.length < 2) return null;
   const sorted = [...filtered].sort((a, b) => a.date.localeCompare(b.date));
@@ -135,6 +158,89 @@ function painTrendPercentInWindow(
   return ((avgEarly - avgLate) / avgEarly) * 100;
 }
 
+function computeComplianceInRange(
+  start: string,
+  end: string,
+  plannedPerDay: number,
+  dailyHistoryForPatient: Record<string, DailyHistoryEntry> | undefined
+): { completedSum: number; plannedSum: number; rate: number | null; daysPlanned: number } {
+  let completedSum = 0;
+  let plannedSum = 0;
+  let daysPlanned = 0;
+
+  for (const ymd of eachClinicalDayInRange(start, end)) {
+    if (plannedPerDay <= 0) continue;
+    const entry = dailyHistoryForPatient?.[ymd];
+    const done = entry?.exercisesCompleted ?? 0;
+    completedSum += done;
+    plannedSum += plannedPerDay;
+    daysPlanned += 1;
+  }
+
+  return {
+    completedSum,
+    plannedSum,
+    rate: plannedSum > 0 ? completedSum / plannedSum : null,
+    daysPlanned,
+  };
+}
+
+function computeAvgEffortInRange(
+  start: string,
+  end: string,
+  sessionHistory: ExerciseSession[],
+  finishReports: PatientExerciseFinishReport[],
+  selfCareReports: SelfCareSessionReport[]
+): number | null {
+  const vals: number[] = [];
+  for (const ymd of eachClinicalDayInRange(start, end)) {
+    const e = effortRaw1to5ForClinicalDay(ymd, sessionHistory, finishReports, selfCareReports);
+    if (e != null) vals.push(e);
+  }
+  return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+}
+
+function computePriorStreakStats(
+  prior: { startDate: string; endDate: string; sessionDayCount: number },
+  painHistory: PainRecord[],
+  primary: BodyArea,
+  plannedPerDay: number,
+  dailyHistoryForPatient: Record<string, DailyHistoryEntry> | undefined,
+  sessionHistory: ExerciseSession[],
+  finishReports: PatientExerciseFinishReport[],
+  selfCareReports: SelfCareSessionReport[]
+): PriorStreakStats {
+  const painInPrior = painHistory.filter(
+    (r) => r.date >= prior.startDate && r.date <= prior.endDate && r.bodyArea === primary
+  );
+  const avgPainPrimary =
+    painInPrior.length > 0
+      ? painInPrior.reduce((s, r) => s + r.painLevel, 0) / painInPrior.length
+      : null;
+  const compliance = computeComplianceInRange(
+    prior.startDate,
+    prior.endDate,
+    plannedPerDay,
+    dailyHistoryForPatient
+  );
+  const avgEffort1to5 = computeAvgEffortInRange(
+    prior.startDate,
+    prior.endDate,
+    sessionHistory,
+    finishReports,
+    selfCareReports
+  );
+
+  return {
+    startDate: prior.startDate,
+    endDate: prior.endDate,
+    sessionDayCount: prior.sessionDayCount,
+    avgComplianceRate: compliance.rate,
+    avgPainPrimary,
+    avgEffort1to5,
+  };
+}
+
 export function aggregateClinicalInsights(params: {
   patient: Patient;
   clinicalToday: string;
@@ -144,20 +250,22 @@ export function aggregateClinicalInsights(params: {
   selfCareReports: SelfCareSessionReport[];
   finishReports: PatientExerciseFinishReport[];
 }): ClinicalInsightsAggregated {
-  const { patient, clinicalToday, plan, dailyHistoryForPatient, selfSelectedZones, selfCareReports, finishReports } =
-    params;
+  const {
+    patient,
+    clinicalToday,
+    plan,
+    dailyHistoryForPatient,
+    selfSelectedZones,
+    selfCareReports,
+    finishReports,
+  } = params;
 
   const painHistory = patient.analytics?.painHistory ?? [];
   const sessionHistoryRaw = patient.analytics?.sessionHistory ?? [];
+  const exerciseHistory = [...sessionHistoryRaw].sort((a, b) => a.date.localeCompare(b.date));
 
-  const start7 = addClinicalDays(clinicalToday, -6);
-  const exerciseHistory = [...sessionHistoryRaw].sort((a, b) =>
-    a.date.localeCompare(b.date)
-  );
-
-  const painInWindow = painHistory.filter(
-    (r) => r.date >= start7 && r.date <= clinicalToday
-  );
+  const sessionDates = exerciseHistory.map((s) => s.date);
+  const activeStreak = resolveClinicalActiveStreak(sessionDates, clinicalToday);
 
   const assigned = buildAssignedBodyAreas(patient, plan);
   const offPlanSelfCareZones = selfSelectedZones.filter((z) => !assigned.has(z));
@@ -165,47 +273,87 @@ export function aggregateClinicalInsights(params: {
   const patientFinishes = finishReports.filter((r) => r.patientId === patient.id);
   const patientSelfCare = selfCareReports.filter((r) => r.patientId === patient.id);
 
-  const selfCareReportsLast7d = patientSelfCare.filter(
-    (r) => r.clinicalDate >= start7 && r.clinicalDate <= clinicalToday
-  );
+  const plannedPerDay = plan?.exercises.length ?? 0;
+  const primary = patient.primaryBodyArea;
 
-  const offPlanSelfCareReportsLast7d = selfCareReportsLast7d.filter((r) => {
-    const area = strengthExerciseBodyArea(r.exerciseId);
-    return area != null && !assigned.has(area);
+  const streakStart = activeStreak.activeStreakStart ?? clinicalToday;
+  const streakEnd = clinicalToday;
+
+  const graceAdherence = computeGraceAwareAdherence({
+    activeStreakStart: activeStreak.activeStreakStart,
+    clinicalToday,
+    sessionDatesChronological: activeStreak.sessionDatesChronological,
+    plannedPerDay,
+    dailyHistoryForPatient,
   });
 
-  const plannedPerDay = plan?.exercises.length ?? 0;
-  let completedSum = 0;
-  let plannedSum = 0;
+  const compliance = {
+    completedSum: graceAdherence.adherenceCompletedSum,
+    plannedSum: graceAdherence.adherencePlannedSum,
+    rate:
+      graceAdherence.adherencePlannedSum > 0
+        ? graceAdherence.adherenceCompletedSum / graceAdherence.adherencePlannedSum
+        : null,
+    daysPlanned: graceAdherence.adherenceCountableDays,
+  };
 
-  for (let i = 0; i < 7; i++) {
-    const ymd = addClinicalDays(start7, i);
-    if (plannedPerDay <= 0) continue;
-    const entry = dailyHistoryForPatient?.[ymd];
-    const done = entry?.exercisesCompleted ?? 0;
-    completedSum += done;
-    plannedSum += plannedPerDay;
-  }
-
-  const complianceRate = plannedSum > 0 ? completedSum / plannedSum : null;
-
-  const primary = patient.primaryBodyArea;
-  const primaryPainVals = painInWindow.filter((r) => r.bodyArea === primary).map((r) => r.painLevel);
-  const avgPain7dPrimary =
+  const painInActiveStreak = painHistory.filter(
+    (r) => r.date >= streakStart && r.date <= streakEnd
+  );
+  const primaryPainVals = painInActiveStreak
+    .filter((r) => r.bodyArea === primary)
+    .map((r) => r.painLevel);
+  const avgPainActiveStreakPrimary =
     primaryPainVals.length > 0
       ? primaryPainVals.reduce<number>((a, b) => a + b, 0) / primaryPainVals.length
       : null;
 
-  const painTrendPercent = painTrendPercentInWindow(painInWindow, primary);
+  const painTrendPercent = painTrendPercentInWindow(painInActiveStreak, primary);
+  const avgEffort1to5 = computeAvgEffortInRange(
+    streakStart,
+    streakEnd,
+    exerciseHistory,
+    patientFinishes,
+    patientSelfCare
+  );
 
-  const daySeries7: ClinicalDayPoint[] = [];
-  const effortVals: number[] = [];
-  for (let i = 0; i < 7; i++) {
-    const ymd = addClinicalDays(start7, i);
+  const priorStreakStats = activeStreak.priorStreak
+    ? computePriorStreakStats(
+        activeStreak.priorStreak,
+        painHistory,
+        primary,
+        plannedPerDay,
+        dailyHistoryForPatient,
+        exerciseHistory,
+        patientFinishes,
+        patientSelfCare
+      )
+    : null;
+
+  const selfCareReportsInActiveStreak = patientSelfCare.filter(
+    (r) => r.clinicalDate >= streakStart && r.clinicalDate <= streakEnd
+  );
+  const offPlanSelfCareReportsInActiveStreak = selfCareReportsInActiveStreak.filter((r) => {
+    const area = strengthExerciseBodyArea(r.exerciseId);
+    return area != null && !assigned.has(area);
+  });
+
+  const daySeriesActive: ClinicalDayPoint[] = [];
+  const allDays = [...eachClinicalDayInRange(streakStart, streakEnd)];
+  const cappedDays =
+    allDays.length > DAY_SERIES_ACTIVE_CAP
+      ? allDays.slice(allDays.length - DAY_SERIES_ACTIVE_CAP)
+      : allDays;
+
+  for (const ymd of cappedDays) {
     const pain = painForDayPrimary(ymd, painHistory, primary);
-    const effort1to5 = effortRaw1to5ForClinicalDay(ymd, exerciseHistory, patientFinishes, patientSelfCare);
-    if (effort1to5 != null) effortVals.push(effort1to5);
-    daySeries7.push({
+    const effort1to5 = effortRaw1to5ForClinicalDay(
+      ymd,
+      exerciseHistory,
+      patientFinishes,
+      patientSelfCare
+    );
+    daySeriesActive.push({
       date: ymd,
       label: formatDayTickHe(ymd),
       weekdayHe: weekdayLongHe(ymd),
@@ -214,24 +362,27 @@ export function aggregateClinicalInsights(params: {
     });
   }
 
-  const avgEffort1to5 =
-    effortVals.length > 0 ? effortVals.reduce((a, b) => a + b, 0) / effortVals.length : null;
+  const fullSessionTimeline = exerciseHistory.map((s) => ({
+    date: s.date,
+    exercisesCompleted: s.exercisesCompleted,
+    totalExercises: s.totalExercises,
+    difficultyRating: s.difficultyRating,
+    completionRate: s.totalExercises > 0 ? s.exercisesCompleted / s.totalExercises : null,
+  }));
 
   const highPainWithStrongCompliance =
-    avgPain7dPrimary != null &&
-    avgPain7dPrimary >= 5.5 &&
-    complianceRate != null &&
-    complianceRate >= 0.82;
+    avgPainActiveStreakPrimary != null &&
+    avgPainActiveStreakPrimary >= 5.5 &&
+    graceAdherence.adherencePercent != null &&
+    graceAdherence.adherencePercent >= 82;
 
   let highPainLowCompletionDays = 0;
-  for (let i = 0; i < 7; i++) {
-    const ymd = addClinicalDays(start7, i);
+  for (const ymd of eachClinicalDayInRange(streakStart, streakEnd)) {
     const pains = painHistory.filter((r) => r.date === ymd && r.bodyArea === primary);
     const maxP = pains.length ? Math.max(...pains.map((p) => p.painLevel)) : 0;
     const entry = dailyHistoryForPatient?.[ymd];
-    const planned = plannedPerDay;
     const done = entry?.exercisesCompleted ?? 0;
-    if (maxP >= 7 && planned > 0 && done / planned < 0.34) {
+    if (maxP >= 7 && plannedPerDay > 0 && done / plannedPerDay < 0.34) {
       highPainLowCompletionDays += 1;
     }
   }
@@ -241,21 +392,27 @@ export function aggregateClinicalInsights(params: {
     clinicalToday,
     primaryBodyArea: primary,
     exerciseHistory,
-    painRecordsLast7ClinicalDays: painInWindow,
+    activeStreak,
+    actualStartDate: activeStreak.actualStartDate,
+    trainingPhaseHistory: activeStreak.trainingPhaseHistory,
+    adherencePercent: graceAdherence.adherencePercent,
+    hasRecentGap: activeStreak.lastGapDays != null,
+    adherenceCountableDays: graceAdherence.adherenceCountableDays,
+    adherenceCompletedSum: graceAdherence.adherenceCompletedSum,
+    adherencePlannedSum: graceAdherence.adherencePlannedSum,
+    priorStreakStats,
+    painRecordsInActiveStreak: painInActiveStreak,
+    fullPainHistory: [...painHistory].sort((a, b) => a.date.localeCompare(b.date)),
     painTrendPercent,
-    avgPain7dPrimary,
+    avgPainActiveStreakPrimary,
     avgEffort1to5,
-    compliance: {
-      completedSum,
-      plannedSum,
-      rate: complianceRate,
-      daysPlanned: plannedPerDay > 0 ? 7 : 0,
-    },
+    compliance,
     selfSelectedZones: [...selfSelectedZones],
     offPlanSelfCareZones,
-    daySeries7,
-    selfCareReportsLast7d,
-    offPlanSelfCareReportsLast7d,
+    daySeriesActive,
+    fullSessionTimeline,
+    selfCareReportsInActiveStreak,
+    offPlanSelfCareReportsInActiveStreak,
     highPainWithStrongCompliance,
     highPainLowCompletionDays,
   };

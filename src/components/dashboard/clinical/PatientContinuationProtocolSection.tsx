@@ -1,29 +1,12 @@
 import { Route } from 'lucide-react';
 import type { Patient } from '../../../types';
 import { loadLatestIntakeFields } from '../../../utils/clinicalIntakeVersions';
-import { normalizeProtocolWeeksForDisplay } from '../../../utils/protocolTrackingState';
+import { formatContinuationProtocol } from '../../../utils/continuationProtocolDisplay';
 
 type Props = {
   patient: Patient;
   onEditClick?: () => void;
 };
-
-function formatContinuationProtocol(
-  protocol: ReturnType<typeof loadLatestIntakeFields>['treatmentProtocol']
-): string {
-  if (!protocol) return '';
-  if (typeof protocol === 'string') return protocol.trim();
-  const weeks = normalizeProtocolWeeksForDisplay(protocol);
-  if (weeks.length === 0) return '';
-  return weeks
-    .map((week) => {
-      const header = week.title?.trim() || `שבוע ${week.weekNumber}`;
-      const milestones = week.milestones.filter(Boolean);
-      if (milestones.length === 0) return header;
-      return `${header}\n${milestones.map((m) => `• ${m}`).join('\n')}`;
-    })
-    .join('\n\n');
-}
 
 export default function PatientContinuationProtocolSection({ patient, onEditClick }: Props) {
   const fields = loadLatestIntakeFields(patient);

@@ -1,45 +1,106 @@
 /**
- * ניסוח אחיד: סיכום AI המצביע על הגרף + פעולות (ללא כפילות מול הנתונים המוצגים).
+ * Unified clinical narrative v3 — machine-readable Clinical Engine output.
+ * adherencePercent / hasRecentGap injected server-side (Stream 1 hard facts).
  */
 
 import type { ClinicalInsightsAggregated, ClinicalDayPoint } from '../services/clinicalInsightsAggregation';
 import type { ClinicalProgressInsight } from './clinicalCommandInsight';
 import { bodyAreaLabels } from '../types';
+import type { ClinicalExerciseCatalog } from '../utils/clinicalExerciseCatalog';
+
+export type ClinicalModification = {
+  type: 'REPLACE' | 'REMOVE' | 'ADD' | 'LOAD_ADJUST';
+  id: string | null;
+  newId: string | null;
+  label: string;
+  reps: number | null;
+  sets: number | null;
+};
 
 export type UnifiedClinicalNarrative = {
-  graphAnchoredSummary: string;
-  recommendedActions: string[];
+  adherencePercent: number | null;
+  adherenceStatus: string;
+  hasRecentGap: boolean;
+  summary: { consistency: string; painLoad: string };
+  actionItems: string[];
+  modifications: ClinicalModification[];
+  prognosis: string;
 };
+
+export type SuggestedExerciseChange = {
+  action: 'REMOVE' | 'REPLACE' | 'ADD';
+  currentExerciseId?: string;
+  newExerciseChainId?: string;
+  label: string;
+};
+
+export type LoadAdjustment = {
+  exerciseId: string;
+  suggestedReps?: number;
+  suggestedSets?: number;
+  label: string;
+};
+
+/** @deprecated v1 — use ApprovablePlanRow */
+export type PlanModificationActionType = 'REPLACE' | 'ADD' | 'MODIFY_PARAMS' | 'REMOVE';
+
+export type ApprovablePlanRow =
+  | { kind: 'exercise'; item: SuggestedExerciseChange; index: number }
+  | { kind: 'load'; item: LoadAdjustment; index: number };
+
+export type PlanModificationSuggestion = {
+  actionType: PlanModificationActionType;
+  currentExerciseId?: string;
+  newExerciseChainId?: string;
+  suggestedReps?: string | number;
+  suggestedSets?: string | number;
+  clinicalReason?: string;
+};
+
+export type LlmClinicalNarrative = Omit<
+  UnifiedClinicalNarrative,
+  'adherencePercent' | 'adherenceStatus' | 'hasRecentGap'
+>;
 
 function fmtPct(n: number): string {
   return `${Math.round(Math.abs(n))}%`;
 }
 
-function firstName(full: string): string {
-  const p = full.trim().split(/\s+/);
-  return p[0] ?? full;
+function trimStr(value: unknown, maxLen: number): string {
+  return typeof value === 'string' ? value.trim().slice(0, maxLen) : '';
 }
 
-function findExtremePainDay(series: ClinicalDayPoint[]): ClinicalDayPoint | null {
-  let best: ClinicalDayPoint | null = null;
-  for (const d of series) {
-    if (d.pain == null) continue;
-    if (!best || d.pain > (best.pain ?? -1)) best = d;
+function nullableId(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    const t = value.trim();
+    return t.length > 0 ? t : null;
   }
-  return best;
+  return null;
 }
 
-function findExtremeEffortDay(series: ClinicalDayPoint[]): ClinicalDayPoint | null {
-  let best: ClinicalDayPoint | null = null;
-  for (const d of series) {
-    if (d.effort1to5 == null) continue;
-    if (!best || d.effort1to5 > (best.effort1to5 ?? -1)) best = d;
-  }
-  return best;
+function nullableInt(value: unknown): number | null {
+  if (value == null) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.round(value);
+  return null;
 }
 
-/** מגמה ויזואלית בין חציון מוקדם למאוחר של נקודות הגרף (כאב בלבד) */
-function painVisualTrend(series: ClinicalDayPoint[]): 'down' | 'up' | 'flat' | 'unknown' {
+function fullHistoryPainTrend(agg: ClinicalInsightsAggregated): 'down' | 'up' | 'flat' | 'unknown' {
+  const primary = agg.primaryBodyArea;
+  const records = agg.fullPainHistory.filter((r) => r.bodyArea === primary);
+  if (records.length < 2) return 'unknown';
+  const sorted = [...records].sort((a, b) => a.date.localeCompare(b.date));
+  const mid = Math.floor(sorted.length / 2) || 1;
+  const early = sorted.slice(0, mid);
+  const late = sorted.slice(mid);
+  const avgEarly = early.reduce((s, r) => s + r.painLevel, 0) / early.length;
+  const avgLate = late.reduce((s, r) => s + r.painLevel, 0) / late.length;
+  if (avgLate < avgEarly - 0.45) return 'down';
+  if (avgLate > avgEarly + 0.45) return 'up';
+  return 'flat';
+}
+
+function painVisualTrendActive(series: ClinicalDayPoint[]): 'down' | 'up' | 'flat' | 'unknown' {
   const mid = Math.max(1, Math.floor(series.length / 2));
   const early = series.slice(0, mid).filter((d) => d.pain != null).map((d) => d.pain!);
   const late = series.slice(mid).filter((d) => d.pain != null).map((d) => d.pain!);
@@ -51,163 +112,255 @@ function painVisualTrend(series: ClinicalDayPoint[]): 'down' | 'up' | 'flat' | '
   return 'flat';
 }
 
+function pickProgressionCatalogId(catalog: ClinicalExerciseCatalog | undefined): string | null {
+  return catalog?.availableCatalogExercises[0]?.id ?? null;
+}
+
+export function formatAdherenceStatus(adherencePercent: number | null): string {
+  return adherencePercent != null ? `${adherencePercent}%` : '—';
+}
+
+export function injectServerClinicalFacts(
+  narrative: LlmClinicalNarrative,
+  facts: { adherencePercent: number | null; hasRecentGap: boolean }
+): UnifiedClinicalNarrative {
+  return {
+    ...narrative,
+    adherencePercent: facts.adherencePercent,
+    adherenceStatus: formatAdherenceStatus(facts.adherencePercent),
+    hasRecentGap: facts.hasRecentGap,
+  };
+}
+
+/** @deprecated use injectServerClinicalFacts */
+export function injectAdherencePercent(
+  narrative: LlmClinicalNarrative,
+  adherencePercent: number | null
+): UnifiedClinicalNarrative {
+  return injectServerClinicalFacts(narrative, { adherencePercent, hasRecentGap: false });
+}
+
+export function modificationToExerciseChange(mod: ClinicalModification): SuggestedExerciseChange | null {
+  if (mod.type === 'LOAD_ADJUST') return null;
+  return {
+    action: mod.type,
+    currentExerciseId: mod.id ?? undefined,
+    newExerciseChainId: mod.newId ?? undefined,
+    label: mod.label,
+  };
+}
+
+export function modificationToLoadAdjustment(mod: ClinicalModification): LoadAdjustment | null {
+  if (mod.type !== 'LOAD_ADJUST') return null;
+  if (!mod.id) return null;
+  return {
+    exerciseId: mod.id,
+    suggestedReps: mod.reps ?? undefined,
+    suggestedSets: mod.sets ?? undefined,
+    label: mod.label,
+  };
+}
+
+export function normalizeClinicalModification(raw: unknown): ClinicalModification | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const type = o.type;
+  if (type !== 'REPLACE' && type !== 'REMOVE' && type !== 'ADD' && type !== 'LOAD_ADJUST') {
+    return null;
+  }
+  const label = trimStr(o.label, 120);
+  if (!label) return null;
+
+  const id = nullableId(o.id);
+  const newId = nullableId(o.newId);
+  const reps = nullableInt(o.reps);
+  const sets = nullableInt(o.sets);
+
+  if (type === 'REPLACE') {
+    if (!id || !newId) return null;
+    return { type, id, newId, label, reps: null, sets: null };
+  }
+  if (type === 'REMOVE') {
+    if (!id) return null;
+    return { type, id, newId: null, label, reps: null, sets: null };
+  }
+  if (type === 'ADD') {
+    if (!newId) return null;
+    return { type, id, newId, label, reps: null, sets: null };
+  }
+  if (!id) return null;
+  if (reps == null && sets == null) return null;
+  return { type, id, newId: null, label, reps, sets };
+}
+
+export function normalizeUnifiedClinicalNarrative(raw: unknown): LlmClinicalNarrative {
+  const o = raw as Record<string, unknown>;
+  const summaryRaw = o.summary as Record<string, unknown> | undefined;
+  const consistency = trimStr(summaryRaw?.consistency, 120);
+  const painLoad = trimStr(summaryRaw?.painLoad, 120);
+
+  if (!consistency || !painLoad) {
+    throw new Error('Invalid AI response: summary incomplete');
+  }
+
+  const actionItems = Array.isArray(o.actionItems)
+    ? o.actionItems
+        .filter((x): x is string => typeof x === 'string')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 6)
+    : [];
+
+  const modifications = Array.isArray(o.modifications)
+    ? o.modifications
+        .map(normalizeClinicalModification)
+        .filter((x): x is ClinicalModification => x != null)
+        .slice(0, 6)
+    : [];
+
+  const prognosis = trimStr(o.prognosis, 200);
+  if (!prognosis) {
+    throw new Error('Invalid AI response: empty prognosis');
+  }
+
+  if (actionItems.length === 0) {
+    throw new Error('Invalid AI response: actionItems empty');
+  }
+
+  return {
+    summary: { consistency, painLoad },
+    actionItems,
+    modifications,
+    prognosis,
+  };
+}
+
 export function buildUnifiedClinicalNarrative(
   agg: ClinicalInsightsAggregated,
-  patientDisplayName: string,
-  progressInsight: ClinicalProgressInsight | null
+  _patientDisplayName: string,
+  progressInsight: ClinicalProgressInsight | null,
+  catalog?: ClinicalExerciseCatalog
 ): UnifiedClinicalNarrative {
-  const name = firstName(patientDisplayName);
   const areaLabel = bodyAreaLabels[agg.primaryBodyArea];
-  const compliancePct =
-    agg.compliance.rate != null ? Math.round(agg.compliance.rate * 100) : null;
+  const streak = agg.activeStreak;
+  const adherencePct = agg.adherencePercent;
+  const fullTrend = fullHistoryPainTrend(agg);
+  const activeTrend = painVisualTrendActive(agg.daySeriesActive);
   const pt = agg.painTrendPercent;
-  const visual = painVisualTrend(agg.daySeries7);
-  const maxPainDay = findExtremePainDay(agg.daySeries7);
-  const maxEffDay = findExtremeEffortDay(agg.daySeries7);
-  const sameDayPeak =
-    maxPainDay &&
-    maxEffDay &&
-    maxPainDay.date === maxEffDay.date &&
-    maxPainDay.pain != null &&
-    maxPainDay.pain >= 5.5 &&
-    maxEffDay.effort1to5 != null &&
-    maxEffDay.effort1to5 >= 3.5;
+  const shortStreak = streak.activeStreakDayCount > 0 && streak.activeStreakDayCount < 3;
 
-  const effortAvg = agg.avgEffort1to5;
-
-  const parts: string[] = [];
-  parts.push(
-    'בגרף למעלה מוצגים לאורך שבעת הימים הקליניים האחרונים שני מסלולים: כאב באזור המוקד (1–10) ומאמץ מדווח (1–5).'
-  );
-
-  const hasPainData = agg.daySeries7.some((d) => d.pain != null);
-  const hasEffortData = agg.daySeries7.some((d) => d.effort1to5 != null);
-  const hasPainRecords = agg.painRecordsLast7ClinicalDays.length > 0;
-
-  if (!hasPainData && !hasEffortData) {
-    parts.push(
-      `כרגע אין מספיק נקודות בגרף כדי לנתח קורלציה עבור ${name} — עודדו דיווח אחרי אימונים כדי שהמסלולים יתמלאו.`
-    );
-  } else if (sameDayPeak && maxPainDay) {
-    parts.push(
-      `ניתן לראות בבירור שביום ${maxPainDay.weekdayHe} (${maxPainDay.label}) נרשמה נקודת שיא בכאב (${maxPainDay.pain!.toFixed(1)}/10) יחד עם מאמץ גבוה באותו יום (${maxEffDay!.effort1to5!.toFixed(1)}/5) — דפוס התואם עומס חריג או תגובה מאוחרת לאימון; כדאי לבחון מה בוצע באותו יום ואם יש צורך ברגרסיה זמנית.`
-    );
-  } else if (maxPainDay && maxPainDay.pain != null && maxPainDay.pain >= 6) {
-    const effOnPeak =
-      maxEffDay && maxEffDay.date === maxPainDay.date
-        ? `מאמץ באותו יום: ${maxEffDay.effort1to5?.toFixed(1) ?? '—'}/5.`
-        : maxEffDay
-          ? `שיא המאמץ נרשם ב${maxEffDay.weekdayHe} (${maxEffDay.effort1to5?.toFixed(1)}/5), לא בהכרח באותו מועד כמו שיא הכאב.`
-          : '';
-    parts.push(
-      `העקומה מדגישה את ${maxPainDay.weekdayHe} (${maxPainDay.label}) כנקודת כאב בולטת (${maxPainDay.pain.toFixed(1)}/10). ${effOnPeak}`
-    );
+  let consistency: string;
+  if (streak.actualStartDate == null) {
+    consistency = '• אין סשנים מתועדים עדיין';
+  } else if (agg.hasRecentGap && shortStreak) {
+    consistency = `• חזרה לאחר הפסקה של ${streak.lastGapDays} ימים · מסלול קצר (${streak.activeStreakDayCount} ימ')`;
+  } else if (agg.hasRecentGap) {
+    consistency = `• חזרה לתרגול לאחר הפסקה · עמידה ${adherencePct ?? '—'}%`;
+  } else if (agg.trainingPhaseHistory.length > 1) {
+    consistency = `• ${agg.trainingPhaseHistory.length} מסלולים · פעיל מ-${streak.activeStreakStart}`;
+  } else {
+    consistency = `• תרגול רציף · עמידה ${adherencePct ?? '—'}%`;
   }
 
-  const improvingRecord = pt != null && pt >= 8;
-  const worseningRecord = pt != null && pt <= -8;
-  const visDown = visual === 'down';
-  const visUp = visual === 'up';
-
-  if (hasPainData || hasPainRecords) {
-    if (worseningRecord || visUp) {
-      parts.push(
-        pt != null
-          ? `המסלול מראה החמרה: ממוצע הכאב ב${areaLabel} עלה בכ-${fmtPct(pt!)} ביחס לתחילת החלון.`
-          : `הכאב בגרף עולה לכיוון ימים מאוחרים יותר בחלון.`
-      );
-      if (compliancePct != null) {
-        parts.push(
-          compliancePct >= 75
-            ? `למרות עמידה גבוהה בתוכנית (כ-${compliancePct}%), העלייה בכאב מצביעה על אי-התאמה של עומס או טכניקה — לא על חוסר ביצוע.`
-            : `עמידה של כ-${compliancePct}% מלמדת שייתכן גם פער התנהגותי; יש לשלב בירור עם בחינת פרוטוקול.`
-        );
-      }
-    } else if (improvingRecord || (visDown && !worseningRecord)) {
-      const complianceClause =
-        compliancePct != null
-          ? compliancePct >= 68
-            ? `במקביל, שיעור העמידה בתוכנית בחלון היה כ-${compliancePct}% — כלומר ירידת הכאב מתרחשת כשהמטופל עדיין מבצע חלק ניכר מהנפח המתוכנן, ולא רק כתוצאה מ״הפחתת פעילות״ מלאה.`
-            : `שיעור העמידה בתוכנית היה כ-${compliancePct}% — השיפור בכאב מגיע לצד השלמה חלקית יחסית; שקלו האם הנפח מתאים או שהמטופל מדווח על הקלה למרות פחות ביצועים.`
-          : 'אין עדיין בסיס מלא לחישוב עמידה מול תוכנית — המשיכו לאסוף ימי קליניים עם תרגילים מתוכננים.';
-
-      const effortClause =
-        effortAvg != null
-          ? `ממוצע המאמץ המדווח על פני הימים עם נתון עומד על כ-${effortAvg.toFixed(1)}/5 — ${effortAvg >= 4 ? 'רמת מאמץ גבוהה יחסית, כך שהמגמה בכאב כדאי שתיבחן גם מול איכות תנועה ומנוחה.' : 'מאמץ בינוני־נמוך יחסית, מה שמתיישב עם שיפור כאב ללא ״דחיפה״ קיצונית של עומס.'}`
-          : '';
-
-      const trendBit =
-        pt != null
-          ? `לפי דיווחי הכאב באזור ה${areaLabel}, הממוצע ירד בכ-${fmtPct(pt)} בין חלק מוקדם לחלק מאוחר של אותו חלון, כפי שניתן לעקוב אחרי צורת העקומה.`
-          : `עקומת הכאב בגרף נוטה כלפי מטה לכיוון סוף השבוע הקליני.`;
-
-      parts.push(`${trendBit} ${complianceClause} ${effortClause}`.trim());
-    } else {
-      parts.push(
-        `מסלול הכאב בגרף יחסית שטוח באזור ה${areaLabel}; ${effortAvg != null && effortAvg >= 4 ? `ממוצע המאמץ (${effortAvg.toFixed(1)}/5) נשאר גבוה — ייתכן פלטו או צורך בשינוי משתנה תרגול.` : 'מומלץ להמשיך ולאסוף נקודות כדי להחליט אם מדובר בפלטו או בייצוב.'}`
-      );
-    }
-  } else if (hasEffortData) {
-    parts.push(
-      effortAvg != null
-        ? `בגרף מופיעים בעיקר נתוני מאמץ (ממוצע כ-${effortAvg.toFixed(1)}/5) ללא שכבת כאב — המשיכו לעודד דיווח כאב באזור ה${areaLabel} לאחר אימונים כדי לאפשר ניתוח משולב.`
-        : 'יש נקודות מאמץ בגרף אך חסרה שכבת כאב — דיווח כאב יאפשר פרשנות קלינית מלאה יותר.'
-    );
+  let painLoad: string;
+  if (fullTrend === 'down') {
+    painLoad = `• כאב יורד ב${areaLabel}${pt != null ? ` (~${fmtPct(pt)})` : ''}`;
+  } else if (fullTrend === 'up') {
+    painLoad = `• כאב עולה · בדיקת עומס${agg.avgEffort1to5 != null && agg.avgEffort1to5 >= 4 ? ' (מאמץ גבוה)' : ''}`;
+  } else if (activeTrend === 'down') {
+    painLoad = '• כאב משתפר במסלול הפעיל';
+  } else {
+    painLoad = '• כאב ועומס יציבים — מעקב';
   }
 
-  const extra: string[] = [];
-  if (agg.offPlanSelfCareZones.length > 0) {
-    const zones = agg.offPlanSelfCareZones.map((z) => bodyAreaLabels[z]).join(', ');
-    extra.push(`מעבר לגרף: נבחרו באווטאר אזורי אימון עצמאי (${zones}) מחוץ למוקד התוכנית — שקלו התאמת הנחיה מול סיכון לייגוע.`);
-  } else if (agg.offPlanSelfCareReportsLast7d.length > 0) {
-    extra.push(
-      'מעבר לגרף: רשומות self-care באזורים מחוץ למוקד התוכנית השבוע — כדאי לתאם ציפיות עם המטופל.'
-    );
+  const actionItems: string[] = [];
+  if (agg.avgPainActiveStreakPrimary != null && agg.avgPainActiveStreakPrimary >= 5) {
+    actionItems.push(`בדיקת ROM/כוח — ${areaLabel}`);
+    actionItems.push('השוואת כאב לפני/אחרי אימון');
+  } else {
+    actionItems.push(`מדידת VAS — ${areaLabel}`);
   }
+  if (progressInsight?.nextStepHe) actionItems.push(progressInsight.nextStepHe.slice(0, 120));
   if (agg.highPainWithStrongCompliance) {
-    extra.push(
-      'מעבר לגרף: דפוס חריג של כאב מורגש לצד השלמה גבוהה מהתוכנית — ייתכן דחיפה מעבר לסובלנות או פער דיווח.'
-    );
-  }
-  if (agg.highPainLowCompletionDays >= 2) {
-    extra.push(
-      `נרשמו ${agg.highPainLowCompletionDays} ימים עם כאב גבוה ושיעור השלמה נמוך — מתאים לבדיקת רגרסיה או חסם פעילות.`
-    );
-  }
-  if (extra.length > 0) {
-    parts.push(extra.join(' '));
+    actionItems.push('בדיקת טכניקה — עומס מול סובלנות');
   }
 
-  const graphAnchoredSummary = parts.join('\n\n').replace(/[ \t]+\n/g, '\n').trim();
+  const modifications: ClinicalModification[] = [];
+  const firstPlanEx = catalog?.currentPlanExercises[0];
+  const catalogId = pickProgressionCatalogId(catalog);
 
-  const pool: string[] = [];
-  if (progressInsight?.nextStepHe) {
-    pool.push(progressInsight.nextStepHe);
+  if (
+    progressInsight?.category === 'load_increase' &&
+    !shortStreak &&
+    firstPlanEx &&
+    catalogId
+  ) {
+    modifications.push({
+      type: 'REPLACE',
+      id: firstPlanEx.id,
+      newId: catalogId,
+      label: `החלפת ${firstPlanEx.name} — התקדמות`,
+      reps: null,
+      sets: null,
+    });
+  } else if (
+    (progressInsight?.category === 'load_decrease' ||
+      progressInsight?.category === 'escalate_care') &&
+    firstPlanEx
+  ) {
+    const reps = Math.max(1, Math.floor(firstPlanEx.patientReps * 0.75));
+    modifications.push({
+      type: 'LOAD_ADJUST',
+      id: firstPlanEx.id,
+      newId: null,
+      label: `${firstPlanEx.name}: ${firstPlanEx.patientSets}×${reps}`,
+      reps,
+      sets: firstPlanEx.patientSets,
+    });
   }
-  if (agg.highPainWithStrongCompliance || agg.highPainLowCompletionDays >= 2) {
-    pool.push('פתחו דיון קצר עם המטופל על התאמת עומס מול כאב בפועל, בהתבסס על המסלולים בגרף.');
-  }
-  if (agg.offPlanSelfCareZones.length > 0) {
-    const zones = agg.offPlanSelfCareZones.map((z) => bodyAreaLabels[z]).join(', ');
-    pool.push(`תאמו ציפיות לגבי אימון עצמאי באזורים: ${zones}.`);
-  }
-  if ((improvingRecord || visDown) && compliancePct != null && compliancePct >= 70 && agg.avgPain7dPrimary != null && agg.avgPain7dPrimary < 5) {
-    pool.push('לאחר הערכה קלינית — ניתן לשקול העלאת עומס זהירה (כ־10–15%) במרכיב מרכזי בתוכנית.');
-  }
-  if (worseningRecord || visUp || (agg.avgPain7dPrimary != null && agg.avgPain7dPrimary >= 6)) {
-    pool.push(`התמקדו בבירור כאב ב${areaLabel}, טכניקה ורגרסיה זמנית לפי הצורך.`);
-  }
-  pool.push('עדכנו הערות קליניות ועקבו אחרי 3–5 ימים נוספים לפני שינוי מהותי בפרוטוקול.');
 
-  const seen = new Set<string>();
-  const recommendedActions: string[] = [];
-  for (const s of pool) {
-    const t = s.trim();
-    if (!t || seen.has(t)) continue;
-    seen.add(t);
-    recommendedActions.push(t);
-    if (recommendedActions.length >= 3) break;
+  let prognosis = 'מעקב שבועי — תלוי בעמידה ויציבות כאב';
+  if (fullTrend === 'down' && adherencePct != null && adherencePct >= 70) {
+    prognosis = 'מגמת שיפור — התקדמות זהירה לפי פרוטוקול';
+  } else if (fullTrend === 'up') {
+    prognosis = 'החמרה אפשרית — שמרו על עומס נמוך';
   }
 
-  return { graphAnchoredSummary, recommendedActions };
+  return injectServerClinicalFacts(
+    {
+      summary: { consistency, painLoad },
+      actionItems: actionItems.slice(0, 5),
+      modifications,
+      prognosis,
+    },
+    { adherencePercent: adherencePct, hasRecentGap: agg.hasRecentGap }
+  );
+}
+
+export function flattenApprovableRows(narrative: UnifiedClinicalNarrative): ApprovablePlanRow[] {
+  const rows: ApprovablePlanRow[] = [];
+  narrative.modifications.forEach((mod, index) => {
+    if (mod.type === 'LOAD_ADJUST') {
+      const item = modificationToLoadAdjustment(mod);
+      if (item) rows.push({ kind: 'load', item, index });
+    } else {
+      const item = modificationToExerciseChange(mod);
+      if (item) rows.push({ kind: 'exercise', item, index });
+    }
+  });
+  return rows;
+}
+
+export function approvableRowKey(row: ApprovablePlanRow): string {
+  if (row.kind === 'exercise') {
+    const e = row.item;
+    return `ex|${row.index}|${e.action}|${e.currentExerciseId ?? ''}|${e.newExerciseChainId ?? ''}`;
+  }
+  const l = row.item;
+  return `ld|${row.index}|${l.exerciseId}|${l.suggestedReps ?? ''}|${l.suggestedSets ?? ''}`;
+}
+
+/** @deprecated v1 normalizer */
+export function normalizePlanModification(_raw: unknown): PlanModificationSuggestion | null {
+  return null;
 }

@@ -9,10 +9,12 @@ export type ClinicalProgressInsight = {
   summaryHe: string;
   nextStepHe: string;
   basisHe: string;
-  /** מספרים לתצוגה בכרטיס סיכום */
+  /** ממוצע כאב במסלול הפעיל (או 7 ימים כ-fallback) */
   avgPain7d: number | null;
   currentPain: number | null;
   compliance3d: number | null;
+  /** עמידה במסלול הפעיל הנוכחי (0–1) */
+  activeStreakCompliance: number | null;
 };
 
 function sortByDate<T extends { date: string }>(rows: T[] | null | undefined): T[] {
@@ -60,12 +62,20 @@ export function painTrendDelta(sortedPain: PainRecord[]): number | null {
  */
 export function computeClinicalProgressInsight(
   patient: Patient,
-  clinicalToday: string
+  clinicalToday: string,
+  options?: {
+    activeStreakStart?: string | null;
+    activeStreakCompliance?: number | null;
+    avgPainActiveStreak?: number | null;
+  }
 ): ClinicalProgressInsight {
   const painHistory = patient.analytics?.painHistory ?? [];
   const sessionHistory = patient.analytics?.sessionHistory ?? [];
   const painSorted = sortByDate(painHistory);
-  const { avgPain7d, todayPain, lastKnownPain } = getPainMetricsFromReports(patient, clinicalToday);
+  const { avgPain7d: avgPain7dFallback, todayPain, lastKnownPain } =
+    getPainMetricsFromReports(patient, clinicalToday);
+  const avgPain7d = options?.avgPainActiveStreak ?? avgPain7dFallback;
+  const activeStreakCompliance = options?.activeStreakCompliance ?? null;
   /** לתצוגה: כאב היום בלבד; אם אין דיווח היום — null (״אין נתונים״) */
   const currentPain = todayPain;
   /** להחלטות קליניות במערכת: נסיון כאב אחרון אם אין דיווח היום */
@@ -105,7 +115,7 @@ export function computeClinicalProgressInsight(
       'כאב נמוך יחסית ועמידה גבוהה בימים האחרונים — ניתן לשקול התקדמות זהירה בתוכנית.';
     nextStepHe =
       'הגבירו בהדרגה חזרות או עומס (כ־10–15%), או הוסיפו תרגיל תומך — לאחר אישור קליני ובמעקב צמוד לכאב.';
-    basisHe = `ממוצע כאב 7 ימים: ${avgPain7d != null ? avgPain7d.toFixed(1) : '—'}; עמידה ממוצעת (3 סשנים): ${compliance3d != null ? Math.round(compliance3d * 100) + '%' : '—'}.`;
+    basisHe = `ממוצע כאב במסלול פעיל: ${avgPain7d != null ? avgPain7d.toFixed(1) : '—'}; עמידה (3 סשנים): ${compliance3d != null ? Math.round(compliance3d * 100) + '%' : '—'}.`;
   } else if (complianceLow && !painHigh) {
     category = 'maintain';
     titleHe = 'עמידה נמוכה בתוכנית';
@@ -119,7 +129,11 @@ export function computeClinicalProgressInsight(
     titleHe = 'כאב בינוני־גבוה בממוצע';
     summaryHe = 'ממוצע הכאב בשבוע האחרון מעל הסף הבינוני — עדיף לא לעלות בעומס לפני ייצוב.';
     nextStepHe = 'שמרו על עומס נוכחי או הפחיתו מעט; הדגישו טכניקה והתאמות לפי אזור המוקד.';
-    basisHe = `ממוצע 7 ימים: ${avgPain7d.toFixed(1)}/10.`;
+    basisHe = `ממוצע במסלול פעיל: ${avgPain7d.toFixed(1)}/10.`;
+  }
+
+  if (activeStreakCompliance != null && !basisHe.includes('עמידה במסלול פעיל')) {
+    basisHe += ` עמידה במסלול פעיל: ${Math.round(activeStreakCompliance * 100)}%.`;
   }
 
   return {
@@ -131,5 +145,6 @@ export function computeClinicalProgressInsight(
     avgPain7d,
     currentPain,
     compliance3d,
+    activeStreakCompliance,
   };
 }
