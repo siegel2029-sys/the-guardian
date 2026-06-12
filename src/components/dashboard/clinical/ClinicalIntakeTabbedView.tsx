@@ -15,6 +15,7 @@ import {
   type UpsertIntakeVersionResult,
 } from '../../../utils/clinicalIntakeVersions';
 import IntakeVersionEditor from './IntakeVersionEditor';
+import { usePatient } from '../../../context/PatientContext';
 
 type Props = {
   patient: Patient;
@@ -169,6 +170,7 @@ export default function ClinicalIntakeTabbedView({
   updatePatient,
   className = '',
 }: Props) {
+  const { clinicalToday } = usePatient();
   const onSaveTimelineRef = useRef(onSaveTimeline);
   useEffect(() => {
     onSaveTimelineRef.current = onSaveTimeline;
@@ -669,6 +671,8 @@ export default function ClinicalIntakeTabbedView({
           autoSave={!isReadOnly}
           comparativeMeta={activeVersion.comparativeMeta}
           sourceGemini={Boolean(activeVersion.comparativeMeta || activeVersion.medicalSchema)}
+          patient={patient}
+          clinicalToday={clinicalToday}
         />
 
       </div>

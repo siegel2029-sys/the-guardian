@@ -272,7 +272,9 @@ export function buildUnifiedClinicalActions(params: {
         sourceTag: 'המלצת AI',
         label: labelDisplayToPlainText(labelDisplay),
         labelDisplay,
-        rationale: truncateClinicalRationale(mod.rationale),
+        rationale: mod.rationale.trim()
+          ? truncateClinicalRationale(mod.rationale, 200)
+          : 'המלצת המערכת ללא נימוק מפורט — יש לבדוק לפני אישור.',
         kind: 'ai_modification',
         exerciseId: mod.currentExerciseId,
         actionType: mod.type,

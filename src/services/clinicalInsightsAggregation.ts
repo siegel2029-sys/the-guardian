@@ -22,7 +22,7 @@ import {
   type TrainingPhaseSegment,
 } from '../utils/clinicalActiveStreak';
 import { computeGraceAwareAdherence } from '../utils/clinicalAdherence';
-import { computeClinicalProtocolContext } from '../utils/clinicalProtocolWeek';
+import { computeClinicalProtocolContext, resolveProtocolStartDateForPatient } from '../utils/clinicalProtocolWeek';
 
 export type ClinicalDayPoint = {
   date: string;
@@ -396,7 +396,10 @@ export function aggregateClinicalInsights(params: {
   }
 
   const protocolContext = computeClinicalProtocolContext({
-    protocolStartDate: activeStreak.actualStartDate,
+    protocolStartDate: resolveProtocolStartDateForPatient(
+      patient,
+      activeStreak.actualStartDate
+    ),
     clinicalToday,
     treatmentProtocol,
   });

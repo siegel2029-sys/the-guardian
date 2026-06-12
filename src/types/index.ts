@@ -228,6 +228,10 @@ export interface Patient {
   currentStreak: number;
   longestStreak: number;
   joinDate: string;
+  /** תאריך התחלת פרוטוקול / שיקום (YYYY-MM-DD) — לחישוב שבוע נוכחי */
+  startDate?: string;
+  /** תאריך ניתוח (YYYY-MM-DD) — עדיפות לחישוב שבוע פרוטוקול */
+  surgeryDate?: string;
   lastSessionDate: string;
   analytics: PatientAnalytics;
   pendingMessages: number;

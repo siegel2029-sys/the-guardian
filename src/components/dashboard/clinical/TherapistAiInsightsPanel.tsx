@@ -190,14 +190,12 @@ function ModificationCard({
       <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 mb-2">
         {sourceTag}
       </span>
-      <h4 className="text-sm font-black text-slate-900 mb-1">
+      <h4 className="text-sm font-black text-slate-900">
         <ActionLabel display={labelDisplay} />
       </h4>
-      {rationale && (
-        <p className="text-sm text-slate-600 mb-3">
-          <em>{rationale}</em>
-        </p>
-      )}
+      <p className="text-sm text-gray-600 italic mt-1 mb-3">
+        {rationale.trim() || 'אין נימוק קליני זמין.'}
+      </p>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"

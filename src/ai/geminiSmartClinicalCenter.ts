@@ -35,7 +35,8 @@ RULES:
 7. CONTRADICTION GUARD: If you output a REPLACE or REMOVE action for a specific exercise ID, you MUST NOT include a LOAD_ADJUST action for that same ID in the same response.
 8. REPLACE GUARD: If type is REPLACE, you MUST select a valid newId from exerciseCatalog.availableCatalogExercises.
 9. LOAD_ADJUST GUARD: Include raw reps and/or sets numbers in the JSON fields. Do NOT write "increase", "decrease", "הגברה", or "הפחתה" in the label — the system calculates direction dynamically.
-10. Do NOT contradict continuationProtocol or intakePrognosis in the payload.
+10. RATIONALE REQUIRED: You MUST provide a rationale field for EVERY modification. Write exactly one short sentence in Hebrew explaining WHY you are changing the exercise, reps, or sets (e.g., "המטופל מדווח על כאב נמוך, לכן נעלה את מספר החזרות כדי להגביר עומס"). Never omit rationale.
+11. Do NOT contradict continuationProtocol or intakePrognosis in the payload.
 
 JSON OUTPUT SCHEMA:
 {
@@ -50,7 +51,9 @@ JSON OUTPUT SCHEMA:
       "rationale": string
     }
   ]
-}`;
+}
+
+Every modification object MUST include rationale (non-empty Hebrew string).`;
 
 /** Strip markdown code fences and other non-JSON wrappers from model output. */
 export function stripMarkdownCodeFences(text: string): string {

@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Loader2, Save } from 'lucide-react';
-import type { PatientClinicalIntakeProfile, PatientIntakeVersionEntry } from '../../../types';
+import type { Patient, PatientClinicalIntakeProfile, PatientIntakeVersionEntry } from '../../../types';
 import type { ClinicalIntakeEditableFields } from '../../../utils/clinicalIntakeEditableFields';
 import ClinicalIntelligencePanel from './ClinicalIntelligencePanel';
 import { MedicalIntakeSectionedReport } from './MedicalIntakeDashboard';
 import TreatmentProtocolPrognosisCard from './TreatmentProtocolPrognosisCard';
 import { useDebouncedCallback } from './useDebouncedCallback';
+import { resolveClinicalActiveStreak } from '../../../utils/clinicalActiveStreak';
+import {
+  computeClinicalProtocolContext,
+  resolveProtocolStartDateForPatient,
+} from '../../../utils/clinicalProtocolWeek';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -20,6 +25,8 @@ type Props = {
   comparativeMeta?: PatientIntakeVersionEntry['comparativeMeta'];
   sourceGemini?: boolean;
   className?: string;
+  patient?: Patient;
+  clinicalToday?: string;
 };
 
 const AUTO_SAVE_DELAY_MS = 1400;
@@ -35,6 +42,8 @@ export default function IntakeVersionEditor({
   comparativeMeta,
   sourceGemini = false,
   className = '',
+  patient,
+  clinicalToday,
 }: Props) {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [isDirty, setIsDirty] = useState(false);
@@ -92,6 +101,20 @@ export default function IntakeVersionEditor({
 
   const noop = () => undefined;
   const noopList = () => undefined;
+
+  const currentProtocolWeek = useMemo(() => {
+    if (!patient || !clinicalToday) return null;
+    const sessionDates = (patient.analytics?.sessionHistory ?? []).map((s) => s.date);
+    const activeStreak = resolveClinicalActiveStreak(sessionDates, clinicalToday);
+    return computeClinicalProtocolContext({
+      protocolStartDate: resolveProtocolStartDateForPatient(
+        patient,
+        activeStreak.actualStartDate
+      ),
+      clinicalToday,
+      treatmentProtocol: fields.treatmentProtocol,
+    }).currentProtocolWeek;
+  }, [patient, clinicalToday, fields.treatmentProtocol]);
 
   const saveIndicator =
     !readOnly && saveStatus === 'saving' ? (
@@ -157,10 +180,12 @@ export default function IntakeVersionEditor({
         treatmentProtocol={fields.treatmentProtocol}
         prognosisHypothesis={fields.prognosisHypothesis}
         protocolTrackingState={fields.protocolTrackingState}
+        currentProtocolWeek={currentProtocolWeek}
         readOnly={readOnly}
         onTrackingChange={
           readOnly ? undefined : (protocolTrackingState) => patch({ protocolTrackingState })
         }
+        activeWeekBadgeLabel="המטופל כאן"
       />
 
       <ClinicalIntelligencePanel

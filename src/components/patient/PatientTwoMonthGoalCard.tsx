@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Target } from 'lucide-react';
 import type { Patient } from '../../types';
 import { loadLatestIntakeFields } from '../../utils/clinicalIntakeVersions';
 
@@ -8,6 +8,7 @@ type Props = {
   className?: string;
 };
 
+/** Patient portal — prognosis only (no week-by-week protocol details). */
 export default function PatientTwoMonthGoalCard({ patient, className = '' }: Props) {
   const prognosis = useMemo(() => {
     const fields = loadLatestIntakeFields(patient);
@@ -18,16 +19,25 @@ export default function PatientTwoMonthGoalCard({ patient, className = '' }: Pro
 
   return (
     <section
-      className={`mt-4 rounded-2xl border-2 border-emerald-200/80 bg-gradient-to-br from-emerald-50/95 via-white to-teal-50/40 shadow-md shadow-emerald-900/5 overflow-hidden ${className}`}
-      aria-label="היעד שלך לעוד חודשיים"
+      dir="rtl"
+      className={`mt-4 rounded-2xl border-2 border-emerald-200/90 bg-gradient-to-br from-emerald-50/95 via-white to-teal-50/50 shadow-md shadow-emerald-900/5 overflow-hidden ${className}`}
+      aria-label="פרוגנוזה — יעד ההחלמה שלך"
     >
-      <div className="px-4 py-3 border-b border-emerald-100/80 bg-emerald-50/50">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-emerald-600 shrink-0" aria-hidden />
-          <h2 className="text-sm font-bold text-emerald-950">היעד שלך לעוד חודשיים</h2>
+      <div className="px-4 py-3.5 border-b border-emerald-100/90 bg-gradient-to-l from-emerald-50 to-teal-50/60">
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-emerald-100 border border-emerald-200/80"
+            aria-hidden
+          >
+            <Target className="w-5 h-5 text-emerald-700" />
+          </div>
+          <div>
+            <h2 className="text-sm font-black text-emerald-950">פרוגנוזה</h2>
+            <p className="text-[11px] text-emerald-800/80 font-medium">יעד ההחלמה שלך</p>
+          </div>
         </div>
       </div>
-      <p className="px-4 py-4 text-sm leading-relaxed text-slate-800 font-medium">{prognosis}</p>
+      <p className="px-4 py-4 text-base leading-relaxed text-slate-800 font-medium">{prognosis}</p>
     </section>
   );
 }

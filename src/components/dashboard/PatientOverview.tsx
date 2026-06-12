@@ -83,6 +83,7 @@ export default function PatientOverview() {
     safetyAlerts,
     unlinkedPortalPatientIds,
     aiSuggestions,
+    clinicalToday,
   } = usePatient();
   const [showManageModal, setShowManageModal] = useState(false);
   const [clinicalModalMode, setClinicalModalMode] = useState<'none' | 'completion' | 'wizard'>(
@@ -712,6 +713,7 @@ export default function PatientOverview() {
         <div className="mb-6">
           <PatientContinuationProtocolSection
             patient={p}
+            clinicalToday={clinicalToday}
             onEditClick={() => setShowIntakeVault(true)}
           />
         </div>
