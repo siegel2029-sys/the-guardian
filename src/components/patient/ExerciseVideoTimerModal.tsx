@@ -81,7 +81,8 @@ export default function ExerciseVideoTimerModal({
   const successTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const timerEndAudioRef = useRef<HTMLAudioElement | null>(null);
   const timerEndAudioUnlockedRef = useRef(false);
-  const prevRemainingRef = useRef(primeSeconds);
+  const prevSetTimerRemainingRef = useRef(0);
+  const setTimerFinishedNaturallyRef = useRef(false);
 
   const primeTimerEndAudioFromUserGesture = useCallback(() => {
     if (!timerEndAudioRef.current) {
@@ -173,6 +174,7 @@ export default function ExerciseVideoTimerModal({
       clearInterval(setTimerIntervalRef.current);
       setTimerIntervalRef.current = null;
     }
+    setTimerFinishedNaturallyRef.current = false;
     setActiveSetTimerKey(null);
     setSetTimerRemaining(0);
   }, []);
@@ -201,6 +203,7 @@ export default function ExerciseVideoTimerModal({
 
   const startSetTimer = useCallback(
     (timerKey: string) => {
+      primeTimerEndAudioFromUserGesture();
       clearSetTimer();
       setActiveSetTimerKey(timerKey);
       setSetTimerRemaining(perSetHoldSeconds);
@@ -212,13 +215,14 @@ export default function ExerciseVideoTimerModal({
               setTimerIntervalRef.current = null;
             }
             setActiveSetTimerKey(null);
+            setTimerFinishedNaturallyRef.current = true;
             return 0;
           }
           return prev - 1;
         });
       }, 1000);
     },
-    [clearSetTimer, perSetHoldSeconds]
+    [clearSetTimer, perSetHoldSeconds, primeTimerEndAudioFromUserGesture]
   );
 
   const tryPlayVideo = useCallback(() => {
@@ -236,7 +240,8 @@ export default function ExerciseVideoTimerModal({
       setTimerStarted(false);
       timerEndAudioRef.current = null;
       timerEndAudioUnlockedRef.current = false;
-      prevRemainingRef.current = primeSeconds;
+      prevSetTimerRemainingRef.current = 0;
+      setTimerFinishedNaturallyRef.current = false;
       return;
     }
 
@@ -275,15 +280,20 @@ export default function ExerciseVideoTimerModal({
   ]);
 
   useEffect(() => {
-    if (!open || !timerStarted) {
-      prevRemainingRef.current = remaining;
+    if (!open) {
+      prevSetTimerRemainingRef.current = 0;
       return;
     }
-    if (prevRemainingRef.current > 0 && remaining === 0) {
+    if (
+      setTimerFinishedNaturallyRef.current &&
+      prevSetTimerRemainingRef.current > 0 &&
+      setTimerRemaining === 0
+    ) {
+      setTimerFinishedNaturallyRef.current = false;
       playTimerEndSound();
     }
-    prevRemainingRef.current = remaining;
-  }, [open, timerStarted, remaining, playTimerEndSound]);
+    prevSetTimerRemainingRef.current = setTimerRemaining;
+  }, [open, setTimerRemaining, playTimerEndSound]);
 
   useEffect(() => {
     return () => {
