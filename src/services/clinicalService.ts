@@ -1818,58 +1818,12 @@ export type FetchPatientPayloadsForTherapistResult =
  * תרגילי תוכנית פעילה אינם ב־payload — משיגים באמצעות {@link fetchActiveExercisePlansForPatientIds}
  * או {@link fetchPatients}.
  */
-function isPostgrestUnknownColumnError(err: { code?: string; message?: string }): boolean {
-  const code = err.code ?? '';
-  const msg = (err.message ?? '').toLowerCase();
-  return (
-    code === '42703' ||
-    code === 'PGRST204' ||
-    /column.*does not exist|could not find.*column/i.test(msg)
-  );
-}
 
-/** Guaranteed by `20260410120000_initial_guardian_schema.sql` — safe on any deployed project. */
-const PATIENTS_THERAPIST_FETCH_BASE = 'payload, updated_at';
-
-const PATIENTS_THERAPIST_FETCH_CANDIDATES = [
-  'payload, push_token, last_login_at, last_workout_at',
-  'payload, push_token, last_activity_timestamp',
-  'payload, push_token',
-  PATIENTS_THERAPIST_FETCH_BASE,
-] as const;
-
-let patientsTherapistFetchSelectCache: string | null = null;
-
-async function resolvePatientsTherapistFetchSelect(
-  client: SupabaseClient
-): Promise<string> {
-  if (patientsTherapistFetchSelectCache) {
-    return patientsTherapistFetchSelectCache;
-  }
-
-  for (const select of PATIENTS_THERAPIST_FETCH_CANDIDATES) {
-    const { error } = await client.from('patients').select(select).limit(1);
-    if (!error) {
-      patientsTherapistFetchSelectCache = select;
-      return select;
-    }
-    if (!isPostgrestUnknownColumnError(error)) {
-      patientsTherapistFetchSelectCache = PATIENTS_THERAPIST_FETCH_BASE;
-      return PATIENTS_THERAPIST_FETCH_BASE;
-    }
-  }
-
-  patientsTherapistFetchSelectCache = PATIENTS_THERAPIST_FETCH_BASE;
-  return PATIENTS_THERAPIST_FETCH_BASE;
-}
+/** Guaranteed by `20260410120000_initial_guardian_schema.sql` — push/login meta lives inside payload JSONB. */
+const PATIENTS_THERAPIST_FETCH_SELECT = 'payload, updated_at';
 
 type PatientRowForTherapistFetch = {
   payload?: unknown;
-  push_token?: string | null;
-  last_login_at?: string | null;
-  last_workout_at?: string | null;
-  /** Pre-migration fallback */
-  last_activity_timestamp?: string | null;
 };
 
 function patientsFromTherapistFetchRows(rows: PatientRowForTherapistFetch[] | null): Patient[] {
@@ -1882,12 +1836,7 @@ function patientsFromTherapistFetchRows(rows: PatientRowForTherapistFetch[] | nu
       'id' in payload &&
       typeof (payload as Patient).id === 'string'
     ) {
-      out.push({
-        ...(payload as Patient),
-        pushToken: row.push_token ?? null,
-        lastLoginAt: row.last_login_at ?? row.last_activity_timestamp ?? null,
-        lastWorkoutAt: row.last_workout_at ?? null,
-      });
+      out.push(payload as Patient);
     }
   }
   return out;
@@ -1952,32 +1901,18 @@ export async function fetchPatientPayloadsForTherapist(
     }
 
     const therapistId = user.id.trim();
-    const selectColumns = await resolvePatientsTherapistFetchSelect(client);
 
-    const runFetch = (select: string) =>
-      client
-        .from('patients')
-        .select(select)
-        .eq('therapist_id', therapistId)
-        .order('updated_at', { ascending: false });
-
-    let { data, error } = await runFetch(selectColumns);
-
-    if (error && selectColumns !== PATIENTS_THERAPIST_FETCH_BASE) {
-      patientsTherapistFetchSelectCache = null;
-      const retry = await runFetch(PATIENTS_THERAPIST_FETCH_BASE);
-      data = retry.data;
-      error = retry.error;
-      if (!error) {
-        patientsTherapistFetchSelectCache = PATIENTS_THERAPIST_FETCH_BASE;
-      }
-    }
+    const { data, error } = await client
+      .from('patients')
+      .select(PATIENTS_THERAPIST_FETCH_SELECT)
+      .eq('therapist_id', therapistId)
+      .order('updated_at', { ascending: false });
 
     if (error) {
       logSupabaseCallError('fetchPatientPayloadsForTherapist', error, {
         therapistId,
         httpStatus: postgrestHttpStatus(error),
-        selectColumns,
+        selectColumns: PATIENTS_THERAPIST_FETCH_SELECT,
       });
       return { ok: false, message: error.message };
     }
@@ -1998,7 +1933,7 @@ export async function fetchPatientPayloadsForTherapist(
       console.log('[fetchPatientPayloadsForTherapist] loaded', {
         therapistId,
         patientCount: out.length,
-        selectColumns: patientsTherapistFetchSelectCache ?? selectColumns,
+        selectColumns: PATIENTS_THERAPIST_FETCH_SELECT,
       });
     }
 

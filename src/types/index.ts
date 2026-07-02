@@ -309,12 +309,14 @@ export interface Patient {
     expirationTime?: number | null;
     keys?: { p256dh: string; auth: string };
   };
-  /** Supabase `patients.push_token` — not stored inside JSON payload on upsert. */
+  /** Push delivery token (Expo or Web Push HTTPS endpoint) — stored in `patients.payload`. */
   pushToken?: string | null;
-  /** Supabase `patients.last_login_at` — portal authentication / last open. */
+  /** Portal authentication / last open — stored in `patients.payload`. */
   lastLoginAt?: string | null;
-  /** Supabase `patients.last_workout_at` — last exercise completion or daily progress. */
+  /** Last exercise completion or daily progress — stored in `patients.payload`. */
   lastWorkoutAt?: string | null;
+  /** IANA timezone for reminder cron — stored in `patients.payload`. */
+  reminderTimezone?: string | null;
 }
 
 /** תובנות AI לסשן טיפול — נשמרות ברשומת התיעוד (payload מטופל → Supabase) */

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 import { getSupabaseAuthSession } from '../lib/supabaseSessionGuard';
+import { readPushTokenFromPatientPayload } from './patientPushNotifications';
 
 export type PatientChatPushContext = {
   patientId: string;
@@ -34,7 +35,7 @@ export async function fetchPatientChatPushContext(
 
   const { data, error } = await client
     .from('patients')
-    .select('id, therapist_id, push_token, payload')
+    .select('id, therapist_id, payload')
     .eq('id', pid)
     .maybeSingle();
 
@@ -53,7 +54,7 @@ export async function fetchPatientChatPushContext(
       typeof data.therapist_id === 'string' && data.therapist_id.trim().length > 0
         ? data.therapist_id.trim()
         : null,
-    pushToken: typeof data.push_token === 'string' ? data.push_token.trim() : '',
+    pushToken: readPushTokenFromPatientPayload(data.payload),
     payload: data.payload,
   };
 }

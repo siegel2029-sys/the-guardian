@@ -134,13 +134,28 @@ function stripWebPushFromPatientPayload(existingPayload: unknown): Record<string
   delete base.webPushSubscription;
   delete base.web_push_subscription;
   delete base.WebPushSubscription;
+  delete base.pushToken;
+  delete base.push_token;
   return base;
 }
 
-function isMissingColumnPatchError(message: string): boolean {
-  return /push_invalidated_at|push_last_error|last_login_at|last_workout_at|last_activity_timestamp|column.*does not exist|could not find the .* column/i.test(
-    message,
-  );
+/** Read deliverable push token from `patients.payload` (no top-level column). */
+export function readPushTokenFromPatientPayload(payload: unknown): string {
+  const root = coercePatientPayloadRoot(payload);
+  if (!root) return '';
+  const token = root.pushToken ?? root.push_token;
+  return typeof token === 'string' ? token.trim() : '';
+}
+
+function mergeScalarFieldsIntoPatientPayload(
+  existingPayload: unknown,
+  fields: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const base = coercePatientPayloadRoot(existingPayload);
+  if (!base || typeof base.id !== 'string' || !base.id.trim()) {
+    return null;
+  }
+  return { ...base, ...fields };
 }
 
 async function patchPatientRow(
@@ -171,13 +186,13 @@ export async function syncWebPushDatabasePayloadIfStale(patientId: string): Prom
 
   const { data: row, error } = await supabase
     .from('patients')
-    .select('payload, push_token')
+    .select('payload')
     .eq('id', patientId)
     .maybeSingle();
 
   if (error || !row) return;
 
-  const token = typeof row.push_token === 'string' ? row.push_token.trim() : '';
+  const token = readPushTokenFromPatientPayload(row.payload);
   if (!isPatientWebPushHttpsToken(token)) return;
 
   const root = coercePatientPayloadRoot(row.payload);
@@ -190,16 +205,15 @@ export async function syncWebPushDatabasePayloadIfStale(patientId: string): Prom
       ? (dbSub as { endpoint: string }).endpoint.trim()
       : '';
   const lacksKeys = pushSubscriptionJsonLacksKeys(dbSub);
-  // The Edge Function logs "push_token endpoint differs from payload.webPushSubscription.endpoint"
-  // and would encrypt with mismatched keys when these diverge — so treat any endpoint drift as stale
-  // too, not just missing keys, and re-sync both fields from the live browser registration.
+  // The Edge Function logs when payload.pushToken and webPushSubscription.endpoint diverge
+  // and would encrypt with mismatched keys — re-sync both from the live browser registration.
   const endpointDrift = dbEndpoint !== token;
   if (!lacksKeys && !endpointDrift) return;
 
   console.warn(
     lacksKeys
       ? '[PhysioShield push] patients.payload.webPushSubscription missing encryption keys — repairing for Web Push'
-      : '[PhysioShield push] patients.payload.webPushSubscription endpoint differs from push_token — re-syncing both fields',
+      : '[PhysioShield push] patients.payload.webPushSubscription endpoint differs from payload.pushToken — re-syncing both fields',
   );
 
   try {
@@ -608,7 +622,7 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
 }
 
 /**
- * Clears `push_token` and all Web Push fragments from `patients.payload` (other payload keys preserved).
+ * Clears `pushToken` and all Web Push fragments from `patients.payload` (other payload keys preserved).
  * Call before force re-register so no stale subscription JSON remains in Supabase.
  */
 export async function clearPatientWebPushFieldsInDatabase(patientId: string): Promise<{
@@ -631,12 +645,11 @@ export async function clearPatientWebPushFieldsInDatabase(patientId: string): Pr
   if (!row) return { ok: false, message: 'patient_not_found_or_unauthorized' };
 
   const clearedPayload = stripWebPushFromPatientPayload(row.payload);
-  const clearPatch: Record<string, unknown> = { push_token: null };
-  if (clearedPayload) {
-    clearPatch.payload = clearedPayload;
+  if (!clearedPayload) {
+    return { ok: false, message: 'patient_payload_unreadable' };
   }
 
-  const { data: updated, error } = await patchPatientRow(patientId, clearPatch);
+  const { data: updated, error } = await patchPatientRow(patientId, { payload: clearedPayload });
 
   if (error) return { ok: false, message: error.message };
   if (!updated?.id) {
@@ -740,11 +753,8 @@ export async function persistPatientPushProfile(params: {
       ? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC'
       : 'UTC';
 
-  // The Edge Function (`parseWebPushSubscriptionFromPayload`) treats `push_token` as the authoritative
-  // endpoint but reads encryption `keys` from `payload.webPushSubscription`. If the two describe
-  // different subscriptions the push is signed with mismatched keys (the logged "endpoint differs"
-  // warning). So whenever we have a full subscription, force `push_token` to its canonical endpoint —
-  // both columns are then written from the same object and can never drift out of sync.
+  // Edge Functions read pushToken + webPushSubscription from patients.payload. Keep both in sync
+  // so encryption keys always match the canonical endpoint.
   const canonicalSubscription = params.webPushSubscription
     ? normalizeCanonicalWebPushSubscription(params.webPushSubscription)
     : undefined;
@@ -754,51 +764,39 @@ export async function persistPatientPushProfile(params: {
       ? canonicalEndpoint
       : params.token;
 
-  const patch: Record<string, unknown> = {
-    push_token: tokenToPersist,
-    reminder_timezone: tz,
-    last_login_at: new Date().toISOString(),
+  const { data: row, error: fetchErr } = await supabase
+    .from('patients')
+    .select('payload')
+    .eq('id', params.patientId)
+    .maybeSingle();
+
+  if (fetchErr) {
+    return { ok: false, message: fetchErr.message };
+  }
+  if (!row) {
+    return { ok: false, message: 'patient_not_found_or_unauthorized' };
+  }
+
+  const payloadFields: Record<string, unknown> = {
+    pushToken: tokenToPersist,
+    reminderTimezone: tz,
+    lastLoginAt: new Date().toISOString(),
   };
 
+  let mergedPayload = row.payload;
   if (canonicalSubscription) {
-    const { data: row, error: fetchErr } = await supabase
-      .from('patients')
-      .select('payload')
-      .eq('id', params.patientId)
-      .maybeSingle();
+    mergedPayload =
+      mergeWebPushIntoPatientPayload(row.payload, canonicalSubscription) ?? mergedPayload;
+  }
+  mergedPayload = mergeScalarFieldsIntoPatientPayload(mergedPayload, payloadFields);
 
-    if (fetchErr) {
-      return { ok: false, message: fetchErr.message };
-    }
-    if (!row) {
-      return { ok: false, message: 'patient_not_found_or_unauthorized' };
-    }
-
-    const mergedPayload = mergeWebPushIntoPatientPayload(row.payload, canonicalSubscription);
-    if (mergedPayload) {
-      patch.payload = mergedPayload;
-    } else {
-      console.warn(
-        '[PhysioShield push] Skipping payload.webPushSubscription merge — patient payload unreadable; updating push_token only.',
-      );
-    }
+  if (!mergedPayload) {
+    return { ok: false, message: 'patient_payload_unreadable' };
   }
 
-  let { data: updated, error } = await patchPatientRow(params.patientId, patch);
-
-  // Fallback: drop payload merge if JSONB patch is rejected.
-  if (error && patch.payload !== undefined) {
-    const { payload: _payload, ...tokenOnly } = patch;
-    void _payload;
-    ({ data: updated, error } = await patchPatientRow(params.patientId, tokenOnly));
-  }
-
-  // Fallback: scalar columns only (older schemas).
-  if (error && isMissingColumnPatchError(error.message)) {
-    ({ data: updated, error } = await patchPatientRow(params.patientId, {
-      push_token: tokenToPersist,
-    }));
-  }
+  const { data: updated, error } = await patchPatientRow(params.patientId, {
+    payload: mergedPayload,
+  });
 
   if (error) {
     return { ok: false, message: error.message };
@@ -815,56 +813,43 @@ export async function persistPatientPushProfile(params: {
 
 const lastLoginWriteByPatient = new Map<string, number>();
 
-type LastLoginColumnMode = 'last_login_at' | 'last_activity_timestamp' | 'none';
-let lastLoginColumnMode: LastLoginColumnMode | null = null;
+async function touchPatientPayloadTimestampField(
+  patientId: string,
+  field: 'lastLoginAt' | 'lastWorkoutAt',
+  scope: string,
+): Promise<void> {
+  const { data: row, error: fetchErr } = await supabase!
+    .from('patients')
+    .select('payload')
+    .eq('id', patientId)
+    .maybeSingle();
 
-async function resolveLastLoginColumnMode(): Promise<LastLoginColumnMode> {
-  if (lastLoginColumnMode !== null) return lastLoginColumnMode;
-  if (!supabase) {
-    lastLoginColumnMode = 'none';
-    return lastLoginColumnMode;
-  }
-
-  for (const column of ['last_login_at', 'last_activity_timestamp'] as const) {
-    const { error } = await supabase.from('patients').select(column).limit(1);
-    if (!error) {
-      lastLoginColumnMode = column;
-      return lastLoginColumnMode;
+  if (fetchErr) {
+    if (import.meta.env.DEV) {
+      console.warn(`[${scope}] fetch`, fetchErr.message);
     }
-    if (!isMissingColumnPatchError(error.message)) {
-      lastLoginColumnMode = 'none';
-      return lastLoginColumnMode;
+    return;
+  }
+  if (!row) return;
+
+  const merged = mergeScalarFieldsIntoPatientPayload(row.payload, {
+    [field]: new Date().toISOString(),
+  });
+  if (!merged) {
+    if (import.meta.env.DEV) {
+      console.warn(`[${scope}] patient payload unreadable`);
     }
+    return;
   }
 
-  lastLoginColumnMode = 'none';
-  return lastLoginColumnMode;
-}
-
-let lastWorkoutColumnAvailable: boolean | null = null;
-
-async function resolveLastWorkoutColumnAvailable(): Promise<boolean> {
-  if (lastWorkoutColumnAvailable !== null) return lastWorkoutColumnAvailable;
-  if (!supabase) {
-    lastWorkoutColumnAvailable = false;
-    return false;
+  const { error } = await supabase!.from('patients').update({ payload: merged }).eq('id', patientId);
+  if (error && import.meta.env.DEV) {
+    console.warn(`[${scope}]`, error.message);
   }
-
-  const { error } = await supabase.from('patients').select('last_workout_at').limit(1);
-  if (!error) {
-    lastWorkoutColumnAvailable = true;
-    return true;
-  }
-  if (isMissingColumnPatchError(error.message)) {
-    lastWorkoutColumnAvailable = false;
-    return false;
-  }
-  lastWorkoutColumnAvailable = false;
-  return false;
 }
 
 /**
- * Throttled heartbeat for reminder "momentum" logic (server compares to now).
+ * Throttled heartbeat for reminder "momentum" logic (stored in `patients.payload.lastLoginAt`).
  */
 export async function touchPatientLastLoginThrottled(
   patientId: string,
@@ -874,22 +859,12 @@ export async function touchPatientLastLoginThrottled(
     if (!supabase) return;
     if (!(await requireSupabaseAuthSessionForWrite('touchPatientLastLogin'))) return;
 
-    const mode = await resolveLastLoginColumnMode();
-    if (mode === 'none') return;
-
     const now = Date.now();
     const prev = lastLoginWriteByPatient.get(patientId) ?? 0;
     if (now - prev < minIntervalMs) return;
     lastLoginWriteByPatient.set(patientId, now);
 
-    const ts = new Date().toISOString();
-    const { error } = await supabase
-      .from('patients')
-      .update({ [mode]: ts })
-      .eq('id', patientId);
-    if (error && import.meta.env.DEV) {
-      console.warn('[touchPatientLastLoginThrottled]', error.message);
-    }
+    await touchPatientPayloadTimestampField(patientId, 'lastLoginAt', 'touchPatientLastLoginThrottled');
   } catch (e) {
     if (import.meta.env.DEV) {
       console.warn('[touchPatientLastLoginThrottled] catch', e);
@@ -900,19 +875,12 @@ export async function touchPatientLastLoginThrottled(
 /** @deprecated Use touchPatientLastLoginThrottled */
 export const touchPatientLastActivityThrottled = touchPatientLastLoginThrottled;
 
-/** Stamp last_workout_at when patient completes an exercise (portal auth session). */
+/** Stamp `payload.lastWorkoutAt` when patient completes an exercise (portal auth session). */
 export async function touchPatientLastWorkout(patientId: string): Promise<void> {
   try {
     if (!supabase) return;
     if (!(await requireSupabaseAuthSessionForWrite('touchPatientLastWorkout'))) return;
-    if (!(await resolveLastWorkoutColumnAvailable())) return;
-    const { error } = await supabase
-      .from('patients')
-      .update({ last_workout_at: new Date().toISOString() })
-      .eq('id', patientId);
-    if (error && import.meta.env.DEV) {
-      console.warn('[touchPatientLastWorkout]', error.message);
-    }
+    await touchPatientPayloadTimestampField(patientId, 'lastWorkoutAt', 'touchPatientLastWorkout');
   } catch (e) {
     if (import.meta.env.DEV) {
       console.warn('[touchPatientLastWorkout] catch', e);
