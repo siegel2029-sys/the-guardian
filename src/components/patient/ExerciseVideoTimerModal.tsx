@@ -82,8 +82,6 @@ export default function ExerciseVideoTimerModal({
   const timerEndAudioRef = useRef<HTMLAudioElement | null>(null);
   const timerEndAudioUnlockedRef = useRef(false);
   const prevRemainingRef = useRef(primeSeconds);
-  const prevSetTimerRemainingRef = useRef(0);
-  const setTimerFinishedNaturallyRef = useRef(false);
 
   const primeTimerEndAudioFromUserGesture = useCallback(() => {
     if (!timerEndAudioRef.current) {
@@ -175,7 +173,6 @@ export default function ExerciseVideoTimerModal({
       clearInterval(setTimerIntervalRef.current);
       setTimerIntervalRef.current = null;
     }
-    setTimerFinishedNaturallyRef.current = false;
     setActiveSetTimerKey(null);
     setSetTimerRemaining(0);
   }, []);
@@ -215,7 +212,6 @@ export default function ExerciseVideoTimerModal({
               setTimerIntervalRef.current = null;
             }
             setActiveSetTimerKey(null);
-            setTimerFinishedNaturallyRef.current = true;
             return 0;
           }
           return prev - 1;
@@ -241,8 +237,6 @@ export default function ExerciseVideoTimerModal({
       timerEndAudioRef.current = null;
       timerEndAudioUnlockedRef.current = false;
       prevRemainingRef.current = primeSeconds;
-      prevSetTimerRemainingRef.current = 0;
-      setTimerFinishedNaturallyRef.current = false;
       return;
     }
 
@@ -290,22 +284,6 @@ export default function ExerciseVideoTimerModal({
     }
     prevRemainingRef.current = remaining;
   }, [open, timerStarted, remaining, playTimerEndSound]);
-
-  useEffect(() => {
-    if (!open) {
-      prevSetTimerRemainingRef.current = 0;
-      return;
-    }
-    if (
-      setTimerFinishedNaturallyRef.current &&
-      prevSetTimerRemainingRef.current > 0 &&
-      setTimerRemaining === 0
-    ) {
-      setTimerFinishedNaturallyRef.current = false;
-      playTimerEndSound();
-    }
-    prevSetTimerRemainingRef.current = setTimerRemaining;
-  }, [open, setTimerRemaining, playTimerEndSound]);
 
   useEffect(() => {
     return () => {
