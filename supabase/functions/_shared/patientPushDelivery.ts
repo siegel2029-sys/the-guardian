@@ -3,6 +3,10 @@
  * Used by reminder-cron, notify-new-message, and future Edge Functions.
  */
 import webPush from "npm:web-push@3.6.7";
+import {
+  mergePatientPayloadFields,
+  stripPushFieldsFromPatientPayload,
+} from "./patientPayloadMeta.ts";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
@@ -354,7 +358,7 @@ export function parseWebPushSubscriptionFromPayload(
     if (built) {
       if (trimStr(sub.endpoint) && trimStr(sub.endpoint) !== tokenEndpoint) {
         console.warn(
-          "patient-push: push_token endpoint differs from payload.webPushSubscription.endpoint; using push_token",
+          "patient-push: payload.pushToken endpoint differs from payload.webPushSubscription.endpoint; using pushToken",
         );
       }
       return { endpoint: tokenEndpoint, keys: built.keys };
@@ -498,6 +502,17 @@ export async function sendPatientReminder(
 /** Minimal Supabase client surface needed to flag a stale push registration. */
 type SupabaseLike = {
   from: (table: string) => {
+    select: (columns: string) => {
+      eq: (
+        column: string,
+        value: string,
+      ) => {
+        maybeSingle: () => Promise<{
+          data: { payload?: unknown } | null;
+          error: { message: string } | null;
+        }>;
+      };
+    };
     update: (values: Record<string, unknown>) => {
       eq: (column: string, value: string) => Promise<{ error: { message: string } | null }>;
     };
@@ -505,15 +520,82 @@ type SupabaseLike = {
 };
 
 /**
- * Clears a dead push registration after a persistent gateway rejection (403/404/410 or parse miss)
- * so the cron + chat functions stop hammering it. The frontend re-registers (with the
- * server-validated VAPID key) on the user's next app open, which repopulates these fields.
- *
- * Generic across `patients` (keyed by `id`) and `profiles` (therapist, keyed by `id`) — both share the
- * `push_token` / `push_invalidated_at` / `push_last_error` columns.
+ * Clears dead push fields inside `patients.payload` after a persistent gateway rejection.
+ * The frontend re-registers on the user's next app open.
  */
-export async function markPushTokenStale(
+export async function markPatientPushTokenStale(
   supabase: SupabaseLike,
+  patientId: string,
+  detail: string,
+): Promise<void> {
+  try {
+    const { data: row, error: fetchErr } = await supabase
+      .from("patients")
+      .select("payload")
+      .eq("id", patientId)
+      .maybeSingle();
+
+    if (fetchErr) {
+      console.error(
+        `patient-push: failed to load payload for stale clear patients.id=${patientId}: ${fetchErr.message}`,
+      );
+      return;
+    }
+    if (!row) {
+      console.warn(`patient-push: stale clear skipped — patient ${patientId} not found`);
+      return;
+    }
+
+    const stripped = stripPushFieldsFromPatientPayload(row.payload);
+    const merged =
+      stripped &&
+      mergePatientPayloadFields(stripped, {
+        pushLastError: detail.slice(0, 300),
+        pushInvalidatedAt: new Date().toISOString(),
+      });
+
+    if (!merged) {
+      console.error(
+        `patient-push: failed to strip push fields from payload for patients.id=${patientId}`,
+      );
+      return;
+    }
+
+    const { error } = await supabase
+      .from("patients")
+      .update({ payload: merged })
+      .eq("id", patientId);
+
+    if (error) {
+      console.error(
+        `patient-push: failed to flag stale token for patients.id=${patientId}: ${error.message}`,
+      );
+    } else {
+      console.log(
+        `patient-push: flagged stale push token for patients.id=${patientId} (cleared payload.pushToken). Reason: ${detail.slice(0, 120)}`,
+      );
+    }
+  } catch (e) {
+    console.error(
+      `patient-push: exception flagging stale token for patients.id=${patientId}:`,
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+}
+
+/**
+ * Clears a dead therapist push registration in `public.profiles` (top-level columns).
+ */
+export async function markTherapistPushTokenStale(
+  supabase: Pick<SupabaseLike, "from">,
+  therapistId: string,
+  detail: string,
+): Promise<void> {
+  await markProfilePushTokenStale(supabase, { table: "profiles", id: therapistId, detail });
+}
+
+async function markProfilePushTokenStale(
+  supabase: Pick<SupabaseLike, "from">,
   opts: { table: string; idColumn?: string; id: string; detail: string },
 ): Promise<void> {
   const { table, id, detail } = opts;
@@ -542,22 +624,4 @@ export async function markPushTokenStale(
       e instanceof Error ? e.message : String(e),
     );
   }
-}
-
-/** Backwards-compatible wrapper used by reminder-cron + notify-new-message for the patients table. */
-export async function markPatientPushTokenStale(
-  supabase: SupabaseLike,
-  patientId: string,
-  detail: string,
-): Promise<void> {
-  await markPushTokenStale(supabase, { table: "patients", id: patientId, detail });
-}
-
-/** Flags a therapist's stale push registration in `public.profiles` (parallel to the patient path). */
-export async function markTherapistPushTokenStale(
-  supabase: SupabaseLike,
-  therapistId: string,
-  detail: string,
-): Promise<void> {
-  await markPushTokenStale(supabase, { table: "profiles", id: therapistId, detail });
 }

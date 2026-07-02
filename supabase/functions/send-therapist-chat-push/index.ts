@@ -9,8 +9,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   hasDeliverableReminderToken,
+  markPatientPushTokenStale,
   sendPatientReminder,
 } from "../_shared/patientPushDelivery.ts";
+import { readPushTokenFromPatientPayload } from "../_shared/patientPayloadMeta.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -80,7 +82,7 @@ Deno.serve(async (req) => {
 
   const { data: patient, error: patientErr } = await supabaseAuth
     .from("patients")
-    .select("id, push_token, payload, therapist_id")
+    .select("id, payload, therapist_id")
     .eq("id", patientId)
     .maybeSingle();
 
@@ -93,7 +95,7 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, error: "patient_not_found_or_forbidden" }, 403);
   }
 
-  const token = (patient.push_token as string | null | undefined)?.trim() ?? "";
+  const token = readPushTokenFromPatientPayload(patient.payload);
   console.log(
     "[send-therapist-chat-push] therapist",
     user.id,
@@ -140,6 +142,17 @@ Deno.serve(async (req) => {
 
   if (!pushResult.ok) {
     console.error("[send-therapist-chat-push] Push failed:", pushResult.detail);
+    if (pushResult.stale) {
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      if (serviceKey) {
+        const supabaseService = createClient(supabaseUrl, serviceKey);
+        await markPatientPushTokenStale(supabaseService, patientId, pushResult.detail ?? "stale");
+      } else {
+        console.warn(
+          "[send-therapist-chat-push] Stale token not cleared — SUPABASE_SERVICE_ROLE_KEY missing",
+        );
+      }
+    }
     return jsonResponse({
       ok: false,
       patientId,

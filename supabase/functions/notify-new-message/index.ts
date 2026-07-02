@@ -20,6 +20,11 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.103.0";
 import * as webpush from "jsr:@negrel/webpush@0.5.0";
+import {
+  mergePatientPayloadFields,
+  readPushTokenFromPatientPayload,
+  stripPushFieldsFromPatientPayload,
+} from "../_shared/patientPayloadMeta.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -192,28 +197,73 @@ async function sendWebPush(
 
 type SupabaseClient = ReturnType<typeof createClient>;
 
-async function markPushTokenStale(
+async function markPatientPushTokenStaleInPayload(
   supabase: SupabaseClient,
-  table: string,
-  id: string,
+  patientId: string,
+  detail: string,
+): Promise<void> {
+  try {
+    const { data: row, error: fetchErr } = await supabase
+      .from("patients")
+      .select("payload")
+      .eq("id", patientId)
+      .maybeSingle();
+
+    if (fetchErr) {
+      console.error(`patient-push: failed to load payload for stale clear patients.id=${patientId}: ${fetchErr.message}`);
+      return;
+    }
+    if (!row) return;
+
+    const stripped = stripPushFieldsFromPatientPayload(row.payload);
+    const merged =
+      stripped &&
+      mergePatientPayloadFields(stripped, {
+        pushLastError: detail.slice(0, 300),
+        pushInvalidatedAt: new Date().toISOString(),
+      });
+
+    if (!merged) {
+      console.error(`patient-push: failed to strip push fields from payload for patients.id=${patientId}`);
+      return;
+    }
+
+    const { error } = await supabase
+      .from("patients")
+      .update({ payload: merged })
+      .eq("id", patientId);
+
+    if (error) {
+      console.error(`patient-push: failed to flag stale token for patients.id=${patientId}: ${error.message}`);
+    } else {
+      console.log(`patient-push: flagged stale push token for patients.id=${patientId} (cleared payload.pushToken).`);
+    }
+  } catch (e) {
+    console.error(`patient-push: exception flagging stale token for patients.id=${patientId}:`, e instanceof Error ? e.message : String(e));
+  }
+}
+
+async function markProfilePushTokenStale(
+  supabase: SupabaseClient,
+  profileId: string,
   detail: string,
 ): Promise<void> {
   try {
     const { error } = await supabase
-      .from(table)
+      .from("profiles")
       .update({
         push_token: null,
         push_invalidated_at: new Date().toISOString(),
         push_last_error: detail.slice(0, 300),
       })
-      .eq("id", id);
+      .eq("id", profileId);
     if (error) {
-      console.error(`patient-push: failed to flag stale token for ${table}.id=${id}: ${error.message}`);
+      console.error(`patient-push: failed to flag stale token for profiles.id=${profileId}: ${error.message}`);
     } else {
-      console.log(`patient-push: flagged stale push token for ${table}.id=${id} (cleared push_token).`);
+      console.log(`patient-push: flagged stale push token for profiles.id=${profileId} (cleared push_token).`);
     }
   } catch (e) {
-    console.error(`patient-push: exception flagging stale token for ${table}.id=${id}:`, e instanceof Error ? e.message : String(e));
+    console.error(`patient-push: exception flagging stale token for profiles.id=${profileId}:`, e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -343,13 +393,13 @@ async function notifyPatient(supabase: SupabaseClient, record: Record<string, un
 
   const { data: patient, error } = await supabase
     .from("patients")
-    .select("id, push_token, payload, first_name")
+    .select("id, payload")
     .eq("id", recipientId)
     .maybeSingle();
   if (error) return jsonResponse({ ok: false, error: error.message }, 503);
   if (!patient) return jsonResponse({ ok: false, error: "patient_not_found", patientId: recipientId }, 200);
 
-  const token = (patient.push_token as string | null | undefined)?.trim() ?? "";
+  const token = readPushTokenFromPatientPayload(patient.payload);
   if (!hasDeliverableToken(token)) {
     console.log(`[notify-new-message] Tokens resolved: 0 for patient (${recipientId}).`);
     return jsonResponse({ ok: true, sent: false, patientId: recipientId, reason: "no_deliverable_push_token" });
@@ -363,7 +413,7 @@ async function notifyPatient(supabase: SupabaseClient, record: Record<string, un
   console.log(`[notify-new-message] Gateway response for patient(${recipientId}): ${res.ok ? "sent_ok" : res.detail ?? "failed"}${res.stale ? " [STALE → clearing token]" : ""}`);
 
   if (!res.ok) {
-    if (res.stale) await markPushTokenStale(supabase, "patients", recipientId, `chat: ${res.detail ?? "stale"}`);
+    if (res.stale) await markPatientPushTokenStaleInPayload(supabase, recipientId, `chat: ${res.detail ?? "stale"}`);
     return jsonResponse({ ok: false, patientId: recipientId, deliveryError: res.detail, stale: res.stale ?? false }, 200);
   }
   return jsonResponse({ ok: true, sent: true, recipient: "patient", patientId: recipientId });
@@ -477,7 +527,7 @@ async function notifyTherapist(supabase: SupabaseClient, record: Record<string, 
   console.log(`[notify-new-message] Gateway response for therapist(${therapistId}): ${res.ok ? "sent_ok" : res.detail ?? "failed"}${res.stale ? " [STALE → clearing token]" : ""}`);
 
   if (!res.ok) {
-    if (res.stale) await markPushTokenStale(supabase, "profiles", therapistId, `chat: ${res.detail ?? "stale"}`);
+    if (res.stale) await markProfilePushTokenStale(supabase, therapistId, `chat: ${res.detail ?? "stale"}`);
     return jsonResponse({ ok: false, therapistId, deliveryError: res.detail, stale: res.stale ?? false }, 200);
   }
   return jsonResponse({ ok: true, sent: true, recipient: "therapist", therapistId });
