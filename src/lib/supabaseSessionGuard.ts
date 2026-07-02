@@ -3,6 +3,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isSupabaseAuthEnabled } from './patientPortalAuth';
+import { hasPersistedSupabaseAuthSession } from './supabase';
 
 export type SupabaseSessionGuardResult = { ok: true } | { ok: false; message: string };
 
@@ -66,6 +67,20 @@ export async function ensureSupabaseSessionReady(
 
     if (session?.user?.id && !sessionErr) {
       return { ok: true };
+    }
+
+    if (!hasPersistedSupabaseAuthSession()) {
+      const message =
+        sessionErr?.message ??
+        'אין סשן פעיל — התחברו מחדש כדי לשמור לענן.';
+      if (alertUser) {
+        window.alert(`[PHYSIOSHIELD] ${ctx}\n\n${message}`);
+      } else if (import.meta.env.DEV) {
+        console.debug('[ensureSupabaseSessionReady] no persisted auth token — skipping refresh', {
+          context: ctx,
+        });
+      }
+      return { ok: false, message };
     }
 
     logSupabaseCallError('ensureSupabaseSessionReady/getSession', sessionErr ?? 'no session', {

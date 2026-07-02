@@ -72,22 +72,28 @@ export async function pullPersistedState(
   client: SupabaseClient,
   options?: { onlyPatientId?: string }
 ): Promise<PullPersistedStateResult> {
-  const onlyId = options?.onlyPatientId?.trim();
-  if (onlyId) {
-    const row = await getPatientById(client, onlyId);
-    if (!row.ok) return { ok: false, message: row.message };
+  try {
+    const onlyId = options?.onlyPatientId?.trim();
+    if (onlyId) {
+      const row = await getPatientById(client, onlyId);
+      if (!row.ok) return { ok: false, message: row.message };
+      return {
+        ok: true,
+        clinicalInsights: pullClinicalInsightsFromPatientPayloads([row.patient]),
+      };
+    }
+
+    const base = await fetchPatientPayloadsForTherapist(client);
+    if (!base.ok) return { ok: false, message: base.message };
     return {
       ok: true,
-      clinicalInsights: pullClinicalInsightsFromPatientPayloads([row.patient]),
+      clinicalInsights: pullClinicalInsightsFromPatientPayloads(base.patients),
     };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.warn('[pullPersistedState] failed — keeping local state', message);
+    return { ok: false, message };
   }
-
-  const base = await fetchPatientPayloadsForTherapist(client);
-  if (!base.ok) return { ok: false, message: base.message };
-  return {
-    ok: true,
-    clinicalInsights: pullClinicalInsightsFromPatientPayloads(base.patients),
-  };
 }
 
 /**

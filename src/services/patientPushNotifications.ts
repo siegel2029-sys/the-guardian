@@ -815,6 +815,54 @@ export async function persistPatientPushProfile(params: {
 
 const lastLoginWriteByPatient = new Map<string, number>();
 
+type LastLoginColumnMode = 'last_login_at' | 'last_activity_timestamp' | 'none';
+let lastLoginColumnMode: LastLoginColumnMode | null = null;
+
+async function resolveLastLoginColumnMode(): Promise<LastLoginColumnMode> {
+  if (lastLoginColumnMode !== null) return lastLoginColumnMode;
+  if (!supabase) {
+    lastLoginColumnMode = 'none';
+    return lastLoginColumnMode;
+  }
+
+  for (const column of ['last_login_at', 'last_activity_timestamp'] as const) {
+    const { error } = await supabase.from('patients').select(column).limit(1);
+    if (!error) {
+      lastLoginColumnMode = column;
+      return lastLoginColumnMode;
+    }
+    if (!isMissingColumnPatchError(error.message)) {
+      lastLoginColumnMode = 'none';
+      return lastLoginColumnMode;
+    }
+  }
+
+  lastLoginColumnMode = 'none';
+  return lastLoginColumnMode;
+}
+
+let lastWorkoutColumnAvailable: boolean | null = null;
+
+async function resolveLastWorkoutColumnAvailable(): Promise<boolean> {
+  if (lastWorkoutColumnAvailable !== null) return lastWorkoutColumnAvailable;
+  if (!supabase) {
+    lastWorkoutColumnAvailable = false;
+    return false;
+  }
+
+  const { error } = await supabase.from('patients').select('last_workout_at').limit(1);
+  if (!error) {
+    lastWorkoutColumnAvailable = true;
+    return true;
+  }
+  if (isMissingColumnPatchError(error.message)) {
+    lastWorkoutColumnAvailable = false;
+    return false;
+  }
+  lastWorkoutColumnAvailable = false;
+  return false;
+}
+
 /**
  * Throttled heartbeat for reminder "momentum" logic (server compares to now).
  */
@@ -822,22 +870,30 @@ export async function touchPatientLastLoginThrottled(
   patientId: string,
   minIntervalMs = 120_000
 ): Promise<void> {
-  if (!supabase) return;
-  if (!(await requireSupabaseAuthSessionForWrite('touchPatientLastLogin'))) return;
-  const now = Date.now();
-  const prev = lastLoginWriteByPatient.get(patientId) ?? 0;
-  if (now - prev < minIntervalMs) return;
-  lastLoginWriteByPatient.set(patientId, now);
-  const ts = new Date().toISOString();
-  const { error } = await supabase
-    .from('patients')
-    .update({ last_login_at: ts })
-    .eq('id', patientId);
-  if (error && /last_login_at|column.*does not exist/i.test(error.message)) {
-    await supabase
+  try {
+    if (!supabase) return;
+    if (!(await requireSupabaseAuthSessionForWrite('touchPatientLastLogin'))) return;
+
+    const mode = await resolveLastLoginColumnMode();
+    if (mode === 'none') return;
+
+    const now = Date.now();
+    const prev = lastLoginWriteByPatient.get(patientId) ?? 0;
+    if (now - prev < minIntervalMs) return;
+    lastLoginWriteByPatient.set(patientId, now);
+
+    const ts = new Date().toISOString();
+    const { error } = await supabase
       .from('patients')
-      .update({ last_activity_timestamp: ts })
+      .update({ [mode]: ts })
       .eq('id', patientId);
+    if (error && import.meta.env.DEV) {
+      console.warn('[touchPatientLastLoginThrottled]', error.message);
+    }
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      console.warn('[touchPatientLastLoginThrottled] catch', e);
+    }
   }
 }
 
@@ -846,12 +902,22 @@ export const touchPatientLastActivityThrottled = touchPatientLastLoginThrottled;
 
 /** Stamp last_workout_at when patient completes an exercise (portal auth session). */
 export async function touchPatientLastWorkout(patientId: string): Promise<void> {
-  if (!supabase) return;
-  if (!(await requireSupabaseAuthSessionForWrite('touchPatientLastWorkout'))) return;
-  await supabase
-    .from('patients')
-    .update({ last_workout_at: new Date().toISOString() })
-    .eq('id', patientId);
+  try {
+    if (!supabase) return;
+    if (!(await requireSupabaseAuthSessionForWrite('touchPatientLastWorkout'))) return;
+    if (!(await resolveLastWorkoutColumnAvailable())) return;
+    const { error } = await supabase
+      .from('patients')
+      .update({ last_workout_at: new Date().toISOString() })
+      .eq('id', patientId);
+    if (error && import.meta.env.DEV) {
+      console.warn('[touchPatientLastWorkout]', error.message);
+    }
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      console.warn('[touchPatientLastWorkout] catch', e);
+    }
+  }
 }
 
 export { registerPatientPushForSupabase as registerPushNotification };

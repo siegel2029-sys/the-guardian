@@ -551,23 +551,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return null;
           }
 
+          if (pw.length < 1) {
+            setLoginError('נא להזין סיסמה.');
+            setIsLoading(false);
+            return null;
+          }
+
           // Signal that a sign-in is in progress. The onAuthStateChange SIGNED_OUT
           // handler checks this flag and skips setIsLoading(false) so ProtectedRoute
           // does not redirect to /login during the brief SIGNED_OUT → SIGNED_IN window.
           signingInRef.current = true;
 
           if (isEmailLike(id)) {
+            const therapistEmail = id.trim().toLowerCase();
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(therapistEmail)) {
+              signingInRef.current = false;
+              setLoginError('כתובת דוא"ל לא תקינה.');
+              setIsLoading(false);
+              return null;
+            }
+
             let data: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['data'];
             let error: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['error'];
             try {
               ({ data, error } = await supabase.auth.signInWithPassword({
-                email: id.toLowerCase(),
+                email: therapistEmail,
                 password: pw,
               }));
             } finally {
               signingInRef.current = false;
             }
             if (error || !data.user) {
+              console.error('[Auth] signInWithPassword failed (therapist)', {
+                email: therapistEmail,
+                message: error?.message,
+                status: error?.status,
+                code: error?.code,
+              });
               setLoginError(
                 supabaseAuthErrorMessageHe(
                   error ?? undefined,
@@ -605,6 +625,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             signingInRef.current = false;
           }
           if (error || !data.user) {
+            console.error('[Auth] signInWithPassword failed (patient portal)', {
+              email,
+              portalUsername: normalized,
+              message: error?.message,
+              status: error?.status,
+              code: error?.code,
+            });
             setLoginError(
               supabaseAuthErrorMessageHe(error ?? undefined, 'מזהה פורטל או סיסמה שגויים.')
             );
@@ -673,7 +700,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         );
         setIsLoading(false);
         return null;
-      } catch {
+      } catch (e) {
+        signingInRef.current = false;
+        console.error('[Auth] login unexpected error', e);
         setLoginError('שגיאת התחברות. נסו שוב.');
         setIsLoading(false);
         return null;

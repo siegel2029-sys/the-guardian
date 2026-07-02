@@ -79,6 +79,53 @@ export default function ExerciseVideoTimerModal({
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const setTimerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const successTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const timerEndAudioRef = useRef<HTMLAudioElement | null>(null);
+  const timerEndAudioUnlockedRef = useRef(false);
+  const prevRemainingRef = useRef(primeSeconds);
+  const prevSetTimerRemainingRef = useRef(0);
+  const setTimerFinishedNaturallyRef = useRef(false);
+
+  const primeTimerEndAudioFromUserGesture = useCallback(() => {
+    if (!timerEndAudioRef.current) {
+      timerEndAudioRef.current = new Audio('/sounds/timer-end.mp3');
+      timerEndAudioRef.current.preload = 'auto';
+    }
+
+    if (timerEndAudioUnlockedRef.current) return;
+
+    const audio = timerEndAudioRef.current;
+    const previousVolume = audio.volume;
+    audio.volume = 0.001;
+    void audio
+      .play()
+      .then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = 1;
+        timerEndAudioUnlockedRef.current = true;
+      })
+      .catch((err) => console.error('Timer audio unlock failed:', err))
+      .finally(() => {
+        if (!timerEndAudioUnlockedRef.current) {
+          audio.volume = previousVolume;
+        }
+      });
+  }, []);
+
+  const playTimerEndSound = useCallback(() => {
+    const audio = timerEndAudioRef.current;
+    if (!audio) {
+      console.error(
+        'Timer audio playback failed: Audio was not initialized — tap anywhere inside the exercise modal first.'
+      );
+      return;
+    }
+    audio.currentTime = 0;
+    audio.volume = 1;
+    void audio
+      .play()
+      .catch((err) => console.error('Timer audio playback failed:', err));
+  }, []);
 
   const presentation = useVideoPresentation(videoUrl);
   const iframeSrc = useMemo(() => getVideoIframeSrc(presentation), [presentation]);
@@ -128,6 +175,7 @@ export default function ExerciseVideoTimerModal({
       clearInterval(setTimerIntervalRef.current);
       setTimerIntervalRef.current = null;
     }
+    setTimerFinishedNaturallyRef.current = false;
     setActiveSetTimerKey(null);
     setSetTimerRemaining(0);
   }, []);
@@ -167,6 +215,7 @@ export default function ExerciseVideoTimerModal({
               setTimerIntervalRef.current = null;
             }
             setActiveSetTimerKey(null);
+            setTimerFinishedNaturallyRef.current = true;
             return 0;
           }
           return prev - 1;
@@ -189,6 +238,11 @@ export default function ExerciseVideoTimerModal({
       clearSetTimer();
       clearSuccessTimers();
       setTimerStarted(false);
+      timerEndAudioRef.current = null;
+      timerEndAudioUnlockedRef.current = false;
+      prevRemainingRef.current = primeSeconds;
+      prevSetTimerRemainingRef.current = 0;
+      setTimerFinishedNaturallyRef.current = false;
       return;
     }
 
@@ -219,11 +273,39 @@ export default function ExerciseVideoTimerModal({
     clearSessionTimer,
     clearSetTimer,
     clearSuccessTimers,
+    primeSeconds,
     safeTargetSets,
     startSessionTimer,
     presentation.kind,
     tryPlayVideo,
   ]);
+
+  useEffect(() => {
+    if (!open || !timerStarted) {
+      prevRemainingRef.current = remaining;
+      return;
+    }
+    if (prevRemainingRef.current > 0 && remaining === 0) {
+      playTimerEndSound();
+    }
+    prevRemainingRef.current = remaining;
+  }, [open, timerStarted, remaining, playTimerEndSound]);
+
+  useEffect(() => {
+    if (!open) {
+      prevSetTimerRemainingRef.current = 0;
+      return;
+    }
+    if (
+      setTimerFinishedNaturallyRef.current &&
+      prevSetTimerRemainingRef.current > 0 &&
+      setTimerRemaining === 0
+    ) {
+      setTimerFinishedNaturallyRef.current = false;
+      playTimerEndSound();
+    }
+    prevSetTimerRemainingRef.current = setTimerRemaining;
+  }, [open, setTimerRemaining, playTimerEndSound]);
 
   useEffect(() => {
     return () => {
@@ -348,10 +430,12 @@ export default function ExerciseVideoTimerModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="ex-training-title"
+      onPointerDownCapture={primeTimerEndAudioFromUserGesture}
     >
       <div
         className="w-full max-w-[min(96vw,920px)] max-h-[min(96vh,880px)] flex flex-col rounded-2xl border shadow-2xl overflow-hidden min-h-0"
         data-training-variant={variant}
+        onPointerDownCapture={primeTimerEndAudioFromUserGesture}
         style={{
           background: '#0f172a',
           borderColor: '#334155',

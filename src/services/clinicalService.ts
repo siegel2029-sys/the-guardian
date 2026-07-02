@@ -1828,6 +1828,41 @@ function isPostgrestUnknownColumnError(err: { code?: string; message?: string })
   );
 }
 
+/** Guaranteed by `20260410120000_initial_guardian_schema.sql` — safe on any deployed project. */
+const PATIENTS_THERAPIST_FETCH_BASE = 'payload, updated_at';
+
+const PATIENTS_THERAPIST_FETCH_CANDIDATES = [
+  'payload, push_token, last_login_at, last_workout_at',
+  'payload, push_token, last_activity_timestamp',
+  'payload, push_token',
+  PATIENTS_THERAPIST_FETCH_BASE,
+] as const;
+
+let patientsTherapistFetchSelectCache: string | null = null;
+
+async function resolvePatientsTherapistFetchSelect(
+  client: SupabaseClient
+): Promise<string> {
+  if (patientsTherapistFetchSelectCache) {
+    return patientsTherapistFetchSelectCache;
+  }
+
+  for (const select of PATIENTS_THERAPIST_FETCH_CANDIDATES) {
+    const { error } = await client.from('patients').select(select).limit(1);
+    if (!error) {
+      patientsTherapistFetchSelectCache = select;
+      return select;
+    }
+    if (!isPostgrestUnknownColumnError(error)) {
+      patientsTherapistFetchSelectCache = PATIENTS_THERAPIST_FETCH_BASE;
+      return PATIENTS_THERAPIST_FETCH_BASE;
+    }
+  }
+
+  patientsTherapistFetchSelectCache = PATIENTS_THERAPIST_FETCH_BASE;
+  return PATIENTS_THERAPIST_FETCH_BASE;
+}
+
 type PatientRowForTherapistFetch = {
   payload?: unknown;
   push_token?: string | null;
@@ -1900,87 +1935,81 @@ function exercisePlanFromDbRow(row: ExercisePlanDbRow): ExercisePlan {
 export async function fetchPatientPayloadsForTherapist(
   client: SupabaseClient
 ): Promise<FetchPatientPayloadsForTherapistResult> {
-  const sessionGuard = await ensureSupabaseSessionReady(client, {
-    context: 'טעינת רשימת מטופלים',
-  });
-  if (!sessionGuard.ok) {
-    return { ok: false, message: sessionGuard.message };
-  }
-
-  const {
-    data: { user },
-    error: userErr,
-  } = await client.auth.getUser();
-  if (userErr || !user?.id) {
-    return { ok: false, message: userErr?.message ?? 'אין משתמש מחובר' };
-  }
-
-  const therapistId = user.id.trim();
-  // Defence-in-depth: filter by therapist_id in addition to RLS.
-  const { data: fullData, error: fullError } = await client
-    .from('patients')
-    .select('payload, push_token, last_login_at, last_workout_at')
-    .eq('therapist_id', therapistId)
-    .order('updated_at', { ascending: false });
-
-  let rows: PatientRowForTherapistFetch[] | null = (fullData ?? null) as PatientRowForTherapistFetch[] | null;
-  let error = fullError;
-
-  if (error && isPostgrestUnknownColumnError(error)) {
-    console.warn(
-      '[fetchPatientPayloadsForTherapist] new timestamp columns missing — retrying with legacy last_activity_timestamp',
-      { message: error.message, code: error.code }
-    );
-    const { data: legacyData, error: legacyError } = await client
-      .from('patients')
-      .select('payload, push_token, last_activity_timestamp')
-      .eq('therapist_id', therapistId)
-      .order('updated_at', { ascending: false });
-    rows = (legacyData ?? null) as PatientRowForTherapistFetch[] | null;
-    error = legacyError;
-  }
-
-  if (error && isPostgrestUnknownColumnError(error)) {
-    console.warn(
-      '[fetchPatientPayloadsForTherapist] optional columns missing — retrying with payload only',
-      { message: error.message, code: error.code }
-    );
-    const { data: slimData, error: slimError } = await client
-      .from('patients')
-      .select('payload')
-      .eq('therapist_id', therapistId)
-      .order('updated_at', { ascending: false });
-    rows = (slimData ?? null) as PatientRowForTherapistFetch[] | null;
-    error = slimError;
-  }
-
-  if (error) {
-    logSupabaseCallError('fetchPatientPayloadsForTherapist', error, {
-      therapistId,
-      httpStatus: postgrestHttpStatus(error),
+  try {
+    const sessionGuard = await ensureSupabaseSessionReady(client, {
+      context: 'טעינת רשימת מטופלים',
     });
-    return { ok: false, message: error.message };
-  }
+    if (!sessionGuard.ok) {
+      return { ok: false, message: sessionGuard.message };
+    }
 
-  const out = patientsFromTherapistFetchRows(rows);
+    const {
+      data: { user },
+      error: userErr,
+    } = await client.auth.getUser();
+    if (userErr || !user?.id) {
+      return { ok: false, message: userErr?.message ?? 'אין משתמש מחובר' };
+    }
 
-  if (out.length === 0) {
-    console.warn(
-      '[fetchPatientPayloadsForTherapist] 0 rows for therapist — RLS or patients.therapist_id may not match auth.uid()',
-      {
-        therapistId,
-        rawRowCount: rows?.length ?? 0,
-        hint: 'In Supabase SQL: SELECT id, therapist_id FROM patients; compare therapist_id to auth.users.id for your login.',
+    const therapistId = user.id.trim();
+    const selectColumns = await resolvePatientsTherapistFetchSelect(client);
+
+    const runFetch = (select: string) =>
+      client
+        .from('patients')
+        .select(select)
+        .eq('therapist_id', therapistId)
+        .order('updated_at', { ascending: false });
+
+    let { data, error } = await runFetch(selectColumns);
+
+    if (error && selectColumns !== PATIENTS_THERAPIST_FETCH_BASE) {
+      patientsTherapistFetchSelectCache = null;
+      const retry = await runFetch(PATIENTS_THERAPIST_FETCH_BASE);
+      data = retry.data;
+      error = retry.error;
+      if (!error) {
+        patientsTherapistFetchSelectCache = PATIENTS_THERAPIST_FETCH_BASE;
       }
-    );
-  } else if (import.meta.env.DEV) {
-    console.log('[fetchPatientPayloadsForTherapist] loaded', {
-      therapistId,
-      patientCount: out.length,
-    });
-  }
+    }
 
-  return { ok: true, patients: out };
+    if (error) {
+      logSupabaseCallError('fetchPatientPayloadsForTherapist', error, {
+        therapistId,
+        httpStatus: postgrestHttpStatus(error),
+        selectColumns,
+      });
+      return { ok: false, message: error.message };
+    }
+
+    const rows = (data ?? null) as PatientRowForTherapistFetch[] | null;
+    const out = patientsFromTherapistFetchRows(rows);
+
+    if (out.length === 0) {
+      console.warn(
+        '[fetchPatientPayloadsForTherapist] 0 rows for therapist — RLS or patients.therapist_id may not match auth.uid()',
+        {
+          therapistId,
+          rawRowCount: rows?.length ?? 0,
+          hint: 'In Supabase SQL: SELECT id, therapist_id FROM patients; compare therapist_id to auth.users.id for your login.',
+        }
+      );
+    } else if (import.meta.env.DEV) {
+      console.log('[fetchPatientPayloadsForTherapist] loaded', {
+        therapistId,
+        patientCount: out.length,
+        selectColumns: patientsTherapistFetchSelectCache ?? selectColumns,
+      });
+    }
+
+    return { ok: true, patients: out };
+  } catch (e) {
+    logSupabaseCallError('fetchPatientPayloadsForTherapist/catch', e);
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : String(e),
+    };
+  }
 }
 
 export type FetchActiveExercisePlansResult =
@@ -2111,23 +2140,31 @@ export type FetchPatientsResult =
  * מתאים לגרסת API שנקראית `fetchPatients` — לעומת `fetchPatientPayloadsForTherapist` שמטעינה את ה־payload בלבד.
  */
 export async function fetchPatients(client: SupabaseClient): Promise<FetchPatientsResult> {
-  const base = await fetchPatientPayloadsForTherapist(client);
-  if (!base.ok) return base;
+  try {
+    const base = await fetchPatientPayloadsForTherapist(client);
+    if (!base.ok) return base;
 
-  const plans = await fetchActiveExercisePlansForPatientIds(
-    client,
-    base.patients.map((p) => p.id)
-  );
-  if (!plans.ok) return plans;
+    const plans = await fetchActiveExercisePlansForPatientIds(
+      client,
+      base.patients.map((p) => p.id)
+    );
+    if (!plans.ok) return plans;
 
-  return {
-    ok: true,
-    patients: base.patients,
-    exercisePlans: mergeExercisePlansWithPatientPayloadCache(
-      base.patients,
-      plans.exercisePlans
-    ),
-  };
+    return {
+      ok: true,
+      patients: base.patients,
+      exercisePlans: mergeExercisePlansWithPatientPayloadCache(
+        base.patients,
+        plans.exercisePlans
+      ),
+    };
+  } catch (e) {
+    logSupabaseCallError('fetchPatients/catch', e);
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : String(e),
+    };
+  }
 }
 
 export type GetPatientByIdResult =
