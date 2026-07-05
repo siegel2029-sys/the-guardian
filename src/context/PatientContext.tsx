@@ -84,6 +84,7 @@ import {
 } from '../lib/kbHydrationGate';
 import {
   fetchPatients,
+  fetchPatientPayloadsForTherapist,
   deletePatientRowFromSupabase,
   fetchActiveExercisePlanForPatient,
   updatePatientExercises,
@@ -116,6 +117,7 @@ import {
   mergeClinicalInsightsSnapshots,
   pullClinicalInsightsFromPatientPayloads,
 } from '../utils/clinicalInsightsPayload';
+import { touchPatientPortalLastSeenThrottled } from '../services/patientPushNotifications';
 import { purgeProactiveAbsenceFromClinicalQueue } from '../ai/proactiveAbsenceAlerts';
 import { migratePatientsClinicalIntakeProfiles } from '../utils/clinicalIntakeProfileMigration';
 import { useAuth } from './AuthContext';
@@ -1084,6 +1086,9 @@ export function PatientProvider({
         exerciseCount: exercisePlan?.exercises.length ?? 0,
       });
 
+      // Non-blocking last-seen ping (throttled via localStorage + in-memory gate).
+      void touchPatientPortalLastSeenThrottled(fetched.id);
+
       const clinicalDayForMerge = getClinicalDate();
       const histStart = addClinicalDays(clinicalDayForMerge, -30);
       const histRows = await fetchSessionHistoryBetween(
@@ -1666,25 +1671,33 @@ export function PatientProvider({
     knowledgeFacts,
   };
 
-  const mergeServerPatientsIntoState = useCallback((synced: Patient[]) => {
-    if (synced.length === 0) return;
-    startTransition(() => {
-      setAllPatients((prev) => {
-        const byId = new Map(synced.map((s) => [s.id, s]));
-        return prev.map((p) => {
-          const server = byId.get(p.id);
-          if (!server) return p;
-          return {
-            ...p,
-            ...server,
-            pushToken: server.pushToken ?? p.pushToken,
-            lastLoginAt: server.lastLoginAt ?? p.lastLoginAt,
-            lastWorkoutAt: server.lastWorkoutAt ?? p.lastWorkoutAt,
-          };
+  const mergeServerPatientsIntoState = useCallback(
+    (synced: Patient[], orderedIds?: string[]) => {
+      if (synced.length === 0) return;
+      startTransition(() => {
+        setAllPatients((prev) => {
+          const byId = new Map(synced.map((s) => [s.id, s]));
+          const merged = prev.map((p) => {
+            const server = byId.get(p.id);
+            if (!server) return p;
+            return {
+              ...p,
+              ...server,
+              pushToken: server.pushToken ?? p.pushToken,
+              lastLoginAt: server.lastLoginAt ?? p.lastLoginAt,
+              lastWorkoutAt: server.lastWorkoutAt ?? p.lastWorkoutAt,
+            };
+          });
+          if (!orderedIds?.length) return merged;
+          const orderIndex = new Map(orderedIds.map((id, i) => [id, i]));
+          return [...merged].sort(
+            (a, b) => (orderIndex.get(a.id) ?? 9999) - (orderIndex.get(b.id) ?? 9999)
+          );
         });
       });
-    });
-  }, []);
+    },
+    []
+  );
 
   const performCloudPersistPush = useCallback(async (): Promise<boolean> => {
     const supabaseClient = supabase;
@@ -3058,20 +3071,33 @@ export function PatientProvider({
     const client = supabase;
 
     const pullInsights = async () => {
-      const res = await pullPersistedState(client);
-      if (cancelled || !res.ok) return;
-      setAiSuggestions((prev) =>
-        mergeClinicalInsightsSnapshots(
-          { aiSuggestions: prev, safetyAlerts: [] },
-          res.clinicalInsights
-        ).aiSuggestions
-      );
-      setSafetyAlerts((prev) =>
-        mergeClinicalInsightsSnapshots(
-          { aiSuggestions: [], safetyAlerts: prev },
-          res.clinicalInsights
-        ).safetyAlerts
-      );
+      const [insightsRes, patientsRes] = await Promise.all([
+        pullPersistedState(client),
+        fetchPatientPayloadsForTherapist(client),
+      ]);
+      if (cancelled) return;
+
+      if (insightsRes.ok) {
+        setAiSuggestions((prev) =>
+          mergeClinicalInsightsSnapshots(
+            { aiSuggestions: prev, safetyAlerts: [] },
+            insightsRes.clinicalInsights
+          ).aiSuggestions
+        );
+        setSafetyAlerts((prev) =>
+          mergeClinicalInsightsSnapshots(
+            { aiSuggestions: [], safetyAlerts: prev },
+            insightsRes.clinicalInsights
+          ).safetyAlerts
+        );
+      }
+
+      if (patientsRes.ok && patientsRes.patients.length > 0) {
+        mergeServerPatientsIntoState(
+          patientsRes.patients,
+          patientsRes.patients.map((p) => p.id)
+        );
+      }
     };
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3107,6 +3133,7 @@ export function PatientProvider({
     authLoading,
     isAuthenticated,
     isSupabaseConfigured,
+    mergeServerPatientsIntoState,
   ]);
 
   /** Remove legacy prolonged-absence sidebar/queue items — roster card color handles absence. */

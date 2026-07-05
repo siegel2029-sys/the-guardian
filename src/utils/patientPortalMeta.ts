@@ -111,6 +111,16 @@ export function clinicalDayFromIso(iso: string): string {
   return getClinicalDate(new Date(iso));
 }
 
+/** Newest portal login or workout timestamp — used for therapist "last active" display. */
+export function getPatientLastPortalActivityIso(p: Patient): string | null {
+  const login = p.lastLoginAt?.trim();
+  const workout = p.lastWorkoutAt?.trim();
+  if (!login && !workout) return null;
+  if (!login) return workout!;
+  if (!workout) return login;
+  return new Date(login).getTime() >= new Date(workout).getTime() ? login : workout;
+}
+
 function clinicalDaysBetween(earlierYmd: string, laterYmd: string): number {
   const diffMs =
     clinicalDateToMidnight(laterYmd).getTime() - clinicalDateToMidnight(earlierYmd).getTime();

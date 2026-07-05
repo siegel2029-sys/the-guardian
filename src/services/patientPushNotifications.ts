@@ -812,12 +812,39 @@ export async function persistPatientPushProfile(params: {
 }
 
 const lastLoginWriteByPatient = new Map<string, number>();
+const lastSeenPingInFlightByPatient = new Set<string>();
+
+const PATIENT_LAST_SEEN_PING_LS_PREFIX = 'guardian-patient-last-seen-ping-v1:';
+
+function lastSeenPingStorageKey(patientId: string): string {
+  return `${PATIENT_LAST_SEEN_PING_LS_PREFIX}${patientId.trim()}`;
+}
+
+function readLastSeenPingMs(patientId: string): number {
+  try {
+    const raw = localStorage.getItem(lastSeenPingStorageKey(patientId));
+    if (!raw) return 0;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeLastSeenPingMs(patientId: string, ms: number): void {
+  try {
+    localStorage.setItem(lastSeenPingStorageKey(patientId), String(ms));
+  } catch {
+    /* private mode / quota — in-memory throttle still applies */
+  }
+}
 
 async function touchPatientPayloadTimestampField(
   patientId: string,
   field: 'lastLoginAt' | 'lastWorkoutAt',
   scope: string,
 ): Promise<void> {
+  const nowIso = new Date().toISOString();
   const { data: row, error: fetchErr } = await supabase!
     .from('patients')
     .select('payload')
@@ -833,7 +860,7 @@ async function touchPatientPayloadTimestampField(
   if (!row) return;
 
   const merged = mergeScalarFieldsIntoPatientPayload(row.payload, {
-    [field]: new Date().toISOString(),
+    [field]: nowIso,
   });
   if (!merged) {
     if (import.meta.env.DEV) {
@@ -842,7 +869,17 @@ async function touchPatientPayloadTimestampField(
     return;
   }
 
-  const { error } = await supabase!.from('patients').update({ payload: merged }).eq('id', patientId);
+  const rowPatch: Record<string, unknown> = {
+    payload: merged,
+    updated_at: nowIso,
+  };
+  if (field === 'lastLoginAt') {
+    rowPatch.last_login_at = nowIso;
+  } else {
+    rowPatch.last_workout_at = nowIso;
+  }
+
+  const { error } = await supabase!.from('patients').update(rowPatch).eq('id', patientId);
   if (error && import.meta.env.DEV) {
     console.warn(`[${scope}]`, error.message);
   }
@@ -869,6 +906,47 @@ export async function touchPatientLastLoginThrottled(
     if (import.meta.env.DEV) {
       console.warn('[touchPatientLastLoginThrottled] catch', e);
     }
+  }
+}
+
+/**
+ * Portal open / hydration "last seen" ping — updates `payload.lastLoginAt`, `last_login_at`,
+ * and `updated_at` so the therapist roster reflects portal visits without a password re-login.
+ *
+ * Uses localStorage + in-memory gates (default 1 h) to avoid writes on every remount.
+ * Failures (missing session, RLS) are non-blocking and only logged in DEV.
+ */
+export async function touchPatientPortalLastSeenThrottled(
+  patientId: string,
+  minIntervalMs = 60 * 60 * 1000
+): Promise<void> {
+  const id = patientId.trim();
+  if (!id) return;
+
+  try {
+    if (!supabase) return;
+
+    const now = Date.now();
+    const lastLs = readLastSeenPingMs(id);
+    const lastMem = lastLoginWriteByPatient.get(`lastSeen:${id}`) ?? 0;
+    if (now - lastLs < minIntervalMs && now - lastMem < minIntervalMs) {
+      return;
+    }
+    if (lastSeenPingInFlightByPatient.has(id)) return;
+
+    if (!(await requireSupabaseAuthSessionForWrite('touchPatientPortalLastSeen'))) return;
+
+    writeLastSeenPingMs(id, now);
+    lastLoginWriteByPatient.set(`lastSeen:${id}`, now);
+    lastSeenPingInFlightByPatient.add(id);
+
+    await touchPatientPayloadTimestampField(id, 'lastLoginAt', 'touchPatientPortalLastSeen');
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      console.warn('[touchPatientPortalLastSeenThrottled] catch', e);
+    }
+  } finally {
+    lastSeenPingInFlightByPatient.delete(id);
   }
 }
 

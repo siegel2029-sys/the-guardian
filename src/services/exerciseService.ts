@@ -11,7 +11,7 @@ import type {
 import { bodyAreaLabels } from '../types';
 import { clampEffort, clampPain } from '../context/patientDomainHelpers';
 import { addClinicalDays, getClinicalDate } from '../utils/clinicalCalendar';
-import { clinicalPushFail, type ClinicalPushResult } from './clinicalService';
+import { clinicalPushFail, touchPatientPortalWorkoutActivity, type ClinicalPushResult } from './clinicalService';
 import { supabase } from '../lib/supabase';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
 import {
@@ -506,6 +506,8 @@ export async function upsertDailySessionRowMerged(
       });
       return { ok: false, message: error.message };
     }
+
+    await touchPatientPortalWorkoutActivity(client, session.patientId);
     return { ok: true };
   } catch (e) {
     console.error('[SYNC_ERROR] upsertDailySessionRowMerged/unexpected', e, {

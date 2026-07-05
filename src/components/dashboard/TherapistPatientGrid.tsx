@@ -4,6 +4,7 @@ import { usePatient } from '../../context/PatientContext';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import {
   formatPatientLastVisitHe,
+  getPatientLastPortalActivityIso,
   patientLastVisitValueParts,
   patientMatchesRosterSearch,
   patientRosterStatusBadge,
@@ -157,7 +158,10 @@ export default function TherapistPatientGrid({
             const plan = getExercisePlan(p.id);
             const n = plan?.exercises.length ?? 0;
             const statusBadge = patientRosterStatusBadge(p);
-            const lastVisit = formatPatientLastVisitHe(p.lastLoginAt, clinicalToday);
+            const lastVisit = formatPatientLastVisitHe(
+              getPatientLastPortalActivityIso(p),
+              clinicalToday
+            );
             const visitValueParts = patientLastVisitValueParts(lastVisit);
 
             return (

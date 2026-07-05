@@ -67,7 +67,6 @@ import {
 import { canPilot11DebugMutatePatient } from '../utils/pilot11GamificationDebug';
 import { validateNewPassword } from '../lib/passwordPolicy';
 import { completeExerciseSafe } from '../services/exerciseCompletionRpc';
-import { touchPatientLastWorkout } from '../services/patientPushNotifications';
 
 export type UseExercisePlanParams = {
   patients: Patient[];
@@ -593,11 +592,14 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               : [exerciseId];
             const nextDaySessionXp = (prevDs?.sessionXp ?? 0) + xpGain;
 
+            const activityNowIso = new Date().toISOString();
+
             return {
               ...leveled,
               hasRedFlag: p.hasRedFlag || triggersClinicalAlert,
               redFlagActive: p.redFlagActive || (pain >= 7 && sessionZone === p.primaryBodyArea),
               lastSessionDate,
+              lastWorkoutAt: activityNowIso,
               currentStreak,
               longestStreak,
               _sessionCompletionByDate: mergeSessionCompletionByDateMaps(p._sessionCompletionByDate, {
@@ -858,8 +860,6 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             onExerciseCloudSyncError?.(`שמירת סשן יומי נכשלה: ${sRes.message}`);
             return false;
           }
-
-          await touchPatientLastWorkout(patientId);
 
           const latestPatient = getLatestPatient?.(patientId);
           if (latestPatient && persistPatientPayloadToCloud) {

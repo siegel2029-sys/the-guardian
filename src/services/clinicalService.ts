@@ -487,6 +487,76 @@ export async function upsertGlobalAppKnowledgeBaseWithTipSyncLog(
   return { ok: true, data: data ?? null, therapistAuthUserId };
 }
 
+/** Keep the newest ISO timestamp when merging patient payloads. */
+function pickNewerPatientActivityIso(
+  a: string | null | undefined,
+  b: string | null | undefined
+): string | undefined {
+  const aa = a?.trim();
+  const bb = b?.trim();
+  if (!aa) return bb || undefined;
+  if (!bb) return aa;
+  return new Date(aa).getTime() >= new Date(bb).getTime() ? aa : bb;
+}
+
+/**
+ * Portal workout / session save: stamp payload activity fields and `patients.updated_at`
+ * so therapist roster ordering and Realtime UPDATE events stay in sync.
+ */
+export async function touchPatientPortalWorkoutActivity(
+  client: SupabaseClient,
+  patientId: string
+): Promise<void> {
+  const id = patientId.trim();
+  if (!id) return;
+
+  try {
+    const nowIso = new Date().toISOString();
+    const { data: row, error: fetchErr } = await client
+      .from('patients')
+      .select('payload')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchErr) {
+      if (import.meta.env.DEV) {
+        console.warn('[touchPatientPortalWorkoutActivity] fetch', fetchErr.message);
+      }
+      return;
+    }
+    if (!row) return;
+
+    const payloadRoot =
+      row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
+        ? (row.payload as Record<string, unknown>)
+        : null;
+    if (!payloadRoot || typeof payloadRoot.id !== 'string' || !payloadRoot.id.trim()) {
+      if (import.meta.env.DEV) {
+        console.warn('[touchPatientPortalWorkoutActivity] patient payload unreadable');
+      }
+      return;
+    }
+
+    const mergedPayload = { ...payloadRoot, lastWorkoutAt: nowIso };
+    const { error } = await client
+      .from('patients')
+      .update({
+        payload: mergedPayload,
+        updated_at: nowIso,
+        last_workout_at: nowIso,
+      })
+      .eq('id', id);
+
+    if (error && import.meta.env.DEV) {
+      console.warn('[touchPatientPortalWorkoutActivity]', error.message);
+    }
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      console.warn('[touchPatientPortalWorkoutActivity] catch', e);
+    }
+  }
+}
+
 /**
  * Fetch-merge-save safe: combines server (`existing`) and client (`incoming`) so cumulative
  * gamification cannot be wiped by a stale client payload (e.g. empty XP after reload).
@@ -529,6 +599,8 @@ export function mergePatientPayloadForUpsert(
       ? existing.lastSessionDate
       : incoming.lastSessionDate;
   merged.pendingMessages = Math.max(existing.pendingMessages ?? 0, incoming.pendingMessages ?? 0);
+  merged.lastWorkoutAt = pickNewerPatientActivityIso(existing.lastWorkoutAt, incoming.lastWorkoutAt);
+  merged.lastLoginAt = pickNewerPatientActivityIso(existing.lastLoginAt, incoming.lastLoginAt);
 
   const sessionHistory = mergeSessionHistoryByDate(
     existing.analytics?.sessionHistory ?? [],
