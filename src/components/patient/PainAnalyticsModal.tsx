@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { X, Activity } from 'lucide-react';
+import { X } from 'lucide-react';
 import type { Patient, PatientExerciseFinishReport } from '../../types';
 import PatientProgressChartPanel, {
   PATIENT_PORTAL_PROGRESS_WINDOW_DAYS,
@@ -99,17 +99,10 @@ export default function PainAnalyticsModal({
         className="relative z-[96] w-full max-w-lg max-h-[min(92dvh,720px)] flex flex-col rounded-2xl border border-slate-200/90 bg-white shadow-[0_24px_64px_-12px_rgba(15,23,42,0.35)] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-3 border-b border-slate-100 bg-gradient-to-b from-teal-50/80 to-white shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-100 border border-teal-200/80 shrink-0">
-              <Activity className="h-5 w-5 text-teal-700" aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <h2 id="pain-analytics-title" className="text-base font-bold text-slate-900 leading-tight">
-                מעקב כאב — תצוגה מפורטת
-              </h2>
-            </div>
-          </div>
+        <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-3 border-b border-slate-100 shrink-0">
+          <h2 id="pain-analytics-title" className="text-base font-bold text-slate-900 leading-tight">
+            מגמת כאב-מאמץ
+          </h2>
           <button
             type="button"
             onClick={onClose}
@@ -122,7 +115,6 @@ export default function PainAnalyticsModal({
 
         <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-5 pb-4 space-y-5">
           <section>
-            <h3 className="text-sm font-bold text-slate-800 mb-2.5">מגמת כאב-מאמץ</h3>
             <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-2">
               <PatientProgressChartPanel
                 patient={patient}
