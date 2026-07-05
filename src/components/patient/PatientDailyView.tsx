@@ -1830,7 +1830,8 @@ export default function PatientDailyView() {
       <PainAnalyticsModal
         open={painAnalyticsOpen}
         onClose={() => setPainAnalyticsOpen(false)}
-        painHistory={selectedPatient.analytics.painHistory}
+        patient={selectedPatient}
+        finishReports={getPatientExerciseFinishReports(selectedPatient.id)}
         clinicalToday={clinicalToday}
       />
 

@@ -1,75 +1,25 @@
 import { useMemo } from 'react';
 import { X, Activity, Info } from 'lucide-react';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-} from 'recharts';
-import type { PainRecord } from '../../types';
-import { addClinicalDays } from '../../utils/clinicalCalendar';
-
-const WINDOW_DAYS = 14;
+import type { Patient, PatientExerciseFinishReport } from '../../types';
+import PatientProgressChartPanel, {
+  PATIENT_PORTAL_PROGRESS_WINDOW_DAYS,
+} from '../charts/PatientProgressChartPanel';
 
 export type PainTrendKind = 'improving' | 'worsening' | 'stable' | 'insufficient';
 
 export type PainAnalyticsModalProps = {
   open: boolean;
   onClose: () => void;
-  painHistory: PainRecord[];
-  /** YYYY-MM-DD — סוף חלון הקליני (כמו ב־PatientContext) */
+  patient: Patient;
+  finishReports: PatientExerciseFinishReport[];
+  /** YYYY-MM-DD — end of the fixed clinical window */
   clinicalToday: string;
 };
 
-type ChartRow = {
-  dateKey: string;
-  label: string;
-  pain: number | null;
-};
+type TrendRow = { pain: number | null };
 
-function dayKeyFromRecord(dateIso: string): string {
-  return dateIso.slice(0, 10);
-}
-
-function buildDailyPainSeries(
-  painHistory: PainRecord[],
-  clinicalToday: string,
-  nDays: number
-): ChartRow[] {
-  const byDay = new Map<string, number[]>();
-  for (const r of painHistory) {
-    const k = dayKeyFromRecord(r.date);
-    if (!byDay.has(k)) byDay.set(k, []);
-    byDay.get(k)!.push(r.painLevel);
-  }
-
-  const rows: ChartRow[] = [];
-  for (let i = 0; i < nDays; i++) {
-    const dateKey = addClinicalDays(clinicalToday, -(nDays - 1 - i));
-    const levels = byDay.get(dateKey);
-    const pain =
-      levels && levels.length > 0
-        ? Math.round((levels.reduce((a, b) => a + b, 0) / levels.length) * 10) / 10
-        : null;
-    const d = new Date(dateKey + 'T12:00:00');
-    const label = d.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
-    rows.push({ dateKey, label, pain });
-  }
-  return rows;
-}
-
-export function classifyPainTrendFromDaily(rows: ChartRow[]): PainTrendKind {
-  const firstWeek = rows.slice(0, 7).map((r) => r.pain).filter((v): v is number => v != null);
-  const secondWeek = rows.slice(7).map((r) => r.pain).filter((v): v is number => v != null);
-  if (firstWeek.length >= 2 && secondWeek.length >= 2) {
-    const m1 = firstWeek.reduce((s, v) => s + v, 0) / firstWeek.length;
-    const m2 = secondWeek.reduce((s, v) => s + v, 0) / secondWeek.length;
-    return trendFromMeans(m1, m2);
-  }
+function classifyPainTrendFromDaily(rows: TrendRow[]): PainTrendKind {
+  if (rows.length < 4) return 'insufficient';
   const seq = rows.map((r) => r.pain).filter((v): v is number => v != null);
   if (seq.length < 4) return 'insufficient';
   const mid = Math.floor(seq.length / 2);
@@ -103,18 +53,30 @@ function trendCopy(kind: PainTrendKind): string {
 export default function PainAnalyticsModal({
   open,
   onClose,
-  painHistory,
+  patient,
+  finishReports,
   clinicalToday,
 }: PainAnalyticsModalProps) {
-  const chartRows = useMemo(
-    () => buildDailyPainSeries(painHistory, clinicalToday, WINDOW_DAYS),
-    [painHistory, clinicalToday]
-  );
+  const painOnlyRows = useMemo((): TrendRow[] => {
+    const byDay = new Map<string, number[]>();
+    for (const r of patient.analytics.painHistory) {
+      const k = r.date.slice(0, 10);
+      if (!byDay.has(k)) byDay.set(k, []);
+      byDay.get(k)!.push(r.painLevel);
+    }
+    return [...byDay.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-PATIENT_PORTAL_PROGRESS_WINDOW_DAYS)
+      .map(([, levels]) => ({
+        pain:
+          levels.length > 0
+            ? Math.round((levels.reduce((a, b) => a + b, 0) / levels.length) * 10) / 10
+            : null,
+      }));
+  }, [patient.analytics.painHistory]);
 
-  const trendKind = useMemo(() => classifyPainTrendFromDaily(chartRows), [chartRows]);
+  const trendKind = useMemo(() => classifyPainTrendFromDaily(painOnlyRows), [painOnlyRows]);
   const trendText = trendCopy(trendKind);
-
-  const hasAnyPoint = chartRows.some((r) => r.pain != null);
 
   if (!open) return null;
 
@@ -147,7 +109,7 @@ export default function PainAnalyticsModal({
                 מעקב כאב — תצוגה מפורטת
               </h2>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                {WINDOW_DAYS} הימים האחרונים (לוח קליני)
+                {PATIENT_PORTAL_PROGRESS_WINDOW_DAYS} הימים האחרונים (לוח קליני)
               </p>
             </div>
           </div>
@@ -163,62 +125,18 @@ export default function PainAnalyticsModal({
 
         <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-5 pb-4 space-y-5">
           <section>
-            <h3 className="text-sm font-bold text-slate-800 mb-2.5">מגמת כאב (ממוצע יומי)</h3>
-            {!hasAnyPoint ? (
-              <p className="text-sm text-slate-500 text-center py-8 leading-relaxed rounded-xl border border-dashed border-slate-200 bg-slate-50/80">
-                עדיין אין דיווחי כאב בטווח התאריכים. דיווחים אחרי תרגולים יופיעו בגרף.
-              </p>
-            ) : (
-              <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-2" dir="ltr">
-                <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={chartRows} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fontSize: 10, fill: '#64748b' }}
-                      interval="preserveStartEnd"
-                    />
-                    <YAxis
-                      domain={[0, 10]}
-                      ticks={[0, 2, 4, 6, 8, 10]}
-                      tick={{ fontSize: 10, fill: '#64748b' }}
-                      width={28}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: 10,
-                        border: '1px solid #e2e8f0',
-                        fontSize: 12,
-                        direction: 'rtl',
-                        textAlign: 'right',
-                      }}
-                      formatter={(value) => {
-                        const n = typeof value === 'number' ? value : Number(value);
-                        const ok = Number.isFinite(n);
-                        return [ok ? `${n} / 10` : '—', 'ממוצע יומי'];
-                      }}
-                      labelFormatter={(_, payload) => {
-                        const p = payload?.[0]?.payload as ChartRow | undefined;
-                        return p ? `תאריך: ${p.dateKey}` : '';
-                      }}
-                    />
-                    <ReferenceLine y={0} stroke="#cbd5e1" />
-                    <ReferenceLine y={10} stroke="#cbd5e1" />
-                    <Line
-                      type="monotone"
-                      dataKey="pain"
-                      name="כאב"
-                      stroke="#0d9488"
-                      strokeWidth={2.5}
-                      dot={{ r: 3.5, fill: '#0f766e', strokeWidth: 0 }}
-                      activeDot={{ r: 5 }}
-                      connectNulls={false}
-                      isAnimationActive={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
+            <h3 className="text-sm font-bold text-slate-800 mb-2.5">מגמת כאב ומאמץ</h3>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-2">
+              <PatientProgressChartPanel
+                patient={patient}
+                finishReports={finishReports}
+                clinicalToday={clinicalToday}
+                isPatientView
+                showFinishReportsButton={false}
+                chartHeight={240}
+                emptyMessage="עדיין אין דיווחי כאב או מאמץ בטווח התאריכים. דיווחים אחרי תרגולים יופיעו בגרף."
+              />
+            </div>
           </section>
 
           <section className="rounded-xl border border-slate-200 bg-white px-3 py-3">
