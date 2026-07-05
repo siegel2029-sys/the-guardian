@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { X, Activity, Info } from 'lucide-react';
+import { X, Activity } from 'lucide-react';
 import type { Patient, PatientExerciseFinishReport } from '../../types';
 import PatientProgressChartPanel, {
   PATIENT_PORTAL_PROGRESS_WINDOW_DAYS,
@@ -108,9 +108,6 @@ export default function PainAnalyticsModal({
               <h2 id="pain-analytics-title" className="text-base font-bold text-slate-900 leading-tight">
                 מעקב כאב — תצוגה מפורטת
               </h2>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                {PATIENT_PORTAL_PROGRESS_WINDOW_DAYS} הימים האחרונים (לוח קליני)
-              </p>
             </div>
           </div>
           <button
@@ -125,7 +122,7 @@ export default function PainAnalyticsModal({
 
         <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-5 pb-4 space-y-5">
           <section>
-            <h3 className="text-sm font-bold text-slate-800 mb-2.5">מגמת כאב ומאמץ</h3>
+            <h3 className="text-sm font-bold text-slate-800 mb-2.5">מגמת כאב-מאמץ</h3>
             <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-2">
               <PatientProgressChartPanel
                 patient={patient}
@@ -142,21 +139,6 @@ export default function PainAnalyticsModal({
           <section className="rounded-xl border border-slate-200 bg-white px-3 py-3">
             <h3 className="text-sm font-bold text-slate-900 mb-2">ניתוח מגמה</h3>
             <p className="text-sm text-slate-700 leading-relaxed">{trendText}</p>
-          </section>
-
-          <section className="rounded-xl border border-sky-100 bg-sky-50/60 px-3 py-3 flex gap-2.5">
-            <Info className="w-5 h-5 text-sky-700 shrink-0 mt-0.5" aria-hidden />
-            <div className="min-w-0 text-xs text-slate-700 leading-relaxed space-y-1.5">
-              <p className="font-bold text-slate-900">סולם הכאב 0–10</p>
-              <p>
-                <strong>0</strong> — אין כאב. <strong>1–3</strong> — כאב קל. <strong>4–6</strong> — בינוני.{' '}
-                <strong>7–9</strong> — חזק. <strong>10</strong> — הכי חזק שאפשר לדמיין.
-              </p>
-              <p>
-                דווחו על הכאב <strong>באזור המטופל בו אתם מתמקדים כרגע</strong>, ברגע הדיווח (לא «הכי גרוע
-                השבוע»). עקביות בדיווח עוזרת למטפל להתאים את התוכנית.
-              </p>
-            </div>
           </section>
         </div>
       </div>
