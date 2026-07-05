@@ -543,7 +543,6 @@ export async function touchPatientPortalWorkoutActivity(
       .update({
         payload: mergedPayload,
         updated_at: nowIso,
-        last_workout_at: nowIso,
       })
       .eq('id', id);
 

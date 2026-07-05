@@ -127,7 +127,7 @@ function clinicalDaysBetween(earlierYmd: string, laterYmd: string): number {
   return Math.max(0, Math.round(diffMs / (24 * 60 * 60 * 1000)));
 }
 
-/** Hebrew date for profile sidebar "אימון אחרון:" — prefers last_workout_at column. */
+/** Hebrew date for profile sidebar "אימון אחרון:" — uses `payload.lastWorkoutAt`. */
 export function formatPatientLastWorkoutHe(p: Patient): string {
   const iso =
     p.lastWorkoutAt ??

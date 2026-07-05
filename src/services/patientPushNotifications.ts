@@ -873,11 +873,6 @@ async function touchPatientPayloadTimestampField(
     payload: merged,
     updated_at: nowIso,
   };
-  if (field === 'lastLoginAt') {
-    rowPatch.last_login_at = nowIso;
-  } else {
-    rowPatch.last_workout_at = nowIso;
-  }
 
   const { error } = await supabase!.from('patients').update(rowPatch).eq('id', patientId);
   if (error && import.meta.env.DEV) {
@@ -910,8 +905,8 @@ export async function touchPatientLastLoginThrottled(
 }
 
 /**
- * Portal open / hydration "last seen" ping — updates `payload.lastLoginAt`, `last_login_at`,
- * and `updated_at` so the therapist roster reflects portal visits without a password re-login.
+ * Portal open / hydration "last seen" ping — merges `payload.lastLoginAt` and bumps
+ * `updated_at` so the therapist roster reflects portal visits without a password re-login.
  *
  * Uses localStorage + in-memory gates (default 1 h) to avoid writes on every remount.
  * Failures (missing session, RLS) are non-blocking and only logged in DEV.
