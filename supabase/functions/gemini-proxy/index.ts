@@ -9,6 +9,10 @@ const GEMINI_HOST = "https://generativelanguage.googleapis.com";
 const GEMINI_VERSION = "v1beta";
 const DEFAULT_MODEL = "gemini-2.5-flash";
 
+/** Max request body size. Patients (portal JWTs) get a tighter cap than therapists. */
+const MAX_BODY_BYTES_THERAPIST = 256 * 1024;
+const MAX_BODY_BYTES_PATIENT = 48 * 1024;
+
 const CLINICAL_SYSTEM_PREFIX =
   "You are a clinical assistant. Never output or store full patient names.\n\n";
 
@@ -106,13 +110,23 @@ Deno.serve(async (req) => {
     error: authError,
   } = await supabaseAuth.auth.getUser();
   if (authError || !user) {
+    // Generic detail only — auth internals stay in server logs.
+    console.warn("[gemini-proxy] auth rejected:", authError?.message ?? "no user");
     return jsonResponse(
-      {
-        error: "Unauthorized",
-        detail: authError?.message ?? "Invalid or expired session",
-      },
+      { error: "Unauthorized", detail: "Invalid or expired session" },
       401,
     );
+  }
+
+  // Role-aware abuse limits: portal patients (JWT user_metadata.patient_id) are
+  // allowed (patient AI assistant) but with a much smaller payload budget.
+  const isPatient = typeof user.user_metadata?.patient_id === "string" &&
+    user.user_metadata.patient_id.trim().length > 0;
+  const maxBodyBytes = isPatient ? MAX_BODY_BYTES_PATIENT : MAX_BODY_BYTES_THERAPIST;
+
+  const contentLength = Number.parseInt(req.headers.get("content-length") ?? "0", 10);
+  if (Number.isFinite(contentLength) && contentLength > maxBodyBytes) {
+    return jsonResponse({ error: "Payload too large" }, 413);
   }
 
   // Set in Supabase Dashboard → Edge Functions → Secrets, or: `supabase secrets set GEMINI_API_KEY=...`
@@ -133,7 +147,11 @@ Deno.serve(async (req) => {
 
   let payload: RequestPayload;
   try {
-    payload = (await req.json()) as RequestPayload;
+    const rawText = await req.text();
+    if (rawText.length > maxBodyBytes) {
+      return jsonResponse({ error: "Payload too large" }, 413);
+    }
+    payload = JSON.parse(rawText) as RequestPayload;
   } catch {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
@@ -165,8 +183,10 @@ Deno.serve(async (req) => {
   if (!geminiRes.ok) {
     // Never forward Gemini upstream 401/403 as HTTP 401 — the browser client maps 401 to
     // "Supabase session expired". API key / quota issues must not look like JWT auth failures.
+    // Full upstream body stays in server logs only.
+    console.error(`[gemini-proxy] Gemini HTTP ${geminiRes.status}:`, rawBody.slice(0, 1000));
     return jsonResponse(
-      { error: `Gemini HTTP ${geminiRes.status}`, detail: rawBody.slice(0, 500) },
+      { error: `Gemini HTTP ${geminiRes.status}`, detail: "Upstream AI service error" },
       502,
     );
   }

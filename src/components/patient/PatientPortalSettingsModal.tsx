@@ -3,6 +3,7 @@ import { X, Settings } from 'lucide-react';
 import type { Patient } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import type { PatientPasswordChangeResult } from '../../context/authPersistence';
+import { validateNewPassword } from '../../lib/passwordPolicy';
 
 type Props = {
   open: boolean;
@@ -74,6 +75,12 @@ export default function PatientPortalSettingsModal({
       return;
     }
 
+    const newPasswordError = validateNewPassword(newPassword);
+    if (newPasswordError) {
+      setFormError(newPasswordError);
+      return;
+    }
+
     const r = await completePatientPasswordChange(
       supabasePasswordMode ? '' : currentPassword,
       newPassword
@@ -84,7 +91,7 @@ export default function PatientPortalSettingsModal({
         return;
       }
       if (r === 'invalid_new') {
-        setFormError('סיסמה חדשה קצרה מדי (לפחות 6 תווים) או לא תקינה.');
+        setFormError('סיסמה חדשה קצרה מדי (לפחות 8 תווים, אותיות ומספרים) או לא תקינה.');
         return;
       }
       setFormError('לא ניתן לעדכן את הסיסמה.');

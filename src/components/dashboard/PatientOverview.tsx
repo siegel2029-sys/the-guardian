@@ -16,9 +16,9 @@ import {
 } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { formatPatientLastWorkoutHe } from '../../utils/patientPortalMeta';
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import { PI_PUSH_SYNC_TEST_PATIENT_ID } from '../../constants/pushSyncTestPatients';
-import { dispatchPatientPushSyncRequest } from '../../services/therapistChatPush';
+import { requestPatientPushSync } from '../../services/therapistChatPush';
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
 import RedFlagAlert from './RedFlagAlert';
 import AiSuggestionsPanel from './AiSuggestionsPanel';
@@ -359,13 +359,13 @@ export default function PatientOverview() {
               </div>
               <button
                 type="button"
-                disabled={piPushSyncBusy || !isSupabaseConfigured || !supabase}
+                disabled={piPushSyncBusy || !isSupabaseConfigured}
                 onClick={() => {
-                  if (!supabase || piPushSyncBusy) return;
+                  if (piPushSyncBusy) return;
                   setPiPushSyncBusy(true);
                   setPiPushSyncStatus(null);
                   void (async () => {
-                    const result = await dispatchPatientPushSyncRequest(supabase, p.id);
+                    const result = await requestPatientPushSync(p.id);
                     setPiPushSyncStatus(result.message);
                     setPiPushSyncBusy(false);
                   })();

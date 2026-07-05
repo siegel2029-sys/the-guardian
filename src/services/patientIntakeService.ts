@@ -3,6 +3,7 @@ import type { PatientIntakeVersionEntry } from '../types';
 import type { ClinicalIntakeEditableFields } from '../utils/clinicalIntakeEditableFields';
 import { normalizeEditableIntakeFields } from '../utils/clinicalIntakeEditableFields';
 import { ensureSupabaseSessionReady, logSupabaseCallError } from '../lib/supabaseSessionGuard';
+import { sanitizeDbErrorMessage } from '../lib/dbErrorSanitizer';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -86,7 +87,7 @@ export async function fetchPatientIntakeVersions(
 
   if (error) {
     logSupabaseCallError('fetchPatientIntakeVersions', error);
-    throw new Error(error.message || 'שגיאה בטעינת גרסאות אינטייק');
+    throw new Error(sanitizeDbErrorMessage(error.message, 'שגיאה בטעינת גרסאות אינטייק'));
   }
 
   return (data ?? []).map((row) => rowToVersionEntry(row as PatientIntakeRow));
@@ -120,7 +121,7 @@ export async function insertPatientIntakeVersion(
 
   if (error) {
     logSupabaseCallError('insertPatientIntakeVersion', error);
-    throw new Error(error.message || 'שגיאה בשמירת גרסת אינטייק חדשה');
+    throw new Error(sanitizeDbErrorMessage(error.message, 'שגיאה בשמירת גרסת אינטייק חדשה'));
   }
 
   return rowToVersionEntry(data as PatientIntakeRow);
@@ -155,7 +156,7 @@ export async function updatePatientIntakeVersion(
 
   if (error) {
     logSupabaseCallError('updatePatientIntakeVersion', error);
-    throw new Error(error.message || 'שגיאה בעדכון גרסת אינטייק');
+    throw new Error(sanitizeDbErrorMessage(error.message, 'שגיאה בעדכון גרסת אינטייק'));
   }
 
   return rowToVersionEntry(data as PatientIntakeRow);
@@ -187,7 +188,7 @@ export async function migrateTimelineEntriesToDbIfNeeded(
   });
   if (error) {
     logSupabaseCallError('migrateTimelineEntriesToDbIfNeeded', error);
-    throw new Error(error.message || 'שגיאה בהעברת גרסת אינטייק ראשונית לענן');
+    throw new Error(sanitizeDbErrorMessage(error.message, 'שגיאה בהעברת גרסת אינטייק ראשונית לענן'));
   }
 }
 
@@ -206,6 +207,6 @@ export async function deletePatientIntakeVersion(
 
   if (error) {
     logSupabaseCallError('deletePatientIntakeVersion', error);
-    throw new Error(error.message || 'שגיאה במחיקת גרסת אינטייק');
+    throw new Error(sanitizeDbErrorMessage(error.message, 'שגיאה במחיקת גרסת אינטייק'));
   }
 }

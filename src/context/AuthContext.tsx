@@ -37,6 +37,7 @@ import {
   type ProfileRow,
 } from '../lib/mapSupabaseUser';
 import {
+  isLegacyAuthEnabled,
   isSupabaseAuthEnabled,
   portalUsernameToAuthEmail,
   normalizePortalUsername,
@@ -44,9 +45,10 @@ import {
   linkPatientAuthUserRow,
 } from '../lib/patientPortalAuth';
 import { touchPatientLastLoginThrottled } from '../services/patientPushNotifications';
+import { loginPasswordFieldError, validateNewPassword } from '../lib/passwordPolicy';
 
-/** Only `VITE_USE_LEGACY_AUTH=true` enables local demo users — any other value is treated as false. */
-const LEGACY_AUTH_ENABLED = import.meta.env.VITE_USE_LEGACY_AUTH === 'true';
+/** Local demo users: `VITE_USE_LEGACY_AUTH=true` AND a dev build — never active in production. */
+const LEGACY_AUTH_ENABLED = isLegacyAuthEnabled();
 
 export type SessionRole = 'therapist' | 'patient' | null;
 
@@ -490,8 +492,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoginError('נא להזין כתובת דוא״ל תקינה.');
         return 'failure';
       }
-      if (password.length < 6) {
-        setLoginError('הסיסמה חייבת להכיל לפחות 6 תווים.');
+      const passwordPolicyError = validateNewPassword(password);
+      if (passwordPolicyError) {
+        setLoginError(passwordPolicyError);
         return 'failure';
       }
       if (!name) {
@@ -539,6 +542,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true);
       setLoginError(null);
       const id = identifier.trim();
+      const loginPwError = loginPasswordFieldError(password);
+      if (loginPwError) {
+        setLoginError(loginPwError);
+        setIsLoading(false);
+        return null;
+      }
       const pw = password.trim();
 
       try {
@@ -551,11 +560,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return null;
           }
 
-          if (pw.length < 1) {
-            setLoginError('נא להזין סיסמה.');
-            setIsLoading(false);
-            return null;
-          }
+          // Login must not enforce signup password policy — legacy accounts may use shorter passwords.
 
           // Signal that a sign-in is in progress. The onAuthStateChange SIGNED_OUT
           // handler checks this flag and skips setIsLoading(false) so ProtectedRoute
@@ -733,6 +738,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const completePatientPasswordChange = useCallback(
     async (currentPassword: string, newPassword: string): Promise<PatientPasswordChangeResult> => {
       if (!patientSessionIdForUi) return 'bad_current';
+      const newPasswordError = validateNewPassword(newPassword);
+      if (newPasswordError) return 'invalid_new';
       if (supabaseAuth && supabase) {
         const { error } = await supabase.auth.updateUser({ password: newPassword.trim() });
         if (error) {
@@ -767,7 +774,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const attrs: { email?: string; password?: string } = {};
         if (em.length > 0) attrs.email = em;
         const np = newPassword.trim();
-        if (np.length > 0) attrs.password = np;
+        if (np.length > 0) {
+          const passwordPolicyError = validateNewPassword(np);
+          if (passwordPolicyError) {
+            throw new Error(passwordPolicyError);
+          }
+          attrs.password = np;
+        }
         if (Object.keys(attrs).length > 0) {
           const { error } = await supabase.auth.updateUser(attrs);
           if (error && import.meta.env.DEV) {

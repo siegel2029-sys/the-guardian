@@ -65,6 +65,7 @@ import {
   pickCanonicalExercisePlan,
 } from '../utils/exercisePlanCanonical';
 import { canPilot11DebugMutatePatient } from '../utils/pilot11GamificationDebug';
+import { validateNewPassword } from '../lib/passwordPolicy';
 import { completeExerciseSafe } from '../services/exerciseCompletionRpc';
 import { touchPatientLastWorkout } from '../services/patientPushNotifications';
 
@@ -129,9 +130,13 @@ export type UseExercisePlanParams = {
 };
 
 function randomPatientPassword(): string {
-  const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
-  let s = '';
-  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  // Must satisfy Supabase password policy: min 8 chars, letters + digits.
+  const letters = 'abcdefghijkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const chars = letters + digits;
+  let s = letters[Math.floor(Math.random() * letters.length)];
+  s += digits[Math.floor(Math.random() * digits.length)];
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return s;
 }
 
@@ -1253,10 +1258,15 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       }
       const name = displayName.trim() || 'מטופל חדש';
       const patientId = `patient-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const trimmedAccessPassword = access.password?.trim() ?? '';
+      if (trimmedAccessPassword.length > 0) {
+        const passwordPolicyError = validateNewPassword(trimmedAccessPassword);
+        if (passwordPolicyError) {
+          return { ok: false, message: passwordPolicyError };
+        }
+      }
       const password =
-        access.password?.trim() && access.password.trim().length >= 6
-          ? access.password.trim()
-          : randomPatientPassword();
+        trimmedAccessPassword.length > 0 ? trimmedAccessPassword : randomPatientPassword();
 
       const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? '';
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';

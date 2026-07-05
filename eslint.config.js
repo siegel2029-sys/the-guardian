@@ -20,4 +20,24 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // UI components must go through src/services/* for all DB access —
+    // never import the Supabase client directly (RLS/session guards live in services).
+    files: ['src/components/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/lib/supabase'],
+              importNames: ['supabase'],
+              message:
+                'Components must not use the Supabase client directly. Call a function from src/services/* instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ])

@@ -300,11 +300,9 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 function getWebhookSecret(): string {
-  return (
-    Deno.env.get("INTERNAL_MESSAGES_WEBHOOK_SECRET") ??
-    Deno.env.get("INTERNAL_CRON_SECRET") ??
-    ""
-  ).trim();
+  // Dedicated secret only — no fallback to INTERNAL_CRON_SECRET, so a leaked
+  // cron secret cannot be replayed against the message webhook (and vice versa).
+  return (Deno.env.get("INTERNAL_MESSAGES_WEBHOOK_SECRET") ?? "").trim();
 }
 
 function extractRecord(payload: unknown): Record<string, unknown> | null {
@@ -350,11 +348,11 @@ function resolveChatDirection(record: Record<string, unknown> | null): ChatDirec
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  // Secret is accepted via the x-webhook-secret header only; query-string secrets
+  // leak into proxy and load-balancer access logs.
   const secret = getWebhookSecret();
-  const authHeader = req.headers.get("x-webhook-secret")?.trim() ?? req.headers.get("x-cron-secret")?.trim() ?? "";
-  const url = new URL(req.url);
-  const qsSecret = url.searchParams.get("secret")?.trim() ?? "";
-  if (!secret || (authHeader !== secret && qsSecret !== secret)) {
+  const authHeader = req.headers.get("x-webhook-secret")?.trim() ?? "";
+  if (!secret || authHeader !== secret) {
     console.error("[notify-new-message] Unauthorized — missing or invalid webhook secret");
     return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
   }

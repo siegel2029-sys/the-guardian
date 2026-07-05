@@ -20,8 +20,9 @@ import {
  * (same pair as the web client — public key must match `VITE_WEB_PUSH_VAPID_PUBLIC_KEY`). Optional `WEB_PUSH_VAPID_SUBJECT`
  * (contact JWT claim), default `mailto:noreply@physioshield.app`. Keys live in `patients.payload.webPushSubscription`.
  *
- * With `--no-verify-jwt`, auth requires `INTERNAL_CRON_SECRET` via header `x-cron-secret` **or** query `?secret=`.
- * Unexpected handler errors return HTTP 200 with JSON `{ ok: false, error, stack }`.
+ * With `--no-verify-jwt`, auth requires `INTERNAL_CRON_SECRET` via header `x-cron-secret` only
+ * (query-string secrets are rejected — they leak into proxy/access logs).
+ * Unexpected handler errors return HTTP 500 with a generic JSON error; details stay in server logs.
  *
  * Reads `payload.pushToken`: Expo via Expo API; HTTPS Web Push subscription URLs (FCM, Apple `web.push.apple.com`, Mozilla, etc.) via `web-push` (VAPID + encrypted body).
  *
@@ -478,14 +479,13 @@ async function runReminderDispatch(params: {
 }
 
 Deno.serve(async (req) => {
-  console.log("Incoming headers:", Object.fromEntries(req.headers.entries()));
-
   const SECRET = Deno.env.get("INTERNAL_CRON_SECRET");
   const authHeader = req.headers.get("x-cron-secret");
   const url = new URL(req.url);
-  const urlSecret = url.searchParams.get("secret");
 
-  if (!SECRET || (authHeader !== SECRET && urlSecret !== SECRET)) {
+  // Secrets are accepted via the x-cron-secret header only; query-string secrets
+  // leak into proxy and load-balancer access logs.
+  if (!SECRET || authHeader !== SECRET) {
     console.error("Auth failed");
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
@@ -628,10 +628,15 @@ Deno.serve(async (req) => {
       skippedPatientsWithoutDeliverableToken: dispatch.skipped,
       errors: dispatch.errors.slice(0, 20),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    // Never return stack traces or internal error details to callers.
+    console.error(
+      "[reminder-cron] Unhandled error:",
+      error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error),
+    );
     return new Response(
-      JSON.stringify({ ok: false, error: error.message, stack: error.stack }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      JSON.stringify({ ok: false, error: "internal_error" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });

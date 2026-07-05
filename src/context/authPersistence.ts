@@ -7,7 +7,8 @@ import {
   getDemoSeedPatientPortalPassword,
   getDemoTherapistAPassword,
 } from '../lib/demoAuthEnv';
-import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
+import { isLegacyAuthEnabled, isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
+import { validateNewPassword } from '../lib/passwordPolicy';
 import { mockTherapist } from '../data/mockData';
 import type { Therapist } from '../types';
 
@@ -215,7 +216,7 @@ export function loadAuthSnapshot(): AuthSnapshotV2 {
     return defaultAuthSnapshot();
   }
   /** Non-legacy Supabase: do not read legacy `guardian-auth-v1` / demo therapist rows (avoids mock/legacy confusion). */
-  if (import.meta.env.VITE_USE_LEGACY_AUTH !== 'true' && isSupabaseAuthEnabled()) {
+  if (!isLegacyAuthEnabled() && isSupabaseAuthEnabled()) {
     return {
       version: 2,
       therapists: {},
@@ -418,7 +419,7 @@ export function verifyAndUpdatePatientPassword(
 ): PatientPasswordChangeResult {
   const snap = loadAuthSnapshot();
   const newPw = newPassword.trim();
-  if (newPw.length < 6) return 'invalid_new';
+  if (validateNewPassword(newPw)) return 'invalid_new';
   const entry = Object.entries(snap.patientAccounts).find(([, a]) => a.patientId === patientId);
   if (!entry) return 'bad_current';
   const [key, acc] = entry;

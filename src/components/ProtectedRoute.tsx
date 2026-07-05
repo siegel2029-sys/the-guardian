@@ -1,12 +1,15 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { hasPersistedSupabaseAuthSession } from '../lib/supabase';
 import LoginPage from './auth/LoginPage';
-import DashboardLayout from './layout/DashboardLayout';
-import PatientDailyView from './patient/PatientDailyView';
 import AccessibilityPage from './AccessibilityPage';
+
+// Route-level code splitting: the therapist dashboard and patient portal pull in
+// Three.js, Recharts and large feature trees — keep them out of the login bundle.
+const DashboardLayout = lazy(() => import('./layout/DashboardLayout'));
+const PatientDailyView = lazy(() => import('./patient/PatientDailyView'));
 
 function AuthLoadingFallback() {
   return (
@@ -67,7 +70,9 @@ function useRouteAccess() {
 }
 
 function RedirectToLogin({ reason }: { reason: string }) {
-  console.log(`KICKING USER OUT BECAUSE: ${reason}`);
+  if (import.meta.env.DEV) {
+    console.log(`KICKING USER OUT BECAUSE: ${reason}`);
+  }
   return <Navigate to="/login" replace />;
 }
 
@@ -100,7 +105,11 @@ function PatientPortalRoute() {
   if (sessionRole !== 'patient' || !patientSessionId) {
     return <Navigate to="/therapist" replace />;
   }
-  return <PatientDailyView />;
+  return (
+    <Suspense fallback={<AuthLoadingFallback />}>
+      <PatientDailyView />
+    </Suspense>
+  );
 }
 
 function TherapistRoute() {
@@ -116,7 +125,16 @@ function TherapistRoute() {
   if (sessionRole === 'patient') {
     return <Navigate to="/patient-portal" replace />;
   }
-  return <DashboardLayout />;
+  // Never mount therapist chrome until the role is positively confirmed —
+  // during JWT hydration sessionRole can be null for a moment.
+  if (sessionRole !== 'therapist') {
+    return <AuthLoadingFallback />;
+  }
+  return (
+    <Suspense fallback={<AuthLoadingFallback />}>
+      <DashboardLayout />
+    </Suspense>
+  );
 }
 
 function RootRedirect() {

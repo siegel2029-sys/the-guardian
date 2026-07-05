@@ -7,9 +7,18 @@ export function getPatientAuthEmailDomain(): string {
   return d && d.length > 0 ? d : 'patient.guardian.internal';
 }
 
+/**
+ * Legacy localStorage demo auth is a development-only convenience.
+ * In production builds the flag is ignored entirely (plaintext passwords in
+ * localStorage must never ship), so Supabase Auth always owns the session.
+ */
+export function isLegacyAuthEnabled(): boolean {
+  return import.meta.env.DEV && import.meta.env.VITE_USE_LEGACY_AUTH === 'true';
+}
+
 /** True when Supabase Auth should own the session (not localStorage demo auth). */
 export function isSupabaseAuthEnabled(): boolean {
-  if (import.meta.env.VITE_USE_LEGACY_AUTH === 'true') return false;
+  if (isLegacyAuthEnabled()) return false;
   const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? '';
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
   return url.length > 0 && key.length > 0;

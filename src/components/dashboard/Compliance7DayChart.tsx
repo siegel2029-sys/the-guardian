@@ -9,10 +9,9 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { Activity } from 'lucide-react';
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import {
   build7dComplianceFromLocalHistory,
-  fetch7dComplianceFromSupabase,
+  fetch7dCompliance,
   type DayCompliancePoint,
 } from '../../services/sessionHistoryAnalytics';
 import type { DailyHistoryEntry } from '../../types';
@@ -38,15 +37,9 @@ export default function Compliance7DayChart({
   const [loadErr, setLoadErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) return;
     let cancelled = false;
     void (async () => {
-      const remote = await fetch7dComplianceFromSupabase(
-        supabase,
-        patientId,
-        clinicalToday,
-        plannedExerciseCount
-      );
+      const remote = await fetch7dCompliance(patientId, clinicalToday, plannedExerciseCount);
       if (cancelled) return;
       if (remote) {
         setRemotePoints(remote);

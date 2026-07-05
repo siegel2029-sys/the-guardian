@@ -3,7 +3,7 @@ import type { DayCompliancePoint } from './exerciseService';
 import { addClinicalDays } from '../utils/clinicalCalendar';
 
 export type { DayCompliancePoint } from './exerciseService';
-export { fetch7dComplianceFromSupabase } from './exerciseService';
+export { fetch7dCompliance, fetch7dComplianceFromSupabase } from './exerciseService';
 
 function formatDayLabel(ymd: string): string {
   const [y, m, d] = ymd.split('-').map((x) => parseInt(x, 10));

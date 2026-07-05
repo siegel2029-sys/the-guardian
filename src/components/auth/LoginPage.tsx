@@ -159,6 +159,7 @@ export default function LoginPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">סיסמה</label>
+                  {/* Login: no minLength — existing accounts may use legacy shorter passwords. */}
                   <div className="relative">
                     <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
@@ -372,9 +373,9 @@ export default function LoginPage() {
                       type={showSignUpPassword ? 'text' : 'password'}
                       value={signUpPassword}
                       onChange={(e) => setSignUpPassword(e.target.value)}
-                      placeholder="לפחות 6 תווים"
+                      placeholder="לפחות 8 תווים, אותיות ומספרים"
                       required
-                      minLength={6}
+                      minLength={8}
                       autoComplete="new-password"
                       className="w-full pr-10 pl-10 py-3 rounded-xl border border-slate-200 text-slate-800 text-sm
                         focus:outline-none transition-all placeholder:text-slate-400"

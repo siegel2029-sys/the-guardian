@@ -12,6 +12,7 @@ import { bodyAreaLabels } from '../types';
 import { clampEffort, clampPain } from '../context/patientDomainHelpers';
 import { addClinicalDays, getClinicalDate } from '../utils/clinicalCalendar';
 import { clinicalPushFail, type ClinicalPushResult } from './clinicalService';
+import { supabase } from '../lib/supabase';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
 import {
   ensureSupabaseSessionReady,
@@ -781,6 +782,19 @@ export async function upsertSessionHistory(
       e
     );
   }
+}
+
+/**
+ * Singleton-client wrapper so UI components never import the Supabase client directly.
+ * Returns null when Supabase is not configured (caller falls back to local history).
+ */
+export async function fetch7dCompliance(
+  patientId: string,
+  clinicalToday: string,
+  plannedExerciseCount: number
+): Promise<DayCompliancePoint[] | null> {
+  if (!supabase) return null;
+  return fetch7dComplianceFromSupabase(supabase, patientId, clinicalToday, plannedExerciseCount);
 }
 
 /**

@@ -7,11 +7,15 @@ import {
   useLayoutEffect,
   useMemo,
   memo,
+  createContext,
+  useContext,
+  type MutableRefObject,
   type ReactNode,
 } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Environment, Html } from '@react-three/drei';
+import { Canvas, useFrame, useThree, useLoader } from '@react-three/fiber';
+import { OrbitControls, Html, useEnvironment } from '@react-three/drei';
 import * as THREE from 'three';
+import { RGBELoader } from 'three-stdlib';
 import AnatomyModel from './AnatomyModel';
 import AvatarJourneyBackdrop from './AvatarJourneyBackdrop';
 import {
@@ -114,6 +118,139 @@ const VIEW_POSITIONS: Record<ViewPreset, THREE.Vector3> = {
 /** מוקד מבט — אמצע גובה הגוף; OrbitControls + CameraAnimator */
 const LOOK_AT = new THREE.Vector3(0, 0.3, 0);
 
+const DREI_HDRI_ROOT =
+  'https://raw.githack.com/pmndrs/drei-assets/456060a26bbeb8fdf79326f224b6d99b8bcce736/hdri/';
+const STUDIO_HDRI_FILE = 'studio_small_03_1k.hdr';
+
+/** R3F still constructs THREE.Clock internally; swap to Timer in onCreated to silence r183 deprecation. */
+type R3fClockAdapter = {
+  autoStart: boolean;
+  startTime: number;
+  oldTime: number;
+  elapsedTime: number;
+  running: boolean;
+  start: () => void;
+  stop: () => void;
+  getDelta: () => number;
+  getElapsedTime: () => number;
+};
+
+function createR3fTimerClock(timer: THREE.Timer): R3fClockAdapter {
+  const clock: R3fClockAdapter = {
+    autoStart: true,
+    startTime: 0,
+    oldTime: 0,
+    elapsedTime: 0,
+    running: false,
+    start() {
+      timer.update();
+      this.running = true;
+      this.startTime = performance.now();
+      this.oldTime = this.startTime;
+      this.elapsedTime = timer.getElapsed();
+    },
+    stop() {
+      timer.update();
+      this.elapsedTime = timer.getElapsed();
+      this.running = false;
+      this.autoStart = false;
+    },
+    getDelta() {
+      if (this.autoStart && !this.running) {
+        this.start();
+        return 0;
+      }
+      if (!this.running) return 0;
+      timer.update();
+      const delta = timer.getDelta();
+      this.elapsedTime = timer.getElapsed();
+      return delta;
+    },
+    getElapsedTime() {
+      this.getDelta();
+      return this.elapsedTime;
+    },
+  };
+  return clock;
+}
+
+function clearStudioEnvironmentCache(): void {
+  try {
+    useEnvironment.clear({ preset: 'studio' });
+  } catch {
+    /* cache may already be empty */
+  }
+  try {
+    useLoader.clear(RGBELoader, STUDIO_HDRI_FILE);
+  } catch {
+    /* ignore */
+  }
+}
+
+// ── WebGL runtime + GPU disposal helpers ─────────────────────────
+type WebGlRuntimeValue = {
+  contextLostRef: MutableRefObject<boolean>;
+};
+
+const WebGlRuntimeContext = createContext<WebGlRuntimeValue | null>(null);
+
+function WebGlRuntimeProvider({
+  contextLostRef,
+  children,
+}: {
+  contextLostRef: MutableRefObject<boolean>;
+  children: ReactNode;
+}) {
+  const value = useMemo(() => ({ contextLostRef }), [contextLostRef]);
+  return (
+    <WebGlRuntimeContext.Provider value={value}>{children}</WebGlRuntimeContext.Provider>
+  );
+}
+
+function useWebGlRuntime(): WebGlRuntimeValue {
+  return useContext(WebGlRuntimeContext) ?? { contextLostRef: { current: false } };
+}
+
+function disposeMaterialTextures(material: THREE.Material): void {
+  for (const key of Object.keys(material)) {
+    const value = (material as THREE.MeshStandardMaterial)[key as keyof THREE.MeshStandardMaterial];
+    if (value && typeof value === 'object' && 'isTexture' in value && (value as THREE.Texture).isTexture) {
+      (value as THREE.Texture).dispose();
+    }
+  }
+}
+
+function disposeSceneGpuResources(scene: THREE.Scene): void {
+  scene.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry?.dispose?.();
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mat of materials) {
+      if (!mat) continue;
+      disposeMaterialTextures(mat);
+      mat.dispose();
+    }
+  });
+
+  if (scene.environment instanceof THREE.Texture) {
+    scene.environment.dispose();
+    scene.environment = null;
+  }
+  if (scene.background instanceof THREE.Texture) {
+    scene.background.dispose();
+    scene.background = null;
+  } else {
+    scene.background = null;
+  }
+}
+
+function stopRendererAnimationLoop(gl: THREE.WebGLRenderer): void {
+  gl.setAnimationLoop(null);
+}
+
+const bodyMapTimerByGl = new WeakMap<THREE.WebGLRenderer, THREE.Timer>();
+
 // ── Camera animator (lives inside Canvas) ────────────────────────
 interface CameraAnimatorProps {
   targetRef: React.MutableRefObject<THREE.Vector3 | null>;
@@ -121,9 +258,10 @@ interface CameraAnimatorProps {
 }
 function CameraAnimator({ targetRef, orbitActiveRef }: CameraAnimatorProps) {
   const { camera } = useThree();
+  const { contextLostRef } = useWebGlRuntime();
 
   useFrame(() => {
-    if (!targetRef.current || orbitActiveRef.current) return;
+    if (contextLostRef.current || !targetRef.current || orbitActiveRef.current) return;
     camera.position.lerp(targetRef.current, 0.055);
     camera.lookAt(LOOK_AT);
     if (camera.position.distanceTo(targetRef.current) < 0.015) {
@@ -143,11 +281,24 @@ function StreakEnergyFloat({
   children: ReactNode;
 }) {
   const ref = useRef<THREE.Group>(null);
-  useFrame(({ clock }) => {
+  const timerRef = useRef(new THREE.Timer());
+  const { contextLostRef } = useWebGlRuntime();
+
+  useEffect(() => {
+    const timer = timerRef.current;
+    return () => {
+      timer.dispose();
+    };
+  }, []);
+
+  useFrame(() => {
+    if (contextLostRef.current) return;
     const g = ref.current;
     if (!g) return;
+    timerRef.current.update();
+    const elapsed = timerRef.current.getElapsed();
     if (enabled) {
-      g.position.y = Math.sin(clock.elapsedTime * 1.55) * 0.042;
+      g.position.y = Math.sin(elapsed * 1.55) * 0.042;
     } else {
       g.position.y = THREE.MathUtils.lerp(g.position.y, 0, 0.1);
     }
@@ -158,10 +309,23 @@ function StreakEnergyFloat({
 /** Pulsating rim light — pairs with bloom for streak “energy”. */
 function StreakRimLight() {
   const ref = useRef<THREE.PointLight>(null);
-  useFrame(({ clock }) => {
+  const timerRef = useRef(new THREE.Timer());
+  const { contextLostRef } = useWebGlRuntime();
+
+  useEffect(() => {
+    const timer = timerRef.current;
+    return () => {
+      timer.dispose();
+    };
+  }, []);
+
+  useFrame(() => {
+    if (contextLostRef.current) return;
     const L = ref.current;
     if (!L) return;
-    L.intensity = 0.38 + Math.sin(clock.elapsedTime * 2.35) * 0.2;
+    timerRef.current.update();
+    const elapsed = timerRef.current.getElapsed();
+    L.intensity = 0.38 + Math.sin(elapsed * 2.35) * 0.2;
   });
   return (
     <pointLight
@@ -179,6 +343,8 @@ type BodyMapWebGlLifecycleProps = {
   painCleanStudio: boolean;
   useScenicBackdrop: boolean;
   flatTherapistPicker: boolean;
+  contextLostRef: MutableRefObject<boolean>;
+  onContextLostChange: (lost: boolean) => void;
   onContextRestoredRemount: () => void;
 };
 
@@ -187,6 +353,8 @@ function BodyMapWebGlLifecycle({
   painCleanStudio,
   useScenicBackdrop,
   flatTherapistPicker,
+  contextLostRef,
+  onContextLostChange,
   onContextRestoredRemount,
 }: BodyMapWebGlLifecycleProps) {
   const { gl, scene } = useThree();
@@ -206,32 +374,119 @@ function BodyMapWebGlLifecycle({
 
   useEffect(() => {
     const canvas = gl.domElement;
+
     const onContextLost = (e: Event) => {
       e.preventDefault();
+      contextLostRef.current = true;
+      onContextLostChange(true);
+      stopRendererAnimationLoop(gl);
+      clearStudioEnvironmentCache();
       console.warn('[BodyMap3D] webglcontextlost — prevented default so the browser may restore');
     };
+
     const onContextRestored = () => {
+      contextLostRef.current = false;
+      onContextLostChange(false);
       console.log('[BodyMap3D] webglcontextrestored — syncing size & remounting Canvas');
       gl.setSize(canvas.clientWidth, canvas.clientHeight, false);
       requestAnimationFrame(() => onContextRestoredRemount());
     };
+
     canvas.addEventListener('webglcontextlost', onContextLost, false);
     canvas.addEventListener('webglcontextrestored', onContextRestored, false);
+
     return () => {
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
-    };
-  }, [gl, onContextRestoredRemount]);
-
-  useEffect(() => {
-    return () => {
+      stopRendererAnimationLoop(gl);
+      disposeSceneGpuResources(scene);
+      const timer = bodyMapTimerByGl.get(gl);
+      if (timer) {
+        timer.disconnect();
+        timer.dispose();
+        bodyMapTimerByGl.delete(gl);
+      }
+      clearStudioEnvironmentCache();
       try {
         gl.dispose();
       } catch {
         /* ignore double-dispose */
       }
+      const parent = canvas.parentElement;
+      if (parent?.contains(canvas)) {
+        try {
+          parent.removeChild(canvas);
+        } catch {
+          /* canvas may already be detached by R3F */
+        }
+      }
     };
-  }, [gl]);
+  }, [gl, scene, contextLostRef, onContextLostChange, onContextRestoredRemount]);
+
+  return null;
+}
+
+/**
+ * Isolated studio IBL — bypasses drei `<Environment>` which mutates and disposes the global
+ * useLoader/useEnvironment cache, causing glTexStorage2D immutable errors on Canvas remount.
+ */
+function BodyMapStudioEnvironment({
+  environmentIntensity,
+  instanceKey,
+}: {
+  environmentIntensity: number;
+  instanceKey: number;
+}) {
+  const scene = useThree((s) => s.scene);
+  const { contextLostRef } = useWebGlRuntime();
+  const envTextureRef = useRef<THREE.Texture | null>(null);
+  const environmentIntensityRef = useRef(environmentIntensity);
+  environmentIntensityRef.current = environmentIntensity;
+
+  useLayoutEffect(() => {
+    scene.environmentIntensity = environmentIntensity;
+  }, [scene, environmentIntensity]);
+
+  useEffect(() => {
+    if (contextLostRef.current) return;
+
+    clearStudioEnvironmentCache();
+
+    let cancelled = false;
+    const loader = new RGBELoader();
+    loader.setPath(DREI_HDRI_ROOT);
+    loader.load(
+      STUDIO_HDRI_FILE,
+      (texture) => {
+        if (cancelled || contextLostRef.current) {
+          texture.dispose();
+          return;
+        }
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        texture.colorSpace = THREE.LinearSRGBColorSpace;
+        envTextureRef.current = texture;
+        scene.environment = texture;
+        scene.environmentIntensity = environmentIntensityRef.current;
+      },
+      undefined,
+      (err) => {
+        console.warn('[BodyMap3D] studio HDR load failed', err);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+      const owned = envTextureRef.current;
+      envTextureRef.current = null;
+      if (owned) {
+        if (scene.environment === owned) {
+          scene.environment = null;
+        }
+        owned.dispose();
+      }
+      clearStudioEnvironmentCache();
+    };
+  }, [scene, instanceKey, contextLostRef]);
 
   return null;
 }
@@ -253,14 +508,11 @@ function StudioGradientBackground() {
     ctx.fillRect(0, 0, 2, 256);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.needsUpdate = true;
     scene.background = tex;
-    const fin = requestAnimationFrame(() => {
-      tex.needsUpdate = false;
-    });
     return () => {
-      cancelAnimationFrame(fin);
-      scene.background = null;
+      if (scene.background === tex) {
+        scene.background = null;
+      }
       tex.dispose();
     };
   }, [scene]);
@@ -411,9 +663,16 @@ function BodyMap3D(props: BodyMap3DProps) {
   const [walkPausedByPointerOver, setWalkPausedByPointerOver] = useState(false);
   /** Remount Canvas after WebGL restore so Fiber/Three state stays consistent; UI/finish callbacks stay mounted outside the canvas. */
   const [webglCanvasKey, setWebglCanvasKey] = useState(0);
+  const [webglContextLost, setWebglContextLost] = useState(false);
+  const contextLostRef = useRef(false);
   const bumpWebglCanvasKey = useCallback(() => {
+    contextLostRef.current = false;
+    setWebglContextLost(false);
+    clearStudioEnvironmentCache();
     setWebglCanvasKey((k) => k + 1);
   }, []);
+
+  useEffect(() => () => clearStudioEnvironmentCache(), []);
   const cameraTargetRef = useRef<THREE.Vector3 | null>(VIEW_POSITIONS.front.clone());
   const orbitActiveRef = useRef(false);
 
@@ -508,6 +767,7 @@ function BodyMap3D(props: BodyMap3DProps) {
       >
       <Canvas
         key={webglCanvasKey}
+        frameloop={webglContextLost ? 'never' : 'always'}
         style={{
           display: 'block',
           width: '100%',
@@ -526,7 +786,11 @@ function BodyMap3D(props: BodyMap3DProps) {
           far: 120,
         }}
         shadows={painCleanStudio ? false : true}
-        onCreated={({ gl }) => {
+        onCreated={({ gl, set }) => {
+          const timer = new THREE.Timer();
+          timer.connect(document);
+          bodyMapTimerByGl.set(gl, timer);
+          set({ clock: createR3fTimerClock(timer) as unknown as THREE.Clock });
           if (!painCleanStudio) {
             gl.shadowMap.type = THREE.PCFShadowMap;
           }
@@ -540,10 +804,13 @@ function BodyMap3D(props: BodyMap3DProps) {
         }}
         dpr={[1, 2]}
       >
+        <WebGlRuntimeProvider contextLostRef={contextLostRef}>
         <BodyMapWebGlLifecycle
           painCleanStudio={painCleanStudio}
           useScenicBackdrop={useScenicBackdrop}
           flatTherapistPicker={flatTherapistPicker}
+          contextLostRef={contextLostRef}
+          onContextLostChange={setWebglContextLost}
           onContextRestoredRemount={bumpWebglCanvasKey}
         />
         {!useScenicBackdrop && !flatTherapistPicker && <StudioGradientBackground />}
@@ -563,8 +830,8 @@ function BodyMap3D(props: BodyMap3DProps) {
           shadow-camera-bottom={-5}
         />
 
-        <Environment
-          preset="studio"
+        <BodyMapStudioEnvironment
+          instanceKey={webglCanvasKey}
           environmentIntensity={
             useScenicBackdrop
               ? 0.48
@@ -714,6 +981,7 @@ function BodyMap3D(props: BodyMap3DProps) {
             />
           </>
         )}
+        </WebGlRuntimeProvider>
       </Canvas>
       </div>
 

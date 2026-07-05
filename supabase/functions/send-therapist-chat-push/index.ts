@@ -60,8 +60,9 @@ Deno.serve(async (req) => {
     error: authError,
   } = await supabaseAuth.auth.getUser();
   if (authError || !user?.id) {
+    console.warn("[send-therapist-chat-push] auth rejected:", authError?.message ?? "no user");
     return jsonResponse(
-      { error: "Unauthorized", detail: authError?.message ?? "Invalid session" },
+      { error: "Unauthorized", detail: "Invalid or expired session" },
       401,
     );
   }
@@ -88,7 +89,7 @@ Deno.serve(async (req) => {
 
   if (patientErr) {
     console.error("[send-therapist-chat-push] patients select:", patientErr.message);
-    return jsonResponse({ ok: false, error: patientErr.message }, 503);
+    return jsonResponse({ ok: false, error: "patient_lookup_failed" }, 503);
   }
 
   if (!patient) {

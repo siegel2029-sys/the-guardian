@@ -45,6 +45,7 @@ import {
   DIFFICULTY_MAX_PATIENT_COPY,
 } from '../../safety/clinicalEmergencyScreening';
 import { PATIENT_REWARDS, exerciseBaseXp } from '../../config/patientRewards';
+import { validateNewPassword } from '../../lib/passwordPolicy';
 import { RewardLabel } from '../ui/RewardLabel';
 import StackedDumbbellsIcon from '../icons/StackedDumbbellsIcon';
 import GearStoreArmory from './GearStoreArmory';
@@ -89,6 +90,8 @@ function portalHrefForTab(tab: PortalTab): string {
 }
 
 const EMPTY_COMPLETED_IDS: string[] = [];
+const EMPTY_EXERCISES: PatientExercise[] = [];
+const EMPTY_BODY_AREAS: BodyArea[] = [];
 
 /** אזור לחיצה נוח לאגודל + משוב ויזואלי לכרטיסי ניווט */
 const PORTAL_PROGRESS_NAV_SURFACE =
@@ -170,6 +173,7 @@ export default function PatientDailyView() {
   const {
     selectedPatient,
     messages,
+    exercisePlans,
     getExercisePlan,
     dailySessions,
     submitExerciseReport,
@@ -207,7 +211,7 @@ export default function PatientDailyView() {
 
   const portalPatientLabel = useMemo(
     () => (selectedPatient ? getPatientDisplayName(selectedPatient) : ''),
-    [selectedPatient]
+    [selectedPatient?.id, selectedPatient?.name]
   );
 
   const [guardiFlowerBloomLine, setGuardiFlowerBloomLine] = useState<string | null>(null);
@@ -224,13 +228,13 @@ export default function PatientDailyView() {
     if (!ann) return;
     localStorage.setItem(k, String(ann.nextTier));
     setGuardiFlowerBloomLine(ann.message);
-  }, [selectedPatient, totalActiveDaysForScenery]);
+  }, [selectedPatient?.id, totalActiveDaysForScenery]);
 
   const guardiMountainAmbientLine = useMemo(() => {
     if (guardiFlowerBloomLine) return guardiFlowerBloomLine;
     if (!selectedPatient) return null;
     return getGuardiMountainAmbientLine(clinicalToday, selectedPatient.level);
-  }, [guardiFlowerBloomLine, clinicalToday, selectedPatient, getGuardiMountainAmbientLine]);
+  }, [guardiFlowerBloomLine, clinicalToday, selectedPatient?.id, selectedPatient?.level, getGuardiMountainAmbientLine]);
 
   const [messageDraftSeed, setMessageDraftSeed] = useState<string | null>(null);
   const consumeMessageDraftSeed = useCallback(() => setMessageDraftSeed(null), []);
@@ -396,7 +400,6 @@ export default function PatientDailyView() {
   );
 
   /** תוכנית אימון: PatientContext (מקור לוגי useExercisePlan) — תמיד גרסה פעילה. */
-  const plan = selectedPatient ? getExercisePlan(selectedPatient.id) : undefined;
   const session = useMemo((): DailySession | null => {
     if (!selectedPatient) return null;
     return (
@@ -405,7 +408,16 @@ export default function PatientDailyView() {
       ) ?? null
     );
   }, [dailySessions, selectedPatient?.id, clinicalToday]);
-  const exercises = plan?.exercises ?? [];
+  const exercises = useMemo((): PatientExercise[] => {
+    if (!selectedPatient?.id) return EMPTY_EXERCISES;
+    const list = getExercisePlan(selectedPatient.id)?.exercises;
+    return list && list.length > 0 ? list : EMPTY_EXERCISES;
+  }, [
+    selectedPatient?.id,
+    selectedPatient?._exercisePlanCache,
+    exercisePlans,
+    getExercisePlan,
+  ]);
 
   const capturePendingTrainingSession = useCallback(
     (modal: NonNullable<typeof exerciseVideoModal>): PendingTrainingSession | null => {
@@ -479,7 +491,7 @@ export default function PatientDailyView() {
   const patientDayMap = useMemo(
     () =>
       selectedPatient ? dailyHistoryByPatient[selectedPatient.id] ?? {} : {},
-    [selectedPatient, dailyHistoryByPatient]
+    [selectedPatient?.id, dailyHistoryByPatient]
   );
 
   const displayStreak = useMemo(
@@ -487,7 +499,7 @@ export default function PatientDailyView() {
       selectedPatient
         ? computeStreakForPatient(selectedPatient, patientDayMap, clinicalToday)
         : 0,
-    [selectedPatient, patientDayMap, clinicalToday]
+    [selectedPatient?.id, patientDayMap, clinicalToday]
   );
 
   const exerciseSafetyLocked = selectedPatient
@@ -501,14 +513,24 @@ export default function PatientDailyView() {
   }, [exercisesLocked, clearTrainingSession]);
 
   /** Green zones (excludes clinical); synced with 3D picks + context. */
-  const selectedZones = selectedPatient ? getSelfCareZones(selectedPatient.id) : [];
+  const selectedZones = useMemo((): BodyArea[] => {
+    if (!selectedPatient?.id) return EMPTY_BODY_AREAS;
+    const zones = getSelfCareZones(selectedPatient.id);
+    return zones.length > 0 ? zones : EMPTY_BODY_AREAS;
+  }, [
+    selectedPatient?.id,
+    selectedPatient?.injuryHighlightSegments,
+    selectedPatient?.secondaryClinicalBodyAreas,
+    getSelfCareZones,
+  ]);
 
   const strengthenedAreasToday = useMemo(() => {
-    if (!selectedPatient) return [] as BodyArea[];
+    if (!selectedPatient?.id) return [] as BodyArea[];
     return getStrengthenedBodyAreasToday(getPatientExerciseFinishReports(selectedPatient.id));
-  }, [selectedPatient, getPatientExerciseFinishReports]);
+  }, [selectedPatient?.id, getPatientExerciseFinishReports]);
 
   const prevPatientIdRef = useRef<string | undefined>(undefined);
+  const trainingAiFetchKeyRef = useRef<string | null>(null);
   const bodyMapSectionRef = useRef<HTMLDivElement>(null);
   const [coinKick, setCoinKick] = useState(false);
   const [guardiVictoryBurst, setGuardiVictoryBurst] = useState(0);
@@ -527,9 +549,9 @@ export default function PatientDailyView() {
   }, [selectedPatient?.id, clearRewardFeedback]);
 
   useEffect(() => {
-    if (!selectedPatient) return;
+    if (!selectedPatient?.id) return;
     claimDailyLoginBonusIfNeeded(selectedPatient.id);
-  }, [selectedPatient, clinicalToday, claimDailyLoginBonusIfNeeded]);
+  }, [selectedPatient?.id, clinicalToday, claimDailyLoginBonusIfNeeded]);
 
   useEffect(() => {
     if (!rewardFeedback) return;
@@ -555,21 +577,11 @@ export default function PatientDailyView() {
   }, [rewardFeedback?.id, clearRewardFeedback]);
 
   const clinicalRehabExercises = useMemo(() => {
-    if (!selectedPatient) return [];
-    /** Therapist `exercise_plans` are the manual prescription — never hide entries by active_area / body-map filters. */
-    const effectiveList = exercises;
-
-    if (effectiveList.length > 0) {
-      console.log(
-        `[UI_SYNC] Showing ${effectiveList.length} exercises from manual plan, ignoring area filters.`,
-        { patientId: selectedPatient.id }
-      );
-    }
-
-    const mandatory = effectiveList.filter((e) => !e.isOptional).sort((a, b) => a.name.localeCompare(b.name, 'he'));
-    const optional = effectiveList.filter((e) => e.isOptional).sort((a, b) => a.name.localeCompare(b.name, 'he'));
+    if (!selectedPatient?.id || exercises.length === 0) return EMPTY_EXERCISES;
+    const mandatory = exercises.filter((e) => !e.isOptional).sort((a, b) => a.name.localeCompare(b.name, 'he'));
+    const optional = exercises.filter((e) => e.isOptional).sort((a, b) => a.name.localeCompare(b.name, 'he'));
     return [...mandatory, ...optional];
-  }, [exercises, selectedPatient]);
+  }, [exercises, selectedPatient?.id]);
 
   const aiProgramLongitudinalGate = useMemo(() => {
     if (!selectedPatient) return null;
@@ -584,7 +596,8 @@ export default function PatientDailyView() {
     }
     return base;
   }, [
-    selectedPatient,
+    selectedPatient?.id,
+    selectedPatient?.analytics?.sessionHistory,
     clinicalToday,
     patientDayMap,
     clinicalRehabExercises.length,
@@ -622,7 +635,7 @@ export default function PatientDailyView() {
   type StrengthMissionRow = Extract<MissionRow, { kind: 'strength' }>;
 
   const strengthMissionRows = useMemo((): StrengthMissionRow[] => {
-    if (!selectedPatient) return [];
+    if (!selectedPatient?.id) return [];
     return [...selectedZones]
       .sort((a, b) => a.localeCompare(b))
       .map((area) => {
@@ -636,7 +649,7 @@ export default function PatientDailyView() {
           strengthTier,
         };
       });
-  }, [selectedZones, selectedPatient, getSelfCareStrengthTier]);
+  }, [selectedZones, selectedPatient?.id, getSelfCareStrengthTier]);
 
   const completedIdsForUnlock = session?.completedIds ?? EMPTY_COMPLETED_IDS;
 
@@ -750,13 +763,15 @@ export default function PatientDailyView() {
   }, [navigate, portalTab]);
 
   useEffect(() => {
+    const patientId = selectedPatient?.id;
     if (
-      !selectedPatient ||
+      !patientId ||
       portalTab !== 'activity' ||
       patientMustChangePassword ||
       exercisesLocked ||
       portalOnboardingSilence
     ) {
+      trainingAiFetchKeyRef.current = null;
       setTrainingAiPlanModalOpen(false);
       setTrainingAiPlanModalLoading(false);
       setTrainingAiPlanModalSuggestion(null);
@@ -770,6 +785,7 @@ export default function PatientDailyView() {
       clinicalRehabExercises.length === 0 ||
       !gate.shouldSuggest
     ) {
+      trainingAiFetchKeyRef.current = null;
       setTrainingAiPlanModalOpen(false);
       setTrainingAiPlanModalLoading(false);
       setTrainingAiPlanModalSuggestion(null);
@@ -778,13 +794,19 @@ export default function PatientDailyView() {
     }
 
     try {
-      if (sessionStorage.getItem(portalTrainingAiPlanModalAckKey(selectedPatient.id, clinicalToday)) === '1') {
+      if (sessionStorage.getItem(portalTrainingAiPlanModalAckKey(patientId, clinicalToday)) === '1') {
         setTrainingAiPlanModalOpen(false);
         return;
       }
     } catch {
       /* ignore */
     }
+
+    const fetchKey = `${patientId}|${clinicalToday}|${trainingTabContextKey}|${gate.shouldSuggest}`;
+    if (trainingAiFetchKeyRef.current === fetchKey) {
+      return;
+    }
+    trainingAiFetchKeyRef.current = fetchKey;
 
     let cancelled = false;
     setTrainingAiPlanModalOpen(true);
@@ -821,13 +843,13 @@ export default function PatientDailyView() {
     };
   }, [
     portalTab,
-    selectedPatient,
+    selectedPatient?.id,
     patientMustChangePassword,
     clinicalToday,
     trainingTabContextKey,
     exercisesLocked,
-    clinicalRehabExercises,
-    aiProgramLongitudinalGate,
+    clinicalRehabExercises.length,
+    aiProgramLongitudinalGate?.shouldSuggest,
     portalOnboardingSilence,
   ]);
 
@@ -1086,9 +1108,14 @@ export default function PatientDailyView() {
       setPwFormError('הסיסמאות החדשות אינן תואמות.');
       return;
     }
+    const newPasswordError = validateNewPassword(pwNew);
+    if (newPasswordError) {
+      setPwFormError(newPasswordError);
+      return;
+    }
     const r = await completePatientPasswordChange(pwCurrent, pwNew);
     if (r === 'bad_current') setPwFormError('סיסמה נוכחית שגויה.');
-    else if (r === 'invalid_new') setPwFormError('סיסמה חדשה קצרה מדי (לפחות 6 תווים).');
+    else if (r === 'invalid_new') setPwFormError('סיסמה חדשה קצרה מדי (לפחות 8 תווים, אותיות ומספרים).');
     else {
       setPwCurrent('');
       setPwNew('');
@@ -1924,7 +1951,7 @@ export default function PatientDailyView() {
               </h2>
             </div>
             <p className="text-sm text-slate-600 leading-relaxed mb-4">
-              זו הכניסה הראשונה שלך לפורטל. לבטיחות, בחר סיסמה אישית חדשה (לפחות 6 תווים).
+              זו הכניסה הראשונה שלך לפורטל. לבטיחות, בחר סיסמה אישית חדשה (לפחות 8 תווים, אותיות ומספרים).
             </p>
             <div className="space-y-3">
               <div>

@@ -3,6 +3,7 @@ import { Mail, Lock, Save, AlertCircle, Shield, User, CloudUpload } from 'lucide
 import { useAuth } from '../../context/AuthContext';
 import { getTherapistRecord } from '../../context/authPersistence';
 import { usePatient } from '../../context/PatientContext';
+import { validateNewPassword } from '../../lib/passwordPolicy';
 
 export default function TherapistSettingsPanel() {
   const { therapist, updateTherapistProfile, usesSupabaseSession } = useAuth();
@@ -43,9 +44,12 @@ export default function TherapistSettingsPanel() {
       setError('כתובת דוא״ל לא תקינה.');
       return;
     }
-    if (password.length > 0 && password.length < 6) {
-      setError('סיסמה חדשה — לפחות 6 תווים, או השאירו ריק לשמירת הסיסמה הנוכחית.');
-      return;
+    if (password.length > 0) {
+      const passwordPolicyError = validateNewPassword(password);
+      if (passwordPolicyError) {
+        setError(`${passwordPolicyError} השאירו ריק לשמירת הסיסמה הנוכחית.`);
+        return;
+      }
     }
     if (password !== confirm) {
       setError('אימות הסיסמה אינו תואם.');
@@ -56,8 +60,12 @@ export default function TherapistSettingsPanel() {
       setPassword('');
       setConfirm('');
       setSaved(true);
-    } catch {
-      setError('לא ניתן לעדכן את הפרופיל. נסו שוב.');
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : 'לא ניתן לעדכן את הפרופיל. נסו שוב.'
+      );
     }
   };
 

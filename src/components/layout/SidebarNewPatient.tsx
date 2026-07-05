@@ -4,6 +4,7 @@ import { UserPlus, KeyRound, Copy, X, RefreshCw } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import ClinicalAiIntakeWizard from '../dashboard/ClinicalAiIntakeWizard';
 import { randomPatientPassword } from '../../context/PatientContext';
+import { validateNewPassword } from '../../lib/passwordPolicy';
 
 type SidebarNewPatientProps = {
   compact?: boolean;
@@ -42,11 +43,19 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
 
   const submitCredentials = async () => {
     setCredentialsError(null);
+    const trimmedPassword = portalPassword.trim();
+    if (trimmedPassword.length > 0) {
+      const passwordPolicyError = validateNewPassword(trimmedPassword);
+      if (passwordPolicyError) {
+        setCredentialsError(passwordPolicyError);
+        return;
+      }
+    }
     setCreating(true);
     try {
       const r = await createPatientWithAccess(initialPatientDisplayName(), {
         portalUsername,
-        password: portalPassword.trim().length >= 6 ? portalPassword : undefined,
+        password: trimmedPassword.length > 0 ? trimmedPassword : undefined,
       });
       if (!r.ok) {
         setCredentialsError(r.message);

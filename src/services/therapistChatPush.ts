@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { supabaseAnonKey, supabaseUrl } from '../lib/supabase';
+import { supabase, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 import { getSupabaseAuthSession } from '../lib/supabaseSessionGuard';
 import { readPushTokenFromPatientPayload } from './patientPushNotifications';
 
@@ -147,6 +147,16 @@ export type PatientPushSyncDispatchResult = {
   sent: boolean;
   message: string;
 };
+
+/** Singleton-client wrapper so UI components never import the Supabase client directly. */
+export async function requestPatientPushSync(
+  patientId: string
+): Promise<PatientPushSyncDispatchResult> {
+  if (!supabase) {
+    return { ok: false, sent: false, message: 'Supabase לא מוגדר בסביבה' };
+  }
+  return dispatchPatientPushSyncRequest(supabase, patientId);
+}
 
 /**
  * Therapist-initiated Web Push that opens the patient portal so automated hydration

@@ -26,3 +26,12 @@ dist-ssr
 
 .vercel
 .env*.local
+
+# Environment files and credentials — never commit
+.env.development
+.env.staging
+.env.production
+.env.keys
+*.pem
+credentials.json
+service-account*.json

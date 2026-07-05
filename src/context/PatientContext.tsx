@@ -320,7 +320,11 @@ function normalizePatientGear(v: Partial<PatientGearState> | undefined): Patient
   };
 }
 
-/** Immediate feedback for PostgREST auth / validation failures during cloud save. */
+/**
+ * PostgREST auth / validation failures during cloud save.
+ * Non-blocking: user feedback flows through `supabaseSyncStatus` / `supabaseSyncError`
+ * (shown in the settings panel, plan modal and debug panel) — no window.alert.
+ */
 function alertIfSupabaseClientFailure(message: string, httpStatus?: number, cause?: unknown) {
   if (isAuthSessionMissingMessage(message)) {
     console.warn('[PatientContext] Skipping cloud save alert — auth session not ready:', message);
@@ -331,7 +335,7 @@ function alertIfSupabaseClientFailure(message: string, httpStatus?: number, caus
     postgrestHttpStatus(cause) ??
     (/\b401\b/.test(message) ? 401 : /\b400\b/.test(message) ? 400 : undefined);
   if (st === 400 || st === 401) {
-    window.alert(`שמירה לענן נכשלה (HTTP ${st})\n\n${message}`);
+    console.error(`[PatientContext] Cloud save failed (HTTP ${st}):`, message);
   }
 }
 
@@ -676,9 +680,13 @@ const PatientContext = createContext<PatientContextValue | null>(null);
 // ── Provider ─────────────────────────────────────────────────────
 
 export function randomPatientPassword(): string {
-  const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
-  let s = '';
-  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  // Must satisfy Supabase password policy: min 8 chars, letters + digits.
+  const letters = 'abcdefghijkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const chars = letters + digits;
+  let s = letters[Math.floor(Math.random() * letters.length)];
+  s += digits[Math.floor(Math.random() * digits.length)];
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return s;
 }
 
@@ -3032,8 +3040,14 @@ export function PatientProvider({
     [exercise.therapistDeclineAiSuggestion, clinical.commitTherapistAiSuggestionDecision]
   );
 
-  /** Poll cloud clinical queue every 3 minutes (cross-device patient → therapist sync). */
-  const CLINICAL_INSIGHTS_POLL_MS = 3 * 60 * 1000;
+  /**
+   * Cross-device patient → therapist clinical queue sync.
+   * Primary: Supabase Realtime UPDATE events on `patients` (RLS-scoped) trigger a
+   * debounced re-pull. Fallback: a slow 15-minute poll in case Realtime disconnects
+   * (previously this was a full-payload poll every 3 minutes).
+   */
+  const CLINICAL_INSIGHTS_FALLBACK_POLL_MS = 15 * 60 * 1000;
+  const CLINICAL_INSIGHTS_REALTIME_DEBOUNCE_MS = 3_000;
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
     if (restrictPatientSessionId) return;
@@ -3060,11 +3074,31 @@ export function PatientProvider({
       );
     };
 
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const schedulePull = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        void pullInsights();
+      }, CLINICAL_INSIGHTS_REALTIME_DEBOUNCE_MS);
+    };
+
+    const channel = client
+      .channel('patients-clinical-queue')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'patients' },
+        schedulePull
+      )
+      .subscribe();
+
     void pullInsights();
-    const timer = setInterval(() => void pullInsights(), CLINICAL_INSIGHTS_POLL_MS);
+    const timer = setInterval(() => void pullInsights(), CLINICAL_INSIGHTS_FALLBACK_POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      void client.removeChannel(channel);
     };
   }, [
     supabase,

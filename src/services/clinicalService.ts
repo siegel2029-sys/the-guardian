@@ -32,6 +32,7 @@ import {
   ensureSupabaseSessionReady,
   logSupabaseCallError,
 } from '../lib/supabaseSessionGuard';
+import { sanitizeDbErrorMessage } from '../lib/dbErrorSanitizer';
 import {
   getAppKbHydratedFromCloud,
   hasAttemptedGlobalKbMigrationForTherapist,
@@ -639,7 +640,10 @@ export function clinicalPushFail(message: string, err?: unknown): {
   httpStatus?: number;
 } {
   const httpStatus = err !== undefined ? postgrestHttpStatus(err) : undefined;
-  return httpStatus !== undefined ? { ok: false, message, httpStatus } : { ok: false, message };
+  const safeMessage = sanitizeDbErrorMessage(message);
+  return httpStatus !== undefined
+    ? { ok: false, message: safeMessage, httpStatus }
+    : { ok: false, message: safeMessage };
 }
 
 /** תוצאת upsert ל־app_knowledge_base כולל גוף תשובה לדיבוג (403/400 וכו׳). */
@@ -1614,6 +1618,33 @@ export async function upsertExercisePlans(
       return { ok: true };
     }
 
+    // Batch-fetch patients.therapist_id for the whole batch (avoids one round-trip
+    // per patient inside the loop — the classic N+1).
+    const batchPatientIds = [
+      ...new Set(
+        exercisePlans
+          .map((p) => (typeof p.patientId === 'string' ? p.patientId.trim() : ''))
+          .filter((id) => id.length > 0)
+      ),
+    ];
+    const therapistIdByPatientId = new Map<string, string | null>();
+    if (batchPatientIds.length > 0) {
+      const { data: prows, error: pErr } = await client
+        .from('patients')
+        .select('id, therapist_id')
+        .in('id', batchPatientIds);
+      if (pErr) {
+        logExercisePlansSupabaseError('שגיאה בשליפת therapist_id מ-patients (batch)', pErr, {
+          patientIds: batchPatientIds,
+          auth_uid: authUid,
+        });
+        return clinicalPushFail(`patients: ${pErr.message}`, pErr);
+      }
+      for (const row of (prows ?? []) as { id: string; therapist_id: string | null }[]) {
+        therapistIdByPatientId.set(String(row.id), row.therapist_id ?? null);
+      }
+    }
+
     for (const plan of exercisePlans) {
       const { patientId: rawPatientId } = plan;
       const exercises = normalizeCachedPatientExercises(plan.exercises);
@@ -1629,28 +1660,12 @@ export async function upsertExercisePlans(
         changeSummaryByPatientId[rawPatientId] ??
         null;
 
-      // ── Resolve therapist_id from patients row ───────────────────────────
+      // ── Resolve therapist_id from the pre-fetched batch map ──────────────
       // exercise_plans has no therapist_id column; RLS enforces access through
-      // the FK: patients.therapist_id = auth.uid()::text.  We fetch it here so
-      // we can (a) verify it matches auth.uid() — if not, the INSERT will be
+      // the FK: patients.therapist_id = auth.uid()::text.  We use it to
+      // (a) verify it matches auth.uid() — if not, the INSERT will be
       // silently blocked by RLS, and (b) populate the audit log.
-      const { data: prow, error: pErr } = await client
-        .from('patients')
-        .select('therapist_id')
-        .eq('id', patientId)
-        .maybeSingle();
-
-      if (pErr) {
-        logExercisePlansSupabaseError('שגיאה בשליפת therapist_id מ-patients', pErr, {
-          patientId,
-          auth_uid: authUid,
-        });
-        return clinicalPushFail(`patients: ${pErr.message}`, pErr);
-      }
-
-      // The therapist_id value we'll use for the audit log.
-      // Always prefer auth.uid() — it's what RLS actually checks against.
-      const rowTherapistId = (prow?.therapist_id as string | null | undefined) ?? null;
+      const rowTherapistId = therapistIdByPatientId.get(patientId) ?? null;
       const therapistId = authUid;
 
       if (!rowTherapistId) {
@@ -1673,13 +1688,7 @@ export async function upsertExercisePlans(
       // ── Fetch canonical active row (handles multiple is_active / version rows) ──
       const activeFetch = await fetchCanonicalActiveExercisePlanRow(client, patientId);
       if (!activeFetch.ok) return activeFetch;
-
-      let prevActive = activeFetch.row;
-      if (!prevActive) {
-        const recheck = await fetchCanonicalActiveExercisePlanRow(client, patientId);
-        if (!recheck.ok) return recheck;
-        prevActive = recheck.row;
-      }
+      const prevActive = activeFetch.row;
 
       const hadPrev = prevActive != null;
       const currentVn = prevActive?.version_number ?? 0;

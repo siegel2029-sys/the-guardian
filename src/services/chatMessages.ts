@@ -1,7 +1,16 @@
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
+import { z } from 'zod';
 import { supabase } from '../lib/supabase';
+import { sanitizeDbErrorMessage } from '../lib/dbErrorSanitizer';
 import type { Message } from '../types';
 import { dispatchTherapistChatPushNotification } from './therapistChatPush';
+
+/** Boundary schema for chat inserts — RLS enforces ownership; this rejects malformed/oversized input early. */
+const chatInsertSchema = z.object({
+  patientId: z.string().trim().min(1).max(64),
+  therapistId: z.string().trim().min(1).max(64),
+  content: z.string().trim().min(1).max(4000),
+});
 
 /** Row shape from `public.chat_messages`. */
 export type ChatMessageRow = {
@@ -179,7 +188,7 @@ export async function fetchChatMessages(
 
   if (error) {
     console.warn('[fetchChatMessages] query failed', error.message);
-    return { ok: false, message: error.message };
+    return { ok: false, message: sanitizeDbErrorMessage(error.message) };
   }
 
   const rows = parseChatMessageRows(data);
@@ -198,7 +207,7 @@ export async function markChatMessagesRead(
   const { error } = await client.from('chat_messages').update({ [column]: true }).in('id', ids);
 
   if (error) {
-    return { ok: false, message: error.message };
+    return { ok: false, message: sanitizeDbErrorMessage(error.message) };
   }
   return { ok: true };
 }
@@ -211,12 +220,11 @@ export async function insertTherapistChatMessage(
     content: string;
   }
 ): Promise<{ ok: true; message: Message } | { ok: false; message: string }> {
-  const pid = params.patientId.trim();
-  const body = params.content.trim();
-  const therapistRowId = params.therapistId.trim();
-  if (!pid || !body || !therapistRowId) {
+  const parsed = chatInsertSchema.safeParse(params);
+  if (!parsed.success) {
     return { ok: false, message: 'empty_patient_content_or_therapist' };
   }
+  const { patientId: pid, therapistId: therapistRowId, content: body } = parsed.data;
 
   const { data, error } = await client
     .from('chat_messages')
@@ -233,7 +241,7 @@ export async function insertTherapistChatMessage(
     .single();
 
   if (error) {
-    return { ok: false, message: error.message };
+    return { ok: false, message: sanitizeDbErrorMessage(error.message) };
   }
   if (!data) {
     return { ok: false, message: 'insert_returned_no_row' };
@@ -250,12 +258,11 @@ export async function insertPatientChatMessage(
     content: string;
   }
 ): Promise<{ ok: true; message: Message } | { ok: false; message: string }> {
-  const pid = params.patientId.trim();
-  const body = params.content.trim();
-  const therapistId = params.therapistId.trim();
-  if (!pid || !body || !therapistId) {
+  const parsed = chatInsertSchema.safeParse(params);
+  if (!parsed.success) {
     return { ok: false, message: 'empty_patient_content_or_therapist' };
   }
+  const { patientId: pid, therapistId, content: body } = parsed.data;
 
   const { data, error } = await client
     .from('chat_messages')
@@ -272,7 +279,7 @@ export async function insertPatientChatMessage(
     .single();
 
   if (error) {
-    return { ok: false, message: error.message };
+    return { ok: false, message: sanitizeDbErrorMessage(error.message) };
   }
   if (!data) {
     return { ok: false, message: 'insert_returned_no_row' };

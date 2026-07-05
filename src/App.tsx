@@ -3,13 +3,14 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { PatientProvider } from './context/PatientContext';
 import { AppRoutes } from './components/ProtectedRoute';
 import { PatientDidYouKnowProvider } from './components/patient/PatientDidYouKnowPortal';
+import { hasPersistedSupabaseAuthSession } from './lib/supabase';
 
 /**
  * Patient list scope follows auth: therapist dashboard vs patient portal.
  * Must render inside AuthProvider.
  */
 function PatientRouterShell() {
-  const { sessionRole, patientSessionId, therapistPatientScopeIds } = useAuth();
+  const { sessionRole, patientSessionId, therapistPatientScopeIds, isAuthenticated, hasSupabaseSession } = useAuth();
   const therapistScopeIds =
     sessionRole === 'patient'
       ? null
@@ -17,6 +18,19 @@ function PatientRouterShell() {
         ? therapistPatientScopeIds
         : null;
   const restrictPatientSessionId = sessionRole === 'patient' ? patientSessionId : null;
+
+  // Unauthenticated visitors (login page) don't need the heavy PatientProvider —
+  // skipping it avoids roster bootstrap, timers and cloud sync work before login.
+  const hasAnyCredential = isAuthenticated || hasSupabaseSession || hasPersistedSupabaseAuthSession();
+  if (!hasAnyCredential) {
+    return (
+      <BrowserRouter>
+        <div className="min-h-dvh antialiased text-base text-slate-900">
+          <AppRoutes />
+        </div>
+      </BrowserRouter>
+    );
+  }
 
   return (
     <PatientProvider therapistScopeIds={therapistScopeIds} restrictPatientSessionId={restrictPatientSessionId}>
