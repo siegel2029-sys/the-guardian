@@ -456,16 +456,28 @@ export default function LoginPage() {
           )}
         </div>
 
-        <p className="text-center text-xs text-slate-400 mt-6 space-x-1">
-          <a
-            href="/accessibility"
-            className="hover:text-teal-600 underline underline-offset-2 transition-colors"
-          >
-            הצהרת נגישות
-          </a>
-          <span aria-hidden="true"> · </span>
-          © 2026 PHYSIOSHIELD · כל הזכויות שמורות
-        </p>
+        <footer className="text-center text-xs text-slate-400 mt-6">
+          <nav aria-label="קישורים משפטיים" className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+            {[
+              { href: '/terms', label: 'תנאי שימוש' },
+              { href: '/privacy', label: 'מדיניות פרטיות' },
+              { href: '/medical-disclaimer', label: 'הצהרה רפואית' },
+              { href: '/refund-policy', label: 'מדיניות ביטולים והחזרים' },
+              { href: '/accessibility', label: 'הצהרת נגישות' },
+            ].map((link, i) => (
+              <span key={link.href} className="inline-flex items-center gap-2">
+                {i > 0 && <span aria-hidden="true">·</span>}
+                <a
+                  href={link.href}
+                  className="hover:text-teal-600 underline underline-offset-2 transition-colors"
+                >
+                  {link.label}
+                </a>
+              </span>
+            ))}
+          </nav>
+          <p className="mt-2">© 2026 PHYSIOSHIELD · כל הזכויות שמורות</p>
+        </footer>
       </div>
     </div>
   );

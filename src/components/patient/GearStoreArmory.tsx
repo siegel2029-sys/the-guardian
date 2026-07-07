@@ -1,9 +1,18 @@
 import { useState, type ReactNode } from 'react';
-import { ShoppingBag, Shield, Sparkles, Swords } from 'lucide-react';
+import { Dumbbell, Heart, ShoppingBag, Shield, Sparkles, Swords } from 'lucide-react';
 import { GEAR_CATALOG, type GearCatalogEntry, type GearEquipSlot } from '../../config/gearCatalog';
+import {
+  STORE_CATALOG,
+  STORE_CATEGORY_LABELS,
+  normalizeStoreItemIds,
+  type StoreCatalogEntry,
+  type StoreCategory,
+  type StorePurchaseResult,
+} from '../../config/storeCatalog';
 import type { GearPurchaseResult } from '../../context/PatientContext';
 import type { PatientGearPersistedV1 } from '../../context/patientPersistence';
 import GearItemPreviewCanvas, { gearItemPreviewSupported } from './gear/GearItemPreviewCanvas';
+import StoreItemPreviewCanvas, { storeItemPreviewSupported } from './store/StoreItemPreviewCanvas';
 
 type PatientGearState = PatientGearPersistedV1;
 
@@ -12,9 +21,14 @@ type Props = {
   coins: number;
   patientXp: number;
   gear: PatientGearState;
+  ownedStoreItemIds: string[];
+  equippedItems: string[];
   purchaseGearItem: (patientId: string, itemId: string) => GearPurchaseResult;
   equipGearItem: (patientId: string, itemId: string) => boolean;
   unequipGearSlot: (patientId: string, slot: GearEquipSlot) => void;
+  purchaseStoreItem: (patientId: string, itemId: string) => StorePurchaseResult;
+  equipStoreItem: (patientId: string, itemId: string) => boolean;
+  unequipStoreItem: (patientId: string, itemId: string) => void;
 };
 
 function slotLabelHe(slot: GearEquipSlot): string {
@@ -77,6 +91,36 @@ const tierCardClass: Record<GearCatalogEntry['tier'], string> = {
     'border-cyan-400/55 shadow-[0_0_20px_rgba(34,211,238,0.28)] shadow-black/40',
 };
 
+function CategorySection({
+  category,
+  items,
+  children,
+}: {
+  category: StoreCategory;
+  items: StoreCatalogEntry[];
+  children: ReactNode;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mb-5">
+      <div className="flex items-center gap-2 mb-2.5 px-0.5">
+        {category === 'pets' ? (
+          <Heart className="w-4 h-4 text-rose-300" />
+        ) : (
+          <Dumbbell className="w-4 h-4 text-orange-300" />
+        )}
+        <h3 className="text-xs font-black uppercase tracking-wider text-slate-300">
+          {STORE_CATEGORY_LABELS[category]}
+        </h3>
+      </div>
+      <ul className="space-y-3">{children}</ul>
+    </div>
+  );
+}
+
+const storeCardClass =
+  'border-emerald-500/40 shadow-[0_0_14px_rgba(16,185,129,0.18)] shadow-black/30';
+
 function TierSection({
   tier,
   items,
@@ -109,15 +153,121 @@ export default function GearStoreArmory({
   coins,
   patientXp,
   gear,
+  ownedStoreItemIds,
+  equippedItems,
   purchaseGearItem,
   equipGearItem,
   unequipGearSlot,
+  purchaseStoreItem,
+  equipStoreItem,
+  unequipStoreItem,
 }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
 
   const showFlash = (text: string) => {
     setMsg(text);
     window.setTimeout(() => setMsg(null), 3200);
+  };
+
+  const ownedStore = normalizeStoreItemIds(ownedStoreItemIds);
+  const equippedStore = normalizeStoreItemIds(equippedItems);
+  const trainingItems = STORE_CATALOG.filter((i) => i.category === 'training');
+  const petItems = STORE_CATALOG.filter((i) => i.category === 'pets');
+
+  const renderStoreCard = (item: StoreCatalogEntry) => {
+    const owned = ownedStore.includes(item.id);
+    const affordableCoins = coins >= item.priceCoins;
+    const meetsXp = patientXp >= item.xpRequired;
+    const canBuy = affordableCoins && meetsXp;
+    const isEquipped = equippedStore.includes(item.id);
+
+    return (
+      <li
+        key={item.id}
+        className={`rounded-xl border px-3 py-3 flex flex-col gap-2.5 transition-transform duration-200 hover:scale-[1.02] hover:z-[1] ${storeCardClass}`}
+        style={{
+          background: 'linear-gradient(145deg, rgba(15,23,42,0.95), rgba(30,41,59,0.88))',
+        }}
+      >
+        <div className="flex gap-2.5">
+          <div className="w-[min(100%,7.5rem)] shrink-0">
+            {storeItemPreviewSupported(item.id) ? (
+              <StoreItemPreviewCanvas itemId={item.id} />
+            ) : (
+              <div
+                className="h-[88px] rounded-lg border border-slate-600 flex items-center justify-center bg-slate-900/90"
+                style={{ boxShadow: 'inset 0 0 20px rgba(0,0,0,0.45)' }}
+              >
+                <Dumbbell className="w-8 h-8 text-emerald-500/80" />
+              </div>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-start justify-between gap-1.5">
+              <p className="text-sm font-bold text-slate-100 leading-tight">{item.nameHe}</p>
+              {isEquipped && (
+                <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-emerald-500/25 text-emerald-300 border border-emerald-500/40">
+                  מוצג בסצנה
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1 leading-snug">{item.descriptionHe}</p>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[10px] font-bold tabular-nums">
+              <span className="text-amber-300/95">{item.priceCoins} מטבעות</span>
+              <span className={meetsXp ? 'text-cyan-300/90' : 'text-rose-400'}>
+                דרישת XP: {item.xpRequired}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 pt-0.5">
+          {!owned ? (
+            <button
+              type="button"
+              disabled={!canBuy}
+              onClick={() => {
+                const r = purchaseStoreItem(patientId, item.id);
+                if (r === 'ok') showFlash('נרכש! אפשר להציג ליד האווטאר.');
+                else if (r === 'already_owned') showFlash('כבר בבעלותך.');
+                else if (r === 'insufficient') showFlash('אין מספיק מטבעות.');
+                else if (r === 'insufficient_xp') showFlash('חסר XP לרכישה.');
+                else showFlash('לא ניתן לרכוש.');
+              }}
+              className="text-xs font-bold px-3 py-2 rounded-lg text-white disabled:opacity-35 disabled:cursor-not-allowed bg-gradient-to-r from-emerald-700 to-teal-800 border border-emerald-400/30"
+            >
+              קנה
+            </button>
+          ) : (
+            <>
+              {!isEquipped ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ok = equipStoreItem(patientId, item.id);
+                    showFlash(ok ? 'הוצג ליד האווטאר.' : 'לא ניתן להציג.');
+                  }}
+                  className="text-xs font-bold px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-200 bg-slate-800/80 hover:bg-slate-700/90"
+                >
+                  הצג בסצנה
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    unequipStoreItem(patientId, item.id);
+                    showFlash('הוסר מהסצנה.');
+                  }}
+                  className="text-xs font-bold px-3 py-2 rounded-lg border border-slate-500 text-slate-300 bg-slate-800/60"
+                >
+                  הסר
+                </button>
+              )}
+              <span className="text-[10px] font-semibold text-emerald-400/90 self-center">בבעלותך</span>
+            </>
+          )}
+        </div>
+      </li>
+    );
   };
 
   const low = GEAR_CATALOG.filter((i) => i.tier === 'low');
@@ -262,8 +412,8 @@ export default function GearStoreArmory({
       </div>
       <div className="p-4">
         <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
-          תצוגה מקדימה תלת־ממדית, מחיר במטבעות ודרישת XP. פריטים מסומנים כמעוצבים מופיעים על האווטאר באזור
-          האנטומי המתאים.
+          תצוגה מקדימה תלת־ממדית, מחיר במטבעות ודרישת XP. פריטי חנות מוצגים על הרצפה ליד האווטאר;
+          ציוד אנטומי מסומן כמעוצב מופיע על הגוף.
         </p>
         <div
           className="flex items-center gap-2 text-[11px] font-semibold rounded-xl px-3 py-2 border mb-4"
@@ -279,6 +429,13 @@ export default function GearStoreArmory({
             {msg}
           </p>
         )}
+        <CategorySection category="training" items={trainingItems}>
+          {trainingItems.map((item) => renderStoreCard(item))}
+        </CategorySection>
+        <CategorySection category="pets" items={petItems}>
+          {petItems.map((item) => renderStoreCard(item))}
+        </CategorySection>
+        <div className="border-t border-slate-700/60 my-4" />
         <TierSection tier="low" items={low}>
           {low.map((item) => renderCard(item))}
         </TierSection>

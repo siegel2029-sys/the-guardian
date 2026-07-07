@@ -500,6 +500,10 @@ interface PatientContextValue {
   purchaseItem: (patientId: string, itemId: string) => GearPurchaseResult;
   equipGearItem: (patientId: string, itemId: string) => boolean;
   unequipGearSlot: (patientId: string, slot: GearEquipSlot) => void;
+  /** רכישת פריט חנות 3D (MVP — כדור, משקולת, כלב) */
+  purchaseStoreItem: (patientId: string, itemId: string) => import('../config/storeCatalog').StorePurchaseResult;
+  equipStoreItem: (patientId: string, itemId: string) => boolean;
+  unequipStoreItem: (patientId: string, itemId: string) => void;
   /** בונוס XP לכניסה ראשונה ביום קליני (חד-פעמי ליום) */
   claimDailyLoginBonusIfNeeded: (patientId: string) => boolean;
   /** אות להצגת אנימציית פרס בכותרת הפורטל */
@@ -3241,6 +3245,8 @@ export function PatientProvider({
               lastSessionDate: p.joinDate,
               hasRedFlag: false,
               redFlagActive: false,
+              ownedStoreItemIds: [],
+              equippedItems: [],
               analytics: {
                 ...p.analytics,
                 sessionHistory: [],
@@ -3571,6 +3577,9 @@ export function PatientProvider({
         purchaseItem: gamification.purchaseGearItem,
         equipGearItem: gamification.equipGearItem,
         unequipGearSlot: gamification.unequipGearSlot,
+        purchaseStoreItem: gamification.purchaseStoreItem,
+        equipStoreItem: gamification.equipStoreItem,
+        unequipStoreItem: gamification.unequipStoreItem,
         claimDailyLoginBonusIfNeeded: gamification.claimDailyLoginBonusIfNeeded,
         rewardFeedback: gamification.rewardFeedback,
         clearRewardFeedback: gamification.clearRewardFeedback,

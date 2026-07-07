@@ -24,6 +24,8 @@ import {
 } from '../../hooks/useGamification';
 import type { BodyArea, ManualClinicalSegmentLockOverride } from '../../types';
 import { EMPTY_EQUIPPED_GEAR, type EquippedGearSnapshot } from '../../config/gearCatalog';
+import { normalizeStoreItemIds, type StoreItemId } from '../../config/storeCatalog';
+import EquippedStoreFloorProps from './equipped-store/EquippedStoreFloorProps';
 
 export interface BodyMap3DProps {
   activeAreas: BodyArea[];
@@ -62,6 +64,8 @@ export interface BodyMap3DProps {
   minHeightPx?: number;
   /** ציוד מעוגן אנטומית — מטופל; דשבורד מטפל משאיר ריק */
   equippedGear?: EquippedGearSnapshot;
+  /** פריטי חנות 3D פעילים — מוצגים על הרצפה ליד האווטאר */
+  equippedItems?: StoreItemId[];
   /** מקטעים להדגשת פגיעה (אדום) */
   injuryHighlightSegments?: BodyArea[];
   /** מוקד משני מהמטפל (כתום) */
@@ -621,6 +625,7 @@ function BodyMap3D(props: BodyMap3DProps) {
     onAreaClick,
     minHeightPx: _minHeightPx = 640,
     equippedGear: equippedGearProp,
+    equippedItems: equippedItemsProp,
     injuryHighlightSegments = [],
     secondaryClinicalBodyAreas = [],
     manualClinicalSegmentLockOverrides,
@@ -645,6 +650,10 @@ function BodyMap3D(props: BodyMap3DProps) {
     dailyScenicBackgroundDayKey.length > 0;
 
   const equippedGear = equippedGearProp ?? EMPTY_EQUIPPED_GEAR;
+  const equippedStoreItems = useMemo(
+    () => normalizeStoreItemIds(equippedItemsProp),
+    [equippedItemsProp]
+  );
   const coarsePointer = usePreferCoarsePointer();
   const scrollFriendlyPortal = patientPortalInteractive && coarsePointer;
 
@@ -876,6 +885,8 @@ function BodyMap3D(props: BodyMap3DProps) {
                   cssLayerVisualsForPortal={useScenicBackdrop && patientPortalInteractive}
                   straightClinicalFrontView={painCleanStudio}
                 />
+
+                <EquippedStoreFloorProps equippedItems={equippedStoreItems} />
 
                 {floatingLevelBadge && showLevelChrome && !patientPortalInteractive && (
                   <Html

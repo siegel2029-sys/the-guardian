@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { PatientProvider } from './context/PatientContext';
 import { AppRoutes } from './components/ProtectedRoute';
 import { PatientDidYouKnowProvider } from './components/patient/PatientDidYouKnowPortal';
+import CookieBanner from './components/legal/CookieBanner';
+import LegalOnboardingModal from './components/legal/LegalOnboardingModal';
 import { hasPersistedSupabaseAuthSession } from './lib/supabase';
 
 /**
@@ -27,6 +29,7 @@ function PatientRouterShell() {
       <BrowserRouter>
         <div className="min-h-dvh antialiased text-base text-slate-900">
           <AppRoutes />
+          <CookieBanner />
         </div>
       </BrowserRouter>
     );
@@ -38,6 +41,9 @@ function PatientRouterShell() {
         <PatientDidYouKnowProvider>
           <div className="min-h-dvh antialiased text-base text-slate-900">
             <AppRoutes />
+            <CookieBanner />
+            {/* Mandatory legal gate — self-hides for users who already accepted. */}
+            <LegalOnboardingModal />
           </div>
         </PatientDidYouKnowProvider>
       </BrowserRouter>

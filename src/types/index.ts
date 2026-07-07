@@ -317,6 +317,14 @@ export interface Patient {
   lastWorkoutAt?: string | null;
   /** IANA timezone for reminder cron — stored in `patients.payload`. */
   reminderTimezone?: string | null;
+  /**
+   * פריטי חנות 3D שנרכשו — נשמר ב־payload (MVP: כדור פיזיו, משקולת, כלב).
+   */
+  ownedStoreItemIds?: string[];
+  /**
+   * פריטי חנות 3D פעילים — מוצגים על הרצפה ליד האווטאר (מזהי פריט מ־storeCatalog).
+   */
+  equippedItems?: string[];
 }
 
 /** תובנות AI לסשן טיפול — נשמרות ברשומת התיעוד (payload מטופל → Supabase) */

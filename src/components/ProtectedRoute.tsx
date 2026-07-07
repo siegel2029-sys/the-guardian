@@ -5,6 +5,10 @@ import { useAuth } from '../context/AuthContext';
 import { hasPersistedSupabaseAuthSession } from '../lib/supabase';
 import LoginPage from './auth/LoginPage';
 import AccessibilityPage from './AccessibilityPage';
+import TermsOfUse from './legal/TermsOfUse';
+import PrivacyPolicy from './legal/PrivacyPolicy';
+import MedicalDisclaimer from './legal/MedicalDisclaimer';
+import RefundPolicy from './legal/RefundPolicy';
 
 // Route-level code splitting: the therapist dashboard and patient portal pull in
 // Three.js, Recharts and large feature trees — keep them out of the login bundle.
@@ -158,6 +162,11 @@ export function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/accessibility" element={<AccessibilityPage />} />
+      {/* Public legal pages (linked from the legal footer, cookie banner and onboarding gate). */}
+      <Route path="/terms" element={<TermsOfUse />} />
+      <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Route path="/medical-disclaimer" element={<MedicalDisclaimer />} />
+      <Route path="/refund-policy" element={<RefundPolicy />} />
       <Route path="/shop" element={<Navigate to="/patient-portal/gear" replace />} />
       <Route path="/patient-portal/*" element={<PatientPortalRoute />} />
       <Route path="/therapist" element={<TherapistRoute />} />

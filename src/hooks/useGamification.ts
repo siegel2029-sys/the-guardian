@@ -6,6 +6,12 @@ import {
   isGearItemId,
   type GearEquipSlot,
 } from '../config/gearCatalog';
+import {
+  STORE_BY_ID,
+  isStoreItemId,
+  normalizeStoreItemIds,
+  type StorePurchaseResult,
+} from '../config/storeCatalog';
 import { applyXpCoinsLevelUp } from '../utils/gamification-utils';
 import {
   getMuscleEvolutionStage,
@@ -894,6 +900,70 @@ export function useGamification({
     [setPatientGearByPatientId]
   );
 
+  const purchaseStoreItem = useCallback(
+    (patientId: string, rawId: string): StorePurchaseResult => {
+      if (!isStoreItemId(rawId)) return 'invalid';
+      const entry = STORE_BY_ID[rawId];
+      const patient = allPatients.find((p) => p.id === patientId);
+      if (!patient) return 'invalid';
+      if (patient.xp < entry.xpRequired) return 'insufficient_xp';
+      if (patient.coins < entry.priceCoins) return 'insufficient';
+
+      const owned = normalizeStoreItemIds(patient.ownedStoreItemIds);
+      if (owned.includes(rawId)) return 'already_owned';
+
+      setAllPatients((prev) =>
+        prev.map((p) =>
+          p.id === patientId
+            ? {
+                ...p,
+                coins: p.coins - entry.priceCoins,
+                ownedStoreItemIds: [...owned, rawId],
+              }
+            : p
+        )
+      );
+      return 'ok';
+    },
+    [allPatients, setAllPatients]
+  );
+
+  const equipStoreItem = useCallback(
+    (patientId: string, rawId: string): boolean => {
+      if (!isStoreItemId(rawId)) return false;
+      const patient = allPatients.find((p) => p.id === patientId);
+      if (!patient) return false;
+      const owned = normalizeStoreItemIds(patient.ownedStoreItemIds);
+      if (!owned.includes(rawId)) return false;
+      const equipped = normalizeStoreItemIds(patient.equippedItems);
+      if (equipped.includes(rawId)) return true;
+
+      setAllPatients((prev) =>
+        prev.map((p) =>
+          p.id === patientId
+            ? { ...p, equippedItems: [...equipped, rawId] }
+            : p
+        )
+      );
+      return true;
+    },
+    [allPatients, setAllPatients]
+  );
+
+  const unequipStoreItem = useCallback(
+    (patientId: string, rawId: string): void => {
+      if (!isStoreItemId(rawId)) return;
+      setAllPatients((prev) =>
+        prev.map((p) => {
+          if (p.id !== patientId) return p;
+          const equipped = normalizeStoreItemIds(p.equippedItems).filter((id) => id !== rawId);
+          return { ...p, equippedItems: equipped };
+        })
+      );
+    },
+    [setAllPatients]
+  );
+
   const claimDailyLoginBonusIfNeeded = useCallback(
     (patientId: string) => {
       const clinicalDay = getClinicalDate();
@@ -941,6 +1011,9 @@ export function useGamification({
     purchaseGearItem,
     equipGearItem,
     unequipGearSlot,
+    purchaseStoreItem,
+    equipStoreItem,
+    unequipStoreItem,
     claimDailyLoginBonusIfNeeded,
     knowledgeFacts,
     addManualKnowledgeFact,

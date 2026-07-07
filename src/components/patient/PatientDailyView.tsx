@@ -50,6 +50,7 @@ import { RewardLabel } from '../ui/RewardLabel';
 import StackedDumbbellsIcon from '../icons/StackedDumbbellsIcon';
 import GearStoreArmory from './GearStoreArmory';
 import { buildEquippedGearSnapshot } from '../../utils/gearSnapshot';
+import { normalizeStoreItemIds } from '../../config/storeCatalog';
 import PortalPatientDebugPanel from './PortalPatientDebugPanel';
 import Pilot11GamificationDebugPanel from './Pilot11GamificationDebugPanel';
 import { isPilot11GamificationDebugPatient } from '../../utils/pilot11GamificationDebug';
@@ -184,6 +185,9 @@ export default function PatientDailyView() {
     purchaseGearItem,
     equipGearItem,
     unequipGearSlot,
+    purchaseStoreItem,
+    equipStoreItem,
+    unequipStoreItem,
     claimDailyLoginBonusIfNeeded,
     rewardFeedback,
     clearRewardFeedback,
@@ -1398,6 +1402,7 @@ export default function PatientDailyView() {
                   injuryHighlightSegments={selectedPatient.injuryHighlightSegments}
                   avatarScale={0.9}
                   equippedGear={buildEquippedGearSnapshot(patientGearState)}
+                  equippedItems={normalizeStoreItemIds(selectedPatient.equippedItems)}
                   minHeightPx={0}
                   wrapperClassName="h-full w-full min-h-0"
                   onAreaClick={handleAvatarZoneClick}
@@ -1678,9 +1683,14 @@ export default function PatientDailyView() {
             coins={selectedPatient.coins}
             patientXp={selectedPatient.xp}
             gear={patientGearState}
+            ownedStoreItemIds={selectedPatient.ownedStoreItemIds ?? []}
+            equippedItems={selectedPatient.equippedItems ?? []}
             purchaseGearItem={purchaseGearItem}
             equipGearItem={equipGearItem}
             unequipGearSlot={unequipGearSlot}
+            purchaseStoreItem={purchaseStoreItem}
+            equipStoreItem={equipStoreItem}
+            unequipStoreItem={unequipStoreItem}
           />
         )}
 
