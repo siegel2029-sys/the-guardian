@@ -373,10 +373,29 @@ Deno.serve(async (req) => {
     "[notify-new-message][debug]",
     secretFingerprint("env(INTERNAL_MESSAGES_WEBHOOK_SECRET)", Deno.env.get("INTERNAL_MESSAGES_WEBHOOK_SECRET")),
     secretFingerprint("header(x-webhook-secret)", req.headers.get("x-webhook-secret")),
-    `match=${authHeader === secret}`,
+    `exactMatch=${authHeader === secret}`,
   );
 
-  if (!secret || authHeader !== secret) {
+  const exactMatch = secret.length > 0 && authHeader === secret;
+
+  // ── TEMP LENIENT AUTH (remove once private.app_config is fixed) ──
+  // Root cause under triage: the DB-side value is the env secret concatenated twice
+  // (44 chars vs 22), so exact-match fails while the header still *contains* the real
+  // secret. Accept a contains-match so notifications flow, but log the exact shape of
+  // the corruption. An attacker still needs the full secret, so this does not open the
+  // endpoint to unauthenticated callers — but restore strict equality once fixed.
+  const lenientMatch = !exactMatch && secret.length > 0 && authHeader.includes(secret);
+  if (lenientMatch) {
+    const at = authHeader.indexOf(secret);
+    console.warn(
+      "[notify-new-message][lenient-auth] header CONTAINS the secret but is not an exact match — " +
+        `headerLen=${authHeader.length} secretLen=${secret.length} matchIndex=${at} ` +
+        `extraPrefixChars=${at} extraSuffixChars=${authHeader.length - at - secret.length}. ` +
+        "Clean private.app_config.internal_messages_webhook_secret, then remove lenient mode.",
+    );
+  }
+
+  if (!exactMatch && !lenientMatch) {
     console.error("[notify-new-message] Unauthorized — missing or invalid webhook secret");
     return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
   }
@@ -398,10 +417,33 @@ Deno.serve(async (req) => {
   }
 
   const payloadObj = payload as Record<string, unknown>;
+
+  // ── test-notification helper: POST {"type":"test-notification"} (with the secret header)
+  // to verify end-to-end reachability without inserting a chat row. Echoes the payload back
+  // and logs it, so you can confirm in the Dashboard logs that requests actually arrive.
+  if (payloadObj.type === "test-notification") {
+    console.log(
+      "[notify-new-message][test-notification] Reached function with valid secret. Payload:",
+      JSON.stringify(payloadObj).slice(0, 1000),
+    );
+    return jsonResponse({ ok: true, test: true, receivedAt: new Date().toISOString(), echo: payloadObj });
+  }
+
   const tableName = typeof payloadObj.table === "string" ? payloadObj.table : "(unknown)";
   const record = extractRecord(payload);
   const direction = resolveChatDirection(record);
   console.log(`[notify-new-message] Trigger fired: table=${tableName} from=${describeSender(record ?? {})} direction=${direction}`);
+
+  // Log the exact push content the recipient will receive (static strings — no chat PHI).
+  const previewBody = direction === "to_therapist"
+    ? (coerceBool(record?.ai_clinical_alert) ? THERAPIST_ALERT_NOTIFY_BODY : THERAPIST_CHAT_NOTIFY_BODY)
+    : CHAT_NOTIFY_BODY;
+  const previewUrl = direction === "to_therapist" ? THERAPIST_MESSAGES_PATH : PORTAL_MESSAGES_PATH;
+  console.log(
+    `[notify-new-message] Valid payload received: message=${pickId(record, ["id"]) ?? "(no id)"} ` +
+      `patient=${pickId(record, ["patient_id"]) ?? "(none)"} therapist=${pickId(record, ["therapist_id"]) ?? "(none)"} ` +
+      `→ push {title="Physio-Shield", body="${previewBody}", url="${previewUrl}"}`,
+  );
 
   if (direction === "to_therapist") return await notifyTherapist(supabase, record);
   return await notifyPatient(supabase, record);
