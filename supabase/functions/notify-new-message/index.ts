@@ -305,21 +305,6 @@ function getWebhookSecret(): string {
   return (Deno.env.get("INTERNAL_MESSAGES_WEBHOOK_SECRET") ?? "").trim();
 }
 
-// ── TEMP DEBUG: webhook-secret mismatch triage (remove once resolved) ──
-// Prints a safe fingerprint of a secret — never the full value: trimmed length,
-// raw length (reveals leading/trailing whitespace), first/last 3 chars, and
-// whether any whitespace survives trimming (interior \n / \t / space).
-function secretFingerprint(label: string, raw: string | null | undefined): string {
-  if (raw == null) return `${label}=<MISSING>`;
-  const trimmed = raw.trim();
-  const head = trimmed.slice(0, 3);
-  const tail = trimmed.length > 3 ? trimmed.slice(-3) : "";
-  return (
-    `${label}{len=${trimmed.length} rawLen=${raw.length} ` +
-    `head='${head}' tail='${tail}' interiorWhitespace=${/\s/.test(trimmed)}}`
-  );
-}
-
 function extractRecord(payload: unknown): Record<string, unknown> | null {
   if (!payload || typeof payload !== "object") return null;
   const o = payload as Record<string, unknown>;
@@ -367,35 +352,8 @@ Deno.serve(async (req) => {
   // leak into proxy and load-balancer access logs.
   const secret = getWebhookSecret();
   const authHeader = req.headers.get("x-webhook-secret")?.trim() ?? "";
-
-  // TEMP DEBUG: log safe fingerprints of both sides on every request (remove once resolved).
-  console.log(
-    "[notify-new-message][debug]",
-    secretFingerprint("env(INTERNAL_MESSAGES_WEBHOOK_SECRET)", Deno.env.get("INTERNAL_MESSAGES_WEBHOOK_SECRET")),
-    secretFingerprint("header(x-webhook-secret)", req.headers.get("x-webhook-secret")),
-    `exactMatch=${authHeader === secret}`,
-  );
-
-  const exactMatch = secret.length > 0 && authHeader === secret;
-
-  // ── TEMP LENIENT AUTH (remove once private.app_config is fixed) ──
-  // Root cause under triage: the DB-side value is the env secret concatenated twice
-  // (44 chars vs 22), so exact-match fails while the header still *contains* the real
-  // secret. Accept a contains-match so notifications flow, but log the exact shape of
-  // the corruption. An attacker still needs the full secret, so this does not open the
-  // endpoint to unauthenticated callers — but restore strict equality once fixed.
-  const lenientMatch = !exactMatch && secret.length > 0 && authHeader.includes(secret);
-  if (lenientMatch) {
-    const at = authHeader.indexOf(secret);
-    console.warn(
-      "[notify-new-message][lenient-auth] header CONTAINS the secret but is not an exact match — " +
-        `headerLen=${authHeader.length} secretLen=${secret.length} matchIndex=${at} ` +
-        `extraPrefixChars=${at} extraSuffixChars=${authHeader.length - at - secret.length}. ` +
-        "Clean private.app_config.internal_messages_webhook_secret, then remove lenient mode.",
-    );
-  }
-
-  if (!exactMatch && !lenientMatch) {
+  const isValid = secret.length > 0 && authHeader === secret;
+  if (!isValid) {
     console.error("[notify-new-message] Unauthorized — missing or invalid webhook secret");
     return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
   }
