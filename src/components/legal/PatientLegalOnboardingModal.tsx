@@ -183,7 +183,7 @@ export default function PatientLegalOnboardingModal({
 
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-5 space-y-3">
           <p className="text-sm text-slate-600 leading-relaxed">
-            לפני המשך השימוש באפליקציה יש לקרוא ולאשר את המסמכים המשפטיים המקושרים להלן.
+            לפני המשך השימוש באפליקציה יש לקרוא ולאשר את המסמכים המקושרים להלן.
             לחצו על כל כותרת כדי לפתוח את הנוסח המלא.
           </p>
 

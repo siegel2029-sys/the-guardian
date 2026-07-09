@@ -111,7 +111,7 @@ export default function LegalOnboardingModal() {
 
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
           <p className="text-sm text-slate-600 leading-relaxed">
-            לפני המשך השימוש באפליקציה יש לקרוא ולאשר את המסמכים המשפטיים המקושרים להלן.
+            לפני המשך השימוש באפליקציה יש לקרוא ולאשר את המסמכים המקושרים להלן.
           </p>
 
           <fieldset className="space-y-3">
