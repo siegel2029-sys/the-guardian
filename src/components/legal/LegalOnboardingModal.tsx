@@ -170,6 +170,13 @@ export default function LegalOnboardingModal() {
                   className="text-teal-700 underline underline-offset-2 hover:text-teal-800"
                 >
                   מדיניות הפרטיות
+                </Link>
+                ,{' '}
+                <Link
+                  to="/legal/medical-disclaimer"
+                  className="text-teal-700 underline underline-offset-2 hover:text-teal-800"
+                >
+                  ההצהרה הרפואית
                 </Link>{' '}
                 ו
                 <Link
