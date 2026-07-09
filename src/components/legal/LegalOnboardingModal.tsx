@@ -106,9 +106,6 @@ export default function LegalOnboardingModal() {
             <h2 id="legal-onboarding-title" className="text-lg font-bold text-slate-800">
               תנאי שימוש והצהרה רפואית
             </h2>
-            <p className="text-xs text-slate-500">
-              כדי להמשיך להשתמש ב־PHYSIOSHIELD יש לקרוא ולאשר את התנאים הבאים.
-            </p>
           </div>
         </header>
 
