@@ -1,9 +1,18 @@
 import { useState, useEffect } from 'react';
-import { X, Settings } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { X, Settings, FileText, ChevronLeft } from 'lucide-react';
 import type { Patient } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import type { PatientPasswordChangeResult } from '../../context/authPersistence';
 import { validateNewPassword } from '../../lib/passwordPolicy';
+
+const LEGAL_SETTINGS_LINKS: { to: string; label: string }[] = [
+  { to: '/legal/terms-of-use', label: 'תנאי שימוש' },
+  { to: '/legal/privacy-policy', label: 'מדיניות פרטיות' },
+  { to: '/legal/medical-disclaimer', label: 'הצהרה רפואית' },
+  { to: '/legal/refund-policy', label: 'מדיניות ביטולים' },
+  { to: '/legal/accessibility', label: 'הצהרת נגישות' },
+];
 
 type Props = {
   open: boolean;
@@ -221,7 +230,7 @@ export default function PatientPortalSettingsModal({
             <p className="text-sm font-medium text-medical-success">השינויים נשמרו בהצלחה.</p>
           )}
 
-          <div className="flex flex-col-reverse sm:flex-row gap-2 pt-1 pb-2">
+          <div className="flex flex-col-reverse sm:flex-row gap-2 pt-1">
             <button
               type="button"
               onClick={onClose}
@@ -237,6 +246,33 @@ export default function PatientPortalSettingsModal({
               שמור סיסמה
             </button>
           </div>
+
+          <section className="space-y-2 pt-2 pb-2 border-t border-slate-100">
+            <h3 className="text-xs font-bold text-slate-600">אודות ומסמכים משפטיים</h3>
+            <ul className="rounded-2xl border border-slate-200/80 overflow-hidden bg-white divide-y divide-slate-100">
+              {LEGAL_SETTINGS_LINKS.map((link) => (
+                <li key={link.to}>
+                  <Link
+                    to={link.to}
+                    onClick={onClose}
+                    className="flex items-center gap-3 px-3.5 py-3.5 text-sm font-medium text-slate-800 hover:bg-slate-50 active:bg-slate-100 transition-colors touch-manipulation"
+                  >
+                    <FileText
+                      className="w-4 h-4 shrink-0 text-slate-400"
+                      strokeWidth={2}
+                      aria-hidden
+                    />
+                    <span className="flex-1 min-w-0 text-right">{link.label}</span>
+                    <ChevronLeft
+                      className="w-4 h-4 shrink-0 text-slate-300"
+                      strokeWidth={2}
+                      aria-hidden
+                    />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
         </div>
       </div>
     </div>

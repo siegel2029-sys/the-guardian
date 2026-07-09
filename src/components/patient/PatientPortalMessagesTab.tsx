@@ -2,7 +2,6 @@ import { memo, useMemo } from 'react';
 import { MessageCircle } from 'lucide-react';
 import type { Patient } from '../../types';
 import { getTherapistDisplayName } from '../../context/authPersistence';
-import LegalFooter from '../legal/LegalFooter';
 import PatientPortalMessageFeed from './PatientPortalMessageFeed';
 import PatientPortalMessagesUnreadBadge from './PatientPortalMessagesUnreadBadge';
 import PatientPortalTherapistChatInput from './PatientPortalTherapistChatInput';
@@ -50,7 +49,6 @@ function PatientPortalMessagesTab({
 
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 bg-slate-50/80">
         <PatientPortalMessageFeed patientId={patientId} careGiverName={careGiverName} />
-        <LegalFooter />
       </div>
 
       <footer className="shrink-0 border-t-2 border-slate-200 bg-white shadow-[0_-8px_24px_rgba(15,23,42,0.08)] pointer-events-auto p-3 space-y-2">
