@@ -57,7 +57,7 @@ export default function CookieBanner() {
             אנחנו משתמשים בעוגיות (Cookies) ובאחסון מקומי כדי להפעיל את האפליקציה, לשמור על החיבור
             שלך ולשפר את חוויית השימוש. למידע נוסף ראו את{' '}
             <Link
-              to="/privacy"
+              to="/legal/privacy-policy"
               className="text-teal-700 font-medium underline underline-offset-2 hover:text-teal-800 transition-colors"
             >
               מדיניות הפרטיות

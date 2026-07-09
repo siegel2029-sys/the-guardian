@@ -459,11 +459,11 @@ export default function LoginPage() {
         <footer className="text-center text-xs text-slate-400 mt-6">
           <nav aria-label="קישורים משפטיים" className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
             {[
-              { href: '/terms', label: 'תנאי שימוש' },
-              { href: '/privacy', label: 'מדיניות פרטיות' },
-              { href: '/medical-disclaimer', label: 'הצהרה רפואית' },
-              { href: '/refund-policy', label: 'מדיניות ביטולים והחזרים' },
-              { href: '/accessibility', label: 'הצהרת נגישות' },
+              { href: '/legal/terms-of-use', label: 'תנאי שימוש' },
+              { href: '/legal/privacy-policy', label: 'מדיניות פרטיות' },
+              { href: '/legal/medical-disclaimer', label: 'הצהרה רפואית' },
+              { href: '/legal/refund-policy', label: 'מדיניות ביטולים והחזרים' },
+              { href: '/legal/accessibility', label: 'הצהרת נגישות' },
             ].map((link, i) => (
               <span key={link.href} className="inline-flex items-center gap-2">
                 {i > 0 && <span aria-hidden="true">·</span>}

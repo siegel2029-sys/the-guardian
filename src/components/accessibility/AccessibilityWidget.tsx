@@ -146,7 +146,7 @@ export default function AccessibilityWidget() {
           </div>
 
           <Link
-            to="/accessibility"
+            to="/legal/accessibility"
             className="block text-center text-xs text-teal-700 underline underline-offset-2 hover:text-teal-800 py-1"
           >
             הצהרת נגישות

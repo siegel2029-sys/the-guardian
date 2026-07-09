@@ -11,6 +11,7 @@ import MedicalDisclaimer from './legal/MedicalDisclaimer';
 import RefundPolicy from './legal/RefundPolicy';
 import PatientLegalGate from './legal/PatientLegalGate';
 import PatientPortalLayout from './patient/PatientPortalLayout';
+import { LEGAL_PAGE_PATHS } from './legal/legalPaths';
 
 // Route-level code splitting: the therapist dashboard and patient portal pull in
 // Three.js, Recharts and large feature trees — keep them out of the login bundle.
@@ -167,12 +168,18 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
-      <Route path="/accessibility" element={<AccessibilityPage />} />
-      {/* Public legal pages (linked from the legal footer, cookie banner and onboarding gate). */}
-      <Route path="/terms" element={<TermsOfUse />} />
-      <Route path="/privacy" element={<PrivacyPolicy />} />
-      <Route path="/medical-disclaimer" element={<MedicalDisclaimer />} />
-      <Route path="/refund-policy" element={<RefundPolicy />} />
+      {/* Public legal pages — accessible without consent acceptance. */}
+      <Route path={LEGAL_PAGE_PATHS[0]} element={<TermsOfUse />} />
+      <Route path={LEGAL_PAGE_PATHS[1]} element={<PrivacyPolicy />} />
+      <Route path={LEGAL_PAGE_PATHS[2]} element={<MedicalDisclaimer />} />
+      <Route path={LEGAL_PAGE_PATHS[3]} element={<RefundPolicy />} />
+      <Route path={LEGAL_PAGE_PATHS[4]} element={<AccessibilityPage />} />
+      {/* Legacy path redirects → canonical /legal/* URLs */}
+      <Route path="/terms" element={<Navigate to="/legal/terms-of-use" replace />} />
+      <Route path="/privacy" element={<Navigate to="/legal/privacy-policy" replace />} />
+      <Route path="/medical-disclaimer" element={<Navigate to="/legal/medical-disclaimer" replace />} />
+      <Route path="/refund-policy" element={<Navigate to="/legal/refund-policy" replace />} />
+      <Route path="/accessibility" element={<Navigate to="/legal/accessibility" replace />} />
       <Route path="/shop" element={<Navigate to="/patient-portal/gear" replace />} />
       <Route path="/patient-portal/*" element={<PatientPortalRoute />} />
       <Route path="/therapist" element={<TherapistRoute />} />

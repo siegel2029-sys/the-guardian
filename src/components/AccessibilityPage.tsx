@@ -3,12 +3,12 @@ import LegalPageLayout from './legal/LegalPageLayout';
 export default function AccessibilityPage() {
   return (
     <LegalPageLayout title="הצהרת נגישות" subtitle="הצהרת נגישות - PHYSIOSHIELD">
-      <div className="space-y-4">
-        <h2 className="text-xl font-bold">הצהרת נגישות</h2>
+      <div className="space-y-6 text-right p-6">
+        <h1 className="text-2xl font-bold mb-4">הצהרת נגישות</h1>
         <p>
-          אנו ב-Physio-Shield מחויבים להנגשת האפליקציה כחלק מתהליך מתמשך של שיפור חוויית
-          המשתמש. אנו בתהליך הטמעה של כלים טכנולוגיים לשינוי ניגודיות וגודל טקסט. במידה ונתקלת
-          בקושי, נשמח לסיוע מולך באופן אישי.
+          Physio-Shield פועלת להנגשת האפליקציה לאנשים עם מוגבלות. אנו משקיעים מאמצים
+          טכנולוגיים בשיפור הנגישות, כולל התאמות צבע וגודל טקסט. במידה ונתקלת בקושי, נשמח
+          לפנייתך האישית.
         </p>
       </div>
     </LegalPageLayout>

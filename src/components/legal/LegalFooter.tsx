@@ -1,11 +1,11 @@
 import { Link } from 'react-router-dom';
 
 const LEGAL_LINKS: { to: string; label: string }[] = [
-  { to: '/terms', label: 'תנאי שימוש' },
-  { to: '/privacy', label: 'מדיניות פרטיות' },
-  { to: '/medical-disclaimer', label: 'הצהרה רפואית' },
-  { to: '/refund-policy', label: 'מדיניות ביטולים והחזרים' },
-  { to: '/accessibility', label: 'הצהרת נגישות' },
+  { to: '/legal/terms-of-use', label: 'תנאי שימוש' },
+  { to: '/legal/privacy-policy', label: 'מדיניות פרטיות' },
+  { to: '/legal/medical-disclaimer', label: 'הצהרה רפואית' },
+  { to: '/legal/refund-policy', label: 'מדיניות ביטולים והחזרים' },
+  { to: '/legal/accessibility', label: 'הצהרת נגישות' },
 ];
 
 /** App-wide legal footer: static links to all legal pages + copyright. */

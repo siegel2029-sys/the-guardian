@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Loader2, ScrollText, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -8,6 +8,7 @@ import {
   fetchLegalConsentStatus,
   hasAcceptedAllLegalTerms,
 } from '../../services/legalConsent';
+import { isLegalPagePath } from './legalPaths';
 
 /**
  * Mandatory legal onboarding gate.
@@ -26,6 +27,8 @@ type GateState = 'checking' | 'required' | 'accepted';
 
 export default function LegalOnboardingModal() {
   const { sessionRole, hasSupabaseSession, therapist } = useAuth();
+  const location = useLocation();
+  const isLegalPage = isLegalPagePath(location.pathname);
 
   // Consent lives on public.profiles, which only therapist accounts own
   // (patients are blocked by RLS and have no profiles row).
@@ -62,7 +65,8 @@ export default function LegalOnboardingModal() {
     };
   }, [userId]);
 
-  if (!userId || gate !== 'required') return null;
+  // Legal document pages must remain readable without accepting terms first.
+  if (!userId || gate !== 'required' || isLegalPage) return null;
 
   const allChecked = isOver18 && acceptsTerms && acceptsDisclaimer;
 
@@ -155,24 +159,21 @@ export default function LegalOnboardingModal() {
               <span className="text-sm text-slate-700 leading-relaxed">
                 אני מקבל/ת את{' '}
                 <Link
-                  to="/terms"
-                  target="_blank"
+                  to="/legal/terms-of-use"
                   className="text-teal-700 underline underline-offset-2 hover:text-teal-800"
                 >
                   תנאי השימוש
                 </Link>
                 ,{' '}
                 <Link
-                  to="/privacy"
-                  target="_blank"
+                  to="/legal/privacy-policy"
                   className="text-teal-700 underline underline-offset-2 hover:text-teal-800"
                 >
                   מדיניות הפרטיות
                 </Link>{' '}
                 ו
                 <Link
-                  to="/refund-policy"
-                  target="_blank"
+                  to="/legal/refund-policy"
                   className="text-teal-700 underline underline-offset-2 hover:text-teal-800"
                 >
                   מדיניות הביטולים וההחזרים
