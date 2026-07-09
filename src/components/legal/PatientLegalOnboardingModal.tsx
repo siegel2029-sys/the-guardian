@@ -7,21 +7,11 @@ import {
   isPatientLegallyAccepted,
   PATIENT_LEGAL_NETWORK_ERROR,
 } from '../../services/patientLegalConsent';
-
-/** Hardcoded legal placeholder copy — always readable without network. */
-const PATIENT_LEGAL_TEXT = {
-  termsOfUse: `[כאן יופיע הנוסח המלא של תנאי השימוש באפליקציה.
-
-PHYSIOSHIELD מספקת כלי ליווי ותרגול פיזיותרפי בין מפגשים. השימוש באפליקציה כפוף לתנאים אלה, לרבות הגבלות אחריות, שימוש מותר, וקניין רוחני.]`,
-
-  privacyPolicy: `[כאן יופיע הנוסח המלא של מדיניות הפרטיות.
-
-אנו מעבדים מידע אישי ורפואי בהתאם לדין החל, לצורך מתן השירות, תקשורת עם המטפל/ת, ושיפור חוויית המשתמש. המידע מוגן באמצעי אבטחה מתאימים.]`,
-
-  medicalDisclaimer: `האפליקציה אינה מהווה ייעוץ רפואי, אינה מחליפה טיפול רפואי מקצועי או טיפול חירום, ויש להתאמן בסביבה בטוחה בהתאם להנחיות המטפל/ת.
-
-[כאן יופיע הנוסח המלא של ההצהרה הרפואית.]`,
-} as const;
+import {
+  MedicalDisclaimerBody,
+  PrivacyPolicyBody,
+  TermsOfUseBody,
+} from './legalDocumentBodies';
 
 type GateView = 'loading' | 'error' | 'consent';
 
@@ -29,10 +19,10 @@ type LegalSectionProps = {
   id: string;
   title: string;
   icon: ReactNode;
-  content: string;
+  children: ReactNode;
 };
 
-function LegalSection({ id, title, icon, content }: LegalSectionProps) {
+function LegalSection({ id, title, icon, children }: LegalSectionProps) {
   return (
     <details className="group rounded-xl border border-slate-200 bg-white overflow-hidden open:shadow-sm">
       <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer select-none hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 [&::-webkit-details-marker]:hidden list-none">
@@ -48,11 +38,11 @@ function LegalSection({ id, title, icon, content }: LegalSectionProps) {
         />
       </summary>
       <div
-        className="max-h-48 overflow-y-auto border-t border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 leading-relaxed whitespace-pre-line"
+        className="max-h-56 overflow-y-auto border-t border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 leading-relaxed"
         role="document"
         aria-labelledby={id}
       >
-        {content}
+        {children}
       </div>
     </details>
   );
@@ -73,9 +63,13 @@ export default function PatientLegalOnboardingModal({
 }: PatientLegalOnboardingModalProps) {
   const { sessionRole } = useAuth();
   const [view, setView] = useState<GateView>('loading');
+  const [isOver18, setIsOver18] = useState(false);
   const [acceptsTerms, setAcceptsTerms] = useState(false);
+  const [acceptsDisclaimer, setAcceptsDisclaimer] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const allChecked = isOver18 && acceptsTerms && acceptsDisclaimer;
 
   const loadConsentStatus = useCallback(async () => {
     setView('loading');
@@ -102,7 +96,7 @@ export default function PatientLegalOnboardingModal({
   }, [loadConsentStatus]);
 
   const handleSubmit = async () => {
-    if (!acceptsTerms || saving) return;
+    if (!allChecked || saving) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -185,41 +179,52 @@ export default function PatientLegalOnboardingModal({
             <h2 id="patient-legal-onboarding-title" className="text-lg font-bold text-slate-800">
               תנאי שימוש והצהרה רפואית
             </h2>
-            <p className="text-xs text-slate-500">
-              כדי להמשיך להשתמש ב־PHYSIOSHIELD יש לקרוא ולאשר את התנאים הבאים.
-            </p>
           </div>
         </header>
 
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-5 space-y-3">
           <p className="text-sm text-slate-600 leading-relaxed">
-            לפני השימוש באפליקציה, אנא קראו את המסמכים הבאים. לחצו על כל כותרת כדי לפתוח את הנוסח
-            המלא.
+            לפני המשך השימוש באפליקציה יש לקרוא ולאשר את המסמכים המשפטיים המקושרים להלן.
+            לחצו על כל כותרת כדי לפתוח את הנוסח המלא.
           </p>
 
           <LegalSection
             id="patient-legal-terms"
             title="תנאי שימוש"
             icon={<ScrollText className="w-4 h-4 text-teal-600" />}
-            content={PATIENT_LEGAL_TEXT.termsOfUse}
-          />
+          >
+            <TermsOfUseBody />
+          </LegalSection>
 
           <LegalSection
             id="patient-legal-privacy"
             title="מדיניות פרטיות"
             icon={<ScrollText className="w-4 h-4 text-teal-600" />}
-            content={PATIENT_LEGAL_TEXT.privacyPolicy}
-          />
+          >
+            <PrivacyPolicyBody />
+          </LegalSection>
 
           <LegalSection
             id="patient-legal-disclaimer"
             title="הצהרה רפואית"
             icon={<ShieldAlert className="w-4 h-4 text-amber-600" />}
-            content={PATIENT_LEGAL_TEXT.medicalDisclaimer}
-          />
+          >
+            <MedicalDisclaimerBody />
+          </LegalSection>
 
-          <fieldset className="pt-2">
-            <legend className="sr-only">אישור נדרש</legend>
+          <fieldset className="space-y-3 pt-2">
+            <legend className="sr-only">אישורים נדרשים</legend>
+
+            <label className="flex items-start gap-3 rounded-xl border border-slate-200 hover:border-teal-200 transition-colors p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isOver18}
+                onChange={(e) => setIsOver18(e.target.checked)}
+                className="mt-0.5 w-4 h-4 shrink-0 accent-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+              />
+              <span className="text-sm text-slate-700 leading-relaxed">אני מעל גיל 18.</span>
+            </label>
+
             <label className="flex items-start gap-3 rounded-xl border border-slate-200 hover:border-teal-200 transition-colors p-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -228,7 +233,20 @@ export default function PatientLegalOnboardingModal({
                 className="mt-0.5 w-4 h-4 shrink-0 accent-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
               />
               <span className="text-sm text-slate-700 leading-relaxed">
-                אני מסכים/מסכימה לתנאי השימוש ולהצהרה הרפואית
+                אני מסכים/ה לתנאי השימוש, מדיניות הפרטיות והצהרת האחריות הרפואית
+              </span>
+            </label>
+
+            <label className="flex items-start gap-3 rounded-xl border border-slate-200 hover:border-teal-200 transition-colors p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={acceptsDisclaimer}
+                onChange={(e) => setAcceptsDisclaimer(e.target.checked)}
+                className="mt-0.5 w-4 h-4 shrink-0 accent-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+              />
+              <span className="text-sm text-slate-700 leading-relaxed">
+                קראתי את ההצהרה הרפואית ואני מבין/ה שהאפליקציה אינה מחליפה טיפול רפואי חירום,
+                ואני מתחייב/ת להתאמן בסביבה בטוחה.
               </span>
             </label>
           </fieldset>
@@ -244,7 +262,7 @@ export default function PatientLegalOnboardingModal({
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={!acceptsTerms || saving}
+            disabled={!allChecked || saving}
             className="w-full rounded-xl bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-3 shadow transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
           >
             {saving ? (
@@ -256,9 +274,9 @@ export default function PatientLegalOnboardingModal({
               'אישור והמשך'
             )}
           </button>
-          {!acceptsTerms && (
+          {!allChecked && (
             <p className="text-center text-xs text-slate-400 mt-2">
-              יש לסמן את תיבת האישור כדי להמשיך.
+              יש לסמן את שלוש התיבות כדי להמשיך.
             </p>
           )}
         </footer>
