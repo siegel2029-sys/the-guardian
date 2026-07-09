@@ -7,11 +7,9 @@ import {
   isPatientLegallyAccepted,
   PATIENT_LEGAL_NETWORK_ERROR,
 } from '../../services/patientLegalConsent';
-import {
-  MedicalDisclaimerBody,
-  PrivacyPolicyBody,
-  TermsOfUseBody,
-} from './legalDocumentBodies';
+import TermsOfUse from './TermsOfUse';
+import PrivacyPolicy from './PrivacyPolicy';
+import MedicalDisclaimer from './MedicalDisclaimer';
 
 type GateView = 'loading' | 'error' | 'consent';
 
@@ -193,7 +191,7 @@ export default function PatientLegalOnboardingModal({
             title="תנאי שימוש"
             icon={<ScrollText className="w-4 h-4 text-teal-600" />}
           >
-            <TermsOfUseBody />
+            <TermsOfUse embedded />
           </LegalSection>
 
           <LegalSection
@@ -201,7 +199,7 @@ export default function PatientLegalOnboardingModal({
             title="מדיניות פרטיות"
             icon={<ScrollText className="w-4 h-4 text-teal-600" />}
           >
-            <PrivacyPolicyBody />
+            <PrivacyPolicy embedded />
           </LegalSection>
 
           <LegalSection
@@ -209,7 +207,7 @@ export default function PatientLegalOnboardingModal({
             title="הצהרה רפואית"
             icon={<ShieldAlert className="w-4 h-4 text-amber-600" />}
           >
-            <MedicalDisclaimerBody />
+            <MedicalDisclaimer embedded />
           </LegalSection>
 
           <fieldset className="space-y-3 pt-2">
@@ -233,7 +231,7 @@ export default function PatientLegalOnboardingModal({
                 className="mt-0.5 w-4 h-4 shrink-0 accent-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
               />
               <span className="text-sm text-slate-700 leading-relaxed">
-                אני מסכים/ה לתנאי השימוש, מדיניות הפרטיות והצהרת האחריות הרפואית
+                אני מסכים/ה לתנאי השימוש, מדיניות הפרטיות והצהרת האחריות הרפואית.
               </span>
             </label>
 
@@ -245,7 +243,7 @@ export default function PatientLegalOnboardingModal({
                 className="mt-0.5 w-4 h-4 shrink-0 accent-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
               />
               <span className="text-sm text-slate-700 leading-relaxed">
-                קראתי את ההצהרה הרפואית ואני מבין/ה שהאפליקציה אינה מחליפה טיפול רפואי חירום,
+                קראתי את ההצהרה הרפואית, אני מבין/ה שהאפליקציה אינה מחליפה טיפול רפואי חירום,
                 ואני מתחייב/ת להתאמן בסביבה בטוחה.
               </span>
             </label>
