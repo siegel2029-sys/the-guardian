@@ -10,6 +10,7 @@ import {
 import TermsOfUse from './TermsOfUse';
 import PrivacyPolicy from './PrivacyPolicy';
 import MedicalDisclaimer from './MedicalDisclaimer';
+import RefundPolicy from './RefundPolicy';
 
 type GateView = 'loading' | 'error' | 'consent';
 
@@ -210,6 +211,14 @@ export default function PatientLegalOnboardingModal({
             <MedicalDisclaimer embedded />
           </LegalSection>
 
+          <LegalSection
+            id="patient-legal-refund"
+            title="מדיניות ביטולים"
+            icon={<ScrollText className="w-4 h-4 text-teal-600" />}
+          >
+            <RefundPolicy embedded />
+          </LegalSection>
+
           <fieldset className="space-y-3 pt-2">
             <legend className="sr-only">אישורים נדרשים</legend>
 
@@ -231,7 +240,7 @@ export default function PatientLegalOnboardingModal({
                 className="mt-0.5 w-4 h-4 shrink-0 accent-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
               />
               <span className="text-sm text-slate-700 leading-relaxed">
-                אני מסכים/ה לתנאי השימוש, מדיניות הפרטיות והצהרת האחריות הרפואית.
+                אני מסכים/ה לתנאי השימוש, מדיניות הפרטיות ומדיניות הביטולים.
               </span>
             </label>
 
