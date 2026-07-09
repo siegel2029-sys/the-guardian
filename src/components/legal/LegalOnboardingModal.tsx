@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Loader2, ScrollText, ShieldAlert } from 'lucide-react';
+import { Loader2, ScrollText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import {
@@ -113,28 +113,9 @@ export default function LegalOnboardingModal() {
         </header>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
-          <section aria-labelledby="legal-disclaimer-heading">
-            <h3
-              id="legal-disclaimer-heading"
-              className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2"
-            >
-              <ShieldAlert className="w-4 h-4 text-amber-600" aria-hidden="true" />
-              הצהרה רפואית (Medical Disclaimer)
-            </h3>
-            <div
-              className="h-44 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 leading-relaxed"
-              tabIndex={0}
-              role="document"
-              aria-label="נוסח ההצהרה הרפואית"
-            >
-              {/* TODO: Insert Hebrew Legal Text — full Medical Disclaimer goes here */}
-              <p>
-                [כאן יופיע הנוסח המלא של ההצהרה הרפואית: האפליקציה אינה מהווה ייעוץ רפואי, אינה
-                מחליפה טיפול רפואי מקצועי או טיפול חירום, ויש להתאמן בסביבה בטוחה בהתאם להנחיות
-                המטפל/ת.]
-              </p>
-            </div>
-          </section>
+          <p className="text-sm text-slate-600 leading-relaxed">
+            לפני המשך השימוש באפליקציה יש לקרוא ולאשר את המסמכים המשפטיים המקושרים להלן.
+          </p>
 
           <fieldset className="space-y-3">
             <legend className="sr-only">אישורים נדרשים</legend>
