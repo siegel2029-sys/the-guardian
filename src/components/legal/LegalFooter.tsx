@@ -4,31 +4,28 @@ const LEGAL_LINKS: { to: string; label: string }[] = [
   { to: '/legal/terms-of-use', label: 'תנאי שימוש' },
   { to: '/legal/privacy-policy', label: 'מדיניות פרטיות' },
   { to: '/legal/medical-disclaimer', label: 'הצהרה רפואית' },
-  { to: '/legal/refund-policy', label: 'מדיניות ביטולים והחזרים' },
+  { to: '/legal/refund-policy', label: 'מדיניות ביטולים' },
   { to: '/legal/accessibility', label: 'הצהרת נגישות' },
 ];
 
-/** App-wide legal footer: static links to all legal pages + copyright. */
+/** Subtle legal footer for patient portal pages and public legal documents. */
 export default function LegalFooter() {
   return (
     <footer
-      className="border-t border-slate-200 bg-white py-4 px-4 text-center text-xs text-slate-400"
+      className="text-xs text-gray-400 flex flex-wrap justify-center gap-4 py-4 mt-8 border-t border-gray-200"
       dir="rtl"
     >
-      <nav aria-label="קישורים משפטיים" className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
-        {LEGAL_LINKS.map((link, i) => (
-          <span key={link.to} className="inline-flex items-center gap-2">
-            {i > 0 && <span aria-hidden="true">·</span>}
-            <Link
-              to={link.to}
-              className="hover:text-teal-600 underline underline-offset-2 transition-colors"
-            >
-              {link.label}
-            </Link>
-          </span>
+      <nav aria-label="קישורים משפטיים" className="flex flex-wrap items-center justify-center gap-4 w-full">
+        {LEGAL_LINKS.map((link) => (
+          <Link
+            key={link.to}
+            to={link.to}
+            className="hover:text-teal-600 underline underline-offset-2 transition-colors"
+          >
+            {link.label}
+          </Link>
         ))}
       </nav>
-      <p className="mt-2">© PHYSIOSHIELD 2026 - כל הזכויות שמורות</p>
     </footer>
   );
 }

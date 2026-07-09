@@ -18,6 +18,7 @@ import BodyMap3D from '../body-map/BodyMap3D';
 import GuardiVictorySequence from './GordyVictorySequence';
 import GuardiCompanion, { type GuardiTransientAppearance } from './GordyCompanion';
 import GuardiFullScreenCelebration from './GordyFullScreenCelebration';
+import LegalFooter from '../legal/LegalFooter';
 import ExerciseCard from './ExerciseCard';
 import OptionalSection from './OptionalSection';
 import { useOptionalRehabPool } from './useOptionalRehabPool';
@@ -1697,6 +1698,7 @@ export default function PatientDailyView() {
           />
         )}
 
+        {portalTab !== 'messages' && <LegalFooter />}
       </div>
 
       {import.meta.env.DEV && (
