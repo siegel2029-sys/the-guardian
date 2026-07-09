@@ -1694,16 +1694,6 @@ export default function PatientDailyView() {
           />
         )}
 
-        {portalTab !== 'messages' && (
-          <footer className="mt-10 pt-6 border-t border-slate-200/80 flex justify-center shrink-0">
-            <a
-              href="/accessibility"
-              className="text-[11px] text-slate-500 hover:text-teal-600 underline underline-offset-2 transition-colors py-2"
-            >
-              הצהרת נגישות
-            </a>
-          </footer>
-        )}
       </div>
 
       {import.meta.env.DEV && (

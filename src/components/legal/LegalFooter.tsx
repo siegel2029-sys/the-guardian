@@ -28,7 +28,7 @@ export default function LegalFooter() {
           </span>
         ))}
       </nav>
-      <p className="mt-2">© 2026 PHYSIOSHIELD · כל הזכויות שמורות</p>
+      <p className="mt-2">© PHYSIOSHIELD 2026 - כל הזכויות שמורות</p>
     </footer>
   );
 }

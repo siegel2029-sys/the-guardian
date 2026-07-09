@@ -9,6 +9,8 @@ import TermsOfUse from './legal/TermsOfUse';
 import PrivacyPolicy from './legal/PrivacyPolicy';
 import MedicalDisclaimer from './legal/MedicalDisclaimer';
 import RefundPolicy from './legal/RefundPolicy';
+import PatientLegalGate from './legal/PatientLegalGate';
+import PatientPortalLayout from './patient/PatientPortalLayout';
 
 // Route-level code splitting: the therapist dashboard and patient portal pull in
 // Three.js, Recharts and large feature trees — keep them out of the login bundle.
@@ -110,9 +112,13 @@ function PatientPortalRoute() {
     return <Navigate to="/therapist" replace />;
   }
   return (
-    <Suspense fallback={<AuthLoadingFallback />}>
-      <PatientDailyView />
-    </Suspense>
+    <PatientLegalGate>
+      <PatientPortalLayout>
+        <Suspense fallback={<AuthLoadingFallback />}>
+          <PatientDailyView />
+        </Suspense>
+      </PatientPortalLayout>
+    </PatientLegalGate>
   );
 }
 

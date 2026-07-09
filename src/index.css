@@ -869,3 +869,35 @@
   z-index: 10000 !important;
   pointer-events: auto;
 }
+
+/* Patient accessibility widget — high contrast + font scale */
+html[data-a11y-high-contrast] {
+  --color-medical-bg: #000;
+  filter: contrast(1.15);
+}
+
+html[data-a11y-high-contrast] body {
+  background-color: #000;
+  color: #fff;
+}
+
+html[data-a11y-high-contrast] .bg-white {
+  background-color: #111 !important;
+  color: #fff;
+}
+
+html[data-a11y-high-contrast] .text-slate-600,
+html[data-a11y-high-contrast] .text-slate-700,
+html[data-a11y-high-contrast] .text-slate-800,
+html[data-a11y-high-contrast] .text-slate-500,
+html[data-a11y-high-contrast] .text-slate-400 {
+  color: #e2e8f0 !important;
+}
+
+html[data-a11y-font-scale='lg'] {
+  font-size: 18px;
+}
+
+html[data-a11y-font-scale='xl'] {
+  font-size: 20px;
+}

@@ -479,24 +479,28 @@ async function runReminderDispatch(params: {
 }
 
 Deno.serve(async (req) => {
-  const SECRET = Deno.env.get("INTERNAL_CRON_SECRET");
-  const authHeader = req.headers.get("x-cron-secret");
-  const url = new URL(req.url);
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
 
   // Secrets are accepted via the x-cron-secret header only; query-string secrets
-  // leak into proxy and load-balancer access logs.
-  if (!SECRET || authHeader !== SECRET) {
-    console.error("Auth failed");
+  // leak into proxy and load-balancer access logs. Both sides are trimmed before the
+  // strict equality check (same hardened pattern as notify-new-message) so stray
+  // whitespace from a pasted secret can never cause a silent mismatch.
+  const secret = (Deno.env.get("INTERNAL_CRON_SECRET") ?? "").trim();
+  const authHeader = req.headers.get("x-cron-secret")?.trim() ?? "";
+  const isValid = secret.length > 0 && authHeader === secret;
+  if (!isValid) {
+    console.error("[reminder-cron] Unauthorized — missing or invalid cron secret (x-cron-secret vs INTERNAL_CRON_SECRET)");
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
+  const url = new URL(req.url);
+
   try {
-    if (req.method === "OPTIONS") {
-      return new Response("ok", { headers: corsHeaders });
-    }
 
     console.log(
       "Env Check - URL:",
