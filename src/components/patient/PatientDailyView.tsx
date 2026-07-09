@@ -560,10 +560,13 @@ export default function PatientDailyView() {
   useEffect(() => {
     if (!rewardFeedback) return;
     setCoinKick(true);
+    // Daily login bonus still grants XP / header floaters, but no confetti overlay.
+    const isDailyLoginBonus = rewardFeedback.message === 'כניסה יומית';
     const hasVictoryLoot =
-      rewardFeedback.xpAdded > 0 ||
-      rewardFeedback.coinsAdded > 0 ||
-      (rewardFeedback.streakBonusXp != null && rewardFeedback.streakBonusXp > 0);
+      !isDailyLoginBonus &&
+      (rewardFeedback.xpAdded > 0 ||
+        rewardFeedback.coinsAdded > 0 ||
+        (rewardFeedback.streakBonusXp != null && rewardFeedback.streakBonusXp > 0));
     if (hasVictoryLoot) {
       setGuardiVictoryBurst((k) => k + 1);
       setGuardiVictoryRewards({
