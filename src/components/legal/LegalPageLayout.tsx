@@ -40,7 +40,7 @@ export default function LegalPageLayout({
       <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-12">
         <h1 className="text-3xl font-bold text-slate-800 mb-2">{title}</h1>
         {subtitle && <p className="text-slate-500 text-sm mb-8">{subtitle}</p>}
-        <section className="bg-white rounded-2xl shadow-sm border border-teal-100 p-8 space-y-4 text-slate-600 leading-relaxed">
+        <section className="bg-white rounded-2xl shadow-sm border border-teal-100 p-8 max-h-[min(70vh,52rem)] overflow-y-auto text-slate-600 leading-relaxed">
           {children}
         </section>
       </main>
