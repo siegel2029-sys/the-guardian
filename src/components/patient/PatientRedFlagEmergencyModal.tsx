@@ -5,64 +5,92 @@ import { bodyAreaLabels } from '../../types';
 import { getTherapistAlertEmail, openClinicalMailto } from '../../utils/clinicalAlertEmail';
 import { usePatient } from '../../context/PatientContext';
 
-/** תסמיני חירום קלאסיים (כולל חשד לקאודה אקווינה) — תזכורת + דיווח */
-const EMERGENCY_SYMPTOMS: { id: string; label: string }[] = [
+type SymptomItem = {
+  id: string;
+  /** כותרת תסמין — מוצגת ב־bold */
+  title: string;
+  /** הסבר + פעולה — מוצג במשקל רגיל */
+  detail: string;
+};
+
+function symptomReportLabel(s: SymptomItem): string {
+  return `${s.title} ${s.detail}`.trim();
+}
+
+/** סכנה מיידית – פנייה דחופה למיון (101) */
+const EMERGENCY_SYMPTOMS: SymptomItem[] = [
   {
     id: 'saddle_anesthesia',
-    label:
-      'נימול או הרדמה באזור הישבן, המפשעה או «אוכף הסוס» בין הרגליים (אנהסתזיה אוכפתית)',
+    title: 'חוסר תחושה או "הירדמות" חדשה באזור המפשעה והישבן:',
+    detail:
+      'תחושה של "הרדמה מקומית", או אובדן שליטה פתאומי על שתן וצואה. פעולה: חובה לעצור מיד ולפנות לחדר מיון.',
   },
   {
-    id: 'bladder_bowel',
-    label: 'איבוד שליטה בשתן או בצואה, או שינוי פתאומי בריקון השלפוחית / המעיים',
+    id: 'drop_foot_collapse',
+    title: 'חולשה מוטורית פתאומית ומשמעותית:',
+    detail:
+      'חוסר יכולת פתאומית להרים את כף הרגל מהרצפה (Drop Foot) או "קריסה" פתאומית וחדשה של הברך/הרגל ללא התראה. פעולה: פנייה מיידית למיון / בדיקת רופא.',
   },
   {
-    id: 'bilateral_leg_weakness',
-    label: 'חולשה הולכת ומתגברת בשני הרגליים, או קושי מתפתח בהליכה / בירידה ממדרגות',
+    id: 'neuro_systemic',
+    title: 'כאב המלווה בסחרחורת קשה, בחילה גוברת או ראייה כפולה:',
+    detail:
+      'קושי בדיבור/בליעה (במיוחד לאחר תנועות צוואר). פעולה: פנייה מיידית לחדר מיון.',
   },
   {
-    id: 'severe_back_with_neuro',
-    label: 'כאב גב תחתון חד או קיצוני יחד עם אחד מהתסמינים הנ״ל',
+    id: 'chest_breath',
+    title: 'כאב לוחץ או שורף בחזה, קוצר נשימה חריג או הזעה קרה:',
+    detail: 'מופיע בזמן התרגול ולא חולף במנוחה. פעולה: התקשרות מיידית למד"א (101).',
+  },
+  {
+    id: 'dvt_calf',
+    title: 'נפיחות אדומית, חמה, נוקשה וכואבת מאוד בשוק של רגל אחת:',
+    detail: 'פעולה: פנייה דחופה לרופא/מיון (לשלילת פקק דם בווריד).',
+  },
+  {
+    id: 'extreme_sudden_other',
+    title: 'כל תסמין קיצוני או חריג המופיע בפתאומיות:',
+    detail:
+      'כל תחושה קשה, כאב עז או שינוי גופני מהיר שאינו מופיע ברשימה ומקשה על התפקוד הרגיל או על ההתנהלות. פעולה: לעצור את התרגול מיד ולפנות לבירור רפואי או למוקד חירום בהתאם לחומרת המצב.',
   },
 ];
 
-const OTHER_SYMPTOMS: { id: string; label: string }[] = [
-  { id: 'sharp_pain', label: 'כאב חריף או חד שלא הכרתי קודם' },
-  { id: 'numb_limb', label: 'נימול, עקצוץ או חולשה בלתי מוסברת ביד או ברגל' },
-  { id: 'swell', label: 'נפיחות, אדמומיות או שינוי צורה חד באזור' },
-  { id: 'systemic', label: 'חום, צמרמורות או חשד לזיהום' },
-  { id: 'breath', label: 'קוצר נשימה או כאב חזה' },
+/** אזהרת שיקום – עצור את התרגול ופנה למטפל/רופא */
+const OTHER_SYMPTOMS: SymptomItem[] = [
+  {
+    id: 'night_pain',
+    title: 'כאב לילי חדש וקבוע:',
+    detail:
+      'כאב חזק ופועם שאינו משתנה בשום תנוחה שבה שוכבים, ומעיר באופן קבוע משינה. פעולה: להפסיק תרגול ולפנות לבירור מול הפיזיותרפיסט או הרופא המטפל.',
+  },
+  {
+    id: 'limb_color_temp',
+    title: 'שינוי קיצוני בצבע או בטמפרטורה של הגפה:',
+    detail:
+      'הגפה המטופלת הופכת פתאום לחיוורת מאוד, כחולה, או קרה באופן משמעותי בהשוואה לצד השני. פעולה: פנייה לרופא לשלילת בעיה באספקת הדם.',
+  },
+  {
+    id: 'fever_chills',
+    title: 'כאב חדש המלווה בחום גוף וצמרמורות:',
+    detail:
+      'עליית חום ללא הסבר (ללא מחלת רקע או שפעת) יחד עם כאב במפרק/שריר. פעולה: בדיקה רפואית לשלילת זיהום.',
+  },
+  {
+    id: 'severe_pain_unrelieved',
+    title: 'כאב חד וגובר בעוצמה גבוהה (8/10 ומעלה) שלא נרגע:',
+    detail:
+      'כאב חריג שמופיע בתרגיל ולא שוכך גם לאחר 30 דקות של מנוחה מוחלטת. פעולה: לעצור את התוכנית ולעדכן את הפיזיותרפיסט.',
+  },
+  {
+    id: 'true_mechanical_lock',
+    title: 'נעילה מכאנית אמיתית של המפרק:',
+    detail:
+      'מצב חדש בו המפרק נתקע לחלוטין ואין אפשרות ליישר או לכופף אותו לא בכוח ולא בשחרור. פעולה: לא להפעיל כוח! לפנות לבדיקה.',
+  },
 ];
 
-const ALL_SYMPTOM_IDS = [...EMERGENCY_SYMPTOMS, ...OTHER_SYMPTOMS].map((s) => s.id);
-
-const AREA_CHOICES: BodyArea[] = [
-  'neck',
-  'shoulder_left',
-  'shoulder_right',
-  'upper_arm_left',
-  'upper_arm_right',
-  'forearm_left',
-  'forearm_right',
-  'chest',
-  'abdomen',
-  'back_upper',
-  'back_lower',
-  'hip_left',
-  'hip_right',
-  'thigh_left',
-  'thigh_right',
-  'shin_left',
-  'shin_right',
-  'knee_left',
-  'knee_right',
-  'ankle_left',
-  'ankle_right',
-  'wrist_left',
-  'wrist_right',
-  'elbow_left',
-  'elbow_right',
-];
+const ALL_SYMPTOMS = [...EMERGENCY_SYMPTOMS, ...OTHER_SYMPTOMS];
+const ALL_SYMPTOM_IDS = ALL_SYMPTOMS.map((s) => s.id);
 
 export default function PatientRedFlagEmergencyModal({
   open,
@@ -77,26 +105,29 @@ export default function PatientRedFlagEmergencyModal({
   patientId: string;
   patientName: string;
   therapistId: string;
-  defaultBodyArea: BodyArea;
+  /** אזור פעיל נוכחי — נשלח בדוח ללא בחירה ידנית */
+  defaultBodyArea?: BodyArea | null;
 }) {
   const { reportPatientUrgentRedFlag } = usePatient();
-  const [segment, setSegment] = useState<BodyArea>(defaultBodyArea);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [freeText, setFreeText] = useState('');
 
   useEffect(() => {
     if (!open) return;
-    setSegment(defaultBodyArea);
     setPicked({});
     setFreeText('');
-  }, [open, defaultBodyArea]);
+  }, [open]);
+
+  const areaLabel =
+    defaultBodyArea && bodyAreaLabels[defaultBodyArea]
+      ? bodyAreaLabels[defaultBodyArea]
+      : 'לא צוין';
 
   const symptomLine = useMemo(() => {
-    const fromBoxes = ALL_SYMPTOM_IDS.filter((id) => picked[id])
-      .map((id) => {
-        const hit = [...EMERGENCY_SYMPTOMS, ...OTHER_SYMPTOMS].find((s) => s.id === id);
-        return hit?.label ?? id;
-      });
+    const fromBoxes = ALL_SYMPTOM_IDS.filter((id) => picked[id]).map((id) => {
+      const hit = ALL_SYMPTOMS.find((s) => s.id === id);
+      return hit ? symptomReportLabel(hit) : id;
+    });
     const extra = freeText.trim();
     const parts = [...fromBoxes, ...(extra ? [extra] : [])];
     return parts.length > 0 ? parts.join('; ') : 'לא סומנו תסמינים ספציפיים';
@@ -110,12 +141,12 @@ export default function PatientRedFlagEmergencyModal({
     const body =
       `דגל אדום דחוף מהפורטל\n\n` +
       `מטופל: ${patientName}\n` +
-      `אזור: ${bodyAreaLabels[segment]}\n` +
+      `אזור: ${areaLabel}\n` +
       `תסמינים: ${symptomLine}\n\n` +
       `נא ליצור קשר בהקדם.\n` +
       `(הודעה נשלחה דרך דוא״ל — ללא חשיפת מספר טלפון אישי)`;
     openClinicalMailto(to, subject, body);
-    const portalLine = `[דגל אדום — דוא״ל למטפל]\nאזור: ${bodyAreaLabels[segment]}\nתסמינים: ${symptomLine}`;
+    const portalLine = `[דגל אדום — דוא״ל למטפל]\nאזור: ${areaLabel}\nתסמינים: ${symptomLine}`;
     reportPatientUrgentRedFlag(patientId, portalLine);
     onClose();
   };
@@ -124,18 +155,22 @@ export default function PatientRedFlagEmergencyModal({
     setPicked((p) => ({ ...p, [id]: !p[id] }));
   };
 
-  const renderCheckboxList = (items: { id: string; label: string }[]) => (
-    <ul className="space-y-2">
+  const renderCheckboxList = (items: SymptomItem[]) => (
+    <ul className="space-y-3">
       {items.map((s) => (
         <li key={s.id}>
-          <label className="flex items-start gap-2 cursor-pointer">
+          <label className="flex items-start gap-2.5 cursor-pointer">
             <input
               type="checkbox"
               checked={!!picked[s.id]}
               onChange={() => toggle(s.id)}
-              className="mt-1 rounded border-red-300 text-red-600 focus:ring-red-500"
+              className="mt-1 rounded border-red-300 text-red-600 focus:ring-red-500 shrink-0"
+              aria-label={s.title}
             />
-            <span className="text-sm leading-snug">{s.label}</span>
+            <span className="text-sm leading-snug">
+              <span className="font-bold text-gray-900">{s.title} </span>
+              <span className="text-gray-600 font-normal">{s.detail}</span>
+            </span>
           </label>
         </li>
       ))}
@@ -163,7 +198,7 @@ export default function PatientRedFlagEmergencyModal({
           style={{ background: 'linear-gradient(135deg, #b91c1c, #dc2626)' }}
         >
           <div className="flex items-center gap-2 min-w-0 text-white">
-            <AlertTriangle className="w-6 h-6 shrink-0" strokeWidth={2.4} />
+            <AlertTriangle className="w-6 h-6 shrink-0" strokeWidth={2.4} aria-hidden="true" />
             <h2 id="redflag-emergency-title" className="text-sm sm:text-base font-black truncate">
               דיווח דחוף — Red Flag
             </h2>
@@ -174,76 +209,51 @@ export default function PatientRedFlagEmergencyModal({
             className="p-2 rounded-xl text-white/90 hover:bg-white/15 shrink-0"
             aria-label="סגירה"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
-        <div className="px-4 py-3 overflow-y-auto flex-1 space-y-4 text-sm text-slate-800">
-          <p className="text-xs text-red-950/95 leading-relaxed font-semibold">
-            אם יש חשד לחירום רפואי מיידי — התקשרו ל־101 (מגן דוד אדום) או לפי הנחיית רופא. כאן ניתן גם
-            לשלוח דוא״ל למטפל ולסמן דגל אדום בפורטל (ללא חשיפת מספר טלפון אישי).
-          </p>
+        <div className="px-4 py-3 overflow-y-auto flex-1 min-h-0 space-y-4 text-sm text-slate-800">
+          <div
+            className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-3"
+            role="note"
+            aria-label="הבהרה חשובה לגבי דגלים אדומים"
+          >
+            <p className="text-xs text-amber-950 leading-relaxed font-bold">
+              ⚠️ שים לב: הסימנים הבאים מהווים &apos;דגל אדום&apos; אך ורק אם מדובר בתסמינים חדשים,
+              פתאומיים, או כאלו שאינם מוכרים לך מתוכנית הטיפול והשיקום הנוכחית שלך. אם הופיע תסמין
+              חדש וחריג שלא חווית בעבר, יש לפעול לפי ההנחיות הבאות:
+            </p>
+          </div>
 
           <div
-            className="rounded-xl border border-red-200 bg-red-50/90 px-3 py-3 space-y-2"
-            role="region"
-            aria-label="תסמיני חירום"
+            className="rounded-xl border border-red-200 bg-red-50/90 px-3 py-3 space-y-3"
+            role="group"
+            aria-labelledby="redflag-cat1-title"
           >
-            <p className="text-[11px] font-black uppercase tracking-wide text-red-900">
-              תסמיני חירום — יש לפעול במהירות
+            <p id="redflag-cat1-title" className="text-[11px] font-black tracking-wide text-red-900">
+              סכנה מיידית – פנייה דחופה למיון (101)
             </p>
-            <ul className="text-xs text-red-950 leading-relaxed space-y-2 list-none">
-              {EMERGENCY_SYMPTOMS.map((s) => (
-                <li key={s.id} className="flex gap-2">
-                  <span className="text-red-600 font-bold shrink-0" aria-hidden>
-                    ·
-                  </span>
-                  <span>{s.label}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <a
-              href="tel:101"
-              className="w-full py-3.5 rounded-2xl font-black text-sm sm:text-base text-center text-white shadow-md flex items-center justify-center gap-2 no-underline"
-              style={{
-                background: 'linear-gradient(135deg, #991b1b, #dc2626)',
-                boxShadow: '0 8px 24px -8px rgba(220, 38, 38, 0.55)',
-              }}
-            >
-              <Phone className="w-5 h-5 shrink-0" strokeWidth={2.2} aria-hidden />
-              התקשרות ל־101 — מגן דוד אדום
-            </a>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-600 mb-1">אזור בגוף (לדיווח למטפל)</label>
-            <select
-              value={segment}
-              onChange={(e) => setSegment(e.target.value as BodyArea)}
-              className="w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm"
-            >
-              {AREA_CHOICES.map((a) => (
-                <option key={a} value={a}>
-                  {bodyAreaLabels[a]}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <p className="text-xs font-bold text-slate-700 mb-2">סמנו מה רלוונטי לכם כרגע</p>
-            <p className="text-[11px] text-slate-500 mb-2 leading-snug">תסמיני חירום (למעלה)</p>
             {renderCheckboxList(EMERGENCY_SYMPTOMS)}
-            <p className="text-[11px] text-slate-500 mt-3 mb-2 leading-snug">תסמינים נוספים המחייבים התייעצות</p>
+          </div>
+
+          <div
+            className="rounded-xl border border-amber-200 bg-amber-50/50 px-3 py-3 space-y-3"
+            role="group"
+            aria-labelledby="redflag-cat2-title"
+          >
+            <p id="redflag-cat2-title" className="text-[11px] font-black tracking-wide text-amber-950">
+              אזהרת שיקום – עצור את התרגול ופנה למטפל/רופא
+            </p>
             {renderCheckboxList(OTHER_SYMPTOMS)}
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-600 mb-1">הערות נוספות (אופציונלי)</label>
+            <label className="block text-xs font-bold text-slate-600 mb-1" htmlFor="redflag-notes">
+              הערות נוספות (אופציונלי)
+            </label>
             <textarea
+              id="redflag-notes"
               value={freeText}
               onChange={(e) => setFreeText(e.target.value)}
               rows={2}
@@ -253,7 +263,18 @@ export default function PatientRedFlagEmergencyModal({
           </div>
         </div>
 
-        <div className="px-4 py-3 border-t border-red-100 shrink-0 flex flex-col gap-2 bg-white/90">
+        <div className="shrink-0 p-4 bg-white border-t border-gray-100 flex flex-col gap-2">
+          <a
+            href="tel:101"
+            className="w-full py-3.5 rounded-2xl font-black text-sm sm:text-base text-center text-white shadow-md flex items-center justify-center gap-2 no-underline"
+            style={{
+              background: 'linear-gradient(135deg, #991b1b, #dc2626)',
+              boxShadow: '0 8px 24px -8px rgba(220, 38, 38, 0.55)',
+            }}
+          >
+            <Phone className="w-5 h-5 shrink-0" strokeWidth={2.2} aria-hidden="true" />
+            התקשרות ל־101 — מגן דוד אדום
+          </a>
           <button
             type="button"
             onClick={submit}
