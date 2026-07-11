@@ -738,9 +738,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const completePatientPasswordChange = useCallback(
     async (currentPassword: string, newPassword: string): Promise<PatientPasswordChangeResult> => {
       if (!patientSessionIdForUi) return 'bad_current';
+      const currentPw = currentPassword.trim();
+      if (!currentPw) return 'bad_current';
       const newPasswordError = validateNewPassword(newPassword);
       if (newPasswordError) return 'invalid_new';
       if (supabaseAuth && supabase) {
+        const email = supabaseAuthSession?.user?.email;
+        if (!email) return 'bad_current';
+        // Re-authenticate with the current password before allowing a change.
+        const { error: reauthError } = await supabase.auth.signInWithPassword({
+          email,
+          password: currentPw,
+        });
+        if (reauthError) return 'bad_current';
         const { error } = await supabase.auth.updateUser({ password: newPassword.trim() });
         if (error) {
           return 'invalid_new';
@@ -749,13 +759,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       const result = verifyAndUpdatePatientPassword(
         patientSessionIdForUi,
-        currentPassword,
+        currentPw,
         newPassword
       );
       if (result === 'ok') setPatientAuthRevision((n) => n + 1);
       return result;
     },
-    [patientSessionIdForUi, supabaseAuth, supabase]
+    [patientSessionIdForUi, supabaseAuth, supabase, supabaseAuthSession?.user?.email]
   );
 
   const changePatientLoginId = useCallback(

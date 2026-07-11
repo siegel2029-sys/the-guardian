@@ -168,7 +168,6 @@ export default function PatientDailyView() {
     logout,
     patientMustChangePassword,
     completePatientPasswordChange,
-    patientLoginId,
     usesSupabaseSession,
   } = useAuth();
   const {
@@ -2042,9 +2041,7 @@ export default function PatientDailyView() {
           open={settingsModalOpen}
           onClose={() => setSettingsModalOpen(false)}
           patient={selectedPatient}
-          patientLoginId={patientLoginId}
           completePatientPasswordChange={completePatientPasswordChange}
-          supabasePasswordMode={usesSupabaseSession}
         />
       )}
     </div>
