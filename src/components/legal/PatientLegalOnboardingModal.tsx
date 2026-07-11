@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ChevronDown, Loader2, ScrollText, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
+  readLocalTermsAccepted,
+  writeLocalTermsAccepted,
+} from '../../services/legalConsent';
+import {
   acceptPatientLegalTerms,
   fetchPatientLegalConsentStatus,
   isPatientLegallyAccepted,
@@ -54,7 +58,8 @@ type PatientLegalOnboardingModalProps = {
 
 /**
  * Mandatory patient legal consent gate.
- * Fetches consent status from Supabase once on mount; no localStorage / offline fallback.
+ * Checks localStorage first; only queries Supabase when the offline cache is empty.
+ * On DB acceptance (or successful submit), syncs the cache for future offline launches.
  */
 export default function PatientLegalOnboardingModal({
   patientId,
@@ -70,13 +75,24 @@ export default function PatientLegalOnboardingModal({
 
   const allChecked = isOver18 && acceptsTerms && acceptsDisclaimer;
 
+  const grantAccepted = useCallback(() => {
+    writeLocalTermsAccepted(patientId);
+    onAccepted();
+  }, [patientId, onAccepted]);
+
   const loadConsentStatus = useCallback(async () => {
+    // Offline-first: never block a patient who already accepted on this device.
+    if (readLocalTermsAccepted(patientId)) {
+      onAccepted();
+      return;
+    }
+
     setView('loading');
     setSaveError(null);
     try {
       const status = await fetchPatientLegalConsentStatus(patientId);
       if (isPatientLegallyAccepted(status)) {
-        onAccepted();
+        grantAccepted();
         return;
       }
       setView('consent');
@@ -86,9 +102,14 @@ export default function PatientLegalOnboardingModal({
         sessionRole,
         error: err,
       });
+      // Re-check cache in case it was written during a flaky request window.
+      if (readLocalTermsAccepted(patientId)) {
+        onAccepted();
+        return;
+      }
       setView('error');
     }
-  }, [patientId, sessionRole, onAccepted]);
+  }, [patientId, sessionRole, onAccepted, grantAccepted]);
 
   useEffect(() => {
     void loadConsentStatus();
@@ -100,7 +121,7 @@ export default function PatientLegalOnboardingModal({
     setSaveError(null);
     try {
       await acceptPatientLegalTerms(patientId);
-      onAccepted();
+      grantAccepted();
     } catch (err) {
       console.error('[PatientLegalOnboardingModal] Consent save failed', {
         patientId,

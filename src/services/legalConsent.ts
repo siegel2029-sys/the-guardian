@@ -12,6 +12,37 @@ export type LegalConsentStatus = {
   legalAcceptedAt: string | null;
 };
 
+/**
+ * Offline-resilient cache for terms acceptance.
+ * Scoped per subject (patient or therapist id) so multi-account devices stay correct.
+ * Value is always the string `'true'` when set.
+ */
+export const LEGAL_TERMS_ACCEPTED_STORAGE_KEY = 'physio_shield_terms_accepted_v1';
+
+function termsAcceptedStorageKey(subjectId: string): string {
+  return `${LEGAL_TERMS_ACCEPTED_STORAGE_KEY}:${subjectId}`;
+}
+
+/** True when this device already recorded acceptance for `subjectId`. */
+export function readLocalTermsAccepted(subjectId: string): boolean {
+  if (typeof window === 'undefined' || !window.localStorage) return false;
+  try {
+    return window.localStorage.getItem(termsAcceptedStorageKey(subjectId)) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/** Persist acceptance locally so offline / flaky network does not re-prompt. */
+export function writeLocalTermsAccepted(subjectId: string): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(termsAcceptedStorageKey(subjectId), 'true');
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 /** True only when every mandatory consent flag is set. */
 export function hasAcceptedAllLegalTerms(status: LegalConsentStatus): boolean {
   return status.termsAccepted && status.privacyAccepted && status.medicalDisclaimerAccepted;

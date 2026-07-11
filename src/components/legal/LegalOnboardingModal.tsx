@@ -7,6 +7,8 @@ import {
   acceptLegalTerms,
   fetchLegalConsentStatus,
   hasAcceptedAllLegalTerms,
+  readLocalTermsAccepted,
+  writeLocalTermsAccepted,
 } from '../../services/legalConsent';
 import { isLegalPagePath } from './legalPaths';
 
@@ -21,6 +23,7 @@ import { isLegalPagePath } from './legalPaths';
  *
  * Self-gating: safe to mount unconditionally inside <BrowserRouter>; it renders
  * nothing for unauthenticated visitors or users who already accepted.
+ * LocalStorage cache makes the check offline-resilient.
  */
 
 type GateState = 'checking' | 'required' | 'accepted';
@@ -34,7 +37,9 @@ export default function LegalOnboardingModal() {
   // (patients are blocked by RLS and have no profiles row).
   const userId = sessionRole === 'therapist' && hasSupabaseSession ? (therapist?.id ?? null) : null;
 
-  const [gate, setGate] = useState<GateState>('checking');
+  const [gate, setGate] = useState<GateState>(() =>
+    userId && readLocalTermsAccepted(userId) ? 'accepted' : 'checking'
+  );
   const [isOver18, setIsOver18] = useState(false);
   const [acceptsTerms, setAcceptsTerms] = useState(false);
   const [acceptsDisclaimer, setAcceptsDisclaimer] = useState(false);
@@ -46,13 +51,25 @@ export default function LegalOnboardingModal() {
       setGate('checking');
       return;
     }
+
+    // Offline-first: skip network when this device already recorded acceptance.
+    if (readLocalTermsAccepted(userId)) {
+      setGate('accepted');
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       try {
         const status = await fetchLegalConsentStatus(userId);
         if (cancelled) return;
+        if (status && hasAcceptedAllLegalTerms(status)) {
+          writeLocalTermsAccepted(userId);
+          setGate('accepted');
+          return;
+        }
         // Missing row / missing flags both mean the user must go through the gate.
-        setGate(status && hasAcceptedAllLegalTerms(status) ? 'accepted' : 'required');
+        setGate('required');
       } catch (err) {
         if (cancelled) return;
         // Fail open on read errors: never lock users out because a status fetch failed.
@@ -76,6 +93,7 @@ export default function LegalOnboardingModal() {
     setSaveError(null);
     try {
       await acceptLegalTerms(userId);
+      writeLocalTermsAccepted(userId);
       setGate('accepted');
     } catch (err) {
       console.error('[LegalOnboardingModal] Failed to save consent', err);
