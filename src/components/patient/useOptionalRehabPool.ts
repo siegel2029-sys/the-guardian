@@ -167,13 +167,15 @@ export function useOptionalRehabPool(
         if (poolKey) {
           setNewlyUnlockedPoolKeys(new Set([poolKey]));
           window.setTimeout(() => setNewlyUnlockedPoolKeys(new Set()), 2600);
-          setGuardiTransient({
-            key: `optional_unlock_${Date.now()}`,
-            mood: 'joy',
-            bubble: '',
-            semantic: 'success',
-            until: Date.now() + 8500,
-          });
+          // MUTED: Guardi encouragement pop-up on optional unlock disabled pending redesign.
+          // setGuardiTransient({
+          //   key: `optional_unlock_${Date.now()}`,
+          //   mood: 'joy',
+          //   bubble: '',
+          //   semantic: 'success',
+          //   until: Date.now() + 8500,
+          // });
+          void setGuardiTransient;
         }
       });
     }, OPTIONAL_REVEAL_MS);

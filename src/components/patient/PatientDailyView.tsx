@@ -15,9 +15,7 @@ import {
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
 import BodyMap3D from '../body-map/BodyMap3D';
-import GuardiVictorySequence from './GordyVictorySequence';
-import GuardiCompanion, { type GuardiTransientAppearance } from './GordyCompanion';
-import GuardiFullScreenCelebration from './GordyFullScreenCelebration';
+import { type GuardiTransientAppearance } from './GordyCompanion';
 import ExerciseCard from './ExerciseCard';
 import OptionalSection from './OptionalSection';
 import { useOptionalRehabPool } from './useOptionalRehabPool';
@@ -54,11 +52,6 @@ import { normalizeStoreItemIds } from '../../config/storeCatalog';
 import PortalPatientDebugPanel from './PortalPatientDebugPanel';
 import Pilot11GamificationDebugPanel from './Pilot11GamificationDebugPanel';
 import { isPilot11GamificationDebugPatient } from '../../utils/pilot11GamificationDebug';
-import {
-  PILOT11_GUARDI_DEBUG_EVENT,
-  type Pilot11GuardiDebugDetail,
-} from '../../utils/pilot11GuardiDebugEvents';
-import type { GuardiSemanticKind } from '../../utils/guardiSemanticKinds';
 import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
 import PatientPortalSettingsModal from './PatientPortalSettingsModal';
 import { fetchAiPlanAdjustmentSuggestion } from '../../ai/clinicalRecommendationEngine';
@@ -68,8 +61,6 @@ import { getOptionalPoolExerciseId } from '../../utils/optionalExerciseUnlock';
 import { displayPortalRehabExerciseTitle } from '../../utils/portalRehabExerciseTitle';
 import {
   getTotalActiveDaysForScenery,
-  getGuardiFlowerBloomAnnouncement,
-  guardiBloomTierStorageKey,
 } from '../../hooks/useGamification';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { usePatientReminderInfrastructure } from '../../hooks/usePatientReminderInfrastructure';
@@ -104,9 +95,6 @@ function activateOnEnterSpace(e: KeyboardEvent, fn: () => void) {
     fn();
   }
 }
-
-/** מניעת כפילות חגיגת סיום תחת React StrictMode (אותו מפתח ביום) */
-const guardiSessionCompleteDedupe = new Set<string>();
 
 const PATIENT_LOAD_TIMEOUT_MS = 18_000;
 
@@ -203,7 +191,6 @@ export default function PatientDailyView() {
     getPatientExerciseFinishReports,
     getSelfCareStrengthTier,
     setSelfCareStrengthTier,
-    getGuardiMountainAmbientLine,
   } = usePatient();
 
   const totalActiveDaysForScenery = useMemo(() => {
@@ -216,28 +203,6 @@ export default function PatientDailyView() {
     () => (selectedPatient ? getPatientDisplayName(selectedPatient) : ''),
     [selectedPatient?.id, selectedPatient?.name]
   );
-
-  const [guardiFlowerBloomLine, setGuardiFlowerBloomLine] = useState<string | null>(null);
-
-  useEffect(() => {
-    setGuardiFlowerBloomLine(null);
-  }, [selectedPatient?.id]);
-
-  useEffect(() => {
-    if (!selectedPatient) return;
-    const k = guardiBloomTierStorageKey(selectedPatient.id);
-    const last = parseInt(localStorage.getItem(k) || '0', 10);
-    const ann = getGuardiFlowerBloomAnnouncement(totalActiveDaysForScenery, last);
-    if (!ann) return;
-    localStorage.setItem(k, String(ann.nextTier));
-    setGuardiFlowerBloomLine(ann.message);
-  }, [selectedPatient?.id, totalActiveDaysForScenery]);
-
-  const guardiMountainAmbientLine = useMemo(() => {
-    if (guardiFlowerBloomLine) return guardiFlowerBloomLine;
-    if (!selectedPatient) return null;
-    return getGuardiMountainAmbientLine(clinicalToday, selectedPatient.level);
-  }, [guardiFlowerBloomLine, clinicalToday, selectedPatient?.id, selectedPatient?.level, getGuardiMountainAmbientLine]);
 
   const [messageDraftSeed, setMessageDraftSeed] = useState<string | null>(null);
   const consumeMessageDraftSeed = useCallback(() => setMessageDraftSeed(null), []);
@@ -252,69 +217,10 @@ export default function PatientDailyView() {
   const [portalTab, setPortalTab] = useState<PortalTab>(() =>
     tabFromPortalPath(typeof window !== 'undefined' ? window.location.pathname : '/patient-portal')
   );
-  const [guardiTransient, setGuardiTransient] = useState<GuardiTransientAppearance | null>(null);
+  const [, setGuardiTransient] = useState<GuardiTransientAppearance | null>(null);
   const handlePatientEmergencyText = useCallback(() => {
-    setGuardiTransient({
-      key: `redflag_text_${Date.now()}`,
-      mood: 'concerned',
-      bubble:
-        'זיהינו ניסוח שעשוי להצביע על מצב דחוף — צוות הטיפול עודכן. אם יש סיכון מיידי, התקשרו ל־101.',
-      until: Date.now() + 9000,
-    });
+    // MUTED: Guardi encouragement pop-up disabled pending redesign.
   }, []);
-  const [pilot11GuardiAmbientOverride, setPilot11GuardiAmbientOverride] = useState<string | null>(
-    null
-  );
-
-  const guardiAmbientBubble = useMemo(
-    () => pilot11GuardiAmbientOverride ?? guardiMountainAmbientLine,
-    [pilot11GuardiAmbientOverride, guardiMountainAmbientLine]
-  );
-
-  useEffect(() => {
-    setPilot11GuardiAmbientOverride(null);
-  }, [selectedPatient?.id]);
-
-  useEffect(() => {
-    if (!selectedPatient || !isPilot11GamificationDebugPatient(selectedPatient)) return;
-    const moodForSemantic = (k: GuardiSemanticKind): GuardiTransientAppearance['mood'] => {
-      if (k === 'pain' || k === 'pain_intense') return 'concerned';
-      if (k === 'success' || k === 'strength') return 'like';
-      return 'joy';
-    };
-
-    const onPilot11GuardiPreview = (ev: Event) => {
-      const e = ev as CustomEvent<Pilot11GuardiDebugDetail>;
-      const d = e.detail;
-      if (!d) return;
-      if (d.action === 'semantic') {
-        setPilot11GuardiAmbientOverride(null);
-        setGuardiTransient({
-          key: `p11dbg_${Date.now()}`,
-          mood: moodForSemantic(d.kind),
-          bubble: '',
-          semantic: d.kind,
-          until: Date.now() + 120_000,
-        });
-        return;
-      }
-      if (d.action === 'transient') {
-        setPilot11GuardiAmbientOverride(null);
-        setGuardiTransient({
-          key: `p11dbg_${Date.now()}`,
-          mood: d.mood,
-          bubble: d.bubble,
-          until: Date.now() + 120_000,
-        });
-        return;
-      }
-      setGuardiTransient(null);
-      setPilot11GuardiAmbientOverride(d.line);
-    };
-    window.addEventListener(PILOT11_GUARDI_DEBUG_EVENT, onPilot11GuardiPreview as EventListener);
-    return () =>
-      window.removeEventListener(PILOT11_GUARDI_DEBUG_EVENT, onPilot11GuardiPreview as EventListener);
-  }, [selectedPatient?.id, selectedPatient?.name]);
 
   useEffect(() => {
     setPortalTab(tabFromPortalPath(location.pathname));
@@ -343,20 +249,11 @@ export default function PatientDailyView() {
     return () => clearTimeout(t);
   }, [portalTab, location.pathname, location.hash]);
 
+  // MUTED: clear Guardi transient on tab change / TTL — left as no-ops while encouragement is off.
   useEffect(() => {
     setGuardiTransient(null);
   }, [portalTab]);
 
-  useEffect(() => {
-    if (!guardiTransient) return;
-    const left = guardiTransient.until - Date.now();
-    if (left <= 0) {
-      setGuardiTransient(null);
-      return;
-    }
-    const t = window.setTimeout(() => setGuardiTransient(null), left);
-    return () => clearTimeout(t);
-  }, [guardiTransient]);
   const [exerciseVideoModal, setExerciseVideoModal] = useState<
     | null
     | { kind: 'rehab'; exercise: PatientExercise; xpAward: number; coinsAward: number }
@@ -387,7 +284,6 @@ export default function PatientDailyView() {
   );
   const [trainingAiPlanModalInfo, setTrainingAiPlanModalInfo] = useState<string | null>(null);
   const [aiSteadyBannerDismissed, setAiSteadyBannerDismissed] = useState(false);
-  const [sessionCelebrationBurst, setSessionCelebrationBurst] = useState(0);
 
   const portalMessages = useMemo(
     () => (selectedPatient ? getPatientMessages(selectedPatient.id) : []),
@@ -536,12 +432,6 @@ export default function PatientDailyView() {
   const trainingAiFetchKeyRef = useRef<string | null>(null);
   const bodyMapSectionRef = useRef<HTMLDivElement>(null);
   const [coinKick, setCoinKick] = useState(false);
-  const [guardiVictoryBurst, setGuardiVictoryBurst] = useState(0);
-  const [guardiVictoryRewards, setGuardiVictoryRewards] = useState<{
-    xp: number;
-    coins: number;
-    streak?: number;
-  }>({ xp: 0, coins: 0 });
 
   useEffect(() => {
     const pid = selectedPatient?.id;
@@ -559,21 +449,7 @@ export default function PatientDailyView() {
   useEffect(() => {
     if (!rewardFeedback) return;
     setCoinKick(true);
-    // Daily login bonus still grants XP / header floaters, but no confetti overlay.
-    const isDailyLoginBonus = rewardFeedback.message === 'כניסה יומית';
-    const hasVictoryLoot =
-      !isDailyLoginBonus &&
-      (rewardFeedback.xpAdded > 0 ||
-        rewardFeedback.coinsAdded > 0 ||
-        (rewardFeedback.streakBonusXp != null && rewardFeedback.streakBonusXp > 0));
-    if (hasVictoryLoot) {
-      setGuardiVictoryBurst((k) => k + 1);
-      setGuardiVictoryRewards({
-        xp: rewardFeedback.xpAdded,
-        coins: rewardFeedback.coinsAdded,
-        streak: rewardFeedback.streakBonusXp,
-      });
-    }
+    // Daily login bonus still grants XP / header floaters; Guardi victory overlay muted.
     const t0 = window.setTimeout(() => setCoinKick(false), 720);
     const t1 = window.setTimeout(() => clearRewardFeedback(), 2400);
     return () => {
@@ -706,23 +582,6 @@ export default function PatientDailyView() {
 
   const missionListHasAny =
     mandatoryRehabExercises.length + optionalRehabExercises.length + strengthMissionRows.length > 0;
-
-  const sessionCompleteForCelebration = useMemo(() => {
-    if (exercises.length > 0) {
-      const allPlanDone = exercises.every((e) => completedSet.has(e.id));
-      if (!allPlanDone) return false;
-      if (strengthMissionRows.length === 0) return true;
-      return strengthMissionRows.every((row) => completedSet.has(row.exercise.id));
-    }
-    if (totalMissions === 0) return false;
-    return completedMissionCount === totalMissions;
-  }, [
-    exercises,
-    completedSet,
-    strengthMissionRows,
-    totalMissions,
-    completedMissionCount,
-  ]);
 
   const trainingTabContextKey = useMemo(() => {
     const zoneKey = [...selectedZones].sort().join(',');
@@ -859,52 +718,7 @@ export default function PatientDailyView() {
     portalOnboardingSilence,
   ]);
 
-  useEffect(() => {
-    if (!selectedPatient || exercisesLocked) return;
-    const sk = `guardi_full_celebrate_${selectedPatient.id}_${clinicalToday}`;
-    if (sessionStorage.getItem(sk) === '1') return;
-    if (!sessionCompleteForCelebration) return;
-    const dedupeKey = `${selectedPatient.id}|${clinicalToday}|${totalMissions}|mandatory`;
-    if (guardiSessionCompleteDedupe.has(dedupeKey)) return;
-    guardiSessionCompleteDedupe.add(dedupeKey);
-    setSessionCelebrationBurst((n) => n + 1);
-  }, [
-    selectedPatient?.id,
-    clinicalToday,
-    sessionCompleteForCelebration,
-    totalMissions,
-    exercisesLocked,
-  ]);
-
-  useEffect(() => {
-    if (!selectedPatient || exercisesLocked) return;
-    const mandatory = clinicalRehabExercises.filter((e) => !e.isOptional);
-    if (mandatory.length === 0) return;
-    const allMandatoryDone = mandatory.every((e) => completedSet.has(e.id));
-    const hasExtra = fullOptionalPool.length > 0;
-    if (!allMandatoryDone || !hasExtra) return;
-    const k = `guardi_mandatory_extra_${selectedPatient.id}_${clinicalToday}`;
-    try {
-      if (sessionStorage.getItem(k) === '1') return;
-      sessionStorage.setItem(k, '1');
-    } catch {
-      return;
-    }
-    setGuardiTransient({
-      key: `mandatory_extra_${Date.now()}`,
-      mood: 'joy',
-      bubble: '',
-      semantic: 'success',
-      until: Date.now() + 9000,
-    });
-  }, [
-    selectedPatient?.id,
-    clinicalToday,
-    clinicalRehabExercises,
-    fullOptionalPool.length,
-    completedSet,
-    exercisesLocked,
-  ]);
+  // MUTED: Guardi session-complete / mandatory-extra / companion eligibility triggers removed pending redesign.
 
   const latestEmergencyReason = useMemo(() => {
     if (!selectedPatient) return undefined;
@@ -918,59 +732,11 @@ export default function PatientDailyView() {
     setLoadSafetyNudge(null);
   }, [selectedPatient?.id]);
 
-  const endSessionCelebration = () => {
-    if (selectedPatient) {
-      sessionStorage.setItem(
-        `guardi_full_celebrate_${selectedPatient.id}_${clinicalToday}`,
-        '1'
-      );
-    }
-    setSessionCelebrationBurst(0);
-  };
-
   const portalFrozenUiLock =
     sessionRole === 'patient' && !!selectedPatient?.accountFrozen && !patientMustChangePassword;
 
-  const guardiCompanionEligible =
-    (portalTab === 'home' || portalTab === 'activity') &&
-    !portalFrozenUiLock &&
-    !patientMustChangePassword &&
-    !!selectedPatient &&
-    missionListHasAny &&
-    !exerciseVideoModal &&
-    !trainingFeedbackOpen &&
-    !trainingAiPlanModalOpen;
-
-  /** מסך אימונים: הקשר מוזן כ־undefined כדי להציג ענף «הידעת?» עם תמונת למידה (ללא תנועות GLB Exercise1). */
-  const guardiCompanionContextAnimation: string | undefined =
-    portalTab === 'home' ? 'Wave' : undefined;
-
-  const dismissGuardiAndFocusTrainingList = useCallback(() => {
-    if (portalTab !== 'activity') return;
-    window.requestAnimationFrame(() => {
-      document.getElementById('today-missions')?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      });
-    });
-  }, [portalTab]);
-
-  const pushExerciseCompleteMilestone = (painLevel?: number) => {
-    const semantic: GuardiSemanticKind =
-      painLevel == null
-        ? 'success'
-        : painLevel >= 7
-          ? 'pain_intense'
-          : painLevel >= 4
-            ? 'pain'
-            : 'success';
-    setGuardiTransient({
-      key: `milestone_${Date.now()}`,
-      mood: semantic === 'pain' || semantic === 'pain_intense' ? 'concerned' : 'like',
-      bubble: '',
-      semantic,
-      until: Date.now() + 5500,
-    });
+  const pushExerciseCompleteMilestone = (_painLevel?: number) => {
+    // MUTED: Guardi pop-up on single exercise completion disabled pending redesign.
   };
 
   const handleTrainingComplete = async (
@@ -1168,12 +934,14 @@ export default function PatientDailyView() {
       className="min-h-screen flex flex-col max-w-lg mx-auto w-full relative bg-medical-bg font-sans"
       dir="rtl"
     >
+      {/* MUTED: Guardi victory sequence disabled pending redesign.
       <GuardiVictorySequence
         burstKey={guardiVictoryBurst}
         xpAdded={guardiVictoryRewards.xp}
         coinsAdded={guardiVictoryRewards.coins}
         streakBonusXp={guardiVictoryRewards.streak}
       />
+      */}
       <header
         dir="ltr"
         className="relative grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 sm:gap-x-4 overflow-visible bg-white px-3 sm:px-4 py-3 border-b border-slate-200/80 shadow-md shadow-slate-200/40"
@@ -1787,6 +1555,7 @@ export default function PatientDailyView() {
         </div>
       </nav>
 
+      {/* MUTED: Guardi companion / full-screen celebration disabled pending redesign.
       <GuardiCompanion
         eligible={guardiCompanionEligible}
         exerciseSafetyLocked={exerciseSafetyLocked}
@@ -1806,6 +1575,7 @@ export default function PatientDailyView() {
           onClose={endSessionCelebration}
         />
       )}
+      */}
 
       {selectedPatient && (
         <PatientAiPlanSuggestionModal

@@ -31,6 +31,9 @@ export default function GuardiVictorySequence({
   streakBonusXp,
   onComplete,
 }: Props) {
+  /** MUTED: Guardi encouragement character disabled pending redesign. */
+  const GUARDI_ENCOURAGEMENT_MUTED = true;
+
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [visible, setVisible] = useState(false);
   const onCompleteRef = useRef(onComplete);
@@ -38,7 +41,7 @@ export default function GuardiVictorySequence({
   const timerRef = useRef(0);
 
   useEffect(() => {
-    if (!burstKey) return;
+    if (GUARDI_ENCOURAGEMENT_MUTED || !burstKey) return;
     const n = 72;
     const next: Piece[] = Array.from({ length: n }, (_, i) => ({
       id: burstKey * 10000 + i,
@@ -60,7 +63,7 @@ export default function GuardiVictorySequence({
     return () => window.clearTimeout(timerRef.current);
   }, [burstKey]);
 
-  if (!burstKey || !visible) return null;
+  if (GUARDI_ENCOURAGEMENT_MUTED || !burstKey || !visible) return null;
 
   const streak = streakBonusXp != null && streakBonusXp > 0 ? streakBonusXp : 0;
   const parts: string[] = [];

@@ -4,12 +4,15 @@ const CONFETTI_COLORS = ['#fbbf24', '#f472b6', '#34d399', '#60a5fa', '#a78bfa', 
 
 /** קונפטי + מטבעות — פרץ קצר כשמקבלים XP */
 export default function GuardiCelebration({ burstKey }: { burstKey: number }) {
+  /** MUTED: Guardi encouragement character disabled pending redesign. */
+  const GUARDI_ENCOURAGEMENT_MUTED = true;
+
   const [pieces, setPieces] = useState<
     { id: number; x: number; y: number; rot: number; color: string; kind: 'confetti' | 'coin' }[]
   >([]);
 
   useEffect(() => {
-    if (!burstKey) return;
+    if (GUARDI_ENCOURAGEMENT_MUTED || !burstKey) return;
     const n = 28;
     const next = Array.from({ length: n }, (_, i) => ({
       id: burstKey * 1000 + i,
@@ -24,7 +27,7 @@ export default function GuardiCelebration({ burstKey }: { burstKey: number }) {
     return () => clearTimeout(t);
   }, [burstKey]);
 
-  if (pieces.length === 0) return null;
+  if (GUARDI_ENCOURAGEMENT_MUTED || pieces.length === 0) return null;
 
   return (
     <div

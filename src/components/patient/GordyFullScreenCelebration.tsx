@@ -21,6 +21,9 @@ type Props = {
 
 /** חגיגת סיום סשן — קונפטי במסך מלא + תמונת האווטאר (2D) */
 export default function GuardiFullScreenCelebration({ burstKey, onClose }: Props) {
+  /** MUTED: Guardi encouragement character disabled pending redesign. */
+  const GUARDI_ENCOURAGEMENT_MUTED = true;
+
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [visible, setVisible] = useState(false);
   const onCloseRef = useRef(onClose);
@@ -28,7 +31,7 @@ export default function GuardiFullScreenCelebration({ burstKey, onClose }: Props
   const timerRef = useRef<number>(0);
 
   useEffect(() => {
-    if (!burstKey) return;
+    if (GUARDI_ENCOURAGEMENT_MUTED || !burstKey) return;
     const n = 96;
     const next: Piece[] = Array.from({ length: n }, (_, i) => ({
       id: burstKey * 10000 + i,
@@ -51,7 +54,7 @@ export default function GuardiFullScreenCelebration({ burstKey, onClose }: Props
     return () => window.clearTimeout(timerRef.current);
   }, [burstKey]);
 
-  if (!burstKey || !visible) return null;
+  if (GUARDI_ENCOURAGEMENT_MUTED || !burstKey || !visible) return null;
 
   return (
     <div

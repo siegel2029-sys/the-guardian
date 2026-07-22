@@ -256,6 +256,9 @@ export default function GuardiAssistantModal({
   portalTab,
   onDismissRequest,
 }: Props) {
+  /** MUTED: Guardi encouragement character disabled pending redesign. */
+  const GUARDI_ENCOURAGEMENT_MUTED = true;
+
   const protectiveSafety = exerciseSafetyLocked;
   const protectiveRed = redFlagPortalLock && !exerciseSafetyLocked;
 
@@ -270,6 +273,7 @@ export default function GuardiAssistantModal({
   const hasAmbient = ambientTrimmed.length > 0;
 
   const show =
+    !GUARDI_ENCOURAGEMENT_MUTED &&
     eligible &&
     (protectiveSafety || protectiveRed || transientLive || hasAmbient);
 

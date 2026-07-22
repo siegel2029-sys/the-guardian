@@ -32,5 +32,6 @@ type Props = {
  * גארדי למטה-ימין או מעל מפת הגוף — מוסתר כברירת מחדל; מופיע בפייד עדין לאבני דרך או במצב שומר קליני.
  */
 export default function GuardiCompanion(props: Props) {
+  // MUTED layout gate: companion still mounts but GuardiAssistantModal never shows (see GUARDI_ENCOURAGEMENT_MUTED).
   return <GuardiAssistantModal {...props} />;
 }
