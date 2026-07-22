@@ -45,6 +45,10 @@ import {
   linkPatientAuthUserRow,
 } from '../lib/patientPortalAuth';
 import { touchPatientLastLoginThrottled } from '../services/patientPushNotifications';
+import {
+  fetchTherapistProfile,
+  upsertTherapistProfileRow,
+} from '../services/profileService';
 import { loginPasswordFieldError, validateNewPassword } from '../lib/passwordPolicy';
 
 /** Local demo users: `VITE_USE_LEGACY_AUTH=true` AND a dev build — never active in production. */
@@ -176,14 +180,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /** Minimal columns only — avoids 400 when optional columns are missing from remote schema. DB uses `name` for display (not `full_name`). */
   const syncTherapistProfileRow = useCallback(async (userId: string, email: string, displayName: string) => {
     if (!supabase) return;
-    await supabase.from('profiles').upsert(
-      {
-        id: userId,
-        email: email || '',
-        name: displayName || email || '',
-      },
-      { onConflict: 'id' }
-    );
+    const res = await upsertTherapistProfileRow(supabase, {
+      userId,
+      email,
+      displayName,
+    });
+    if (!res.ok && import.meta.env.DEV) {
+      console.warn('[Auth] profile upsert', res.message);
+    }
   }, [supabase]);
 
   const clearSupabaseAuthState = useCallback(() => {
@@ -290,14 +294,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       let prof: ProfileRow | undefined;
       try {
-        const { data, error } = await supabase.from('profiles').select('id, email, name, title, clinic_name, avatar_initials').eq('id', tid).maybeSingle();
-        if (error) {
+        const fetched = await fetchTherapistProfile(supabase, tid);
+        if (!fetched.ok) {
           if (import.meta.env.DEV) {
-            console.warn('[Auth] profiles select', error.message, isProfileAccessDeniedError(error) ? '(session kept)' : '');
+            console.warn(
+              '[Auth] profiles select',
+              fetched.message,
+              isProfileAccessDeniedError({ message: fetched.message }) ? '(session kept)' : ''
+            );
           }
           prof = undefined;
         } else {
-          prof = data ?? undefined;
+          prof = fetched.profile ?? undefined;
         }
       } catch (e) {
         if (import.meta.env.DEV) console.warn('[Auth] profiles fetch', e);
@@ -312,8 +320,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!prof) {
         try {
           await syncTherapistProfileRow(tid, email, nextTherapist.name);
-          const { data: after } = await supabase.from('profiles').select('id, email, name, title, clinic_name, avatar_initials').eq('id', tid).maybeSingle();
-          if (after) setProfile(after);
+          const after = await fetchTherapistProfile(supabase, tid);
+          if (after.ok && after.profile) setProfile(after.profile);
         } catch (e) {
           if (import.meta.env.DEV) console.warn('[Auth] profile upsert', e);
         }

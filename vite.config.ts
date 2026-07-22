@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -11,6 +11,11 @@ export default defineConfig(({ command }) => ({
   root: projectRoot,
   envDir: projectRoot,
   plugins: [react(), tailwindcss()],
+  test: {
+    environment: 'node',
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    globals: false,
+  },
   build: {
     rollupOptions: {
       // Debug logs can leak clinical payload metadata to DevTools in production —

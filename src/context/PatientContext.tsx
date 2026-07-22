@@ -652,7 +652,10 @@ interface PatientContextValue {
    * שורת `patients` אחת ל-Supabase (כולל `payload` / תיעוד טיפולים) + מיזוג מיידי של התגובה ל-state.
    * עדיף על סנכרון מלא מדורג כשחייבים לשמור את אותו snapshot שהמשתמש ראה בלחיצה.
    */
-  saveSinglePatientPayloadToCloud: (patient: Patient) => Promise<boolean>;
+  saveSinglePatientPayloadToCloud: (
+    patient: Patient,
+    options?: { trustIncomingAccountControl?: boolean }
+  ) => Promise<boolean>;
   /** שמירת תוכנית תרגילים לטבלה `exercise_plans` (+ רענון מהשרת בעת הצלחה). למטפל בלבד. */
   saveExercisePlanForPatientToCloud: (
     patientId: string,
@@ -1970,7 +1973,10 @@ export function PatientProvider({
   );
 
   const saveSinglePatientPayloadToCloud = useCallback(
-    async (patient: Patient): Promise<boolean> => {
+    async (
+      patient: Patient,
+      options?: { trustIncomingAccountControl?: boolean }
+    ): Promise<boolean> => {
       if (!supabase) {
         console.error(
           '[saveSinglePatientPayloadToCloud] Supabase client is null — בדקו VITE_SUPABASE_URL ו־VITE_SUPABASE_ANON_KEY.'
@@ -1994,18 +2000,22 @@ export function PatientProvider({
       const now = new Date().toISOString();
       try {
         if (restrictPatientSessionId && patient.id !== restrictPatientSessionId) {
-          console.warn('[saveSinglePatientPayloadToCloud] ניתן לשמור רק את מטופל הפורטל הנוכחי', {
-            expectedId: restrictPatientSessionId,
-            patientId: patient.id,
-          });
+          if (import.meta.env.DEV) {
+            console.warn('[saveSinglePatientPayloadToCloud] ניתן לשמור רק את מטופל הפורטל הנוכחי');
+          }
           return false;
         }
 
         const clinicalDayMerge = getClinicalDate();
+        const trustControl =
+          !restrictPatientSessionId && options?.trustIncomingAccountControl === true;
       const baseline = allPatientsRef.current.find((x) => x.id === patient.id);
       const patientPayload =
         baseline != null
-          ? mergePatientPayloadForUpsert(baseline, patient, { clinicalToday: clinicalDayMerge })
+          ? mergePatientPayloadForUpsert(baseline, patient, {
+              clinicalToday: clinicalDayMerge,
+              trustIncomingAccountControl: trustControl,
+            })
           : patient;
 
       const result = restrictPatientSessionId
@@ -2013,7 +2023,10 @@ export function PatientProvider({
               now,
               onlyPatientId: restrictPatientSessionId,
             })
-          : await upsertTreatmentReport(supabaseClient, patientPayload, { now });
+          : await upsertTreatmentReport(supabaseClient, patientPayload, {
+              now,
+              ...(trustControl ? { trustIncomingAccountControl: true } : {}),
+            });
 
         if (result.ok === false) {
           if (import.meta.env.DEV) {

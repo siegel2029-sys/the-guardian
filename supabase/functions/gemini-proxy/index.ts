@@ -1,17 +1,17 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
 const GEMINI_HOST = "https://generativelanguage.googleapis.com";
 const GEMINI_VERSION = "v1beta";
 const DEFAULT_MODEL = "gemini-2.5-flash";
 
-/** Max request body size. Patients (portal JWTs) get a tighter cap than therapists. */
+/** Max request body size. Patients get a tighter cap than therapists. */
 const MAX_BODY_BYTES_THERAPIST = 256 * 1024;
 const MAX_BODY_BYTES_PATIENT = 48 * 1024;
+
+/** Simple per-user sliding window (Edge isolate memory; best-effort abuse brake). */
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 30;
+const rateBuckets = new Map<string, number[]>();
 
 const CLINICAL_SYSTEM_PREFIX =
   "You are a clinical assistant. Never output or store full patient names.\n\n";
@@ -33,6 +33,27 @@ type RequestPayload = {
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseAllowedOrigins(): string[] {
+  return (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function corsHeadersFor(req: Request): Record<string, string> {
+  const allowed = parseAllowedOrigins();
+  const origin = req.headers.get("Origin") ?? "";
+  let allowOrigin = "*";
+  if (allowed.length > 0) {
+    allowOrigin = allowed.includes(origin) ? origin : allowed[0];
+  }
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Vary": "Origin",
+  };
 }
 
 /**
@@ -91,10 +112,14 @@ function scrubGeneration(
   };
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(
+  body: unknown,
+  status: number,
+  cors: Record<string, string>,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 }
 
@@ -110,24 +135,68 @@ function getResponseText(data: {
   );
 }
 
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const prev = rateBuckets.get(userId) ?? [];
+  const recent = prev.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+  if (recent.length >= RATE_LIMIT_MAX) {
+    rateBuckets.set(userId, recent);
+    return false;
+  }
+  recent.push(now);
+  rateBuckets.set(userId, recent);
+  return true;
+}
+
+/**
+ * Resolve payload budget from DB membership — not editable user_metadata.
+ * Patient: row in patients with auth_user_id = uid.
+ * Therapist: row in profiles for uid.
+ * Fallback: metadata patient_id only if neither row exists (legacy portal JWTs).
+ */
+async function resolveIsPatientBudget(
+  supabaseAuth: ReturnType<typeof createClient>,
+  userId: string,
+  userMetadata: Record<string, unknown> | undefined,
+): Promise<boolean> {
+  const [{ data: patientRow }, { data: profileRow }] = await Promise.all([
+    supabaseAuth.from("patients").select("id").eq("auth_user_id", userId).maybeSingle(),
+    supabaseAuth.from("profiles").select("id").eq("id", userId).maybeSingle(),
+  ]);
+
+  if (patientRow?.id) return true;
+  if (profileRow?.id) return false;
+
+  const metaPid = userMetadata?.patient_id;
+  return typeof metaPid === "string" && metaPid.trim().length > 0;
+}
+
 Deno.serve(async (req) => {
+  const corsHeaders = corsHeadersFor(req);
+
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse({ error: "Method not allowed" }, 405);
+    return jsonResponse({ error: "Method not allowed" }, 405, corsHeaders);
+  }
+
+  const allowed = parseAllowedOrigins();
+  const origin = req.headers.get("Origin") ?? "";
+  if (allowed.length > 0 && origin && !allowed.includes(origin)) {
+    return jsonResponse({ error: "Origin not allowed" }, 403, corsHeaders);
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
   if (!supabaseUrl || !supabaseAnonKey) {
-    return jsonResponse({ error: "Server misconfigured" }, 500);
+    return jsonResponse({ error: "Server misconfigured" }, 500, corsHeaders);
   }
 
   const authHeader = req.headers.get("Authorization") ?? "";
   if (!authHeader.trim()) {
-    return jsonResponse({ error: "Unauthorized: missing or invalid Authorization" }, 401);
+    return jsonResponse({ error: "Unauthorized: missing or invalid Authorization" }, 401, corsHeaders);
   }
 
   // Forward the caller's Authorization header on the Supabase client so `getUser()` uses the
@@ -141,27 +210,30 @@ Deno.serve(async (req) => {
     error: authError,
   } = await supabaseAuth.auth.getUser();
   if (authError || !user) {
-    // Generic detail only — auth internals stay in server logs.
     console.warn("[gemini-proxy] auth rejected:", authError?.message ?? "no user");
     return jsonResponse(
       { error: "Unauthorized", detail: "Invalid or expired session" },
       401,
+      corsHeaders,
     );
   }
 
-  // Role-aware abuse limits: portal patients (JWT user_metadata.patient_id) are
-  // allowed (patient AI assistant) but with a much smaller payload budget.
-  const isPatient = typeof user.user_metadata?.patient_id === "string" &&
-    user.user_metadata.patient_id.trim().length > 0;
+  if (!checkRateLimit(user.id)) {
+    return jsonResponse({ error: "Rate limited" }, 429, corsHeaders);
+  }
+
+  const isPatient = await resolveIsPatientBudget(
+    supabaseAuth,
+    user.id,
+    user.user_metadata as Record<string, unknown> | undefined,
+  );
   const maxBodyBytes = isPatient ? MAX_BODY_BYTES_PATIENT : MAX_BODY_BYTES_THERAPIST;
 
   const contentLength = Number.parseInt(req.headers.get("content-length") ?? "0", 10);
   if (Number.isFinite(contentLength) && contentLength > maxBodyBytes) {
-    return jsonResponse({ error: "Payload too large" }, 413);
+    return jsonResponse({ error: "Payload too large" }, 413, corsHeaders);
   }
 
-  // Set in Supabase Dashboard → Edge Functions → Secrets, or: `supabase secrets set GEMINI_API_KEY=...`
-  // Local serve: use `supabase secrets set` or a `.env` loaded for the functions runtime.
   const apiKey =
     Deno.env.get("GEMINI_API_KEY")?.trim() ||
     Deno.env.get("GOOGLE_AI_API_KEY")?.trim() ||
@@ -173,6 +245,7 @@ Deno.serve(async (req) => {
         detail: "Configure the Gemini API key as an Edge Function secret (GEMINI_API_KEY).",
       },
       500,
+      corsHeaders,
     );
   }
 
@@ -180,16 +253,20 @@ Deno.serve(async (req) => {
   try {
     const rawText = await req.text();
     if (rawText.length > maxBodyBytes) {
-      return jsonResponse({ error: "Payload too large" }, 413);
+      return jsonResponse({ error: "Payload too large" }, 413, corsHeaders);
     }
     payload = JSON.parse(rawText) as RequestPayload;
   } catch {
-    return jsonResponse({ error: "Invalid JSON body" }, 400);
+    return jsonResponse({ error: "Invalid JSON body" }, 400, corsHeaders);
   }
 
   const gen = payload?.generation;
   if (!gen?.contents?.length || !gen.generationConfig || typeof gen.generationConfig !== "object") {
-    return jsonResponse({ error: "Missing generation.contents or generation.generationConfig" }, 400);
+    return jsonResponse(
+      { error: "Missing generation.contents or generation.generationConfig" },
+      400,
+      corsHeaders,
+    );
   }
 
   const modelId = (Deno.env.get("GEMINI_MODEL") ?? DEFAULT_MODEL).trim();
@@ -212,13 +289,11 @@ Deno.serve(async (req) => {
   }
 
   if (!geminiRes.ok) {
-    // Never forward Gemini upstream 401/403 as HTTP 401 — the browser client maps 401 to
-    // "Supabase session expired". API key / quota issues must not look like JWT auth failures.
-    // Full upstream body stays in server logs only.
-    console.error(`[gemini-proxy] Gemini HTTP ${geminiRes.status}:`, rawBody.slice(0, 1000));
+    console.error(`[gemini-proxy] Gemini HTTP ${geminiRes.status}:`, rawBody.slice(0, 200));
     return jsonResponse(
       { error: `Gemini HTTP ${geminiRes.status}`, detail: "Upstream AI service error" },
       502,
+      corsHeaders,
     );
   }
 
@@ -226,18 +301,18 @@ Deno.serve(async (req) => {
   try {
     parsed = JSON.parse(rawBody) as Parameters<typeof getResponseText>[0];
   } catch {
-    return jsonResponse({ error: "Invalid JSON from Gemini" }, 502);
+    return jsonResponse({ error: "Invalid JSON from Gemini" }, 502, corsHeaders);
   }
 
   if (parsed.error?.message) {
-    return jsonResponse({ error: parsed.error.message }, 502);
+    return jsonResponse({ error: parsed.error.message }, 502, corsHeaders);
   }
 
   try {
     const text = getResponseText(parsed);
-    return jsonResponse({ text, model: modelId });
+    return jsonResponse({ text, model: modelId }, 200, corsHeaders);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return jsonResponse({ error: msg }, 502);
+    return jsonResponse({ error: msg }, 502, corsHeaders);
   }
 });

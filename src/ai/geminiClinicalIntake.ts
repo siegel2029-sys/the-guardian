@@ -16,7 +16,12 @@ import {
   getGeminiGenerateContentUrlForLogging,
   getGeminiModelId,
 } from './geminiClient';
-import { scrubPhiPatterns } from './clinicalConsultantContext';
+import {
+  collectPatientPhiTokens,
+  patientInitialsFromName,
+  scrubKnownPatientPhi,
+  scrubPhiPatterns,
+} from './clinicalConsultantContext';
 import { mapInitialIntakeProtocolFromRaw } from '../utils/medicalIntakeSchema';
 
 export { getGeminiApiKey, GeminiRateLimitedError } from './geminiClient';
@@ -296,12 +301,22 @@ function normalizeClinicalCase(raw: unknown): GeminiClinicalIntakeResult {
   };
 }
 
+export type AnalyzeIntakeStoryOptions = {
+  followUp?: boolean;
+  /** Display name / alias tokens to scrub (Hebrew + Latin). */
+  patientName?: string | null;
+  displayAlias?: string | null;
+  portalUsername?: string | null;
+  /** Extra explicit tokens (e.g. from intake header). */
+  nameTokens?: string[];
+};
+
 /**
  * Sends the patient narrative to Gemini and returns a validated clinical case.
  */
 export async function analyzeIntakeStoryWithGemini(
   patientStory: string,
-  opts?: { followUp?: boolean }
+  opts?: AnalyzeIntakeStoryOptions
 ): Promise<GeminiClinicalIntakeResult> {
   if (!getGeminiApiKey()) {
     logError('Supabase not configured or session missing — AI uses Edge Function gemini-proxy');
@@ -310,7 +325,24 @@ export async function analyzeIntakeStoryWithGemini(
     );
   }
 
-  const trimmedStory = scrubPhiPatterns(patientStory.trim());
+  const nameTokens = [
+    ...collectPatientPhiTokens({
+      name: opts?.patientName?.trim() || '',
+      displayAlias: opts?.displayAlias ?? undefined,
+      portalUsername: opts?.portalUsername ?? undefined,
+    }),
+    ...(opts?.nameTokens ?? []),
+  ]
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 32);
+  const initials = patientInitialsFromName(opts?.patientName);
+  const trimmedStory = scrubKnownPatientPhi(
+    scrubPhiPatterns(patientStory.trim()),
+    nameTokens,
+    initials
+  );
   const catalog = getExerciseBankIdListForPrompt();
   const jointIds = [...JOINT_BODY_AREAS].join(', ');
   const modelId = getGeminiModelId();
@@ -399,6 +431,7 @@ ${trimmedStory}`;
     requestUrlKeyRedacted: urlForLog,
     storyChars: trimmedStory.length,
     catalogSize: catalog.length,
+    nameTokenCount: nameTokens.length,
   });
 
   const responseText = await geminiGenerateText({
@@ -408,7 +441,8 @@ ${trimmedStory}`;
     responseMimeType: 'application/json',
     logPrefix: LOG_PREFIX,
     logDetail: { storyChars: trimmedStory.length, catalogSize: catalog.length },
-    patientInitials: '[Patient]',
+    patientInitials: initials,
+    nameTokens,
   });
 
   logInfo('Received model text', { modelId, chars: responseText.length });

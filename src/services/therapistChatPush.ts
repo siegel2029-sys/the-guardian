@@ -44,7 +44,9 @@ export async function fetchPatientChatPushContext(
     return null;
   }
   if (!data?.id) {
-    console.warn('[Push Dispatch] fetchPatientChatPushContext: no patient row for', pid);
+    if (import.meta.env.DEV) {
+      console.warn('[Push Dispatch] fetchPatientChatPushContext: no patient row');
+    }
     return null;
   }
 
@@ -79,15 +81,16 @@ export async function dispatchTherapistChatPushNotification(
     token = ctx?.pushToken ?? '';
   }
 
-  console.log(
-    '[Push Dispatch] Firing push notification payload for patient:',
-    patientId,
-    'Token status:',
-    hasDeliverablePatientPushToken(token)
-  );
+  if (import.meta.env.DEV) {
+    console.log('[Push Dispatch] Firing push', {
+      hasToken: hasDeliverablePatientPushToken(token),
+    });
+  }
 
   if (!hasDeliverablePatientPushToken(token)) {
-    console.warn('[Push Dispatch] Skipping — no deliverable Expo/Web Push token for', patientId);
+    if (import.meta.env.DEV) {
+      console.warn('[Push Dispatch] Skipping — no deliverable Expo/Web Push token');
+    }
     return;
   }
 
@@ -131,11 +134,11 @@ export async function dispatchTherapistChatPushNotification(
     }
 
     if (parsed.sent) {
-      console.log('[Push Dispatch] Push sent OK for patient', patientId);
+      if (import.meta.env.DEV) console.log('[Push Dispatch] Push sent OK');
     } else if (parsed.ok && parsed.reason) {
-      console.warn('[Push Dispatch] Push not sent:', parsed.reason, patientId);
+      if (import.meta.env.DEV) console.warn('[Push Dispatch] Push not sent:', parsed.reason);
     } else if (!parsed.ok) {
-      console.error('[Push Dispatch] Push failed:', parsed.error ?? raw.slice(0, 200));
+      console.error('[Push Dispatch] Push failed:', parsed.error ?? 'upstream error');
     }
   } catch (e) {
     console.error('[Push Dispatch] Network error calling send-therapist-chat-push', e);

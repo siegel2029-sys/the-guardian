@@ -9,6 +9,7 @@ import type {
   PainRecord,
   Patient,
   PatientExercise,
+  PatientStatus,
   SafetyAlert,
   Therapist,
 } from '../types';
@@ -231,7 +232,62 @@ export type MergePatientPayloadOptions = {
    * דשבורד מטפל אחרי טעינת KB מהענן: טיפ קיים בשרת ולא ברשימה המקומית — נחשב למחיקה (לא להחזיר ב-merge).
    */
   therapistTrustKnowledgeFactDeletions?: boolean;
+  /**
+   * When true, `accountFrozen` / clinical `status` follow `incoming` (intentional therapist
+   * freeze/unfreeze). Default protects server freeze from stale client upserts.
+   */
+  trustIncomingAccountControl?: boolean;
 };
+
+/** True when payload marks a portal freeze (flag or legacy paused/frozen status). */
+export function patientPayloadIsFrozen(
+  p: Pick<Patient, 'accountFrozen' | 'status'> | undefined | null
+): boolean {
+  if (!p) return false;
+  if (p.accountFrozen === true) return true;
+  return p.status === 'frozen' || p.status === 'paused';
+}
+
+/**
+ * Canonical freeze pair: `accountFrozen` + `status: 'frozen'`.
+ * Legacy `paused` (used by older freeze writes) is normalized to `frozen`.
+ */
+export function canonicalizeAccountControl(
+  accountFrozen: boolean,
+  status: PatientStatus
+): { accountFrozen: boolean; status: PatientStatus } {
+  if (accountFrozen || status === 'frozen' || status === 'paused') {
+    return { accountFrozen: true, status: 'frozen' };
+  }
+  return { accountFrozen: false, status };
+}
+
+/**
+ * Merge therapist portal freeze / clinical status so stale clients cannot unfreeze.
+ * Freeze is sticky unless `trustIncomingAccountControl` is set (intentional UI write).
+ */
+export function mergeAccountControlForUpsert(
+  existing: Pick<Patient, 'accountFrozen' | 'status'> | undefined,
+  incoming: Pick<Patient, 'accountFrozen' | 'status'>,
+  opts?: { trustIncomingAccountControl?: boolean }
+): { accountFrozen: boolean; status: PatientStatus } {
+  if (opts?.trustIncomingAccountControl || !existing) {
+    const frozen = incoming.accountFrozen === true || incoming.status === 'frozen' || incoming.status === 'paused';
+    if (frozen) return { accountFrozen: true, status: 'frozen' };
+    const status =
+      incoming.status === 'frozen' || incoming.status === 'paused' ? 'active' : incoming.status;
+    return { accountFrozen: false, status };
+  }
+
+  const existingFrozen = patientPayloadIsFrozen(existing);
+  const incomingFrozen = patientPayloadIsFrozen(incoming);
+
+  if (existingFrozen || incomingFrozen) {
+    return { accountFrozen: true, status: 'frozen' };
+  }
+
+  return canonicalizeAccountControl(false, incoming.status);
+}
 
 export type MergeKnowledgeFactsForUpsertOptions = {
   therapistTrustLocalDeletions?: boolean;
@@ -570,7 +626,12 @@ export function mergePatientPayloadForUpsert(
   const omitKb = opts?.omitKnowledgeFactsForCloud === true;
 
   if (!existing) {
-    let sole = normalizePatientProgressFields({ ...incoming });
+    const sole = normalizePatientProgressFields({ ...incoming });
+    const control = mergeAccountControlForUpsert(undefined, incoming, {
+      trustIncomingAccountControl: opts?.trustIncomingAccountControl,
+    });
+    sole.accountFrozen = control.accountFrozen;
+    sole.status = control.status;
     sole._sessionCompletionByDate = mergeSessionCompletionByDateMaps(
       undefined,
       incoming._sessionCompletionByDate
@@ -591,7 +652,12 @@ export function mergePatientPayloadForUpsert(
     return sole;
   }
   const maxLife = Math.max(lifetimeXpFromPatient(existing), lifetimeXpFromPatient(incoming));
-  let merged = patientWithLifetimeXp({ ...incoming }, maxLife);
+  const merged = patientWithLifetimeXp({ ...incoming }, maxLife);
+  const control = mergeAccountControlForUpsert(existing, incoming, {
+    trustIncomingAccountControl: opts?.trustIncomingAccountControl,
+  });
+  merged.accountFrozen = control.accountFrozen;
+  merged.status = control.status;
   merged.coins = Math.max(existing.coins ?? 0, incoming.coins ?? 0);
   merged.lastSessionDate =
     (existing.lastSessionDate ?? '').localeCompare(incoming.lastSessionDate ?? '') > 0
@@ -665,34 +731,26 @@ export function mergePatientPayloadForUpsert(
 }
 
 function consoleTableBeforePatientsUpsert(row: Record<string, unknown>, label: string) {
-  const { payload, ...scalar } = row;
-  const p = payload as Record<string, unknown> | null | undefined;
+  if (!import.meta.env.DEV) return;
+  const p = row.payload as Record<string, unknown> | null | undefined;
   const payloadKeys = p && typeof p === 'object' ? Object.keys(p).length : 0;
-  console.log(`[upsertPatientRecords] ▶ ${label} (console.table)`);
-  console.table([
-    {
-      ...scalar,
-      payload: `(JSONB object, ${payloadKeys} top-level keys)`,
-    },
-  ]);
+  console.log(`[upsertPatientRecords] ▶ ${label}`, {
+    idPresent: typeof row.id === 'string' && row.id.length > 0,
+    therapistIdPresent: typeof row.therapist_id === 'string' && row.therapist_id.length > 0,
+    payloadKeys,
+  });
 }
 
 function consoleTableExercisePlanRow(label: string, row: Record<string, unknown>) {
+  if (!import.meta.env.DEV) return;
   const ex = row.exercises;
   const exN = Array.isArray(ex) ? (ex as unknown[]).length : '—';
-  console.log(`[upsertExercisePlans] ▶ ${label} (console.table)`);
-  console.table([
-    {
-      id: row.id,
-      patient_id: row.patient_id,
-      version_number: row.version_number,
-      is_active: row.is_active,
-      parent_plan_id: row.parent_plan_id,
-      updated_at: row.updated_at,
-      change_summary: row.change_summary,
-      exercises: `[${exN} items]`,
-    },
-  ]);
+  console.log(`[upsertExercisePlans] ▶ ${label}`, {
+    hasPatientId: typeof row.patient_id === 'string' && row.patient_id.length > 0,
+    version_number: row.version_number,
+    is_active: row.is_active,
+    exercises: exN,
+  });
 }
 
 /** HTTP status when PostgREST / Auth returns one (helps surface 400/401 to the UI). */
@@ -934,6 +992,11 @@ export type UpsertPatientRecordsOptions = {
    * When omitted, defaults to hydrated therapist-dashboard behavior.
    */
   trustKnowledgeFactDeletions?: boolean;
+  /**
+   * Therapist intentional freeze/unfreeze — lets incoming account control win over
+   * sticky server freeze protection. Never set from patient portal upserts.
+   */
+  trustIncomingAccountControl?: boolean;
 };
 
 export async function upsertPatientRecords(
@@ -1007,7 +1070,9 @@ export async function upsertPatientRecords(
       .maybeSingle();
 
     if (fetchErr) {
-      console.error('[SYNC_ERROR] upsertPatientRecords/select', fetchErr, { patientId: patientRowId });
+      if (import.meta.env.DEV) {
+        console.error('[SYNC_ERROR] upsertPatientRecords/select', fetchErr.message);
+      }
       logSupabaseCallError('upsertPatientRecords/select', fetchErr, { patientId: patientRowId });
       return clinicalPushFail(`patients: ${fetchErr.message}`, fetchErr);
     }
@@ -1059,9 +1124,12 @@ export async function upsertPatientRecords(
       options?.trustKnowledgeFactDeletions !== undefined
         ? options.trustKnowledgeFactDeletions
         : defaultTrustKbDel;
+    const trustAccountControl =
+      !isPatientPortal && options?.trustIncomingAccountControl === true;
     let payloadForUpsert = mergePatientPayloadForUpsert(oldPayload, payloadDraft, {
       omitKnowledgeFactsForCloud,
       therapistTrustKnowledgeFactDeletions: trustKbDel,
+      trustIncomingAccountControl: trustAccountControl,
     });
     if ((payloadForUpsert.id ?? '').trim() !== patientRowId) {
       console.warn('[upsertPatientRecords] repairing payload id to match row key', {
@@ -1185,7 +1253,10 @@ export async function upsertPatientRecords(
   }
 }
 
-export type UpsertTreatmentReportOptions = Pick<UpsertPatientRecordsOptions, 'onlyPatientId'> & {
+export type UpsertTreatmentReportOptions = Pick<
+  UpsertPatientRecordsOptions,
+  'onlyPatientId' | 'trustIncomingAccountControl'
+> & {
   now?: string;
 };
 
@@ -1201,12 +1272,12 @@ export async function upsertTreatmentReport(
 ): Promise<ClinicalPushResult> {
   const now = options?.now ?? new Date().toISOString();
   const onlyPatientId = options?.onlyPatientId?.trim();
-  return upsertPatientRecords(
-    client,
-    [patient],
-    now,
-    onlyPatientId ? { onlyPatientId } : undefined
-  );
+  return upsertPatientRecords(client, [patient], now, {
+    ...(onlyPatientId ? { onlyPatientId } : {}),
+    ...(options?.trustIncomingAccountControl
+      ? { trustIncomingAccountControl: true }
+      : {}),
+  });
 }
 
 /**
@@ -2210,11 +2281,12 @@ export async function getPatientById(
 
   const { data, error } = rowResult;
 
-  console.log('[getPatientById] patients row result', {
-    patientId: id,
-    hasData: !!data,
-    error: error ?? null,
-  });
+  if (import.meta.env.DEV) {
+    console.log('[getPatientById] patients row result', {
+      hasData: !!data,
+      hasError: !!error,
+    });
+  }
 
   if (error) {
     return { ok: false, message: `patients: ${error.message}` };
@@ -2226,11 +2298,12 @@ export async function getPatientById(
     !('id' in payload) ||
     typeof (payload as Patient).id !== 'string'
   ) {
-    console.warn('[getPatientById] patients payload חסר או לא תקין', {
-      patientId: id,
-      hasData: !!data,
-      payloadKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [],
-    });
+    if (import.meta.env.DEV) {
+      console.warn('[getPatientById] patients payload חסר או לא תקין', {
+        hasData: !!data,
+        payloadKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [],
+      });
+    }
     return { ok: false, message: 'patients: missing or invalid payload' };
   }
 

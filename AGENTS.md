@@ -139,17 +139,18 @@ _Idle — awaiting next PM/roadmap assignment._
 
 ### Completed Steps (recent)
 
-- Established Agent Company governance (`AGENTS.md`): Iron Rules, five core roles, gatekeepers.
-- Added Cursor rules: `supabase-security.mdc`, `clinical-ai-guardrails.mdc`.
-- Audited UI vs service layer (Iron Rule 2): no direct Supabase queries in `src/components/**`.
-- Hardened clinical AI PHI path: scrub helpers, `patientInitials` / `nameTokens`, redacted intake archives, safer logs.
-- Deployed `gemini-proxy` Edge Function (v38) with name-token scrubbing.
+- Hardened `mergePatientPayloadForUpsert` for sticky freeze/status + canonical `frozen` writes; Vitest coverage for merge/roster/PHI scrub.
+- Intake AI PHI: `nameTokens` + scrub; stopped sending portal usernames into Gemini prompts.
+- RLS phase4: dropped duplicate permissive policies; `gemini-proxy` rate limit + DB-based role budget (deployed).
+- `AuthContext` profiles access moved to `src/services/profileService.ts`; production sync logs redacted.
 
 ### Next Action Items
 
-1. Add/extend Vitest coverage for patient status, freeze, and clinical sync merge paths.
-2. Optional: move `AuthContext` `profiles` access behind `src/services/` for full service-layer consistency.
-3. PM: pick the next MVP slice from the clinical roadmap and set it as **Current Active Task**.
+1. Enable Supabase Auth leaked-password protection in the dashboard.
+2. Set Edge Function secret `ALLOWED_ORIGINS` for production CORS lockdown on `gemini-proxy`.
+3. Split god-files (`PatientContext`, `PatientDailyView`, `clinicalService`) into domain modules.
+4. Expand Vitest to exercise-completion RPC wrappers and freeze UI → cloud payload contract.
+5. PM: next MVP slice — denormalize `account_frozen` / `status` columns for server-enforced freezes.
 
 ### Update protocol
 

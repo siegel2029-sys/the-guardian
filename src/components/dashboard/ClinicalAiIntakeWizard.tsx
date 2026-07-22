@@ -64,7 +64,7 @@ type Props = {
   initialPatientName: string;
   /** טקסט אינטייק קיים (עריכה); ברירת מחדל — תבנית מובנית ביצירה */
   initialIntakeStory?: string;
-  /** מזהה פורטל קבוע (רמזים) — לא ניתן לעריכה; נכלל בניתוח AI כמזהה פנימי */
+  /** מזהה פורטל קבוע (רמזים UI) — נשלח כ־nameTokens לניקוי, לא בטקסט הפרומפט */
   lockedPortalUsername?: string | null;
   /** יצירה מסרגל צד vs עריכה מסקירת מטפל */
   clinicalIntakeMode?: 'create' | 'edit';
@@ -182,14 +182,10 @@ function buildLocalBundle(story: string, local: ClinicalIntakeAnalysis): Analysi
 async function runIntakeAnalysis(
   story: string,
   followUp: boolean,
-  portalIdentity?: string | null
+  opts?: { portalUsername?: string | null; patientName?: string | null }
 ): Promise<AnalysisBundle> {
   const trimmed = story.trim();
-  const identitySuffix =
-    portalIdentity && portalIdentity.trim()
-      ? `\n\n[מזהה פורטל קבוע (מעקב פנימי בלבד, לא שם מלא): ${portalIdentity.trim()}]`
-      : '';
-  const forModel = trimmed + identitySuffix;
+  const forModel = trimmed;
   const local = analyzeClinicalNote(trimmed);
 
   if (!getGeminiApiKey()) {
@@ -197,7 +193,11 @@ async function runIntakeAnalysis(
   }
 
   try {
-    const g = await analyzeIntakeStoryWithGemini(forModel, { followUp });
+    const g = await analyzeIntakeStoryWithGemini(forModel, {
+      followUp,
+      patientName: opts?.patientName,
+      portalUsername: opts?.portalUsername,
+    });
     const primaryBodyArea =
       g.primaryInjuryZoneJoint ?? local.primaryBodyArea ?? 'back_lower';
 
@@ -338,7 +338,10 @@ export default function ClinicalAiIntakeWizard({
     setAnalysisError(null);
     setIsAnalyzing(true);
     try {
-      const bundle = await runIntakeAnalysis(fullStory, followUpIntake, lockedPortalUsername);
+      const bundle = await runIntakeAnalysis(fullStory, followUpIntake, {
+        portalUsername: lockedPortalUsername,
+        patientName: intakeName.trim() || initialPatientName,
+      });
       const narrativeOnly = extractNarrativeCaseStory(fullStory) || fullStory;
       const parsedProfile = mergeClinicalIntakeProfile(
         bundle.clinicalIntakeProfile,
