@@ -8,7 +8,9 @@ import {
 } from "../_shared/patientPushDelivery.ts";
 import {
   mergePatientPayloadFields,
+  patientPayloadBlocksAutomatedReminders,
   patientReminderMetaFromRow,
+  REMINDER_BLOCKED_PATIENT_STATUSES,
   type PatientReminderMeta,
 } from "../_shared/patientPayloadMeta.ts";
 
@@ -601,6 +603,19 @@ Deno.serve(async (req) => {
         });
       }
 
+      if (patientPayloadBlocksAutomatedReminders(targeted.payload)) {
+        console.log(
+          `[reminder-cron test_now] Skipping patient ${test_patient_id}: blocked_status_or_frozen`,
+        );
+        return jsonResponse({
+          ok: true,
+          test_now: true,
+          sent: false,
+          reason: "blocked_status_or_frozen",
+          patientId: test_patient_id,
+        });
+      }
+
       const tp = patientReminderMetaFromRow({
         id: String(targeted.id),
         payload: targeted.payload,
@@ -650,18 +665,30 @@ Deno.serve(async (req) => {
     /** When `test_now` without `patient_id`: main loop bypasses local hour, quiet hours, 3h window, and daily locks. */
     const reminderTestBypass = test_now;
 
+    // Status / freeze live in JSONB payload (no top-level status column).
+    // Exclude frozen / inactive / suspended / paused, and therapist accountFrozen flag.
+    const blockedStatusList = `(${REMINDER_BLOCKED_PATIENT_STATUSES.join(",")})`;
     const { data: patients, error: listErr } = await supabase
       .from("patients")
       .select("id, payload")
-      .not("auth_user_id", "is", null);
+      .not("auth_user_id", "is", null)
+      .or(
+        `payload->>status.is.null,payload->>status.not.in.${blockedStatusList}`,
+      )
+      // Null-safe: absent freeze flag must still be eligible; only explicit true is blocked.
+      .or("payload->>accountFrozen.is.null,payload->>accountFrozen.neq.true")
+      .or("payload->>account_frozen.is.null,payload->>account_frozen.neq.true");
 
     if (listErr) {
       return jsonResponse({ ok: false, error: listErr.message }, 503);
     }
 
-    const normalizedPatients = (patients ?? []).map((row) =>
-      patientReminderMetaFromRow({ id: String(row.id), payload: row.payload })
-    );
+    // Defense in depth: re-check payload in case JSON boolean/string quirks bypass PostgREST filters.
+    const normalizedPatients = (patients ?? [])
+      .filter((row) => !patientPayloadBlocksAutomatedReminders(row.payload))
+      .map((row) =>
+        patientReminderMetaFromRow({ id: String(row.id), payload: row.payload })
+      );
 
     const dispatch = await runReminderDispatch({
       supabase,

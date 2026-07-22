@@ -119,6 +119,31 @@ export function stripPushFieldsFromPatientPayload(
   return next;
 }
 
+/**
+ * Payload `status` values that must never receive automated reminders / push.
+ * Includes app statuses (`frozen`, `paused`) plus aliases (`inactive`, `suspended`).
+ */
+export const REMINDER_BLOCKED_PATIENT_STATUSES = [
+  "frozen",
+  "inactive",
+  "suspended",
+  "paused",
+] as const;
+
+/** True when therapist freeze flag or blocked clinical status should suppress reminders. */
+export function patientPayloadBlocksAutomatedReminders(patientPayload: unknown): boolean {
+  const root = coerceJsonRecord(patientPayload);
+  if (!root) return false;
+
+  const frozenFlag = root.accountFrozen ?? root.account_frozen;
+  if (frozenFlag === true || frozenFlag === "true") return true;
+
+  const statusRaw = root.status;
+  if (typeof statusRaw !== "string") return false;
+  const status = statusRaw.trim().toLowerCase();
+  return (REMINDER_BLOCKED_PATIENT_STATUSES as readonly string[]).includes(status);
+}
+
 /** Normalized reminder-cron view derived entirely from JSONB payload. */
 export type PatientReminderMeta = {
   id: string;
