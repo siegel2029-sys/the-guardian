@@ -139,14 +139,14 @@ _Idle — awaiting next PM/roadmap assignment._
 
 ### Completed Steps (recent)
 
-- Extracted pure merge/canonicalize helpers to `src/services/patientPayloadMerge.ts` (clinicalService re-exports); Vitest still green.
-- Split PatientContext domain modules: hydrate / persist / exercise / chat (+ safeLog PHI scrub on touched paths).
-- Intake AI PHI + sticky freeze/status merge remain the regression gates for further god-file splits.
+- Hardened `reminder-cron`: freeze/status enqueue gate, PHI-safe log refs, timezone hour-24 normalize, transient push retry; extracted `_shared/reminderEligibility.ts`.
+- Added Vitest coverage for reminder eligibility / freeze→scheduler contract + `cloudSyncResilience` (pull/push upsert retry wiring in `supabaseSync`).
+- Cloud sync upserts/pull now use bounded transient retry; permanent RLS/4xx failures stay non-retrying.
 
 ### Next Action Items
 
 1. Continue god-file split: carve remaining PatientContext provider logic / PatientDailyView into domain modules.
-2. Expand Vitest to exercise-completion RPC wrappers and freeze UI → cloud payload contract.
+2. Expand Vitest to exercise-completion RPC wrappers (remaining freeze UI → cloud payload edges).
 3. Enable Supabase Auth leaked-password protection in the dashboard.
 4. Set Edge Function secret `ALLOWED_ORIGINS` for production CORS lockdown on `gemini-proxy`.
 5. PM: next MVP slice — denormalize `account_frozen` / `status` columns for server-enforced freezes.

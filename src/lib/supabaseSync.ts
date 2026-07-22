@@ -19,6 +19,7 @@ import {
   pullClinicalInsightsFromPatientPayloads,
   type ClinicalInsightsSnapshot,
 } from '../utils/clinicalInsightsPayload';
+import { withCloudSyncRetry } from './cloudSyncResilience';
 
 async function therapistIdByPatientIdForClinicalSync(
   client: SupabaseClient,
@@ -72,28 +73,38 @@ export async function pullPersistedState(
   client: SupabaseClient,
   options?: { onlyPatientId?: string }
 ): Promise<PullPersistedStateResult> {
-  try {
-    const onlyId = options?.onlyPatientId?.trim();
-    if (onlyId) {
-      const row = await getPatientById(client, onlyId);
-      if (!row.ok) return { ok: false, message: row.message };
+  const attempt = async (): Promise<PullPersistedStateResult> => {
+    try {
+      const onlyId = options?.onlyPatientId?.trim();
+      if (onlyId) {
+        const row = await getPatientById(client, onlyId);
+        if (!row.ok) return { ok: false, message: row.message };
+        return {
+          ok: true,
+          clinicalInsights: pullClinicalInsightsFromPatientPayloads([row.patient]),
+        };
+      }
+
+      const base = await fetchPatientPayloadsForTherapist(client);
+      if (!base.ok) return { ok: false, message: base.message };
       return {
         ok: true,
-        clinicalInsights: pullClinicalInsightsFromPatientPayloads([row.patient]),
+        clinicalInsights: pullClinicalInsightsFromPatientPayloads(base.patients),
       };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn('[pullPersistedState] failed — keeping local state', message);
+      return { ok: false, message };
     }
+  };
 
-    const base = await fetchPatientPayloadsForTherapist(client);
-    if (!base.ok) return { ok: false, message: base.message };
-    return {
-      ok: true,
-      clinicalInsights: pullClinicalInsightsFromPatientPayloads(base.patients),
-    };
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.warn('[pullPersistedState] failed — keeping local state', message);
-    return { ok: false, message };
-  }
+  return withCloudSyncRetry(attempt, {
+    maxAttempts: 2,
+    delayMs: 350,
+    onRetry: (n, message) => {
+      console.warn(`[pullPersistedState] transient failure — retry ${n}`, message);
+    },
+  });
 }
 
 /**
@@ -135,6 +146,15 @@ export async function pushPersistedStateToSupabase(
       now
     );
 
+    const retryUpsert = <T extends SupabasePushResult>(label: string, op: () => Promise<T>) =>
+      withCloudSyncRetry(op, {
+        maxAttempts: 2,
+        delayMs: 350,
+        onRetry: (n, message) => {
+          console.warn(`[pushPersistedStateToSupabase] ${label} transient — retry ${n}`, message);
+        },
+      });
+
     if (isPatient) {
       if (!ownPatientId) {
         return { ok: false, message: 'patient sync: missing patientSessionId' };
@@ -148,15 +168,15 @@ export async function pushPersistedStateToSupabase(
               (state.safetyAlerts ?? []).filter((a) => a.patientId === ownPatientId),
               now
             );
-      return await upsertPatientRecords(client, ownPatients, now, {
-        onlyPatientId: ownPatientId,
-      });
+      return await retryUpsert('upsertPatientRecords(patient)', () =>
+        upsertPatientRecords(client, ownPatients, now, {
+          onlyPatientId: ownPatientId,
+        })
+      );
     }
 
-    let result: SupabasePushResult = await upsertTherapistProfilesForPatients(
-      client,
-      patientsWithClinicalQueue,
-      now
+    let result: SupabasePushResult = await retryUpsert('upsertTherapistProfilesForPatients', () =>
+      upsertTherapistProfilesForPatients(client, patientsWithClinicalQueue, now)
     );
     if (!result.ok) return result;
 
@@ -167,11 +187,13 @@ export async function pushPersistedStateToSupabase(
       knowledgeFacts: kb.length > 0 ? kb : undefined,
     }));
 
-    result = await upsertPatientRecords(client, patientsForUpsert, now, {
-      ...(options?.trustKnowledgeFactDeletions !== undefined
-        ? { trustKnowledgeFactDeletions: options.trustKnowledgeFactDeletions }
-        : {}),
-    });
+    result = await retryUpsert('upsertPatientRecords', () =>
+      upsertPatientRecords(client, patientsForUpsert, now, {
+        ...(options?.trustKnowledgeFactDeletions !== undefined
+          ? { trustKnowledgeFactDeletions: options.trustKnowledgeFactDeletions }
+          : {}),
+      })
+    );
     if (!result.ok) return result;
     const syncedPatients = result.syncedPatients;
 
@@ -192,12 +214,14 @@ export async function pushPersistedStateToSupabase(
           )
         : undefined;
 
-    result = await upsertExercisePlans(client, state.exercisePlans, now, {
-      changeSummaryByPatientId:
-        changeSummaryByPatientId && Object.keys(changeSummaryByPatientId).length > 0
-          ? changeSummaryByPatientId
-          : undefined,
-    });
+    result = await retryUpsert('upsertExercisePlans', () =>
+      upsertExercisePlans(client, state.exercisePlans, now, {
+        changeSummaryByPatientId:
+          changeSummaryByPatientId && Object.keys(changeSummaryByPatientId).length > 0
+            ? changeSummaryByPatientId
+            : undefined,
+      })
+    );
     if (!result.ok) {
       console.error('[pushPersistedStateToSupabase] upsertExercisePlans נכשל', result.message);
       return result;
@@ -207,9 +231,11 @@ export async function pushPersistedStateToSupabase(
       client,
       state.patients
     );
-    result = await upsertSessionHistory(client, state.dailySessions, now, {
-      therapistIdByPatientId,
-    });
+    result = await retryUpsert('upsertSessionHistory', () =>
+      upsertSessionHistory(client, state.dailySessions, now, {
+        therapistIdByPatientId,
+      })
+    );
     if (!result.ok) return result;
 
     const kbToSave = state.knowledgeFacts ?? [];
@@ -234,13 +260,26 @@ export async function pushPersistedStateToSupabase(
       `[SYNC_DEBUG] Final KB items to be saved: ${finalKbSaveCount}. (Local was ${localKbCount}, Server was ${serverKbCount})`
     );
 
-    const kbOutcome = await upsertGlobalAppKnowledgeBaseWithTipSyncLog(
-      client,
-      normalizeKnowledgeFactsList(kbToSave),
-      now,
+    const kbOutcome = await withCloudSyncRetry(
+      () =>
+        upsertGlobalAppKnowledgeBaseWithTipSyncLog(
+          client,
+          normalizeKnowledgeFactsList(kbToSave),
+          now,
+          {
+            appendDeletedSeedIds: options?.appendKnowledgeDeletedSeedIds,
+          }
+        ),
       {
-        appendDeletedSeedIds: options?.appendKnowledgeDeletedSeedIds,
-      }
+        maxAttempts: 2,
+        delayMs: 350,
+        onRetry: (n, message) => {
+          console.warn(
+            `[pushPersistedStateToSupabase] upsertGlobalAppKnowledgeBase transient — retry ${n}`,
+            message,
+          );
+        },
+      },
     );
     if (!kbOutcome.ok) {
       return {
