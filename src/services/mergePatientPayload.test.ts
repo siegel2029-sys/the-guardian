@@ -4,7 +4,7 @@ import {
   canonicalizeAccountControl,
   mergeAccountControlForUpsert,
   mergePatientPayloadForUpsert,
-} from './clinicalService';
+} from './patientPayloadMerge';
 
 function basePatient(overrides: Partial<Patient> = {}): Patient {
   return {

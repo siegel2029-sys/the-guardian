@@ -8,9 +8,7 @@ import {
   useEffect,
   useRef,
   startTransition,
-  type Dispatch,
   type ReactNode,
-  type SetStateAction,
 } from 'react';
 import type {
   Patient,
@@ -57,7 +55,6 @@ import {
   savePersistedPatientState,
   PATIENT_STATE_STORAGE_KEY,
   type PersistedPatientStateV1,
-  type PatientGearPersistedV1,
 } from './patientPersistence';
 import {
   ensurePatientAccountsForPatients,
@@ -95,22 +92,15 @@ import {
   fetchUnlinkedPortalPatientIds,
   postgrestHttpStatus,
   mergePatientPayloadForUpsert,
-  mergePainHistoryUnique,
-  mergeSessionHistoryByDate,
   mergeSessionCompletionByDateMaps,
   mergeKnowledgeFactsForUpsert,
-  mergeKnowledgeFactsHydrateFromTherapistCloud,
-  fetchTherapistAppKbWithLegacyGlobalFallback,
-  resolveStableAuthUserIdForKb,
   resolveTherapistIdForSupabaseRls,
-  exercisePlanExercisesComparableSignature,
 } from '../services/clinicalService';
 import {
   fetchSessionHistoryBetween,
   mergeDailySessionsWithServerForPatient,
   aggregateFinishReportsFromSessionRows,
   buildSessionCompletionByDateFromDailySessions,
-  buildPainAndSessionHistoryFromDailySessions,
   hydrateDailySessionsFromSessionCompletionMap,
 } from '../services/exerciseService';
 import { pushPersistedStateToSupabase, pullPersistedState, type PushPersistedStateOptions, type SupabasePushResult } from '../lib/supabaseSync';
@@ -136,13 +126,6 @@ import {
   type ChatViewerRole,
 } from '../services/chatMessages';
 import { dispatchTherapistChatPushNotification, fetchPatientChatPushContext } from '../services/therapistChatPush';
-import type {
-  GearPurchaseResult,
-  PatientRewardFeedback,
-  MountainDailyEnvironmentState,
-  MountainBackdropContext,
-  PatientAvatarPostureTier,
-} from '../hooks/useGamification';
 import type { MuscleEvolutionStage } from '../body/anatomicalEvolution';
 import { useGamification } from '../hooks/useGamification';
 import { useExercisePlan } from '../hooks/useExercisePlan';
@@ -155,132 +138,35 @@ import {
   recomputePatientAnalyticsAggregates,
   type PatientRewardMeta,
 } from './patientDomainHelpers';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  applySessionHistoryAnalyticsHydration,
+  hydrateTherapistKnowledgeFactsFromSupabase,
+} from './patientContextHydrate';
+import {
+  cloneExercisePlansForBaseline,
+  exercisePlansDeltaForTherapistPush,
+} from './patientContextExercise';
+import {
+  mergePatientForSingleCloudSave,
+  mergePatientWithExercisePlanCache,
+} from './patientContextPersist';
+import {
+  logChatAuthNotReady,
+  logChatInsertFailed,
+  logChatMissingTherapistIdOnPatient,
+  logChatMissingTherapistUser,
+  logChatTherapistReplyInvoked,
+} from './patientContextChat';
+import {
+  defaultPatientGear,
+  normalizePatientGear,
+  type PatientGearState,
+} from './patientGearUtils';
+import { devError, devLog, devWarn, redactId } from '../lib/safeLog';
 
-function cloneExercisePlansForBaseline(plans: ExercisePlan[]): ExercisePlan[] {
-  try {
-    return JSON.parse(JSON.stringify(plans)) as ExercisePlan[];
-  } catch {
-    return plans.map((p) => ({
-      ...p,
-      exercises: p.exercises.map((ex) => ({ ...ex })),
-    }));
-  }
-}
+export type { PatientGearState } from './patientGearUtils';
 
-/** תוכניות שהשתנו לעומת צילום בסיס מהטעינה בדשבורד המטפל — דוחפת רק אותן ל-Supabase */
-function exercisePlansDeltaForTherapistPush(
-  current: ExercisePlan[],
-  baseline: ExercisePlan[] | null
-): ExercisePlan[] {
-  if (!baseline || baseline.length === 0) {
-    return current;
-  }
-  const baseByPatient = new Map(baseline.map((p) => [p.patientId, p]));
-  return current.filter((plan) => {
-    const b = baseByPatient.get(plan.patientId);
-    if (!b) return true;
-    return (
-      exercisePlanExercisesComparableSignature(plan.exercises) !==
-      exercisePlanExercisesComparableSignature(b.exercises)
-    );
-  });
-}
-
-/** טעינת בסיס הידע מ-app_knowledge_base + aggregation של payloads מה-fetch הנוכחי (לא מהטמון בלבד). */
-async function hydrateTherapistKnowledgeFactsFromSupabase(
-  client: SupabaseClient,
-  patientsSnapshotFromServerFetch: Patient[],
-  setKnowledgeFacts: Dispatch<SetStateAction<KnowledgeFact[]>>,
-  prevFacts: KnowledgeFact[],
-  opts?: {
-    suppressCloudKbFetchUntilMs?: number;
-    forceFreshKbFetch?: boolean;
-    /** נקרא רק אחרי סיבוב רשת מוצלח ל־app_knowledge_base (כולל מיגרציה מ־global). */
-    markHydratedFromCloud?: () => void;
-  }
-): Promise<KnowledgeFact[]> {
-  const suppressMs = opts?.suppressCloudKbFetchUntilMs ?? 0;
-  const fetchBlocked = !opts?.forceFreshKbFetch && Date.now() < suppressMs;
-
-  let kbItems: KnowledgeFact[] | undefined;
-
-  if (!fetchBlocked) {
-    let therapistKey: string | undefined;
-    if (isSupabaseAuthEnabled()) {
-      const uid = await resolveStableAuthUserIdForKb(client, { maxWaitMs: 12_000 });
-      const trimmed = uid?.trim();
-      if (!trimmed) {
-        console.warn('[TIP_SYNC] KB fetch skipped — therapist auth uid not stable after wait');
-        const mergedOnlyPayloads = mergeKnowledgeFactsHydrateFromTherapistCloud(
-          patientsSnapshotFromServerFetch,
-          undefined,
-          prevFacts
-        );
-        setKnowledgeFacts(mergedOnlyPayloads);
-        return mergedOnlyPayloads;
-      }
-      therapistKey = trimmed;
-      console.warn(`[TIP_SYNC] Initializing fetch for Therapist ID: ${therapistKey}`);
-    }
-
-    const { items, deletedSeedIds } = await fetchTherapistAppKbWithLegacyGlobalFallback(
-      client,
-      therapistKey
-    );
-    kbItems = items;
-
-    const mergedAfterFetch = mergeKnowledgeFactsHydrateFromTherapistCloud(
-      patientsSnapshotFromServerFetch,
-      kbItems,
-      prevFacts,
-      deletedSeedIds
-    );
-    setKnowledgeFacts(mergedAfterFetch);
-    opts?.markHydratedFromCloud?.();
-    return mergedAfterFetch;
-  }
-
-  const merged = mergeKnowledgeFactsHydrateFromTherapistCloud(
-    patientsSnapshotFromServerFetch,
-    kbItems,
-    prevFacts
-  );
-  setKnowledgeFacts(merged);
-  return merged;
-}
-
-/** sessionStorage: LoginPage sets before routing; PatientProvider clears once to open dashboard hub. */
 export const THERAPIST_LOGIN_HUB_LANDING_SESSION_KEY = 'guardian-therapist-login-hub-landing-v1';
-
-/** Merges pain + exercise analytics derived from `session_history` rows into patient state for dashboard charts. */
-function applySessionHistoryAnalyticsHydration(
-  patient: Patient,
-  rows: DailySession[],
-  plannedExerciseCountFallback: number
-): Patient {
-  if (rows.length === 0) return patient;
-  const derived = buildPainAndSessionHistoryFromDailySessions(
-    rows,
-    patient.primaryBodyArea,
-    plannedExerciseCountFallback
-  );
-  const painHistory = mergePainHistoryUnique(patient.analytics.painHistory, derived.painHistory);
-  const sessionHistory = mergeSessionHistoryByDate(
-    patient.analytics.sessionHistory,
-    derived.sessionHistory
-  );
-  const agg = recomputePatientAnalyticsAggregates(painHistory, sessionHistory);
-  return {
-    ...patient,
-    analytics: {
-      ...patient.analytics,
-      painHistory,
-      sessionHistory,
-      ...agg,
-    },
-  };
-}
 
 export type {
   GearPurchaseResult,
@@ -291,38 +177,6 @@ export type {
 } from '../hooks/useGamification';
 export type { GearEquipSlot } from '../config/gearCatalog';
 
-export type PatientGearState = PatientGearPersistedV1;
-
-function defaultPatientGear(): PatientGearState {
-  return {
-    ownedGearIds: [],
-    equippedSkin: null,
-    equippedAura: null,
-    equippedHands: null,
-    equippedTorso: null,
-    equippedChestEmblem: null,
-    equippedFeetFx: null,
-    equippedCape: null,
-    equippedPassiveId: null,
-    streakShieldCharges: 0,
-  };
-}
-
-function normalizePatientGear(v: Partial<PatientGearState> | undefined): PatientGearState {
-  return {
-    ownedGearIds: [...(v?.ownedGearIds ?? [])],
-    equippedSkin: v?.equippedSkin ?? null,
-    equippedAura: v?.equippedAura ?? null,
-    equippedHands: v?.equippedHands ?? null,
-    equippedTorso: v?.equippedTorso ?? null,
-    equippedChestEmblem: v?.equippedChestEmblem ?? null,
-    equippedFeetFx: v?.equippedFeetFx ?? null,
-    equippedCape: v?.equippedCape ?? null,
-    equippedPassiveId: v?.equippedPassiveId ?? null,
-    streakShieldCharges: Math.max(0, v?.streakShieldCharges ?? 0),
-  };
-}
-
 /**
  * PostgREST auth / validation failures during cloud save.
  * Non-blocking: user feedback flows through `supabaseSyncStatus` / `supabaseSyncError`
@@ -330,7 +184,7 @@ function normalizePatientGear(v: Partial<PatientGearState> | undefined): Patient
  */
 function alertIfSupabaseClientFailure(message: string, httpStatus?: number, cause?: unknown) {
   if (isAuthSessionMissingMessage(message)) {
-    console.warn('[PatientContext] Skipping cloud save alert — auth session not ready:', message);
+    devWarn('[PatientContext] Skipping cloud save alert — auth session not ready:', { message });
     return;
   }
   const st =
@@ -338,7 +192,7 @@ function alertIfSupabaseClientFailure(message: string, httpStatus?: number, caus
     postgrestHttpStatus(cause) ??
     (/\b401\b/.test(message) ? 401 : /\b400\b/.test(message) ? 400 : undefined);
   if (st === 400 || st === 401) {
-    console.error(`[PatientContext] Cloud save failed (HTTP ${st}):`, message);
+    devError(`[PatientContext] Cloud save failed (HTTP ${st})`, { message });
   }
 }
 
@@ -1068,8 +922,8 @@ export function PatientProvider({
 
     const supabaseClient = supabase;
 
-    console.log('[PatientPortal] מתחיל טעינת נתוני מטופל מ-Supabase', {
-      patientId: restrictPatientSessionId,
+    devLog('[PatientPortal] מתחיל טעינת נתוני מטופל מ-Supabase', {
+      patientId: redactId(restrictPatientSessionId),
       isAuthenticated,
       authLoading,
     });
@@ -1080,18 +934,17 @@ export function PatientProvider({
 
       if (cancelled) return;
       if (res.ok === false) {
-        console.warn('[PatientPortal] טעינת נתוני מטופל נכשלה', {
-          patientId: restrictPatientSessionId,
+        devWarn('[PatientPortal] טעינת נתוני מטופל נכשלה', {
+          patientId: redactId(restrictPatientSessionId),
           reason: res.message,
-          hint: 'ייתכן שמדיניות ה-RLS חוסמת קריאת שורת patients — ודא שיש פוליסה המאפשרת contact_email = auth.jwt()->>"email"',
+          hint: 'RLS may block patients row read for portal session',
         });
         return;
       }
 
       const { patient: fetched, exercisePlan } = res;
-      console.log('[PatientPortal] נתוני מטופל התקבלו', {
-        patientId: fetched.id,
-        patientName: fetched.name,
+      devLog('[PatientPortal] נתוני מטופל התקבלו', {
+        patientId: redactId(fetched.id),
         exercisePlanFound: !!exercisePlan,
         exerciseCount: exercisePlan?.exercises.length ?? 0,
       });
@@ -1113,12 +966,11 @@ export function PatientProvider({
           0
         );
         const todayRow = histRows.find((r) => r.date === clinicalDayForMerge);
-        console.log('[HYDRATE_COMPLETION] patient portal — session_history from cloud', {
-          patientId: restrictPatientSessionId,
+        devLog('[HYDRATE_COMPLETION] patient portal — session_history from cloud', {
+          patientId: redactId(restrictPatientSessionId),
           daysWithRows: histRows.length,
           totalCompletedExerciseSlots: totalCompletedSlots,
           todayCompletedCount: todayRow?.completedIds?.length ?? 0,
-          todayCompletedIds: [...(todayRow?.completedIds ?? [])],
         });
         setDailySessions((prev) =>
           mergeDailySessionsWithServerForPatient(prev, restrictPatientSessionId, histRows)
@@ -1524,12 +1376,11 @@ export function PatientProvider({
 
       const totalCompletedSlots = rows.reduce((n, r) => n + (r.completedIds?.length ?? 0), 0);
       const todayRow = rows.find((r) => r.date === today);
-      console.log('[HYDRATE_COMPLETION] therapist — session_history merged for patient', {
-        patientId: pid,
+      devLog('[HYDRATE_COMPLETION] therapist — session_history merged for patient', {
+        patientId: redactId(pid),
         daysWithRows: rows.length,
         totalCompletedExerciseSlots: totalCompletedSlots,
         todayCompletedCount: todayRow?.completedIds?.length ?? 0,
-        todayCompletedIds: [...(todayRow?.completedIds ?? [])],
       });
 
       setPatientExerciseFinishReportsByPatientId((prev) => {
@@ -2009,14 +1860,13 @@ export function PatientProvider({
         const clinicalDayMerge = getClinicalDate();
         const trustControl =
           !restrictPatientSessionId && options?.trustIncomingAccountControl === true;
-      const baseline = allPatientsRef.current.find((x) => x.id === patient.id);
-      const patientPayload =
-        baseline != null
-          ? mergePatientPayloadForUpsert(baseline, patient, {
-              clinicalToday: clinicalDayMerge,
-              trustIncomingAccountControl: trustControl,
-            })
-          : patient;
+        const baseline = allPatientsRef.current.find((x) => x.id === patient.id);
+        const patientPayload = mergePatientForSingleCloudSave(
+          baseline,
+          patient,
+          clinicalDayMerge,
+          trustControl
+        );
 
       const result = restrictPatientSessionId
           ? await upsertTreatmentReport(supabaseClient, patientPayload, {
@@ -2138,8 +1988,8 @@ export function PatientProvider({
             : (pickCanonicalExercisePlan(exercisePlansRef.current, patientId)?.exercises ?? [])
         );
 
-        console.log('[Exercise cloud save] מתחיל שמירת תוכנית לענן', {
-          patientId,
+        devLog('[Exercise cloud save] מתחיל שמירת תוכנית לענן', {
+          patientId: redactId(patientId),
           exerciseCount: exercisesToPersist.length,
           changeSummary: options?.changeSummary ?? null,
         });
@@ -2153,20 +2003,20 @@ export function PatientProvider({
           const now = new Date().toISOString();
           const patientSyncResult = await upsertPatientRecords(supabaseClient, [patientForSync], now);
           if (patientSyncResult.ok === false) {
-            console.warn(
+            devWarn(
               '[Exercise cloud save] אזהרה: סנכרון שורת המטופל נכשל (ממשיך לנסות לשמור את התוכנית)',
-              { patientId, reason: patientSyncResult.message }
+              { patientId: redactId(patientId), reason: patientSyncResult.message }
             );
             alertIfSupabaseClientFailure(
               patientSyncResult.message,
               patientSyncResult.httpStatus
             );
           } else {
-            console.log('[Exercise cloud save] שורת המטופל סונכרנה בהצלחה', { patientId });
+            devLog('[Exercise cloud save] שורת המטופל סונכרנה בהצלחה', { patientId: redactId(patientId) });
           }
         } else {
-          console.warn('[Exercise cloud save] המטופל לא נמצא בזיכרון — מדלג על סנכרון שורת patients', {
-            patientId,
+          devWarn('[Exercise cloud save] המטופל לא נמצא בזיכרון — מדלג על סנכרון שורת patients', {
+            patientId: redactId(patientId),
           });
         }
 
@@ -2183,10 +2033,10 @@ export function PatientProvider({
         if (upd.ok === false) {
           failureMessage = upd.message;
           alertIfSupabaseClientFailure(upd.message, upd.httpStatus);
-          console.error('[Exercise cloud save] נכשל:', upd.message, { patientId });
+          devError('[Exercise cloud save] נכשל', { reason: upd.message, patientId: redactId(patientId) });
           return false;
         }
-        console.log('[Exercise cloud save] נשמר בהצלחה ל־exercise_plans', { patientId });
+        devLog('[Exercise cloud save] נשמר בהצלחה ל־exercise_plans', { patientId: redactId(patientId) });
 
         // Mirror the exercises into patients.payload._exercisePlanCache.
         // This lets the patient portal read exercises even when the patient's JWT
@@ -2195,19 +2045,20 @@ export function PatientProvider({
         if (patientForCache) {
           const now = new Date().toISOString();
           const clinicalDayMerge = getClinicalDate();
-          const patientWithCache = mergePatientPayloadForUpsert(
+          const patientWithCache = mergePatientWithExercisePlanCache(
             patientForCache,
-            { ...patientForCache, _exercisePlanCache: exercisesToPersist },
-            { clinicalToday: clinicalDayMerge }
+            patientForCache,
+            exercisesToPersist,
+            clinicalDayMerge
           );
           setAllPatients((prev) =>
             prev.map((p) => (p.id === patientId ? patientWithCache : p))
           );
           const cacheResult = await upsertPatientRecords(supabaseClient, [patientWithCache], now);
           if (cacheResult.ok === false) {
-            console.warn('[Exercise cloud save] עדכון _exercisePlanCache ב-patients נכשל (לא קריטי):', cacheResult.message, { patientId });
+            devWarn('[Exercise cloud save] עדכון _exercisePlanCache ב-patients נכשל (לא קריטי)', { reason: cacheResult.message, patientId: redactId(patientId) });
           } else {
-            console.log('[Exercise cloud save] _exercisePlanCache עודכן ב-patients.payload', { patientId, exerciseCount: exercisesToPersist.length });
+            devLog('[Exercise cloud save] _exercisePlanCache עודכן ב-patients.payload', { patientId: redactId(patientId), exerciseCount: exercisesToPersist.length });
           }
         }
 
@@ -2548,7 +2399,7 @@ export function PatientProvider({
       const body = content.trim();
       const pid = patientId.trim();
       if (import.meta.env.DEV) {
-        console.log('[Chat] sendTherapistReply invoked', { patientId: pid, hasBody: body.length > 0 });
+        logChatTherapistReplyInvoked(pid, body.length > 0);
       }
       if (!body) return;
       if (!pid) return;
@@ -2584,7 +2435,7 @@ export function PatientProvider({
       void (async () => {
         const guard = await ensureSupabaseSessionReady(supabase, { context: 'sendTherapistReply' });
         if (!guard.ok) {
-          console.warn('[Chat] sendTherapistReply: auth session not ready');
+          logChatAuthNotReady();
           appendLocalFallback();
           return;
         }
@@ -2593,7 +2444,7 @@ export function PatientProvider({
           data: { user },
         } = await supabase.auth.getUser();
         if (!user?.id) {
-          console.warn('[Chat] sendTherapistReply: no authenticated therapist user');
+          logChatMissingTherapistUser();
           appendLocalFallback();
           return;
         }
@@ -2604,7 +2455,7 @@ export function PatientProvider({
           pushCtx?.therapistId?.trim() || memoryPatient?.therapistId?.trim() || '';
 
         if (!patientTherapistId) {
-          console.warn('[Chat] sendTherapistReply: missing therapist_id on patient record', pid);
+          logChatMissingTherapistIdOnPatient(pid);
           appendLocalFallback();
           return;
         }
@@ -2628,7 +2479,7 @@ export function PatientProvider({
           return;
         }
 
-        console.error('[Chat] insertTherapistChatMessage failed:', res.message);
+        logChatInsertFailed('therapist', res.message);
         appendLocalFallback();
       })();
     },
@@ -2683,7 +2534,7 @@ export function PatientProvider({
             )
           );
         } else {
-          console.error('[Chat] insertPatientChatMessage failed:', res.message);
+          logChatInsertFailed('patient', res.message);
           appendLocalPatientMessage({
             id: `msg-local-${Date.now()}`,
             patientId,
@@ -3003,10 +2854,11 @@ export function PatientProvider({
 
       const now = new Date().toISOString();
       const clinicalDayMerge = getClinicalDate();
-      const patientWithCache = mergePatientPayloadForUpsert(
+      const patientWithCache = mergePatientWithExercisePlanCache(
         patientForCache,
-        { ...patientForCache, _exercisePlanCache: normalized },
-        { clinicalToday: clinicalDayMerge }
+        patientForCache,
+        normalized,
+        clinicalDayMerge
       );
 
       setAllPatients((prev) =>
@@ -3015,8 +2867,8 @@ export function PatientProvider({
 
       const cacheResult = await upsertPatientRecords(supabase, [patientWithCache], now);
       if (cacheResult.ok === false) {
-        console.warn('[Exercise cache save] עדכון _exercisePlanCache נכשל', {
-          patientId,
+        devWarn('[Exercise cache save] עדכון _exercisePlanCache נכשל', {
+          patientId: redactId(patientId),
           message: cacheResult.message,
         });
         return fail(cacheResult.message);
@@ -3477,7 +3329,7 @@ export function PatientProvider({
         }
         const remote = await deletePatientRowFromSupabase(client, patientId);
         if (remote.ok === false) {
-          console.error('[deletePatient] Remote delete failed:', remote.message, { patientId });
+          devError('[deletePatient] Remote delete failed', { reason: remote.message, patientId: redactId(patientId) });
           return { ok: false, message: remote.message };
         }
       }

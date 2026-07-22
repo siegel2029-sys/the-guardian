@@ -19,6 +19,7 @@ import type { ClinicalProfileSaveExtras } from '../ClinicalAiIntakeWizard';
 import StructuredClinicalIntakeTabs from './StructuredClinicalIntakeTabs';
 import { emptyClinicalProfile } from './intakeReviewUtils';
 import { normalizeClinicalIntakeProfileForStorage } from '../../../utils/clinicalIntakeProfilePersist';
+import { devError } from '../../../lib/safeLog';
 
 type Props = {
   patient: Patient;
@@ -97,7 +98,7 @@ export default function ClinicalIntakeCompletionModal({
     const normalizedProfile = normalizeClinicalIntakeProfileForStorage(profile);
     if (!normalizedProfile) {
       const msg = '[ClinicalIntakeCompletion] אין נתוני פרופיל לשמירה לאחר נרמול';
-      console.error(msg, { profile });
+      devError(msg);
       setSaveError('לא ניתן לשמור — נתוני האינטייק ריקים או לא תקינים.');
       setSaveBusy(false);
       return;

@@ -20,6 +20,7 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import { PI_PUSH_SYNC_TEST_PATIENT_ID } from '../../constants/pushSyncTestPatients';
 import { requestPatientPushSync } from '../../services/therapistChatPush';
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
+import { devError, redactId } from '../../lib/safeLog';
 import RedFlagAlert from './RedFlagAlert';
 import AiSuggestionsPanel from './AiSuggestionsPanel';
 import ManagePlanModal from './ManagePlanModal';
@@ -927,10 +928,9 @@ export default function PatientOverview() {
               applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds, extras);
               const ok = await savePersistedStateToCloud({ immediate: true });
               if (!ok) {
-                console.error('[ClinicalIntakeCompletion] savePersistedStateToCloud failed', {
-                  patientId: p.id,
+                devError('[ClinicalIntakeCompletion] savePersistedStateToCloud failed', {
+                  patientId: redactId(p.id),
                   primaryBodyArea,
-                  clinicalIntakeProfile: extras?.clinicalIntakeProfile,
                 });
                 throw new Error(
                   'שמירה לענן נכשלה — הנתונים נשמרו מקומית בלבד. רעננו את הדף או נסו שוב.'

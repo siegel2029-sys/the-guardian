@@ -139,17 +139,16 @@ _Idle — awaiting next PM/roadmap assignment._
 
 ### Completed Steps (recent)
 
-- Hardened `mergePatientPayloadForUpsert` for sticky freeze/status + canonical `frozen` writes; Vitest coverage for merge/roster/PHI scrub.
-- Intake AI PHI: `nameTokens` + scrub; stopped sending portal usernames into Gemini prompts.
-- RLS phase4: dropped duplicate permissive policies; `gemini-proxy` rate limit + DB-based role budget (deployed).
-- `AuthContext` profiles access moved to `src/services/profileService.ts`; production sync logs redacted.
+- Extracted pure merge/canonicalize helpers to `src/services/patientPayloadMerge.ts` (clinicalService re-exports); Vitest still green.
+- Split PatientContext domain modules: hydrate / persist / exercise / chat (+ safeLog PHI scrub on touched paths).
+- Intake AI PHI + sticky freeze/status merge remain the regression gates for further god-file splits.
 
 ### Next Action Items
 
-1. Enable Supabase Auth leaked-password protection in the dashboard.
-2. Set Edge Function secret `ALLOWED_ORIGINS` for production CORS lockdown on `gemini-proxy`.
-3. Split god-files (`PatientContext`, `PatientDailyView`, `clinicalService`) into domain modules.
-4. Expand Vitest to exercise-completion RPC wrappers and freeze UI → cloud payload contract.
+1. Continue god-file split: carve remaining PatientContext provider logic / PatientDailyView into domain modules.
+2. Expand Vitest to exercise-completion RPC wrappers and freeze UI → cloud payload contract.
+3. Enable Supabase Auth leaked-password protection in the dashboard.
+4. Set Edge Function secret `ALLOWED_ORIGINS` for production CORS lockdown on `gemini-proxy`.
 5. PM: next MVP slice — denormalize `account_frozen` / `status` columns for server-enforced freezes.
 
 ### Update protocol

@@ -50,6 +50,7 @@ import {
   upsertTherapistProfileRow,
 } from '../services/profileService';
 import { loginPasswordFieldError, validateNewPassword } from '../lib/passwordPolicy';
+import { devError } from '../lib/safeLog';
 
 /** Local demo users: `VITE_USE_LEGACY_AUTH=true` AND a dev build — never active in production. */
 const LEGACY_AUTH_ENABLED = isLegacyAuthEnabled();
@@ -595,8 +596,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               signingInRef.current = false;
             }
             if (error || !data.user) {
-              console.error('[Auth] signInWithPassword failed (therapist)', {
-                email: therapistEmail,
+              devError('[Auth] signInWithPassword failed (therapist)', {
                 message: error?.message,
                 status: error?.status,
                 code: error?.code,
@@ -638,9 +638,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             signingInRef.current = false;
           }
           if (error || !data.user) {
-            console.error('[Auth] signInWithPassword failed (patient portal)', {
-              email,
-              portalUsername: normalized,
+            devError('[Auth] signInWithPassword failed (patient portal)', {
               message: error?.message,
               status: error?.status,
               code: error?.code,

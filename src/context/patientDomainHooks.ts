@@ -1,11 +1,13 @@
 /**
  * Domain facade hooks over the monolithic `usePatient()` context.
  *
- * `PatientContextValue` exposes ~100 members across unrelated domains (roster,
- * chat, exercise plans, gamification). Components should depend on the narrow
- * slice they actually need via these hooks instead of destructuring the god
- * hook directly. This documents the domain boundaries and lets each slice be
- * moved into its own provider later without touching consumers again.
+ * Pure helpers live beside the provider:
+ * - `patientContextHydrate.ts` / `patientContextPersist.ts`
+ * - `patientContextExercise.ts` / `patientContextChat.ts`
+ * - merge/canonicalize: `src/services/patientPayloadMerge.ts`
+ *
+ * Components should depend on the narrow slice they actually need via these hooks
+ * instead of destructuring the god hook directly.
  */
 import { usePatient } from './PatientContext';
 
