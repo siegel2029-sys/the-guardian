@@ -27,18 +27,47 @@ type GenerationBody = {
 type RequestPayload = {
   generation: GenerationBody;
   patientInitials?: string;
+  /** Explicit name/alias tokens from the client (Hebrew + Latin) — scrubbed before Gemini. */
+  nameTokens?: string[];
 };
 
-/** Simple Latin "First Last" → initials or placeholder before sending to Gemini. */
-function deidentifyText(text: string, patientInitials?: string): string {
-  const placeholder = patientInitials?.trim() || "[Patient]";
-  return text.replace(/\b([A-Z][a-z]{1,31})\s+([A-Z][a-z]{1,31})\b/g, () => placeholder);
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function scrubGeneration(gen: GenerationBody, patientInitials?: string): GenerationBody {
+/**
+ * De-identify text before Gemini:
+ * 1) Replace explicit nameTokens (works for Hebrew names).
+ * 2) Latin "First Last" → initials / placeholder.
+ */
+function deidentifyText(
+  text: string,
+  patientInitials?: string,
+  nameTokens?: string[],
+): string {
+  const placeholder = patientInitials?.trim() || "[Patient]";
+  let out = text;
+  const tokens = (nameTokens ?? [])
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 32);
+  for (const token of tokens) {
+    out = out.replace(new RegExp(escapeRegExp(token), "gi"), placeholder);
+  }
+  return out.replace(/\b([A-Z][a-z]{1,31})\s+([A-Z][a-z]{1,31})\b/g, () => placeholder);
+}
+
+function scrubGeneration(
+  gen: GenerationBody,
+  patientInitials?: string,
+  nameTokens?: string[],
+): GenerationBody {
   const contents = gen.contents.map((c) => ({
     ...c,
-    parts: c.parts.map((p) => ({ text: deidentifyText(p.text, patientInitials) })),
+    parts: c.parts.map((p) => ({
+      text: deidentifyText(p.text, patientInitials, nameTokens),
+    })),
   }));
 
   const prefix = CLINICAL_SYSTEM_PREFIX;
@@ -46,7 +75,9 @@ function scrubGeneration(gen: GenerationBody, patientInitials?: string): Generat
   if (gen.systemInstruction?.parts?.length) {
     systemInstruction = {
       parts: gen.systemInstruction.parts.map((p, i) => ({
-        text: i === 0 ? prefix + deidentifyText(p.text, patientInitials) : deidentifyText(p.text, patientInitials),
+        text: i === 0
+          ? prefix + deidentifyText(p.text, patientInitials, nameTokens)
+          : deidentifyText(p.text, patientInitials, nameTokens),
       })),
     };
   } else {
@@ -162,7 +193,7 @@ Deno.serve(async (req) => {
   }
 
   const modelId = (Deno.env.get("GEMINI_MODEL") ?? DEFAULT_MODEL).trim();
-  const scrubbed = scrubGeneration(gen, payload.patientInitials);
+  const scrubbed = scrubGeneration(gen, payload.patientInitials, payload.nameTokens);
   const url = `${GEMINI_HOST}/${GEMINI_VERSION}/models/${modelId}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   const geminiRes = await fetch(url, {

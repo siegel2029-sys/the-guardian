@@ -1,10 +1,15 @@
 import type { Patient } from '../types';
 import { bodyAreaLabels } from '../types';
+import {
+  collectPatientPhiTokens,
+  patientInitialsFromName,
+  scrubKnownPatientPhi,
+} from './clinicalConsultantContext';
 import { geminiGenerateText, getGeminiApiKey } from './geminiClient';
 
 const LOG_PREFIX = '[GeminiTherapistDive]';
 
-function patientJsonForTherapist(patient: Patient): string {
+function patientJsonForTherapist(patient: Patient, scrub: (s: string) => string): string {
   const pain = [...patient.analytics.painHistory]
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-12);
@@ -15,7 +20,7 @@ function patientJsonForTherapist(patient: Patient): string {
   return JSON.stringify(
     {
       age: patient.age,
-      diagnosisField: patient.diagnosis,
+      diagnosisField: scrub(patient.diagnosis ?? ''),
       primaryBodyArea: patient.primaryBodyArea,
       primaryBodyAreaLabel: bodyAreaLabels[patient.primaryBodyArea],
       injuryHighlightSegments: patient.injuryHighlightSegments,
@@ -27,7 +32,9 @@ function patientJsonForTherapist(patient: Patient): string {
       streak: patient.currentStreak,
       painHistoryRecent: pain,
       sessionHistoryRecent: sessions,
-      therapistNotesSaved: patient.therapistNotes?.trim() || null,
+      therapistNotesSaved: patient.therapistNotes?.trim()
+        ? scrub(patient.therapistNotes.trim())
+        : null,
     },
     null,
     2
@@ -37,7 +44,8 @@ function patientJsonForTherapist(patient: Patient): string {
 const THERAPIST_BASE = `אתה עוזר קליני לפיזיותרפיסט בממשק ניהול.
 טון: מקצועי, תמציתי, מבוסס נתונים.
 אל תאבחן סופית; הצע רק רעיונות להמשך הערכה ותכנון טיפול.
-השב בעברית בפסקאות קצרות עם כותרות משנה (ללא JSON).`;
+השב בעברית בפסקאות קצרות עם כותרות משנה (ללא JSON).
+אל תשלב שמות מטופלים או מזהים אישיים בפלט.`;
 
 /** ניתוח הערות הערכה קלינית + נתוני מטופל ומפת 3D */
 export async function summarizeTherapistAssessmentDraft(
@@ -46,16 +54,20 @@ export async function summarizeTherapistAssessmentDraft(
 ): Promise<string> {
   if (!getGeminiApiKey()) throw new Error('Missing Supabase / gemini-proxy AI setup');
 
+  const nameTokens = collectPatientPhiTokens(patient);
+  const initials = patientInitialsFromName(patient.name);
+  const scrub = (s: string) => scrubKnownPatientPhi(s, nameTokens, initials);
+
   const systemInstruction = `${THERAPIST_BASE}
 
 משימות: נתח טווחי תנועה (ROM), מבחני כוח וכל תוצאה קלינית שמופיעה בטקסט המטפל.
 הנחיה: סכם דגלים אדומים (Red Flags), הצע אבחנה מבדלת קצרה והמלץ על דגשים לתוכנית הטיפול — בהתאם לנתונים שהוזנו ולמפת הגוף התלת־ממדית (מוקד, הדגשות אדום/כתום) כפי שמופיעים ב-JSON.`;
 
   const userText = `נתוני מטופל ומפת גוף (JSON):
-${patientJsonForTherapist(patient)}
+${patientJsonForTherapist(patient, scrub)}
 
 טקסט הערכה / הערות המטפל (טיוטה):
-${draftNotes.trim()}`;
+${scrub(draftNotes.trim())}`;
 
   return geminiGenerateText({
     systemInstruction,
@@ -63,7 +75,9 @@ ${draftNotes.trim()}`;
     temperature: 0.25,
     responseMimeType: null,
     logPrefix: LOG_PREFIX,
-    logDetail: { mode: 'assessment', patientId: patient.id },
+    logDetail: { mode: 'assessment' },
+    patientInitials: initials,
+    nameTokens,
   });
 }
 
@@ -74,6 +88,10 @@ export async function summarizeTherapistIntakeNote(
   mode: 'initial' | 'follow_up'
 ): Promise<string> {
   if (!getGeminiApiKey()) throw new Error('Missing Supabase / gemini-proxy AI setup');
+
+  const nameTokens = collectPatientPhiTokens(patient);
+  const initials = patientInitialsFromName(patient.name);
+  const scrub = (s: string) => scrubKnownPatientPhi(s, nameTokens, initials);
 
   const followBlock =
     mode === 'follow_up'
@@ -92,10 +110,10 @@ export async function summarizeTherapistIntakeNote(
 הנחיה: סכם דגלים אדומים, אבחנה מבדלת והדגשות לתוכנית — על בסיס הטקסט ומפת הגוף ב-JSON.${followBlock}`;
 
   const userText = `נתוני מטופל (JSON):
-${patientJsonForTherapist(patient)}
+${patientJsonForTherapist(patient, scrub)}
 
 טקסט אינטייק / הערכה:
-${freeText.trim()}`;
+${scrub(freeText.trim())}`;
 
   return geminiGenerateText({
     systemInstruction,
@@ -103,6 +121,8 @@ ${freeText.trim()}`;
     temperature: 0.25,
     responseMimeType: null,
     logPrefix: LOG_PREFIX,
-    logDetail: { mode, patientId: patient.id },
+    logDetail: { mode },
+    patientInitials: initials,
+    nameTokens,
   });
 }

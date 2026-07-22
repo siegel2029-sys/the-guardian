@@ -5,6 +5,10 @@
 import type { ClinicalInsightsAggregated } from '../services/clinicalInsightsAggregation';
 import type { Patient } from '../types';
 import { bodyAreaLabels } from '../types';
+import {
+  collectPatientPhiTokens,
+  patientInitialsFromName,
+} from './clinicalConsultantContext';
 import { geminiGenerateText, getGeminiApiKey } from './geminiClient';
 import { parseJsonObject } from './geminiClinicalIntake';
 import type { ClinicalProgressInsight } from './clinicalCommandInsight';
@@ -176,7 +180,6 @@ System recommendation (reference only — output modifications JSON only):
 ${JSON.stringify(params.progressInsight, null, 2)}`;
 
   logInfo('Starting smart clinical center analysis', {
-    patientId: params.aggregated.patientId,
     adherencePercent: params.aggregated.adherencePercent,
     hasRecentGap: params.aggregated.hasRecentGap,
   });
@@ -187,7 +190,9 @@ ${JSON.stringify(params.progressInsight, null, 2)}`;
     temperature: 0.2,
     responseMimeType: 'application/json',
     logPrefix: LOG_PREFIX,
-    logDetail: { patientId: params.aggregated.patientId },
+    logDetail: { mode: 'smart_clinical_center' },
+    patientInitials: patientInitialsFromName(params.patient.name),
+    nameTokens: collectPatientPhiTokens(params.patient),
   });
 
   const parsed = parseJsonObject(stripMarkdownCodeFences(responseText));

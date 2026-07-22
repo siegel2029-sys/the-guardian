@@ -16,6 +16,7 @@ import {
   getGeminiGenerateContentUrlForLogging,
   getGeminiModelId,
 } from './geminiClient';
+import { scrubPhiPatterns } from './clinicalConsultantContext';
 import { mapInitialIntakeProtocolFromRaw } from '../utils/medicalIntakeSchema';
 
 export { getGeminiApiKey, GeminiRateLimitedError } from './geminiClient';
@@ -309,7 +310,7 @@ export async function analyzeIntakeStoryWithGemini(
     );
   }
 
-  const trimmedStory = patientStory.trim();
+  const trimmedStory = scrubPhiPatterns(patientStory.trim());
   const catalog = getExerciseBankIdListForPrompt();
   const jointIds = [...JOINT_BODY_AREAS].join(', ');
   const modelId = getGeminiModelId();
@@ -407,6 +408,7 @@ ${trimmedStory}`;
     responseMimeType: 'application/json',
     logPrefix: LOG_PREFIX,
     logDetail: { storyChars: trimmedStory.length, catalogSize: catalog.length },
+    patientInitials: '[Patient]',
   });
 
   logInfo('Received model text', { modelId, chars: responseText.length });
@@ -420,8 +422,6 @@ ${trimmedStory}`;
     chainCount: normalized.chainReactionZoneJoints.length,
     exerciseCount: normalized.exerciseLibraryIds.length,
     redFlagDetected: normalized.redFlagDetected,
-    clinicalIntakeProfile: normalized.clinicalIntakeProfile,
-    medicalProfile: normalized.medicalProfileMetadata,
   });
 
   return normalized;

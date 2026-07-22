@@ -5,6 +5,12 @@ import type {
   PatientIntakeArchive,
 } from '../types';
 import { bodyAreaLabels } from '../types';
+import {
+  collectPatientPhiTokens,
+  patientInitialsFromName,
+  redactIntakeArchiveForAi,
+  scrubKnownPatientPhi,
+} from './clinicalConsultantContext';
 import { geminiGenerateText, getGeminiApiKey } from './geminiClient';
 import { normalizeLegacyIntake } from '../utils/normalizeLegacyIntake';
 import { isClinicalIntakeProfileEmpty } from '../utils/clinicalIntakeTemplate';
@@ -220,15 +226,25 @@ export async function analyzeIntakeVersusCurrentCare(
     throw new Error('נדרש חיבור ל־Supabase ופרסום gemini-proxy + GEMINI_API_KEY');
   }
 
+  const nameTokens = collectPatientPhiTokens(patient);
+  const initials = patientInitialsFromName(patient.name);
+  const scrub = (s: string) => scrubKnownPatientPhi(s, nameTokens, initials);
+
   const structuredIntake = buildStructuredIntakeForComparative(patient, intakeArchive);
   const currentSchema = currentFields
     ? mapEditableFieldsToMedicalSchema(currentFields)
     : undefined;
 
-  const intakeJson = JSON.stringify(
-    { archive: intakeArchive, structured: structuredIntake, currentVersion: currentSchema },
-    null,
-    2
+  const intakeJson = scrub(
+    JSON.stringify(
+      {
+        archive: redactIntakeArchiveForAi(intakeArchive),
+        structured: structuredIntake,
+        currentVersion: currentSchema,
+      },
+      null,
+      2
+    )
   );
 
   const systemInstruction = `אתה עוזר קליני לפיזיותרפיסט (מטא־ניתוח בלבד).
@@ -237,14 +253,15 @@ export async function analyzeIntakeVersusCurrentCare(
 - אין אבחנה סופית ואין התחייבות רפואית.
 - השווה בין אינטייק ראשוני לבין מצב נוכחי ונתוני תוכנית/סשנים.
 - הפלט חייב להיות JSON מובנה בלבד — ללא בלוב טקסט יחיד.
+- אל תשלב שמות מטופלים או מזהים אישיים בפלט.
 
 ${MEDICAL_SCHEMA_PROMPT}`;
 
-  const userText = `אינטייק ראשוני + גרסה נוכחית (JSON):
+  const userText = `אינטייק ראשוני + גרסה נוכחית (JSON, ללא מזהים אישיים):
 ${intakeJson}
 
 מצב נוכחי (מקומי):
-${patientCurrentContextLite(patient)}
+${scrub(patientCurrentContextLite(patient))}
 
 נתוני Supabase:
 ${supabaseDatastoreJson}`;
@@ -255,7 +272,9 @@ ${supabaseDatastoreJson}`;
     temperature: 0.2,
     responseMimeType: 'application/json',
     logPrefix: LOG_PREFIX,
-    logDetail: { mode: 'intake_comparative', patientId: patient.id },
+    logDetail: { mode: 'intake_comparative' },
+    patientInitials: initials,
+    nameTokens,
   });
 
   const parsed = parseIntakeComparative(raw, currentFields);

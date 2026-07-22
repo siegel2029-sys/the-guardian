@@ -1,5 +1,12 @@
 import type { Patient } from '../types';
 import { bodyAreaLabels } from '../types';
+import {
+  collectPatientPhiTokens,
+  patientInitialsFromName,
+  redactIntakeArchiveForAi,
+  scrubKnownPatientPhi,
+  scrubPhiPatterns,
+} from './clinicalConsultantContext';
 import { geminiGenerateText, getGeminiApiKey } from './geminiClient';
 import type { ClinicalTimelineEntry, TreatmentAiInsights } from '../types';
 
@@ -8,27 +15,17 @@ const LOG_PREFIX = '[GeminiTreatmentAiInsights]';
 function intakeContextJson(patient: Patient): string {
   const arch = patient.initialIntakeArchive;
   if (arch) {
-    return JSON.stringify(
-      {
-        capturedAt: arch.capturedAt,
-        primaryBodyArea: bodyAreaLabels[arch.primaryBodyArea],
-        diagnosis: arch.diagnosis,
-        therapistNotes: arch.therapistNotes,
-        geminiClinicalNarrative: arch.geminiClinicalNarrative,
-        extras: arch.extras,
-        libraryExerciseIds: arch.libraryExerciseIds,
-      },
-      null,
-      2
-    );
+    return JSON.stringify(redactIntakeArchiveForAi(arch), null, 2);
   }
   return JSON.stringify(
     {
       note: 'אין צילום אינטייק שמור — מוצג מצב נוכחי כקשר ראשוני',
       primaryBodyArea: bodyAreaLabels[patient.primaryBodyArea],
-      diagnosis: patient.diagnosis,
-      therapistNotes: patient.therapistNotes,
-      geminiClinicalNarrative: patient.geminiClinicalNarrative,
+      diagnosis: scrubPhiPatterns(patient.diagnosis ?? ''),
+      therapistNotes: scrubPhiPatterns(patient.therapistNotes ?? ''),
+      geminiClinicalNarrative: patient.geminiClinicalNarrative
+        ? scrubPhiPatterns(patient.geminiClinicalNarrative)
+        : undefined,
       injuryHighlightSegments: (patient.injuryHighlightSegments ?? []).map((a) => bodyAreaLabels[a]),
     },
     null,
@@ -36,7 +33,7 @@ function intakeContextJson(patient: Patient): string {
   );
 }
 
-function pastTreatmentsText(entries: ClinicalTimelineEntry[]): string {
+function pastTreatmentsText(entries: ClinicalTimelineEntry[], scrub: (s: string) => string): string {
   const sorted = [...entries].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   return sorted
     .map((e, i) => {
@@ -44,7 +41,7 @@ function pastTreatmentsText(entries: ClinicalTimelineEntry[]): string {
         dateStyle: 'short',
         timeStyle: 'short',
       });
-      return `--- סשן ${i + 1} (${d}) ---\n${e.text.trim()}`;
+      return `--- סשן ${i + 1} (${d}) ---\n${scrub(e.text.trim())}`;
     })
     .join('\n\n');
 }
@@ -76,10 +73,14 @@ export async function analyzeTreatmentAiInsights(
     throw new Error('נדרש חיבור ל־Supabase ופרסום gemini-proxy + GEMINI_API_KEY');
   }
 
+  const nameTokens = collectPatientPhiTokens(patient);
+  const initials = patientInitialsFromName(patient.name);
+  const scrub = (s: string) => scrubKnownPatientPhi(s, nameTokens, initials);
+
   const timeline = patient.clinicalTimeline ?? [];
   const generatedAt = new Date().toISOString();
-  const draft = currentSessionNote.trim();
-  const pastBlock = pastTreatmentsText(timeline);
+  const draft = scrub(currentSessionNote.trim());
+  const pastBlock = pastTreatmentsText(timeline, scrub);
 
   const systemInstruction = `אתה עוזר קליני לפיזיותרפיסט (השלמה, לא פסיכולוג ולא רופא מחליף).
 
@@ -90,15 +91,15 @@ export async function analyzeTreatmentAiInsights(
 - שדה patientProgress: פרשנות התקדמות/מגמות קליניות מהנתונים.
 - שדה recommendations: המלצות להמשך או שינוי כללי בתכנית הטיפול.
 - שדה exerciseModifications: התאמות קונקרטיות לתרגילים (נפח, תדר, חלופות) — בהתאם לנתונים; אם אין מספיק בסיס — ציין זאת בקצרה.
+- אל תשלב שמות מטופלים או מזהים אישיים בפלט.
 
 החזר רק JSON תקין במבנה:
 {"patientProgress":"...","recommendations":"...","exerciseModifications":"..."}`;
 
-  const userText = `מזהה מטופל פנימי (לא שם): ${patient.id}
-גיל: ${patient.age}
+  const userText = `גיל: ${patient.age}
 מוקד גוף עיקרי (תווית): ${bodyAreaLabels[patient.primaryBodyArea]}
 
-=== אינטייק (JSON) ===
+=== אינטייק (JSON, ללא מזהים אישיים) ===
 ${intakeContextJson(patient)}
 
 === תוכניות / סשנים אחרונים (Supabase JSON) ===
@@ -116,7 +117,9 @@ ${draft || '(ריק — נתח לפי אינטייק, תרגול והיסטור�
     temperature: 0.25,
     responseMimeType: 'application/json',
     logPrefix: LOG_PREFIX,
-    logDetail: { mode: 'treatment_ai_insights', patientId: patient.id },
+    logDetail: { mode: 'treatment_ai_insights' },
+    patientInitials: initials,
+    nameTokens,
   });
 
   const parsed = parseInsights(raw, generatedAt);

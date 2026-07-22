@@ -31,6 +31,10 @@ import {
   buildPatientProgressPayload,
   type PatientProgressAnalysis,
 } from './patientProgressReasoning';
+import {
+  collectPatientPhiTokens,
+  patientInitialsFromName,
+} from './clinicalConsultantContext';
 import { geminiGenerateText, getGeminiApiKey } from './geminiClient';
 import { parseJsonObject } from './geminiClinicalIntake';
 import {
@@ -503,7 +507,9 @@ Return JSON only.`;
       temperature: 0.35,
       responseMimeType: 'application/json',
       logPrefix: LOG_PREFIX,
-      logDetail: { patientId: patient.id, intent: tracking.recommendationIntent },
+      logDetail: { intent: tracking.recommendationIntent },
+      patientInitials: patientInitialsFromName(patient.name),
+      nameTokens: collectPatientPhiTokens(patient),
     });
     const parsed = parseJsonObject(rawText);
     const normalized = normalizeGeminiRecommendation(

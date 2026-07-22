@@ -1,5 +1,10 @@
 import type { Patient, SafetyAlert } from '../types';
-import { buildAnonymizedClinicalContextSnapshot } from './clinicalConsultantContext';
+import {
+  buildAnonymizedClinicalContextSnapshot,
+  collectPatientPhiTokens,
+  patientInitialsFromName,
+  scrubKnownPatientPhi,
+} from './clinicalConsultantContext';
 import { geminiGenerateChat, getGeminiApiKey, type GeminiChatTurn } from './geminiClient';
 
 const LOG_PREFIX = '[ClinicalConsultant]';
@@ -34,6 +39,8 @@ export async function therapistClinicalConsultantChatWithGemini(params: {
     throw new Error('Missing Supabase / gemini-proxy AI setup');
   }
 
+  const nameTokens = collectPatientPhiTokens(params.patient);
+  const initials = patientInitialsFromName(params.patient.name);
   const snapshot = buildAnonymizedClinicalContextSnapshot(
     params.patient,
     params.safetyAlertsForPatient,
@@ -43,15 +50,17 @@ export async function therapistClinicalConsultantChatWithGemini(params: {
 
   const history: GeminiChatTurn[] = params.history.map((m) => ({
     role: m.role,
-    text: m.text,
+    text: scrubKnownPatientPhi(m.text, nameTokens, initials),
   }));
 
   return geminiGenerateChat({
     systemInstruction,
     history,
-    userMessage: params.userMessage.trim(),
+    userMessage: scrubKnownPatientPhi(params.userMessage.trim(), nameTokens, initials),
     temperature: 0.35,
     logPrefix: LOG_PREFIX,
     logDetail: { historyTurns: history.length },
+    patientInitials: initials,
+    nameTokens,
   });
 }

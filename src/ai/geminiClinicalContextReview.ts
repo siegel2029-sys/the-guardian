@@ -1,5 +1,10 @@
 import type { Patient } from '../types';
 import { bodyAreaLabels } from '../types';
+import {
+  collectPatientPhiTokens,
+  patientInitialsFromName,
+  scrubKnownPatientPhi,
+} from './clinicalConsultantContext';
 import { geminiGenerateText, getGeminiApiKey } from './geminiClient';
 
 const LOG_PREFIX = '[GeminiClinicalContextReview]';
@@ -10,7 +15,7 @@ export type ClinicalContextReviewResult = {
   evaluationDraft: string;
 };
 
-function patientJsonLite(patient: Patient): string {
+function patientJsonLite(patient: Patient, scrub: (s: string) => string): string {
   const pain = [...patient.analytics.painHistory]
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-8);
@@ -21,7 +26,7 @@ function patientJsonLite(patient: Patient): string {
   return JSON.stringify(
     {
       age: patient.age,
-      diagnosisField: patient.diagnosis,
+      diagnosisField: scrub(patient.diagnosis ?? ''),
       primaryBodyAreaLabel: bodyAreaLabels[patient.primaryBodyArea],
       hasRedFlag: patient.hasRedFlag,
       streak: patient.currentStreak,
@@ -66,7 +71,11 @@ export async function analyzeClinicalNoteWithSupabaseContext(
     throw new Error('נדרש חיבור ל־Supabase ופרסום gemini-proxy + GEMINI_API_KEY');
   }
 
-  const draft = therapistDraft.trim();
+  const nameTokens = collectPatientPhiTokens(patient);
+  const initials = patientInitialsFromName(patient.name);
+  const scrub = (s: string) => scrubKnownPatientPhi(s, nameTokens, initials);
+
+  const draft = scrub(therapistDraft.trim());
   if (!draft) {
     throw new Error('הזינו טקסט לפני ניתוח');
   }
@@ -79,14 +88,15 @@ export async function analyzeClinicalNoteWithSupabaseContext(
 - זהה מגמות (למשל עלייה בכאב בשלושת הסשנים האחרונים, ירידה בהשלמת תרגילים, קושי מול העלאת נפח).
 - אם הטקסט החדש סותר במפורש את המגמה האחרונה, כתוב הצעה פרואקטיבית קצרה בשדה aiSuggestion (משפט אחד או שניים). אחרת null.
 - evaluationDraft: טיוטת סיכום קליני מובנית (פסקאות קצרות עם כותרות משנה), שניתן לעריכה לפני שמירה — משלב את מה שכתב המטפל עם הנתונים.
+- אל תשלב שמות מטופלים או מזהים אישיים בפלט.
 
 החזר **רק** JSON תקין. דוגמה למבנה:
 {"trends":["מגמה 1"],"aiSuggestion":null,"evaluationDraft":"טקסט מלא"}
 
 כאשר aiSuggestion הוא מחרוזת קצרה או null.`;
 
-  const userText = `פרופיל מטופל (מקומי, משלים):
-${patientJsonLite(patient)}
+  const userText = `פרופיל מטופל (מקומי, משלים, ללא מזהים):
+${patientJsonLite(patient, scrub)}
 
 נתוני exercise_plans ו־session_history (Supabase, כפי שנמשכו מהשירות):
 ${supabaseDatastoreJson}
@@ -100,7 +110,9 @@ ${draft}`;
     temperature: 0.2,
     responseMimeType: 'application/json',
     logPrefix: LOG_PREFIX,
-    logDetail: { mode: 'clinical_context_review', patientId: patient.id },
+    logDetail: { mode: 'clinical_context_review' },
+    patientInitials: initials,
+    nameTokens,
   });
 
   const parsed = parseJsonResult(raw);

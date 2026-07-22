@@ -114,12 +114,17 @@ function logProxyHttpFailure(
   bodyText: string,
   parsed: unknown
 ): void {
+  // Never log full upstream bodies — may echo prompt fragments / PHI.
+  const safeSnippet = bodyText.slice(0, 200).replace(/\s+/g, ' ');
   console.error('[gemini-proxy] Edge Function returned non-2xx', {
     invokeUrl,
     status,
     statusText,
-    bodyText: bodyText.slice(0, 4000),
-    bodyJson: parsed,
+    bodySnippet: safeSnippet,
+    errorField:
+      parsed && typeof parsed === 'object' && parsed !== null && 'error' in parsed
+        ? String((parsed as { error?: unknown }).error ?? '').slice(0, 200)
+        : undefined,
   });
 }
 
@@ -249,7 +254,7 @@ async function ensureSessionWithFreshToken(): Promise<Session> {
 
 async function invokeGeminiProxy(
   generation: GeminiGenerationBody,
-  patientInitials?: string
+  options?: { patientInitials?: string; nameTokens?: string[] }
 ): Promise<ProxySuccess> {
   if (!supabase) {
     throw new Error(
@@ -271,7 +276,11 @@ async function invokeGeminiProxy(
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ generation, patientInitials }),
+        body: JSON.stringify({
+          generation,
+          patientInitials: options?.patientInitials,
+          nameTokens: options?.nameTokens?.slice(0, 32),
+        }),
       });
     } catch (e) {
       console.error('[gemini-proxy] fetch failed', { invokeUrl, e });
@@ -342,9 +351,12 @@ export type GeminiGenerationBody = {
 
 export type GeminiRequestOptions = {
   logPrefix: string;
+  /** Non-PHI metadata only (counts, modes). Never include patientId, names, or clinical free text. */
   logDetail?: Record<string, unknown>;
   /** Passed to the proxy for de-identification (Latin "First Last" → this label). */
   patientInitials?: string;
+  /** Explicit name/alias tokens scrubbed server-side (Hebrew + Latin). */
+  nameTokens?: string[];
 };
 
 /**
@@ -362,7 +374,7 @@ export async function geminiGenerateFromBody(
 
   const modelId = getGeminiModelId();
   const urlForLog = getGeminiGenerateContentUrlForLogging();
-  const { logPrefix, logDetail, patientInitials } = options;
+  const { logPrefix, logDetail, patientInitials, nameTokens } = options;
 
   let lastError: Error | null = null;
   let count429 = 0;
@@ -377,7 +389,7 @@ export async function geminiGenerateFromBody(
         });
       }
 
-      const { text } = await invokeGeminiProxy(body, patientInitials);
+      const { text } = await invokeGeminiProxy(body, { patientInitials, nameTokens });
       return text;
     } catch (err) {
       if (err instanceof GeminiRateLimitedError) {
@@ -422,6 +434,7 @@ export type GeminiTextParams = {
   logPrefix: string;
   logDetail?: Record<string, unknown>;
   patientInitials?: string;
+  nameTokens?: string[];
 };
 
 export async function geminiGenerateText(params: GeminiTextParams): Promise<string> {
@@ -444,6 +457,7 @@ export async function geminiGenerateText(params: GeminiTextParams): Promise<stri
     logPrefix: params.logPrefix,
     logDetail: params.logDetail,
     patientInitials: params.patientInitials,
+    nameTokens: params.nameTokens,
   });
 }
 
@@ -457,6 +471,7 @@ export type GeminiChatParams = {
   logPrefix: string;
   logDetail?: Record<string, unknown>;
   patientInitials?: string;
+  nameTokens?: string[];
 };
 
 /** תור שיחה — role assistant ממופה ל-model ב-API. */
@@ -479,5 +494,6 @@ export async function geminiGenerateChat(params: GeminiChatParams): Promise<stri
     logPrefix: params.logPrefix,
     logDetail: params.logDetail,
     patientInitials: params.patientInitials,
+    nameTokens: params.nameTokens,
   });
 }

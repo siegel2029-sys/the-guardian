@@ -1,5 +1,10 @@
 import type { Patient, PatientExercise } from '../types';
 import { bodyAreaLabels } from '../types';
+import {
+  collectPatientPhiTokens,
+  patientInitialsFromName,
+  scrubKnownPatientPhi,
+} from './clinicalConsultantContext';
 import { geminiGenerateChat, getGeminiApiKey, type GeminiChatTurn } from './geminiClient';
 
 const LOG_PREFIX = '[GeminiPatientRehab]';
@@ -89,6 +94,8 @@ export async function guardiPatientChatWithGemini(params: {
     throw new Error('Missing Supabase / gemini-proxy AI setup');
   }
 
+  const nameTokens = collectPatientPhiTokens(params.patient);
+  const initials = patientInitialsFromName(params.patient.name);
   const systemInstruction = patientRehabAssistantSystemInstruction(
     params.patient,
     params.exerciseCount,
@@ -97,15 +104,17 @@ export async function guardiPatientChatWithGemini(params: {
 
   const history: GeminiChatTurn[] = params.history.map((m) => ({
     role: m.role,
-    text: m.text,
+    text: scrubKnownPatientPhi(m.text, nameTokens, initials),
   }));
 
   return geminiGenerateChat({
     systemInstruction,
     history,
-    userMessage: params.userMessage.trim(),
+    userMessage: scrubKnownPatientPhi(params.userMessage.trim(), nameTokens, initials),
     temperature: 0.65,
     logPrefix: LOG_PREFIX,
     logDetail: { historyTurns: history.length },
+    patientInitials: initials,
+    nameTokens,
   });
 }
