@@ -778,10 +778,13 @@ export default function PatientOverview() {
                     type="button"
                     className="rounded-xl bg-sky-700 text-white px-4 py-2.5 text-sm font-black hover:bg-sky-800"
                     onClick={() => {
-                      updatePatient(p.id, { accountFrozen: freezePendingIntent });
+                      const accountFrozen = freezePendingIntent;
+                      const status = accountFrozen ? 'paused' : 'active';
+                      updatePatient(p.id, { accountFrozen, status });
                       void saveSinglePatientPayloadToCloud({
                         ...p,
-                        accountFrozen: freezePendingIntent,
+                        accountFrozen,
+                        status,
                       });
                       setFreezeConfirmOpen(false);
                       setFreezeConfirmStep(1);
