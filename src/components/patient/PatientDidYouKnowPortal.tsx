@@ -333,7 +333,7 @@ export function PatientDidYouKnowProvider({ children }: { children: ReactNode })
   const [successBurst, setSuccessBurst] = useState(false);
   const [readThroughContent, setReadThroughContent] = useState(false);
   const scrollBodyRef = useRef<HTMLDivElement>(null);
-  const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoHideTimerRef = useRef<number | null>(null);
   const expandedOpenedAtRef = useRef(0);
 
   const clearAutoHideTimer = useCallback(() => {

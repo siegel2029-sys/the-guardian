@@ -128,6 +128,13 @@ import {
 import { dispatchTherapistChatPushNotification, fetchPatientChatPushContext } from '../services/therapistChatPush';
 import type { MuscleEvolutionStage } from '../body/anatomicalEvolution';
 import { useGamification } from '../hooks/useGamification';
+import type {
+  GearPurchaseResult,
+  MountainBackdropContext,
+  MountainDailyEnvironmentState,
+  PatientAvatarPostureTier,
+  PatientRewardFeedback,
+} from '../hooks/useGamification';
 import { useExercisePlan } from '../hooks/useExercisePlan';
 import { useClinicalData } from '../hooks/useClinicalData';
 import {
@@ -168,13 +175,14 @@ export type { PatientGearState } from './patientGearUtils';
 
 export const THERAPIST_LOGIN_HUB_LANDING_SESSION_KEY = 'guardian-therapist-login-hub-landing-v1';
 
+/** Re-export gamification types consumers import from PatientContext. */
 export type {
   GearPurchaseResult,
   PatientRewardFeedback,
   MountainDailyEnvironmentState,
   MountainBackdropContext,
   PatientAvatarPostureTier,
-} from '../hooks/useGamification';
+};
 export type { GearEquipSlot } from '../config/gearCatalog';
 
 /**
