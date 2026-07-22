@@ -1,0 +1,47 @@
+---
+description: Supabase RLS, security policies, and search_path for migrations and Edge Functions
+globs: supabase/migrations/**/*,supabase/functions/**/*
+alwaysApply: false
+---
+
+# Supabase Security (Physio-Shield)
+
+When editing migrations or Edge Functions, treat security as the default—not an afterthought.
+
+## RLS & Policies
+
+- Every clinical/patient table must have RLS enabled; never leave new tables open to `anon`/`authenticated` without explicit policies.
+- Policies must scope by therapist ownership or patient self-access (auth UID linkage)—no broad `USING (true)` on PHI tables.
+- Prefer SECURITY DEFINER RPCs only when necessary; pin `search_path` and validate caller role inside the function.
+- Grants: least privilege. Do not grant DELETE/UPDATE to roles that only need SELECT/INSERT.
+
+```sql
+-- ❌ BAD: mutable search_path, open policy
+CREATE FUNCTION public.foo() ... AS $$ ... $$;
+CREATE POLICY "open" ON public.patients FOR SELECT USING (true);
+
+-- ✅ GOOD: fixed search_path + ownership check
+CREATE FUNCTION public.foo()
+RETURNS ...
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- authorize caller, then act
+END;
+$$;
+```
+
+## Migrations
+
+- Never invent columns/tables outside a migration (AGENTS.md Iron Rule 3).
+- New RPCs/triggers touching patients must align with existing audit patterns (`clinical_audit_logs` where applicable).
+- After schema changes, update only types/services that match the migrated shape.
+
+## Edge Functions
+
+- Validate JWT / role before acting; do not trust client-supplied patient IDs alone.
+- Never log Authorization headers, tokens, or PHI (names, emails, clinical free text).
+- Secrets stay in Deno env (`GEMINI_API_KEY`, service role, etc.)—never hardcode.
+- Shared helpers under `supabase/functions/_shared/` should scrub or omit identifiers in any diagnostic output.

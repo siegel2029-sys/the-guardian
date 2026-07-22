@@ -1,0 +1,37 @@
+---
+description: PHI isolation and clinical AI safety for src/ai and Gemini proxy Edge Functions
+globs: src/ai/**/*,supabase/functions/gemini-proxy/**/*
+alwaysApply: false
+---
+
+# Clinical AI Guardrails (Physio-Shield)
+
+Applies to `src/ai/**` and the Gemini proxy Edge Function. PHI Safety (AGENTS.md Iron Rule 1) is absolute.
+
+## PHI Isolation
+
+- Never send full patient names, MRNs, phones, emails, or raw identifiable notes to Gemini.
+- Use initials / `[Patient]` placeholders; prefer the proxy’s de-identification path (`deidentifyText` / scrubbed generation).
+- Client AI modules must call the approved proxy (`gemini-proxy`), not Google APIs with keys in the browser.
+
+```ts
+// ❌ BAD
+console.log('Insight for', patient.fullName, payload);
+await fetch(GEMINI_URL_WITH_KEY, { body: JSON.stringify({ text: clinicalNote }) });
+
+// ✅ GOOD
+// Log only non-identifying codes; send de-identified context via gemini-proxy
+await invokeGeminiProxy({ generation, patientInitials: 'A.B.' });
+```
+
+## Prompt & Output Safety
+
+- Keep clinical system prefixes that forbid echoing full names.
+- Do not persist model outputs that reintroduce identifiers into logs or unencrypted stores.
+- Cap payloads; respect therapist vs patient body-size limits on the proxy.
+- Treat model output as advisory—never auto-write diagnoses, plans, or status changes without therapist/service-layer confirmation.
+
+## Sync With Clinical State
+
+- AI suggestions that affect plans, freezes, or statuses must go through `src/services/` and keep JSONB/local state in sync (Iron Rule 4).
+- Do not invent schema fields for “AI metadata”; use existing columns/migrations only (Iron Rule 3).
