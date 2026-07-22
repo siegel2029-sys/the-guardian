@@ -60,6 +60,10 @@ import { logSupabaseCallError } from '../lib/supabaseSessionGuard';
 import { defaultPatientGear, type PatientGearState } from '../context/patientGearUtils';
 import { buildEmptySession, clampPain, clampEffort } from '../context/patientDomainHelpers';
 import {
+  MAX_EFFORT_ALERT_THRESHOLD,
+  SAFETY_EFFORT_THRESHOLD,
+} from '../utils/effortScale';
+import {
   exercisePlanFromPatientCache,
   normalizeCachedPatientExercises,
   pickCanonicalExercisePlan,
@@ -488,11 +492,11 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           prev.map((p) => {
             if (p.id !== patientId) return p;
 
-            // Clinical safety: red flag on elevated pain or reported exertion
-            const triggersClinicalAlert = pain >= 6 || effort >= 4;
+            // Clinical safety: red flag on elevated pain or reported exertion (1–10 RPE)
+            const triggersClinicalAlert = pain >= 6 || effort >= SAFETY_EFFORT_THRESHOLD;
             const alertReasons: string[] = [];
             if (pain >= 6) alertReasons.push(`כאב ${pain}/10`);
-            if (effort >= 4) alertReasons.push(`קושי ${effort}/5`);
+            if (effort >= SAFETY_EFFORT_THRESHOLD) alertReasons.push(`מאמץ ${effort}/10`);
 
             const painRecord = {
               date: clinicalDay,
@@ -527,6 +531,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
                   exercisesCompleted: 1,
                   totalExercises: Math.max(1, totalInPlan),
                   difficultyRating: effort,
+                  effortScale: 10,
                   xpEarned: xpGain,
                 },
               ];
@@ -544,6 +549,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
                         exercisesCompleted: n,
                         totalExercises: Math.max(s.totalExercises, totalInPlan || 1),
                         difficultyRating: avgDiff,
+                        effortScale: 10,
                         xpEarned: s.xpEarned + xpGain,
                       }
                     : s
@@ -556,6 +562,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
                         exercisesCompleted: cur.exercisesCompleted,
                         totalExercises: Math.max(s.totalExercises, totalInPlan || 1),
                         difficultyRating: Math.round((cur.difficultyRating + effort) / 2),
+                        effortScale: 10,
                         xpEarned: s.xpEarned + xpGain,
                       }
                     : s
@@ -708,7 +715,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           `אזור תרגול: ${sessionZone ? bodyAreaLabels[sessionZone] : bodyAreaLabels[patientBefore.primaryBodyArea]}\n` +
           `מוקד פגיעה ראשי: ${bodyAreaLabels[patientBefore.primaryBodyArea]}\n` +
           `כאב דווח: ${pain}/10\n` +
-          `קושי דווח: ${effort}/5\n` +
+          `קושי דווח: ${effort}/10\n` +
           `תאריך קליני: ${clinicalDay}\n\n` +
           'נדרשת בדיקה קלינית ועדכון עומסים לפי שיקול מטפל.';
         openClinicalMailto(email, subject, body);
@@ -729,21 +736,21 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           'high_priority'
         );
       }
-      if (effort === 5) {
+      if (effort >= MAX_EFFORT_ALERT_THRESHOLD) {
         setSafetyAlerts((prev) => [
           ...prev,
           {
             id: `sa-eff-${Date.now()}`,
             patientId,
             reasonCode: 'DIFFICULTY_MAX',
-            reasonHebrew: 'קושי מקסימלי בתרגיל (5/5)',
+            reasonHebrew: 'מאמץ מקסימלי בתרגיל (10/10)',
             severity: 'high_priority',
             createdAt: new Date().toISOString(),
           },
         ]);
         sendAiClinicalAlert(
           patientId,
-          `דיווח לאחר תרגיל: קושי מאמץ ${effort}/5.\nמומלץ להפחית חזרות או סטים עד עדכון ממטפל.\nטקסט שהומלץ למטופל:\n${DIFFICULTY_MAX_PATIENT_COPY}`,
+          `דיווח לאחר תרגיל: קושי מאמץ ${effort}/10.\nמומלץ להפחית חזרות או סטים עד עדכון ממטפל.\nטקסט שהומלץ למטופל:\n${DIFFICULTY_MAX_PATIENT_COPY}`,
           'high_priority'
         );
         const ex = plan?.exercises.find((e) => e.id === exerciseId);
@@ -762,7 +769,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
                 currentValue: ex.patientReps,
                 suggestedValue: suggestedReps,
                 reason:
-                  'דיווח מאמץ 5/5 — הצעה אוטומטית להפחתת חזרות; אשרו או התאימו ידנית.',
+                  'דיווח מאמץ 10/10 — הצעה אוטומטית להפחתת חזרות; אשרו או התאימו ידנית.',
                 createdAt: new Date().toISOString(),
                 status: 'awaiting_therapist',
                 source: 'system',
@@ -1420,7 +1427,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       patientId: string,
       exerciseId: string,
       exerciseName: string,
-      effortRating: 1 | 2 | 3 | 4 | 5
+      effortRating: number
     ) => {
       const id = `sc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
       const report: SelfCareSessionReport = {
@@ -1429,7 +1436,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         clinicalDate: clinicalToday,
         exerciseId,
         exerciseName,
-        effortRating,
+        effortRating: clampEffort(effortRating),
+        effortScale: 10,
         loggedAt: new Date().toISOString(),
       };
       setSelfCareReportsByPatientId((prev) => ({
@@ -1518,7 +1526,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           });
           if (!r.ok) {
             onExerciseCloudSyncError?.(`דיווח הסיום לא נשמר לענן: ${r.message}`);
-            return;
+            // Still keep the report locally so effort/pain appear in history & charts
           }
         } catch (e) {
           console.error('[SYNC_ERROR] appendPatientExerciseFinishReport', e, {
@@ -1531,7 +1539,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               ? `דיווח הסיום לא נשמר לענן: ${e.message}`
               : 'דיווח הסיום לא נשמר לענן.'
           );
-          return;
+          // Fall through to local append so UI still shows מאמץ / כאב
         }
       }
 

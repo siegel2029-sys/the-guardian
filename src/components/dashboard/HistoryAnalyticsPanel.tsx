@@ -7,6 +7,7 @@ import StatsCard from './StatsCard';
 import XPProgressBar from './XPProgressBar';
 import SessionHistory from './SessionHistory';
 import Compliance7DayChart from './Compliance7DayChart';
+import { effortToScale10 } from '../../utils/effortScale';
 
 /** היסטוריה, אנליטיקה והתקדמות — ללא לוח שנה/מפת גוף (מופיעים בפורטל מטופל) */
 export default function HistoryAnalyticsPanel() {
@@ -54,8 +55,12 @@ export default function HistoryAnalyticsPanel() {
 
   const dynamicAvgDifficulty =
     p.analytics.sessionHistory.length > 0
-      ? (p.analytics.sessionHistory.reduce((s, sh) => s + sh.difficultyRating, 0) /
-          p.analytics.sessionHistory.length).toFixed(1)
+      ? (
+          p.analytics.sessionHistory.reduce(
+            (s, sh) => s + effortToScale10(sh.difficultyRating, sh.effortScale ?? null),
+            0
+          ) / p.analytics.sessionHistory.length
+        ).toFixed(1)
       : null;
 
   return (
@@ -115,8 +120,8 @@ export default function HistoryAnalyticsPanel() {
           iconBg="#fee2e2"
         />
         <StatsCard
-          label="קושי ממוצע"
-          value={dynamicAvgDifficulty ? `${dynamicAvgDifficulty} / 5` : 'אין נתונים'}
+          label="מאמץ ממוצע"
+          value={dynamicAvgDifficulty ? `${dynamicAvgDifficulty} / 10` : 'אין נתונים'}
           subtext={
             dynamicAvgDifficulty ? `מ-${p.analytics.sessionHistory.length} אימונים` : 'אין אימונים עדיין'
           }

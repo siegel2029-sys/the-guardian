@@ -792,6 +792,7 @@ export default function PatientDailyView() {
         exerciseName: m.exercise.name,
         zone: bodyAreaLabels[m.bodyArea],
         difficultyScore: payload.effort,
+        effortScale: 10,
         painLevel: payload.painLevel,
         source: 'self-care',
         selfCareDifficultyTier: strengthTier,
@@ -806,7 +807,7 @@ export default function PatientDailyView() {
         m.exercise.name,
         payload.effort
       );
-      if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
+      if (payload.effort >= 10) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
       else setLoadSafetyNudge(null);
       pushExerciseCompleteMilestone(payload.painLevel);
       return true;
@@ -839,6 +840,7 @@ export default function PatientDailyView() {
       exerciseName: m.exercise.name,
       zone: bodyAreaLabels[m.exercise.targetArea],
       difficultyScore: payload.effort,
+      effortScale: 10,
       painLevel: payload.painLevel,
       source: 'therapist',
     });
@@ -850,7 +852,7 @@ export default function PatientDailyView() {
     }
     pushExerciseCompleteMilestone(pain);
     if (pain >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
-    else if (payload.effort === 5) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
+    else if (payload.effort >= 10) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
     else setLoadSafetyNudge(null);
     return true;
   };

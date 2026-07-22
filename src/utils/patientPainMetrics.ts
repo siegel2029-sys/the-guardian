@@ -1,10 +1,10 @@
 import type { Patient } from '../types';
 import { addClinicalDays } from './clinicalCalendar';
+import { effortToScale10 } from './effortScale';
 
-/** מיפוי מאמץ מדווח (1–5) לסקאלה 0–10 להשוואה ויזואלית ל־VAS */
-export function effortRatingToVas10(rating: number): number {
-  const r = Math.min(5, Math.max(1, Math.round(rating)));
-  return ((r - 1) / 4) * 10;
+/** מיפוי מאמץ מדווח לסקאלה 0–10 להשוואה ויזואלית ל־VAS (legacy 1–5 → ×2). */
+export function effortRatingToVas10(rating: number, effortScale?: 5 | 10 | null): number {
+  return effortToScale10(rating, effortScale);
 }
 
 /**

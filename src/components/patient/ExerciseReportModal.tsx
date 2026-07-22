@@ -1,21 +1,31 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
 import type { PatientExercise } from '../../types';
+import {
+  SAFETY_EFFORT_THRESHOLD,
+  clampEffort,
+  type EffortLevel,
+} from '../../utils/effortScale';
 
 const EFFORT_LABELS: Record<number, string> = {
   1: 'קל מאוד',
-  2: 'קל',
-  3: 'בינוני',
-  4: 'קשה',
-  5: 'קשה מאוד',
+  2: 'קל מאוד',
+  3: 'קל',
+  4: 'קל-בינוני',
+  5: 'בינוני',
+  6: 'בינוני-קשה',
+  7: 'קשה',
+  8: 'קשה מאוד',
+  9: 'מקסימלי כמעט',
+  10: 'מקסימלי',
 };
 
 interface ExerciseReportModalProps {
   exercise: PatientExercise | null;
   onClose: () => void;
   onSubmit: (painLevel: number, effortRating: number) => void | Promise<void>;
-  /** Prefill from card effort (1–5) */
-  initialEffort?: 1 | 2 | 3 | 4 | 5;
+  /** Prefill from card effort (1–10) */
+  initialEffort?: EffortLevel;
 }
 
 export default function ExerciseReportModal({
@@ -25,16 +35,19 @@ export default function ExerciseReportModal({
   initialEffort,
 }: ExerciseReportModalProps) {
   const [pain, setPain] = useState(3);
-  const [effort, setEffort] = useState(3);
+  const [effort, setEffort] = useState(5);
 
   useEffect(() => {
     if (exercise) {
       setPain(3);
-      setEffort(initialEffort != null ? initialEffort : 3);
+      setEffort(initialEffort != null ? initialEffort : 5);
     }
   }, [exercise, initialEffort]);
 
-  const willTriggerSafetyAlert = useMemo(() => pain >= 6 || effort >= 4, [pain, effort]);
+  const willTriggerSafetyAlert = useMemo(
+    () => pain >= 6 || effort >= SAFETY_EFFORT_THRESHOLD,
+    [pain, effort]
+  );
 
   if (!exercise) return null;
 
@@ -43,7 +56,7 @@ export default function ExerciseReportModal({
     await Promise.resolve(onSubmit(pain, effort));
   };
 
-  const effortClamped = Math.min(5, Math.max(1, Math.round(effort))) as 1 | 2 | 3 | 4 | 5;
+  const effortClamped = clampEffort(effort);
 
   return (
     <div
@@ -112,28 +125,30 @@ export default function ExerciseReportModal({
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
-              דרגת קושי במאמץ (1–5)
+              דרגת מאמץ (RPE 1–10)
             </label>
             <div className="flex items-center justify-between gap-2 mb-2 text-xs text-teal-700">
               <span className="font-medium">1 — קל מאוד</span>
               <span
                 className="text-lg font-bold tabular-nums shrink-0 px-2"
-                style={{ color: effort >= 4 ? '#b45309' : '#0f766e' }}
+                style={{
+                  color: effortClamped >= SAFETY_EFFORT_THRESHOLD ? '#b45309' : '#0f766e',
+                }}
               >
                 {effortClamped}
               </span>
-              <span className="font-medium">5 — קשה מאוד</span>
+              <span className="font-medium">10 — מקסימלי</span>
             </div>
             <input
               type="range"
               min={1}
-              max={5}
+              max={10}
               step={1}
               value={effortClamped}
               onChange={(e) => setEffort(Number(e.target.value))}
               className="w-full h-2 rounded-full appearance-none cursor-pointer accent-teal-500"
               style={{
-                background: `linear-gradient(to left, #14b8a6 0%, #14b8a6 ${((effortClamped - 1) / 4) * 100}%, #ccfbf1 ${((effortClamped - 1) / 4) * 100}%, #ccfbf1 100%)`,
+                background: `linear-gradient(to left, #14b8a6 0%, #14b8a6 ${((effortClamped - 1) / 9) * 100}%, #ccfbf1 ${((effortClamped - 1) / 9) * 100}%, #ccfbf1 100%)`,
               }}
             />
             <p className="mt-2 text-center text-sm font-semibold text-teal-800">
@@ -152,7 +167,7 @@ export default function ExerciseReportModal({
             >
               <p className="font-semibold mb-1">התראת בטיחות קלינית</p>
               <p className="text-xs leading-relaxed opacity-95">
-                דיווח עם כאב 6 ומעלה או קושי 4 ומעלה יסמן מיד דגל אדום אצל המטפל לבדיקה.
+                דיווח עם כאב 6 ומעלה או מאמץ 8 ומעלה יסמן מיד דגל אדום אצל המטפל לבדיקה.
               </p>
             </div>
           )}

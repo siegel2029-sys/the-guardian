@@ -607,7 +607,7 @@ interface PatientContextValue {
     patientId: string,
     exerciseId: string,
     exerciseName: string,
-    effortRating: 1 | 2 | 3 | 4 | 5
+    effortRating: number
   ) => void;
   getSelfCareReportsForPatient: (patientId: string) => SelfCareSessionReport[];
   getSelfCareReportsForClinicalDay: (patientId: string, clinicalDate: string) => SelfCareSessionReport[];

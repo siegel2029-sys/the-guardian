@@ -83,7 +83,10 @@ export interface ExerciseSession {
   date: string;
   exercisesCompleted: number;
   totalExercises: number;
-  difficultyRating: number; // 1–5
+  /** Patient-reported effort / RPE (1–10; legacy records may be 1–5). */
+  difficultyRating: number;
+  /** Present on new writes; absent ⇒ treat difficultyRating as legacy 1–5 when ≤5. */
+  effortScale?: 5 | 10;
   xpEarned: number;
 }
 
@@ -118,7 +121,10 @@ export interface SelfCareSessionReport {
   clinicalDate: string;
   exerciseId: string;
   exerciseName: string;
-  effortRating: 1 | 2 | 3 | 4 | 5;
+  /** Effort / RPE 1–10 (legacy may be 1–5). */
+  effortRating: number;
+  /** Present on new writes; absent ⇒ treat effortRating as legacy 1–5. */
+  effortScale?: 5 | 10;
   loggedAt: string;
 }
 
@@ -130,7 +136,13 @@ export interface PatientExerciseFinishReport {
   patientId: string;
   exerciseId: string;
   timestamp: string;
-  difficultyScore: 1 | 2 | 3 | 4 | 5;
+  /** Effort / RPE 1–10 (legacy may be 1–5). */
+  difficultyScore: number;
+  /**
+   * Scale the difficultyScore was recorded on.
+   * Absent / 5 ⇒ legacy 1–5 (display via ×2); 10 ⇒ native 1–10.
+   */
+  effortScale?: 5 | 10;
   exerciseName?: string;
   zone?: string;
   painLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;

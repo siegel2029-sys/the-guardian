@@ -23,12 +23,14 @@ import {
 } from '../utils/clinicalActiveStreak';
 import { computeGraceAwareAdherence } from '../utils/clinicalAdherence';
 import { computeClinicalProtocolContext, resolveProtocolStartDateForPatient } from '../utils/clinicalProtocolWeek';
+import { effortToScale10 } from '../utils/effortScale';
 
 export type ClinicalDayPoint = {
   date: string;
   label: string;
   weekdayHe: string;
   pain: number | null;
+  /** Effort / RPE on 1–10 (legacy field name kept for prompt JSON compatibility). */
   effort1to5: number | null;
 };
 
@@ -117,30 +119,38 @@ function weekdayLongHe(ymd: string): string {
   return clinicalDateToLocalMidnight(ymd).toLocaleDateString('he-IL', { weekday: 'long' });
 }
 
-function clampEffort15(n: number): number {
-  const c = Math.min(5, Math.max(1, n));
+function clampEffort110(n: number): number {
+  const c = Math.min(10, Math.max(1, n));
   return Math.round(c * 10) / 10;
 }
 
-function effortRaw1to5ForClinicalDay(
+function effortRaw1to10ForClinicalDay(
   ymd: string,
   sessionHistory: ExerciseSession[],
   finishReports: PatientExerciseFinishReport[],
   selfCareReports: SelfCareSessionReport[]
 ): number | null {
   const sess = sessionHistory.find((s) => s.date === ymd);
-  if (sess) return clampEffort15(sess.difficultyRating);
+  if (sess) {
+    return clampEffort110(effortToScale10(sess.difficultyRating, sess.effortScale ?? null));
+  }
 
   const finishes = finishReports.filter((r) => toLocalYmd(new Date(r.timestamp)) === ymd);
   if (finishes.length > 0) {
-    const avg = finishes.reduce((sum, r) => sum + r.difficultyScore, 0) / finishes.length;
-    return clampEffort15(avg);
+    const avg =
+      finishes.reduce(
+        (sum, r) => sum + effortToScale10(r.difficultyScore, r.effortScale ?? null),
+        0
+      ) / finishes.length;
+    return clampEffort110(avg);
   }
 
   const sc = selfCareReports.filter((r) => r.clinicalDate === ymd);
   if (sc.length > 0) {
-    const avg = sc.reduce((sum, r) => sum + r.effortRating, 0) / sc.length;
-    return clampEffort15(avg);
+    const avg =
+      sc.reduce((sum, r) => sum + effortToScale10(r.effortRating, r.effortScale ?? null), 0) /
+      sc.length;
+    return clampEffort110(avg);
   }
   return null;
 }
@@ -200,7 +210,7 @@ function computeAvgEffortInRange(
 ): number | null {
   const vals: number[] = [];
   for (const ymd of eachClinicalDayInRange(start, end)) {
-    const e = effortRaw1to5ForClinicalDay(ymd, sessionHistory, finishReports, selfCareReports);
+    const e = effortRaw1to10ForClinicalDay(ymd, sessionHistory, finishReports, selfCareReports);
     if (e != null) vals.push(e);
   }
   return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
@@ -355,7 +365,7 @@ export function aggregateClinicalInsights(params: {
 
   for (const ymd of cappedDays) {
     const pain = painForDayPrimary(ymd, painHistory, primary);
-    const effort1to5 = effortRaw1to5ForClinicalDay(
+    const effort1to5 = effortRaw1to10ForClinicalDay(
       ymd,
       exerciseHistory,
       patientFinishes,

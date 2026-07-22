@@ -70,7 +70,9 @@ export default function ClinicalSessionLineChart({ patient }: { patient: Patient
     return last7.map((s, i) => ({
       label: s.date.slice(5).replace('-', '/'),
       pain: painSeries[i],
-      effort10: Math.round(effortRatingToVas10(s.difficultyRating) * 10) / 10,
+      effort10: Math.round(
+        effortRatingToVas10(s.difficultyRating, s.effortScale ?? null) * 10
+      ) / 10,
       trend: trend[i],
     }));
   }, [patient.analytics.sessionHistory, patient.analytics.painHistory]);
@@ -145,7 +147,7 @@ export default function ClinicalSessionLineChart({ patient }: { patient: Patient
           <Line
             type="monotone"
             dataKey="effort10"
-            name="מאמץ (0–10)"
+            name="מאמץ (1–10)"
             stroke="#0891b2"
             strokeWidth={2}
             dot={{ r: 3, fill: '#0891b2' }}
@@ -165,7 +167,7 @@ export default function ClinicalSessionLineChart({ patient }: { patient: Patient
         </LineChart>
       </ResponsiveContainer>
       <p className="text-[10px] text-slate-500 mt-2 leading-relaxed text-end" dir="rtl">
-        מאמץ: דירוג המאמץ המדווח אחרי אימון (1–5), מוצג במקבילה ל־VAS על בסיס 0–10.
+        מאמץ: דירוג המאמץ המדווח אחרי אימון (1–10 RPE).
       </p>
     </div>
   );

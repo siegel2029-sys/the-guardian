@@ -1,5 +1,8 @@
 import type { BodyArea, ExerciseSession, PainLevel, PainRecord, Patient } from '../types';
 import { bodyAreaIsClinicalFocus } from '../body/bodyPickMapping';
+import { clampEffort, type EffortLevel } from '../utils/effortScale';
+
+export { clampEffort, type EffortLevel };
 
 export type PatientRewardMeta = {
   readArticleIds: string[];
@@ -59,11 +62,6 @@ export function buildEmptySession(patientId: string, clinicalDate: string) {
 export function clampPain(n: number): PainLevel {
   const r = Math.round(Math.min(10, Math.max(0, n)));
   return r as PainLevel;
-}
-
-export function clampEffort(n: number): 1 | 2 | 3 | 4 | 5 {
-  const r = Math.round(Math.min(5, Math.max(1, n)));
-  return r as 1 | 2 | 3 | 4 | 5;
 }
 
 export function recomputePatientAnalyticsAggregates(

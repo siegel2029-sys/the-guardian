@@ -35,7 +35,7 @@ function buildPatientSnapshotBlock(
     lastPain
       ? `דיווח כאב אחרון: ${lastPain.painLevel}/10 ב־${bodyAreaLabels[lastPain.bodyArea]} (${lastPain.date})`
       : 'אין עדיין דיווח כאב אחרון',
-    `סשנים אחרונים (תאריך, הושלמו/סה״כ, קושי 1–5): ${JSON.stringify(
+    `סשנים אחרונים (תאריך, הושלמו/סה״כ, מאמץ 1–10): ${JSON.stringify(
       sessions.map((s) => ({
         date: s.date,
         done: `${s.exercisesCompleted}/${s.totalExercises}`,

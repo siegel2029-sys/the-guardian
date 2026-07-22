@@ -10,7 +10,12 @@ import type {
 } from '../types';
 import { bodyAreaLabels } from '../types';
 import { clampEffort, clampPain } from '../context/patientDomainHelpers';
+import { effortToScale10 } from '../utils/effortScale';
 import { addClinicalDays, getClinicalDate } from '../utils/clinicalCalendar';
+import {
+  bodyAreasShareActiveZone,
+  zoneLabelToBodyAreas,
+} from '../utils/strengthenedAreasToday';
 import { clinicalPushFail, touchPatientPortalWorkoutActivity, type ClinicalPushResult } from './clinicalService';
 import { supabase } from '../lib/supabase';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
@@ -41,8 +46,12 @@ function formatDayLabel(ymd: string): string {
 const BODY_AREA_KEYS = new Set<string>(Object.keys(bodyAreaLabels));
 
 function coerceBodyAreaFromReportZone(zone: string | undefined, fallback: BodyArea): BodyArea {
-  if (zone && BODY_AREA_KEYS.has(zone)) return zone as BodyArea;
-  return fallback;
+  if (!zone) return fallback;
+  if (BODY_AREA_KEYS.has(zone)) return zone as BodyArea;
+  const candidates = zoneLabelToBodyAreas(zone);
+  if (candidates.length === 0) return fallback;
+  const match = candidates.find((a) => bodyAreasShareActiveZone(a, fallback));
+  return match ?? candidates[0] ?? fallback;
 }
 
 function parseOptionalPain0to10(v: unknown): number | undefined {
@@ -95,9 +104,21 @@ export function normalizeFinishReportPayload(
         : new Date().toISOString();
 
   const difficultyN = Number(
-    o.difficultyScore ?? o.difficulty_score ?? o.effort_rating ?? o.effortRating ?? 3
+    o.difficultyScore ?? o.difficulty_score ?? o.effort_rating ?? o.effortRating ?? 5
   );
-  const difficultyScore = clampEffort(Number.isFinite(difficultyN) ? difficultyN : 3);
+  const rawEffort = Number.isFinite(difficultyN) ? difficultyN : 5;
+  const scaleRaw = o.effortScale ?? o.effort_scale;
+  const effortScale: 5 | 10 | undefined =
+    scaleRaw === 10 || scaleRaw === '10'
+      ? 10
+      : scaleRaw === 5 || scaleRaw === '5'
+        ? 5
+        : rawEffort > 5
+          ? 10
+          : undefined;
+  // Store raw value; display layer normalizes legacy 1–5 via effortScale
+  const difficultyScore =
+    effortScale === 10 || rawEffort > 5 ? clampEffort(rawEffort) : Math.round(Math.min(5, Math.max(1, rawEffort)));
 
   const painRaw = pickFirstDefined(o, [
     'painLevel',
@@ -132,6 +153,7 @@ export function normalizeFinishReportPayload(
     exerciseId: exerciseIdRaw,
     timestamp,
     difficultyScore,
+    ...(effortScale != null ? { effortScale } : {}),
     ...(painLevel !== undefined ? { painLevel } : {}),
     ...(exerciseName ? { exerciseName } : {}),
     ...(zone ? { zone } : {}),
@@ -276,10 +298,15 @@ export function buildPainAndSessionHistoryFromDailySessions(
     }
 
     if (exercisesCompleted > 0 || (s.sessionXp ?? 0) > 0 || reports.length > 0) {
-      let difficultyRating = 3;
+      let difficultyRating = 5;
+      let effortScale: 5 | 10 | undefined;
       if (reports.length > 0) {
-        const sum = reports.reduce((acc, x) => acc + x.difficultyScore, 0);
+        const sum = reports.reduce(
+          (acc, x) => acc + effortToScale10(x.difficultyScore, x.effortScale ?? null),
+          0
+        );
         difficultyRating = clampEffort(Math.round(sum / reports.length));
+        effortScale = 10;
       }
       const totalExercises = Math.max(planned, exercisesCompleted, 1);
       sessionHistory.push({
@@ -287,6 +314,7 @@ export function buildPainAndSessionHistoryFromDailySessions(
         exercisesCompleted,
         totalExercises,
         difficultyRating,
+        ...(effortScale != null ? { effortScale } : {}),
         xpEarned: s.sessionXp ?? 0,
       });
     }

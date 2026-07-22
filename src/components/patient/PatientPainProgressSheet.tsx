@@ -1,6 +1,7 @@
 import { X, Activity } from 'lucide-react';
 import type { PainRecord, ExerciseSession, BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
+import { effortToScale10 } from '../../utils/effortScale';
 
 interface PatientPainProgressSheetProps {
   open: boolean;
@@ -25,7 +26,7 @@ function mergeTimeline(
   const diffByDate = new Map<string, number>();
   for (const s of sessionHistory) {
     const d = s.date.slice(0, 10);
-    diffByDate.set(d, s.difficultyRating);
+    diffByDate.set(d, effortToScale10(s.difficultyRating, s.effortScale ?? null));
   }
 
   const allDates = new Set<string>([...painByDate.keys(), ...diffByDate.keys()]);
@@ -81,7 +82,7 @@ export default function PatientPainProgressSheet({
   const xAt = (i: number) => padL + (innerW * i) / Math.max(n - 1, 1);
 
   const yPain = (p: number) => padT + innerH * (1 - p / 10);
-  const yDiff = (d: number) => padT + innerH * (1 - d / 5);
+  const yDiff = (d: number) => padT + innerH * (1 - d / 10);
 
   const painPts = timeline
     .map((t, i) =>
@@ -161,7 +162,7 @@ export default function PatientPainProgressSheet({
               <div>
                 <p className="text-xs font-semibold text-slate-700 mb-2">כאב מול קושי לאורך זמן</p>
                 <p className="text-[11px] text-slate-500 mb-2">
-                  קו כתום: ממוצע כאב ליום (0–10) · קו סגול: קושי מדווח באימון (1–5)
+                  קו כתום: ממוצע כאב ליום (0–10) · קו סגול: מאמץ מדווח באימון (1–10)
                 </p>
                 <div className="rounded-2xl border border-teal-100 bg-white/80 p-2 overflow-x-auto">
                   <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[280px]" style={{ maxHeight: 160 }}>
@@ -174,11 +175,11 @@ export default function PatientPainProgressSheet({
                     <text x={4} y={yPain(0) + 4} fontSize="9" fill="#64748b">
                       0
                     </text>
-                    <text x={W - padR + 4} y={yDiff(5) + 4} fontSize="8" fill="#7c3aed">
-                      ק5
+                    <text x={W - padR + 4} y={yDiff(10) + 4} fontSize="8" fill="#7c3aed">
+                      מ10
                     </text>
                     <text x={W - padR + 4} y={yDiff(1) + 4} fontSize="8" fill="#7c3aed">
-                      ק1
+                      מ1
                     </text>
                     {painPts.length > 1 && (
                       <polyline

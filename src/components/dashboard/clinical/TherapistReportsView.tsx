@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { Patient, PatientExerciseFinishReport } from '../../../types';
 import { usePatient } from '../../../context/PatientContext';
+import { effortToScale10 } from '../../../utils/effortScale';
 
 const SOURCE_LABEL: Record<string, string> = {
   therapist: 'שיקום (מטפל)',
@@ -16,6 +17,7 @@ function normalizeRow(r: PatientExerciseFinishReport) {
   const zone = r.zone ?? r.zoneName ?? '—';
   const exerciseName = r.exerciseName ?? '—';
   const painLevel = r.painLevel;
+  const effort10 = effortToScale10(Number(r.difficultyScore), r.effortScale ?? null);
   const selfCareTierDisplay =
     r.selfCareDifficultyLabel?.trim() ||
     (r.selfCareDifficultyTier != null
@@ -30,9 +32,10 @@ function normalizeRow(r: PatientExerciseFinishReport) {
     timestamp: r.timestamp,
     exerciseName,
     zone,
-    difficultyScore: r.difficultyScore,
+    effortDisplay:
+      Number.isFinite(effort10) && effort10 >= 1 ? `${effort10}/10` : '—',
     painDisplay:
-      painLevel != null && painLevel >= 1 && painLevel <= 10 ? `${painLevel}/10` : '—',
+      painLevel != null && painLevel >= 0 && painLevel <= 10 ? `${painLevel}/10` : '—',
     sourceKey,
     sourceLabel: SOURCE_LABEL[sourceKey] ?? sourceKey,
     selfCareTierDisplay: selfCareTierDisplay ?? '—',
@@ -59,8 +62,8 @@ export default function TherapistReportsView({ patient }: { patient: Patient }) 
               <th className="p-2.5">מועד</th>
               <th className="p-2.5">תרגיל</th>
               <th className="p-2.5">אזור</th>
-              <th className="p-2.5">מאמץ (1–5)</th>
-              <th className="p-2.5">כאב (1–10)</th>
+              <th className="p-2.5">מאמץ (1–10)</th>
+              <th className="p-2.5">כאב (0–10)</th>
               <th className="p-2.5">רמת קושי (כוח)</th>
               <th className="p-2.5">מקור</th>
             </tr>
@@ -85,7 +88,7 @@ export default function TherapistReportsView({ patient }: { patient: Patient }) 
                   </td>
                   <td className="p-2.5 font-medium text-slate-800">{row.exerciseName}</td>
                   <td className="p-2.5 text-slate-700">{row.zone}</td>
-                  <td className="p-2.5 tabular-nums">{row.difficultyScore}/5</td>
+                  <td className="p-2.5 tabular-nums font-mono">{row.effortDisplay}</td>
                   <td className="p-2.5 tabular-nums font-mono">{row.painDisplay}</td>
                   <td className="p-2.5 text-slate-600 text-[11px]">{row.selfCareTierDisplay}</td>
                   <td className="p-2.5">

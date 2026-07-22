@@ -11,7 +11,7 @@ export type CompleteExerciseSafeResult =
 const completeExerciseSessionDataSchema = z
   .object({
     pain_level: z.number().min(0).max(10).nullish(),
-    effort_rating: z.number().min(0).max(5).nullish(),
+    effort_rating: z.number().min(0).max(10).nullish(),
     clinical_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     optional_pool_no_reward: z.boolean().optional(),
     session_body_area: z.string().max(64).nullish(),

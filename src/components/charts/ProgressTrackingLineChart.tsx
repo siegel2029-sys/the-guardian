@@ -12,8 +12,8 @@ import type { PatientProgressChartPoint } from '../../utils/patientProgressChart
 
 export const PROGRESS_TRACKING_LEGEND_ITEMS = [
   { label: 'כאב (VAS)', color: '#dc2626', dashed: false },
-  { label: 'מאמץ (0–10)', color: '#2563eb', dashed: false },
-  { label: 'מגמת התקדמות', color: '#0f172a', dashed: true },
+  { label: 'מאמץ (1–10)', color: '#2563eb', dashed: false },
+  { label: 'מגמת התקדמות (קלינית)', color: '#0f172a', dashed: true },
 ] as const;
 
 export function ProgressTrackingChartLegend() {
@@ -104,7 +104,7 @@ export default function ProgressTrackingLineChart({
             <Line
               type="monotone"
               dataKey="effort"
-              name="מאמץ (0–10)"
+              name="מאמץ (1–10)"
               stroke="#2563eb"
               strokeWidth={2}
               dot={{ r: 3, fill: '#2563eb' }}
@@ -114,7 +114,7 @@ export default function ProgressTrackingLineChart({
             <Line
               type="monotone"
               dataKey="trend"
-              name="מגמת התקדמות"
+              name="מגמת התקדמות (קלינית)"
               stroke="#0f172a"
               strokeWidth={2}
               strokeDasharray="5 5"

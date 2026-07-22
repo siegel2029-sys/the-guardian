@@ -1,10 +1,15 @@
-import type { BodyArea, PainRecord, Patient, PatientExerciseFinishReport } from '../types';
+import type { PainRecord, Patient, PatientExerciseFinishReport } from '../types';
 import {
   addClinicalDays,
   clinicalDateToLocalMidnight,
   getClinicalDate,
 } from './clinicalCalendar';
-import { zoneLabelToBodyArea } from './strengthenedAreasToday';
+import { reportMatchesActiveArea } from './strengthenedAreasToday';
+import {
+  clinicalDailyProgressScore,
+  effortToScale10,
+  type EffortScaleVersion,
+} from './effortScale';
 
 export const PROGRESS_CHART_WINDOW_DAYS = 30;
 
@@ -13,6 +18,8 @@ export type PatientProgressChartPoint = {
   label: string;
   pain: number | null;
   effort: number | null;
+  /** Clinically-weighted progress score (0–10, higher = better). Used for trendline. */
+  progress: number | null;
   trend: number | null;
 };
 
@@ -24,10 +31,20 @@ function avg(nums: number[]): number {
   return nums.reduce((s, v) => s + v, 0) / nums.length;
 }
 
-/** Maps reported effort (1–5) to the chart Y-axis (0–10): rating × 2. */
+/**
+ * Maps a stored effort rating onto the chart Y-axis (0–10).
+ * Legacy 1–5 values (no effortScale / scale 5) are multiplied by 2.
+ */
+export function effortRatingToChart10(
+  rating: number,
+  effortScale?: EffortScaleVersion | null
+): number {
+  return round1(effortToScale10(rating, effortScale));
+}
+
+/** @deprecated Use {@link effortRatingToChart10} — kept for import compatibility. */
 export function effortRating1to5ToChart10(rating: number): number {
-  const r = Math.min(5, Math.max(1, rating));
-  return round1(r * 2);
+  return effortRatingToChart10(rating, 5);
 }
 
 /** Normalize ISO timestamps to clinical YYYY-MM-DD (04:00 rollover, local browser time). */
@@ -51,25 +68,8 @@ function formatChartLabel(dateKey: string): string {
   return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
 }
 
-function reportMatchesActiveArea(
-  report: PatientExerciseFinishReport,
-  primary: BodyArea
-): boolean {
-  const zone = report.zone ?? report.zoneName;
-  const area = zoneLabelToBodyArea(zone) ?? primary;
-  return area === primary;
-}
-
 function clampChart0to10(n: number): number {
   return round1(Math.max(0, Math.min(10, n)));
-}
-
-/** Combined daily score used as the regression input (pain + effort) / 2. */
-function combinedDailyAverage(pain: number | null, effort: number | null): number | null {
-  if (pain != null && effort != null) return (pain + effort) / 2;
-  if (pain != null) return pain;
-  if (effort != null) return effort;
-  return null;
 }
 
 function fitLinearRegression(
@@ -98,11 +98,16 @@ function fitLinearRegression(
   return { slope, intercept };
 }
 
-type DayBucket = { pains: number[]; efforts: number[] };
+type DayBucket = {
+  pains: number[];
+  /** Effort already normalized to 1–10 display scale. */
+  efforts10: number[];
+};
 
 /**
  * Builds the full continuous active-area progress series (never truncated for AI).
  * Finish-report timestamps are grouped by clinical day; painHistory uses session dates.
+ * Falls back to sessionHistory.difficultyRating when finish-report effort is absent for a day.
  */
 export function buildActiveAreaProgressSeries(
   patient: Patient,
@@ -114,7 +119,7 @@ export function buildActiveAreaProgressSeries(
   const ensureBucket = (dateKey: string): DayBucket => {
     let bucket = byDay.get(dateKey);
     if (!bucket) {
-      bucket = { pains: [], efforts: [] };
+      bucket = { pains: [], efforts10: [] };
       byDay.set(dateKey, bucket);
     }
     return bucket;
@@ -128,7 +133,12 @@ export function buildActiveAreaProgressSeries(
     const dateKey = clinicalDayKeyFromTimestamp(report.timestamp);
     const bucket = ensureBucket(dateKey);
     if (report.painLevel != null) bucket.pains.push(report.painLevel);
-    bucket.efforts.push(report.difficultyScore);
+    // Always include effort from finish reports (was previously dropped when zone mismatched)
+    if (report.difficultyScore != null && Number.isFinite(Number(report.difficultyScore))) {
+      bucket.efforts10.push(
+        effortRatingToChart10(Number(report.difficultyScore), report.effortScale ?? null)
+      );
+    }
   }
 
   const primaryPain = (patient.analytics?.painHistory ?? []).filter(
@@ -139,14 +149,25 @@ export function buildActiveAreaProgressSeries(
     ensureBucket(dateKey).pains.push(record.painLevel);
   }
 
+  // Fallback: sessionHistory effort when a clinical day has pain but no finish-report effort
+  for (const session of patient.analytics?.sessionHistory ?? []) {
+    const dateKey = session.date.slice(0, 10);
+    const bucket = ensureBucket(dateKey);
+    if (bucket.efforts10.length === 0 && session.difficultyRating != null) {
+      bucket.efforts10.push(
+        effortRatingToChart10(session.difficultyRating, session.effortScale ?? null)
+      );
+    }
+  }
+
   const sortedKeys = [...byDay.keys()].sort((a, b) => a.localeCompare(b));
   const points: PatientProgressChartPoint[] = [];
 
   for (const dateKey of sortedKeys) {
-    const { pains, efforts } = byDay.get(dateKey)!;
+    const { pains, efforts10 } = byDay.get(dateKey)!;
     const pain = pains.length > 0 ? round1(avg(pains)) : null;
-    const effort =
-      efforts.length > 0 ? effortRating1to5ToChart10(avg(efforts)) : null;
+    const effort = efforts10.length > 0 ? round1(avg(efforts10)) : null;
+    const progress = clinicalDailyProgressScore(pain, effort);
 
     if (pain == null && effort == null) continue;
 
@@ -155,6 +176,7 @@ export function buildActiveAreaProgressSeries(
       label: formatChartLabel(dateKey),
       pain,
       effort,
+      progress,
       trend: null,
     });
   }
@@ -181,6 +203,7 @@ export function applySessionGapBreaks(
           label: '',
           pain: null,
           effort: null,
+          progress: null,
           trend: null,
         });
       }
@@ -200,7 +223,7 @@ export function sliceProgressWindow(
 }
 
 /**
- * Fits a least-squares line to combined daily averages in the visible window,
+ * Fits a least-squares line to clinically-weighted daily progress scores,
  * then assigns `trend = mx + b` at every index (including gap-bridge rows).
  */
 export function applyLinearRegressionTrend(
@@ -209,9 +232,10 @@ export function applyLinearRegressionTrend(
   const regressionInputs: { x: number; y: number }[] = [];
 
   points.forEach((point, index) => {
-    const combined = combinedDailyAverage(point.pain, point.effort);
-    if (combined != null) {
-      regressionInputs.push({ x: index, y: combined });
+    const score =
+      point.progress ?? clinicalDailyProgressScore(point.pain, point.effort);
+    if (score != null) {
+      regressionInputs.push({ x: index, y: score });
     }
   });
 

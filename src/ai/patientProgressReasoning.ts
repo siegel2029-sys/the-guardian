@@ -7,6 +7,7 @@ import type { BodyArea, ExerciseSession, PainRecord, Patient, PatientExercise } 
 import { bodyAreaLabels } from '../types';
 import type { ClinicalTip, TipBodyContext } from '../data/clinicalTips';
 import { CLINICAL_TIPS } from '../data/clinicalTips';
+import { effortToScale10 } from '../utils/effortScale';
 
 export type { TipBodyContext } from '../data/clinicalTips';
 
@@ -146,7 +147,9 @@ export function analyzePatientProgress(data: PatientProgressPayload): PatientPro
   const lastSess = data.sessionHistory.slice(-5);
   const completionRates = recentCompletionRates(data.sessionHistory, 5);
   const completionRateRecent = avg(completionRates);
-  const diffRatings = lastSess.map((s) => s.difficultyRating);
+  const diffRatings = lastSess.map((s) =>
+    effortToScale10(s.difficultyRating, s.effortScale ?? null)
+  );
   const avgDifficultyRecent = avg(diffRatings);
 
   const highPain = avgPainRecent != null && avgPainRecent >= 5.5;
@@ -160,7 +163,7 @@ export function analyzePatientProgress(data: PatientProgressPayload): PatientPro
       ? `שיעור השלמה באימונים האחרונים (ממוצע): ${Math.round(completionRateRecent * 100)}%.`
       : '',
     avgDifficultyRecent != null
-      ? `קושי מדווח ממוצע (אימונים אחרונים): ${avgDifficultyRecent.toFixed(1)}/5.`
+      ? `מאמץ מדווח ממוצע (אימונים אחרונים): ${avgDifficultyRecent.toFixed(1)}/10.`
       : '',
   ]
     .filter(Boolean)
