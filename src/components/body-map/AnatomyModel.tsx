@@ -671,7 +671,7 @@ function BaseSegment({
             iridescence={limbTint ? limbTint.iridescence : 0}
             iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1}
             iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [0, 0]}
-            transparent={Boolean(limbTint) ? false : transSkin}
+            transparent={limbTint ? false : transSkin}
             opacity={useFrostTranslucent ? 0.85 : 1}
             depthWrite={Boolean(limbTint) || useFrostTranslucent || !transSkin}
           />
@@ -736,7 +736,7 @@ function BaseSegment({
           iridescence={limbTint ? limbTint.iridescence : 0}
           iridescenceIOR={limbTint ? limbTint.iridescenceIOR : 1}
           iridescenceThicknessRange={limbTint ? limbTint.iridescenceThicknessRange : [0, 0]}
-          transparent={Boolean(limbTint) ? false : transSkin}
+          transparent={limbTint ? false : transSkin}
           opacity={useFrostTranslucent ? 0.85 : 1}
           depthWrite={Boolean(limbTint) || useFrostTranslucent || !transSkin}
         />

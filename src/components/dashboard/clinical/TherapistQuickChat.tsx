@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Send, MessageCircle } from 'lucide-react';
 import { usePatient } from '../../../context/PatientContext';
+import { devLog, redactId } from '../../../lib/safeLog';
 
 /** צ׳אט מהיר — הודעות פנימיות לפורטל */
 export default function TherapistQuickChat({
@@ -19,9 +20,7 @@ export default function TherapistQuickChat({
   const send = useCallback(() => {
     const t = text.trim();
     if (!t || !threadPatientId) return;
-    if (import.meta.env.DEV) {
-      console.log('[Chat UI] TherapistQuickChat send', { patientId: threadPatientId });
-    }
+    devLog('[Chat UI] TherapistQuickChat send', { patientRef: redactId(threadPatientId) });
     sendTherapistReply(threadPatientId, t);
     setText('');
   }, [text, threadPatientId, sendTherapistReply]);

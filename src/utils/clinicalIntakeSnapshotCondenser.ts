@@ -259,7 +259,7 @@ function extractRedFlagLines(
     const flagSection = block.split(/\n(?=דגלים\s*:|דגלים אדומים)/i)[1];
     if (!flagSection) continue;
     for (const line of flagSection.split(/\r?\n/)) {
-      const cleaned = line.replace(/^דגלים\s*:?\s*/i, '').replace(/^[•\-]\s*/, '').trim();
+      const cleaned = line.replace(/^דגלים\s*:?\s*/i, '').replace(/^[•-]\s*/, '').trim();
       if (isMeaningfulClinicalLine(cleaned)) lines.push(cleaned);
     }
   }
@@ -356,7 +356,7 @@ function buildPlanGoals(
   const planHints = narrative
     .split(/\r?\n/)
     .filter((l) => /מטר|תוכנית|שיקום|חיזוק|מתיח|טווח|יציבות|פרופר/i.test(l))
-    .map((l) => l.replace(/^[•\-]\s*/, '').trim())
+    .map((l) => l.replace(/^[•-]\s*/, '').trim())
     .filter(isMeaningfulClinicalLine);
   return dedupeLines(planHints).join(', ').slice(0, 280);
 }

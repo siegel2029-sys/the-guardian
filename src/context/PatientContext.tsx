@@ -64,13 +64,11 @@ import {
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 import {
   xpRequiredToReachNextLevel,
-  normalizePatientProgressFields,
   clampPatientLevel,
   patientWithLifetimeXp,
   lifetimeXpFromPatient,
 } from '../body/patientLevelXp';
 import { computeStreakForPatient } from '../utils/exerciseStreak';
-import { promotePendingPatientIfPortalAccess } from '../utils/patientRosterMetrics';
 import { type GearEquipSlot } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
@@ -80,6 +78,12 @@ import {
   resetAppKbHydrationGate,
   setAppKbHydratedFromCloud,
 } from '../lib/kbHydrationGate';
+import {
+  normalizePatientsTherapistIds,
+  patientMatchesTherapistScope,
+} from './patientContextRoster';
+
+export { randomPatientPassword } from './patientContextRoster';
 import {
   fetchPatients,
   fetchPatientPayloadsForTherapist,
@@ -550,46 +554,6 @@ interface PatientContextValue {
 const PatientContext = createContext<PatientContextValue | null>(null);
 
 // ── Provider ─────────────────────────────────────────────────────
-
-export function randomPatientPassword(): string {
-  // Must satisfy Supabase password policy: min 8 chars, letters + digits.
-  const letters = 'abcdefghijkmnpqrstuvwxyz';
-  const digits = '23456789';
-  const chars = letters + digits;
-  let s = letters[Math.floor(Math.random() * letters.length)];
-  s += digits[Math.floor(Math.random() * digits.length)];
-  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
-  return s;
-}
-
-function normalizePatientsTherapistIds(
-  list: Patient[],
-  options?: { fallbackTherapistId?: string | null }
-): Patient[] {
-  const fallback = options?.fallbackTherapistId ?? '';
-  return list.map((p) => {
-    const wa = (p.contactWhatsappE164 ?? '').replace(/\D/g, '');
-    const withTherapist = normalizePatientProgressFields({
-      ...p,
-      therapistId: p.therapistId ?? fallback,
-      injuryHighlightSegments: Array.isArray(p.injuryHighlightSegments)
-        ? p.injuryHighlightSegments
-        : [],
-      secondaryClinicalBodyAreas: Array.isArray(p.secondaryClinicalBodyAreas)
-        ? p.secondaryClinicalBodyAreas
-        : [],
-      contactWhatsappE164: wa.length >= 9 ? wa : undefined,
-      redFlagActive: p.redFlagActive === true,
-    });
-    // Portal account ⇒ active; never keep "pending" solely for incomplete intake.
-    return promotePendingPatientIfPortalAccess(withTherapist);
-  });
-}
-
-function patientMatchesTherapistScope(p: Patient, scopeIds: string[] | null | undefined): boolean {
-  if (!scopeIds || scopeIds.length === 0) return true;
-  return scopeIds.includes(p.therapistId);
-}
 
 export function PatientProvider({
   children,

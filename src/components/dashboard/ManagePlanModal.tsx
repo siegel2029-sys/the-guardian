@@ -986,6 +986,15 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     return hit?.id ?? null;
   };
 
+  const resolveExercisesForCloudSave = useCallback((): PatientExercise[] => {
+    if (!selectedPatient) return [];
+    flushSync(() => {
+      pendingFlushesRef.current.forEach((flush) => flush());
+    });
+    const snap = readExercisePlanSnapshot(selectedPatient.id);
+    return snap.length > 0 ? snap : normalizeCachedPatientExercises(currentExercises);
+  }, [currentExercises, readExercisePlanSnapshot, selectedPatient]);
+
   if (!selectedPatient) return null;
 
   const handlePlanExerciseUpdate = (
@@ -1011,14 +1020,6 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     );
     void persistExercisePlanCacheForPatient(selectedPatient.id, nextExercises);
   };
-
-  const resolveExercisesForCloudSave = useCallback((): PatientExercise[] => {
-    flushSync(() => {
-      pendingFlushesRef.current.forEach((flush) => flush());
-    });
-    const snap = readExercisePlanSnapshot(selectedPatient!.id);
-    return snap.length > 0 ? snap : normalizeCachedPatientExercises(currentExercises);
-  }, [currentExercises, readExercisePlanSnapshot, selectedPatient]);
 
   const handleAddCustom = (data: CustomFormData) => {
     const xpReward = data.difficulty * 8 + 12;

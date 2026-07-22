@@ -2,13 +2,14 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { logSupabaseCallError } from '../lib/supabaseSessionGuard';
 import { sanitizeDbErrorMessage } from '../lib/dbErrorSanitizer';
+import { devLog, devWarn, redactId } from '../lib/safeLog';
 
 export type CompleteExerciseSafeResult =
   | { ok: true }
   | { ok: false; reason?: string; message?: string };
 
 /** Boundary schema — mirrors what `complete_exercise_safe` accepts. Rejects malformed payloads before the RPC. */
-const completeExerciseSessionDataSchema = z
+export const completeExerciseSessionDataSchema = z
   .object({
     pain_level: z.number().min(0).max(10).nullish(),
     effort_rating: z.number().min(0).max(10).nullish(),
@@ -21,13 +22,15 @@ const completeExerciseSessionDataSchema = z
   })
   .passthrough();
 
-const exerciseIdSchema = z.string().min(1).max(128);
+export const exerciseIdSchema = z.string().min(1).max(128);
 
-export async function completeExerciseSafe(
-  client: SupabaseClient,
+/** Pure client-side validation shared with Vitest (no network). */
+export function validateCompleteExerciseSafeInput(
   exerciseId: string,
-  sessionData: Record<string, unknown>
-): Promise<CompleteExerciseSafeResult> {
+  sessionData: Record<string, unknown>,
+):
+  | { ok: true; exerciseId: string; sessionData: z.infer<typeof completeExerciseSessionDataSchema> }
+  | { ok: false; reason: 'invalid_payload'; message: string } {
   const idParsed = exerciseIdSchema.safeParse(exerciseId);
   const dataParsed = completeExerciseSessionDataSchema.safeParse(sessionData);
   if (!idParsed.success || !dataParsed.success) {
@@ -37,25 +40,40 @@ export async function completeExerciseSafe(
     ]
       .map((i) => `${i.path.join('.')}: ${i.message}`)
       .join('; ');
-    console.warn('[complete_exercise_safe] invalid payload rejected client-side:', issues);
     return { ok: false, reason: 'invalid_payload', message: issues };
+  }
+  return { ok: true, exerciseId: idParsed.data, sessionData: dataParsed.data };
+}
+
+export async function completeExerciseSafe(
+  client: SupabaseClient,
+  exerciseId: string,
+  sessionData: Record<string, unknown>
+): Promise<CompleteExerciseSafeResult> {
+  const validated = validateCompleteExerciseSafeInput(exerciseId, sessionData);
+  if (!validated.ok) {
+    devWarn('[complete_exercise_safe] invalid payload rejected client-side', {
+      message: validated.message,
+    });
+    return { ok: false, reason: validated.reason, message: validated.message };
   }
 
   try {
-    if (import.meta.env.DEV) {
-      console.log('[complete_exercise_safe] RPC invoke:', {
-        p_exercise_id: exerciseId,
-        p_session_data: sessionData,
-      });
-    }
+    devLog('[complete_exercise_safe] RPC invoke', {
+      exerciseRef: redactId(validated.exerciseId),
+      clinical_date: validated.sessionData.clinical_date,
+      patientRef: redactId(validated.sessionData.patient_id),
+    });
 
     const { data, error } = await client.rpc('complete_exercise_safe', {
-      p_exercise_id: exerciseId,
-      p_session_data: dataParsed.data,
+      p_exercise_id: validated.exerciseId,
+      p_session_data: validated.sessionData,
     });
 
     if (error) {
-      logSupabaseCallError('complete_exercise_safe/rpc', error, { exerciseId });
+      logSupabaseCallError('complete_exercise_safe/rpc', error, {
+        exerciseRef: redactId(validated.exerciseId),
+      });
       return { ok: false, message: sanitizeDbErrorMessage(error.message) };
     }
 
@@ -64,11 +82,16 @@ export async function completeExerciseSafe(
       return { ok: true };
     }
     if (row?.reason) {
-      console.warn('[complete_exercise_safe] soft fail', { exerciseId, reason: row.reason, data: row });
+      devWarn('[complete_exercise_safe] soft fail', {
+        exerciseRef: redactId(validated.exerciseId),
+        reason: row.reason,
+      });
     }
     return { ok: false, reason: row?.reason };
   } catch (e) {
-    logSupabaseCallError('complete_exercise_safe/catch', e, { exerciseId });
+    logSupabaseCallError('complete_exercise_safe/catch', e, {
+      exerciseRef: redactId(validated.exerciseId),
+    });
     return { ok: false, message: sanitizeDbErrorMessage(e instanceof Error ? e.message : String(e)) };
   }
 }

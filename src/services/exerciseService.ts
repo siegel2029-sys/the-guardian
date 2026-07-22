@@ -19,6 +19,7 @@ import {
 import { clinicalPushFail, touchPatientPortalWorkoutActivity, type ClinicalPushResult } from './clinicalService';
 import { supabase } from '../lib/supabase';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
+import { devWarn, redactId } from '../lib/safeLog';
 import {
   ensureSupabaseSessionReady,
   logSupabaseCallError,
@@ -770,33 +771,41 @@ export async function upsertSessionHistory(
 
   const uniqMissing = [...new Set(missingTherapistFor)];
   if (uniqMissing.length > 0) {
-    console.warn(
+    devWarn(
       '[upsertSessionHistory] אין therapist_id — נדרש מטפל מחובר ל-Supabase לשורות session_history',
-      { patientIds: uniqMissing }
+      { missingCount: uniqMissing.length },
     );
   }
 
-  const tablePreview = sessionRows.map((r) => {
-    const pl = r.payload as DailySession;
-    return {
-      patient_id: r.patient_id,
-      therapist_id:
-        'therapist_id' in r ? (r as { therapist_id?: string }).therapist_id ?? '(omit)' : '(omit)',
-      session_date: r.session_date,
-      updated_at: r.updated_at,
-      payload_patientId: pl?.patientId,
-      completed_ids_n: Array.isArray(pl?.completedIds) ? pl.completedIds.length : 0,
-    };
-  });
-  console.log('[upsertSessionHistory] ▶ session_history UPSERT (console.table)');
-  console.table(tablePreview);
+  if (import.meta.env.DEV) {
+    const tablePreview = sessionRows.map((r) => {
+      const pl = r.payload as DailySession;
+      return {
+        patientRef: redactId(r.patient_id),
+        therapistRef:
+          'therapist_id' in r
+            ? redactId((r as { therapist_id?: string }).therapist_id)
+            : '(omit)',
+        session_date: r.session_date,
+        updated_at: r.updated_at,
+        completed_ids_n: Array.isArray(pl?.completedIds) ? pl.completedIds.length : 0,
+      };
+    });
+    console.log('[upsertSessionHistory] ▶ session_history UPSERT (console.table)');
+    console.table(tablePreview);
+  }
 
   const { data, error } = await client
     .from('session_history')
     .upsert(sessionRows, { onConflict: 'patient_id,session_date' })
     .select('patient_id, session_date, therapist_id');
 
-  console.log('[upsertSessionHistory] response', { data, error: error ?? null });
+  if (import.meta.env.DEV) {
+    console.log('[upsertSessionHistory] response', {
+      rowCount: Array.isArray(data) ? data.length : 0,
+      error: error ?? null,
+    });
+  }
 
   if (error) {
     logSupabaseCallError('upsertSessionHistory/upsert', error, {

@@ -20,6 +20,7 @@ import {
   type ClinicalInsightsSnapshot,
 } from '../utils/clinicalInsightsPayload';
 import { withCloudSyncRetry } from './cloudSyncResilience';
+import { devLog, devWarn } from './safeLog';
 
 async function therapistIdByPatientIdForClinicalSync(
   client: SupabaseClient,
@@ -93,7 +94,7 @@ export async function pullPersistedState(
       };
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      console.warn('[pullPersistedState] failed — keeping local state', message);
+      devWarn('[pullPersistedState] failed — keeping local state', { message });
       return { ok: false, message };
     }
   };
@@ -102,7 +103,7 @@ export async function pullPersistedState(
     maxAttempts: 2,
     delayMs: 350,
     onRetry: (n, message) => {
-      console.warn(`[pullPersistedState] transient failure — retry ${n}`, message);
+      devWarn(`[pullPersistedState] transient failure — retry ${n}`, { message });
     },
   });
 }
@@ -151,7 +152,7 @@ export async function pushPersistedStateToSupabase(
         maxAttempts: 2,
         delayMs: 350,
         onRetry: (n, message) => {
-          console.warn(`[pushPersistedStateToSupabase] ${label} transient — retry ${n}`, message);
+          devWarn(`[pushPersistedStateToSupabase] ${label} transient — retry ${n}`, { message });
         },
       });
 
@@ -198,7 +199,7 @@ export async function pushPersistedStateToSupabase(
     const syncedPatients = result.syncedPatients;
 
     const kbLen = state.knowledgeFacts?.length ?? 0;
-    console.log('[SAVE_CHECK] Cloud push payload:', {
+    devLog('[SAVE_CHECK] Cloud push payload', {
       patientsCount: state.patients.length,
       exercisePlansCount: state.exercisePlans.length,
       knowledgeFactsCount: kbLen,
@@ -223,7 +224,7 @@ export async function pushPersistedStateToSupabase(
       })
     );
     if (!result.ok) {
-      console.error('[pushPersistedStateToSupabase] upsertExercisePlans נכשל', result.message);
+      devWarn('[pushPersistedStateToSupabase] upsertExercisePlans נכשל', { message: result.message });
       return result;
     }
 
@@ -256,9 +257,11 @@ export async function pushPersistedStateToSupabase(
         serverKbCount = 'error';
       }
     }
-    console.log(
-      `[SYNC_DEBUG] Final KB items to be saved: ${finalKbSaveCount}. (Local was ${localKbCount}, Server was ${serverKbCount})`
-    );
+    devLog('[SYNC_DEBUG] Final KB items to be saved', {
+      finalKbSaveCount,
+      localKbCount,
+      serverKbCount,
+    });
 
     const kbOutcome = await withCloudSyncRetry(
       () =>
@@ -274,9 +277,9 @@ export async function pushPersistedStateToSupabase(
         maxAttempts: 2,
         delayMs: 350,
         onRetry: (n, message) => {
-          console.warn(
+          devWarn(
             `[pushPersistedStateToSupabase] upsertGlobalAppKnowledgeBase transient — retry ${n}`,
-            message,
+            { message },
           );
         },
       },

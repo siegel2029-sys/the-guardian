@@ -727,7 +727,7 @@ export async function showPhysioshieldTestNotification(): Promise<void> {
   if (permission === 'granted') {
     await subscribeWebPushAfterPermissionGranted();
     try {
-      // eslint-disable-next-line no-new
+       
       new Notification('Test', { body: 'It works!' });
     } catch (e) {
       console.error('[Physio-Shield Test Push] new Notification() failed — browser/OS restriction?', e);

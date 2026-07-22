@@ -48,16 +48,18 @@ export default function PortalPatientDebugPanel() {
     return () => window.removeEventListener(DEV_MOCK_DATE_CHANGED_EVENT, onMock as EventListener);
   }, []);
 
+  const lifetimeTotal = selectedPatient
+    ? Math.max(0, Math.floor(lifetimeXpFromPatient(selectedPatient)))
+    : 0;
+
+  useEffect(() => {
+    if (!open || !selectedPatient) return;
+    setLifetimeXpInput(String(lifetimeTotal));
+  }, [open, lifetimeTotal, selectedPatient]);
+
   if (!selectedPatient) return null;
 
   const pid = selectedPatient.id;
-  const lifetimeTotal = Math.max(0, Math.floor(lifetimeXpFromPatient(selectedPatient)));
-
-  useEffect(() => {
-    if (!open) return;
-    setLifetimeXpInput(String(lifetimeTotal));
-  }, [open, lifetimeTotal]);
-
   void mockDateUiRev;
   const offsetDays = getDevCalendarOffsetDays();
   const appWallClockYmd = formatLocalYmd(getAppDate());

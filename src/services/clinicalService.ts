@@ -22,6 +22,7 @@ import {
   logSupabaseCallError,
 } from '../lib/supabaseSessionGuard';
 import { sanitizeDbErrorMessage } from '../lib/dbErrorSanitizer';
+import { devLog, redactId } from '../lib/safeLog';
 import {
   getAppKbHydratedFromCloud,
   hasAttemptedGlobalKbMigrationForTherapist,
@@ -267,7 +268,9 @@ export async function upsertGlobalAppKnowledgeBaseWithTipSyncLog(
     row.id = 'global';
   }
 
-  console.log('[DEBUG_KB_PAYLOAD] Sending items:', knowledgeItems);
+  if (import.meta.env.DEV) {
+    console.log('[DEBUG_KB_PAYLOAD] Sending item count:', knowledgeItems.length);
+  }
 
   const { data, error } = await client
     .from('app_knowledge_base')
@@ -1005,25 +1008,36 @@ function logExercisePlansSupabaseError(
 }
 
 /**
- * Logs the exact object being sent to a Supabase `.upsert()` / `.insert()` call so that
- * snake_case column names, nulls, and missing fields are immediately visible in DevTools.
- *
- * `exercises` / `payload` JSONB arrays are replaced with `"[N items]"` to keep the output
- * short; every other field is shown verbatim.
+ * Dev-only upsert diagnostics. Never emits row ids or payload bodies in production (Iron Rule 1).
+ * JSONB arrays are summarized as `[N items]`.
  */
 function logUpsertPayload(
   label: string,
   payload: Record<string, unknown>,
   extra?: Record<string, unknown>
 ): void {
+  if (!import.meta.env.DEV) return;
   const display: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(payload)) {
+    if (k === 'patient_id' || k === 'patientId' || k === 'therapist_id' || k === 'id') {
+      display[k] = typeof v === 'string' ? redactId(v) : v;
+      continue;
+    }
     display[k] = Array.isArray(v) ? `[${(v as unknown[]).length} items]` : v;
   }
+  const safeExtra =
+    extra == null
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(extra).map(([k, v]) => [
+            k,
+            typeof v === 'string' && /(id|patient|therapist)/i.test(k) ? redactId(v) : v,
+          ]),
+        );
   console.group(`[upsertExercisePlans] ▶ ${label}`);
   console.log('EXACT PAYLOAD KEYS:', Object.keys(payload).join(', '));
   console.log('EXACT PAYLOAD:', display);
-  if (extra) console.log('CONTEXT:', extra);
+  if (safeExtra) console.log('CONTEXT:', safeExtra);
   console.groupEnd();
 }
 
@@ -1472,29 +1486,31 @@ export async function upsertExercisePlans(
         const dbSig = exercisesComparableSignatureFromUnknown(prevActive!.exercises);
         const incomingSig = exercisePlanExercisesComparableSignature(exercises);
         if (dbSig === incomingSig) {
-          console.log(
-            `[SAVE_CHECK] Attempting to save exercise plan. Change detected: NO (${patientId})`
-          );
+          devLog('[SAVE_CHECK] Attempting to save exercise plan. Change detected: NO', {
+            patientRef: redactId(patientId),
+          });
           continue;
         }
       }
 
-      console.log(`[SAVE_CHECK] Attempting to save exercise plan. Change detected: YES (${patientId})`);
-
-      console.log('[upsertExercisePlans] שולח תוכנית לענן', {
-        patient_id: patientId,
-        therapist_id_auth_uid: authUid,
-        row_therapist_id: rowTherapistId,
-        rls_will_pass: rowTherapistId === authUid,
-        exerciseCount: exercises.length,
-        is_active: true,
-        changeSummary,
-        now,
-        version_number: currentVn,
-        atVersionCap,
-        forceSave,
-        saveMode: atVersionCap && hadPrev ? 'update_in_place' : 'insert_new_version',
+      devLog('[SAVE_CHECK] Attempting to save exercise plan. Change detected: YES', {
+        patientRef: redactId(patientId),
       });
+
+      if (import.meta.env.DEV) {
+        console.log('[upsertExercisePlans] שולח תוכנית לענן', {
+          patientRef: redactId(patientId),
+          rls_will_pass: rowTherapistId === authUid,
+          exerciseCount: exercises.length,
+          is_active: true,
+          changeSummary,
+          now,
+          version_number: currentVn,
+          atVersionCap,
+          forceSave,
+          saveMode: atVersionCap && hadPrev ? 'update_in_place' : 'insert_new_version',
+        });
+      }
 
       // At version cap: UPDATE the canonical active row instead of INSERTing another version.
       // forceSave bypasses the old session halt; auto-save also uses in-place update (never drops edits).

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Send, MessageSquare, Clock, User, Bot } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
+import { devLog, redactId } from '../../lib/safeLog';
 
 type MessagesPanelProps = {
   /** מוטמע בתוך כרטיס פרופיל — כותרת קומפקטית ללא אווטאר כפול */
@@ -69,9 +70,7 @@ export default function MessagesPanel({
   const handleSend = useCallback(() => {
     const body = replyText.trim();
     if (!body || !threadPatientId) return;
-    if (import.meta.env.DEV) {
-      console.log('[Chat UI] MessagesPanel send', { patientId: threadPatientId });
-    }
+    devLog('[Chat UI] MessagesPanel send', { patientRef: redactId(threadPatientId) });
     sendTherapistReply(threadPatientId, body);
     setReplyText('');
   }, [replyText, threadPatientId, sendTherapistReply]);

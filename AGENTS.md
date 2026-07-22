@@ -139,17 +139,17 @@ _Idle — awaiting next PM/roadmap assignment._
 
 ### Completed Steps (recent)
 
-- Hardened `reminder-cron`: freeze/status enqueue gate, PHI-safe log refs, timezone hour-24 normalize, transient push retry; extracted `_shared/reminderEligibility.ts`.
-- Added Vitest coverage for reminder eligibility / freeze→scheduler contract + `cloudSyncResilience` (pull/push upsert retry wiring in `supabaseSync`).
-- Cloud sync upserts/pull now use bounded transient retry; permanent RLS/4xx failures stay non-retrying.
+- Production readiness P0/P1: PHI-safe client logging via `safeLog`, ESLint ship gate green (React Compiler advisories warn-only), `ALLOWED_ORIGINS` set on Edge secrets, RPC DEFINER review + Vitest for `complete_exercise_safe`.
+- Denormalized `patients.account_frozen` / `patients.status` (migration + trigger); reminder-cron filters prefer columns.
+- Continued god-file carve: `patientPortalRouting.tsx`, `patientContextRoster.ts`; PatientDailyView / PatientContext LOC reduced.
 
 ### Next Action Items
 
-1. Continue god-file split: carve remaining PatientContext provider logic / PatientDailyView into domain modules.
-2. Expand Vitest to exercise-completion RPC wrappers (remaining freeze UI → cloud payload edges).
-3. Enable Supabase Auth leaked-password protection in the dashboard.
-4. Set Edge Function secret `ALLOWED_ORIGINS` for production CORS lockdown on `gemini-proxy`.
-5. PM: next MVP slice — denormalize `account_frozen` / `status` columns for server-enforced freezes.
+1. Enable Auth leaked-password protection (Pro): run `node scripts/enable-password-hibp.mjs` with `SUPABASE_ACCESS_TOKEN`, or Dashboard → Auth → Password strength.
+2. Continue god-file split: more PatientContext provider slices + PatientDailyView domain modules.
+3. Deploy updated `reminder-cron` Edge Function with denorm column filters.
+4. Repair local↔remote migration history drift (`supabase migration repair` / `db pull`) so `db push` works cleanly.
+5. App Store UX pass: mobile 3D map lazy-load + a11y audit on portal FABs.
 
 ### Update protocol
 

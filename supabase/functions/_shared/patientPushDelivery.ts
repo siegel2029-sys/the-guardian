@@ -260,7 +260,7 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
   // (VITE_WEB_PUSH_VAPID_PUBLIC_KEY) and the one that pairs with WEB_PUSH_VAPID_PRIVATE_KEY.
   // Forcing a hardcoded key here was the source of the HTTP 403 "VAPID credentials do not
   // correspond" failures — we now only fall back when the env key is genuinely absent.
-  let publicKey = envPublicKey.length > 40 ? envPublicKey : HARDCODED_FALLBACK_PUBLIC_KEY;
+  const publicKey = envPublicKey.length > 40 ? envPublicKey : HARDCODED_FALLBACK_PUBLIC_KEY;
   const usedFallback = publicKey === HARDCODED_FALLBACK_PUBLIC_KEY &&
     envPublicKey.length <= 40;
   if (usedFallback) {

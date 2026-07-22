@@ -13,19 +13,12 @@ import { effortToScale10 } from '../../utils/effortScale';
 export default function HistoryAnalyticsPanel() {
   const { selectedPatient, clinicalToday, dailyHistoryByPatient, getExercisePlan } = usePatient();
 
-  if (!selectedPatient) {
-    return (
-      <div className="flex items-center justify-center h-full text-slate-400 text-sm" dir="rtl">
-        בחרו מטופל מהרשימה בצד
-      </div>
-    );
-  }
-
   const p = selectedPatient;
-  const plan = getExercisePlan(p.id);
+  const plan = p ? getExercisePlan(p.id) : null;
   const plannedExerciseCount = plan?.exercises.length ?? 0;
 
   const complianceChartKey = useMemo(() => {
+    if (!p) return '';
     const m = dailyHistoryByPatient[p.id];
     let fp = '';
     for (let i = 6; i >= 0; i--) {
@@ -33,7 +26,15 @@ export default function HistoryAnalyticsPanel() {
       fp += `${m?.[d]?.exercisesCompleted ?? 0}-`;
     }
     return `${p.id}|${clinicalToday}|${fp}|${plannedExerciseCount}`;
-  }, [dailyHistoryByPatient, p.id, clinicalToday, plannedExerciseCount]);
+  }, [dailyHistoryByPatient, p, clinicalToday, plannedExerciseCount]);
+
+  if (!selectedPatient || !p) {
+    return (
+      <div className="flex items-center justify-center h-full text-slate-400 text-sm" dir="rtl">
+        בחרו מטופל מהרשימה בצד
+      </div>
+    );
+  }
 
   const completionRate =
     p.analytics.sessionHistory.length > 0

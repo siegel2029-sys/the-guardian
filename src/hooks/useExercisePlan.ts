@@ -57,6 +57,7 @@ import {
   persistPatientFinishReportToCloud,
 } from '../services/exerciseService';
 import { logSupabaseCallError } from '../lib/supabaseSessionGuard';
+import { devError, devLog, redactId } from '../lib/safeLog';
 import { defaultPatientGear, type PatientGearState } from '../context/patientGearUtils';
 import { buildEmptySession, clampPain, clampEffort } from '../context/patientDomainHelpers';
 import {
@@ -1342,12 +1343,14 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           newAuthUserId ? { authUserId: newAuthUserId } : undefined
         );
         if (!upsertResult.ok) {
-          console.error('[createPatientWithAccess] Failed to insert patient into DB:', upsertResult.message);
+          devError('[createPatientWithAccess] Failed to insert patient into DB', {
+            message: upsertResult.message,
+          });
           return { ok: false, message: `שגיאה בשמירת המטופל: ${upsertResult.message}` };
         }
-        console.log('[createPatientWithAccess] Patient row created', {
-          patientId,
-          auth_user_id: newAuthUserId || '(will be linked on first portal login)',
+        devLog('[createPatientWithAccess] Patient row created', {
+          patientRef: redactId(patientId),
+          authLinked: Boolean(newAuthUserId),
         });
       }
 

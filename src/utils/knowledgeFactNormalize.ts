@@ -46,7 +46,7 @@ export function normalizeKnowledgeFact(raw: unknown): KnowledgeFact | null {
   }
   if (!title) return null;
 
-  let teaser = teaserRaw || clampTeaser(title);
+  const teaser = teaserRaw || clampTeaser(title);
 
   let explanation = pickFirstTrimmed(
     o.explanation,

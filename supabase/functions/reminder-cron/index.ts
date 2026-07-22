@@ -196,7 +196,7 @@ async function runReminderDispatch(params: {
   let testBypassSent = 0;
   const errors: string[] = [];
 
-  let totalScanned = patients.length;
+  const totalScanned = patients.length;
   let sentSuccess = 0;
   let sentFailed = 0;
   const failedDetails: Array<{ id: string; error: string }> = [];
@@ -565,13 +565,14 @@ Deno.serve(async (req) => {
     /** When `test_now` without `patient_id`: main loop bypasses local hour, quiet hours, 3h window, and daily locks. */
     const reminderTestBypass = test_now;
 
-    // Status / freeze live in JSONB payload (no top-level status column).
-    // Exclude frozen / inactive / suspended / paused, and therapist accountFrozen flag.
+    // Prefer denormalized columns (migration 20260722224602); keep payload filters as defense-in-depth.
     const blockedStatusList = `(${REMINDER_BLOCKED_PATIENT_STATUSES.join(",")})`;
     const { data: patients, error: listErr } = await supabase
       .from("patients")
-      .select("id, payload")
+      .select("id, payload, account_frozen, status")
       .not("auth_user_id", "is", null)
+      .eq("account_frozen", false)
+      .not("status", "in", blockedStatusList)
       .or(
         `payload->>status.is.null,payload->>status.not.in.${blockedStatusList}`,
       )

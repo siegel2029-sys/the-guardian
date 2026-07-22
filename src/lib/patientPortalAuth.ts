@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAuthErrorMessageHe } from './supabaseAuthErrors';
+import { devError, devLog, devWarn, redactId } from './safeLog';
 
 /** Synthetic email domain for Supabase password auth (must be unique per portal username). */
 export function getPatientAuthEmailDomain(): string {
@@ -99,15 +100,13 @@ export async function signUpPortalPatientOnCreate(params: {
     },
   });
   if (error) {
-    // Always log the raw Supabase response so the developer can see exactly which Auth instance responded.
-    console.error('[signUpPortalPatientOnCreate] Supabase Auth error:', {
+    // Dev-only: never emit portal email / patient id in production consoles (Iron Rule 1).
+    devError('[signUpPortalPatientOnCreate] Supabase Auth error', {
       message: error.message,
       status: (error as { status?: number }).status,
       code: (error as { code?: string }).code,
-      email,
-      patientId: params.patientId,
+      patientRef: redactId(params.patientId),
       supabaseUrl: params.url,
-      fullError: JSON.stringify(error),
     });
 
     const isAlreadyRegistered =
@@ -133,15 +132,14 @@ export async function signUpPortalPatientOnCreate(params: {
   if (!authUserId) {
     // Auth user was created but UUID not returned (e.g. email-confirm flow).
     // The patient row will get auth_user_id linked on first portal login instead.
-    console.warn('[signUpPortalPatientOnCreate] Auth user created but UUID not returned — auth_user_id will be set on first patient login.', {
-      email,
-      patientId: params.patientId,
-    });
+    devWarn(
+      '[signUpPortalPatientOnCreate] Auth user created but UUID not returned — auth_user_id will be set on first patient login.',
+      { patientRef: redactId(params.patientId) },
+    );
   } else {
-    console.log('[signUpPortalPatientOnCreate] Auth user created', {
-      authUserId,
-      email,
-      patientId: params.patientId,
+    devLog('[signUpPortalPatientOnCreate] Auth user created', {
+      authUserRef: redactId(authUserId),
+      patientRef: redactId(params.patientId),
     });
   }
 
@@ -155,7 +153,7 @@ export async function linkPatientAuthUserRow(
   const { error } = await client.rpc('link_patient_auth_user', {
     p_patient_id: patientId,
   });
-  if (error && import.meta.env.DEV) {
-    console.warn('[linkPatientAuthUserRow]', error.message);
+  if (error) {
+    devWarn('[linkPatientAuthUserRow]', { message: error.message, patientRef: redactId(patientId) });
   }
 }
