@@ -22,7 +22,9 @@ import {
  *
  * With `--no-verify-jwt`, auth requires `INTERNAL_CRON_SECRET` via header `x-cron-secret` only
  * (query-string secrets are rejected — they leak into proxy/access logs).
- * Unexpected handler errors return HTTP 500 with a generic JSON error; details stay in server logs.
+ * Global auth/env failures abort before the patient loop; per-patient errors are isolated and never crash
+ * the batch. The handler returns HTTP 200 with an execution summary after the loop (global setup failures
+ * still return 4xx/5xx). Unexpected outer handler errors return HTTP 500 with a generic JSON error.
  *
  * Reads `payload.pushToken`: Expo via Expo API; HTTPS Web Push subscription URLs (FCM, Apple `web.push.apple.com`, Mozilla, etc.) via `web-push` (VAPID + encrypted body).
  *
@@ -194,6 +196,10 @@ async function runReminderDispatch(params: {
   skipped: number;
   errors: string[];
   testBypassSent: number;
+  totalScanned: number;
+  sentSuccess: number;
+  sentFailed: number;
+  failedDetails: Array<{ id: string; name?: string; error: string }>;
 }> {
   const { supabase, patients, nowIso, nowMs, reminderTestBypass, verboseReminders } = params;
 
@@ -202,6 +208,11 @@ async function runReminderDispatch(params: {
   let skipped = 0;
   let testBypassSent = 0;
   const errors: string[] = [];
+
+  let totalScanned = patients.length;
+  let sentSuccess = 0;
+  let sentFailed = 0;
+  const failedDetails: Array<{ id: string; name?: string; error: string }> = [];
 
   const deliverableCount = patients.filter((p) =>
     hasDeliverableReminderToken(p.pushToken.trim())
@@ -222,260 +233,300 @@ async function runReminderDispatch(params: {
 
   for (const row of patients) {
     const p = row;
-    const token = p.pushToken.trim();
     const label = patientDisplayName(p);
 
-    if (!hasDeliverableReminderToken(token)) {
-      skipped += 1;
-      if (verboseReminders) {
-        console.log(`[reminder-cron] Skipping patient ${label} (${p.id}): no_deliverable_push_token`);
+    try {
+      const token = p.pushToken.trim();
+
+      if (!hasDeliverableReminderToken(token)) {
+        skipped += 1;
+        if (verboseReminders) {
+          console.log(`[reminder-cron] Skipping patient ${label} (${p.id}): no_deliverable_push_token`);
+        }
+        continue;
       }
-      continue;
-    }
 
-    const tz = p.reminderTimezone.trim() || "UTC";
-    const wall = localWallParts(nowIso, tz);
-    if (!wall) {
-      skipped += 1;
-      console.log(`[reminder-cron] Checking patient: ${label} (${p.id})`);
-      console.log(`[reminder-cron]   Has work today? (skipped — invalid timezone)`);
-      console.log(
-        `[reminder-cron]   Reason for skipping: invalid_reminder_timezone_wall_clock (${tz})`,
-      );
-      continue;
-    }
-    const { ymd: localYmd, hour: localHour } = wall;
-
-    const msSinceActivity = p.lastLoginAt
-      ? nowMs - new Date(p.lastLoginAt).getTime()
-      : Number.POSITIVE_INFINITY;
-    const hoursSinceActivity =
-      p.lastLoginAt != null && Number.isFinite(msSinceActivity)
-        ? msSinceActivity / 3_600_000
-        : null;
-    const within3h =
-      p.lastLoginAt != null &&
-      Number.isFinite(msSinceActivity) &&
-      msSinceActivity <= THREE_HOURS_MS &&
-      msSinceActivity >= 0;
-
-    console.log(`[reminder-cron] Checking patient: ${label} (${p.id})`);
-
-    if (reminderTestBypass && isWebPushEndpoint(token)) {
-      console.log(`[reminder-cron] Patient ${label} has a valid Web Push endpoint: ${token}`);
-    }
-
-    const { data: sessions, error: shErr } = await supabase
-      .from("session_history")
-      .select("session_date, payload")
-      .eq("patient_id", p.id)
-      .eq("session_date", localYmd);
-
-    if (shErr) {
-      errors.push(`${p.id}: session_history ${shErr.message}`);
-      console.log(`[reminder-cron]   Has work today? unknown (session_history query failed)`);
-      console.log(`[reminder-cron]   Reason for skipping sends: ${shErr.message}`);
-      continue;
-    }
-
-    const hasWorkToday = (sessions ?? []).some((s: { payload: unknown }) =>
-      payloadHasWork(s.payload)
-    );
-
-    console.log(`[reminder-cron]   Has work today? ${hasWorkToday}`);
-
-    if (reminderTestBypass) {
-      console.log(
-        `[reminder-cron] Patient ${label}: Local hour is ${localHour}. test_now active — bypassing schedule & daily locks; session gate only.`,
-      );
-    } else {
-      console.log(
-        `[reminder-cron] Patient ${label}: Local hour is ${localHour}. Checking eligibility for Standard/Momentum...`,
-      );
-    }
-
-    console.log(
-      `[reminder-cron]   Momentum check: Last activity was ${
-        hoursSinceActivity === null ? "unknown (no timestamp)" : `${hoursSinceActivity.toFixed(2)}`
-      } hours ago. Is it within 3 hours? ${within3h}`,
-    );
-    console.log(
-      `[reminder-cron]   Daily lock: momentum_date=${p.lastMomentumReminderLocalDate ?? "null"}, standard_date=${p.lastStandardReminderLocalDate ?? "null"}. Local day is ${localYmd}.`,
-    );
-
-    if (reminderTestBypass) {
-      if (hasWorkToday) {
+      const tz = p.reminderTimezone.trim() || "UTC";
+      const wall = localWallParts(nowIso, tz);
+      if (!wall) {
+        skipped += 1;
+        console.log(`[reminder-cron] Checking patient: ${label} (${p.id})`);
+        console.log(`[reminder-cron]   Has work today? (skipped — invalid timezone)`);
         console.log(
-          `[reminder-cron]   Test bypass: skip send — patient already has qualifying session work today (${localYmd}).`,
+          `[reminder-cron]   Reason for skipping: invalid_reminder_timezone_wall_clock (${tz})`,
         );
         continue;
       }
-      console.log(
-        `[reminder-cron]   Test bypass: sending TEST_NOW_BODY (ignoring schedule, 3h window, daily locks; not updating lock columns).`,
-      );
-      const r = await sendPatientReminder(token, TEST_NOW_BODY, p.payload);
-      console.log(
-        `[reminder-cron]   Test bypass send result: ${r.ok ? "sent_ok" : r.detail ?? "failed"}`,
-      );
-      if (r.ok) {
-        testBypassSent += 1;
-      } else {
-        errors.push(`${p.id}: test_bypass ${r.detail ?? "push failed"}`);
+      const { ymd: localYmd, hour: localHour } = wall;
+
+      const msSinceActivity = p.lastLoginAt
+        ? nowMs - new Date(p.lastLoginAt).getTime()
+        : Number.POSITIVE_INFINITY;
+      const hoursSinceActivity =
+        p.lastLoginAt != null && Number.isFinite(msSinceActivity)
+          ? msSinceActivity / 3_600_000
+          : null;
+      const within3h =
+        p.lastLoginAt != null &&
+        Number.isFinite(msSinceActivity) &&
+        msSinceActivity <= THREE_HOURS_MS &&
+        msSinceActivity >= 0;
+
+      console.log(`[reminder-cron] Checking patient: ${label} (${p.id})`);
+
+      if (reminderTestBypass && isWebPushEndpoint(token)) {
+        console.log(`[reminder-cron] Patient ${label} has a valid Web Push endpoint: ${token}`);
       }
-      continue;
-    }
 
-    let momentumDelivered = false;
-    let sentSomething = false;
-    let standardDelivered = false;
+      const { data: sessions, error: shErr } = await supabase
+        .from("session_history")
+        .select("session_date, payload")
+        .eq("patient_id", p.id)
+        .eq("session_date", localYmd);
 
-    const inMomentumDayWindow =
-      localHour >= MOMENTUM_WINDOW_START_HOUR &&
-      localHour < MOMENTUM_WINDOW_END_HOUR;
-
-    console.log(
-      `[reminder-cron]   Momentum quiet-hours: local hour ${localHour} must be in [${MOMENTUM_WINDOW_START_HOUR}, ${MOMENTUM_WINDOW_END_HOUR}) → ${inMomentumDayWindow ? "eligible window" : "outside window (no momentum nudge)"}.`,
-    );
-    console.log(
-      `[reminder-cron]   Standard schedule: sends only when local hour === ${STANDARD_REMINDER_LOCAL_HOUR} (currently ${localHour}).`,
-    );
-
-    const momentumBlockedReasons: string[] = [];
-    if (hasWorkToday) momentumBlockedReasons.push("has_work_today");
-    if (!p.lastLoginAt) momentumBlockedReasons.push("missing_last_login_at");
-    if (p.lastLoginAt && !within3h) {
-      momentumBlockedReasons.push(
-        `last_login_older_than_3h (${Math.round(msSinceActivity / 60000)} min ago)`,
-      );
-    }
-    if (p.lastMomentumReminderLocalDate === localYmd) {
-      momentumBlockedReasons.push(`already_sent_momentum_today (${localYmd})`);
-    }
-    if (!inMomentumDayWindow) {
-      momentumBlockedReasons.push(
-        `outside_momentum_quiet_window (hour ${localHour}; need ${MOMENTUM_WINDOW_START_HOUR}≤H<${MOMENTUM_WINDOW_END_HOUR})`,
-      );
-    }
-
-    const momentumEligible =
-      !hasWorkToday &&
-      Boolean(p.lastLoginAt) &&
-      within3h &&
-      p.lastMomentumReminderLocalDate !== localYmd &&
-      inMomentumDayWindow;
-
-    if (verboseReminders && !hasWorkToday && !momentumEligible) {
-      console.log(
-        `[reminder-cron]   Momentum not sent; blocking factors: ${momentumBlockedReasons.join("; ") || "none listed"}`,
-      );
-    }
-
-    if (
-      !hasWorkToday &&
-      p.lastLoginAt &&
-      nowMs - new Date(p.lastLoginAt).getTime() <= THREE_HOURS_MS &&
-      p.lastMomentumReminderLocalDate !== localYmd &&
-      inMomentumDayWindow
-    ) {
-      console.log(
-        `[reminder-cron]   Branch: attempting momentum reminder (within 3h + quiet-hours window + daily lock OK).`,
-      );
-      const r = await sendPatientReminder(token, MOMENTUM_BODY, p.payload);
-      console.log(
-        `[reminder-cron]   Gateway response (momentum) for ${label}: ${r.ok ? "sent_ok" : r.detail ?? "failed"}${
-          r.statusCode ? ` [HTTP ${r.statusCode}]` : ""
-        }${r.stale ? " [STALE → clearing token]" : ""}`,
-      );
-      if (r.ok) {
-        await persistReminderLockInPayload(supabase, p, {
-          lastMomentumReminderLocalDate: localYmd,
-        });
-        momentumSent += 1;
-        momentumDelivered = true;
-        sentSomething = true;
-      } else {
-        errors.push(`${p.id}: momentum ${r.detail ?? "push failed"}`);
-        if (r.stale) {
-          await markPatientPushTokenStale(supabase, p.id, `momentum: ${r.detail ?? "stale"}`);
-        }
+      if (shErr) {
+        throw new Error(`session_history ${shErr.message}`);
       }
-    } else if (!hasWorkToday) {
-      console.log(
-        `[reminder-cron]   Branch: momentum skipped — falling through to standard eligibility check.`,
-      );
-    }
 
-    const standardBlockedReasons: string[] = [];
-    if (hasWorkToday) standardBlockedReasons.push("has_work_today");
-    if (sentSomething) standardBlockedReasons.push("momentum_already_sent_this_pass");
-    if (p.lastStandardReminderLocalDate === localYmd) {
-      standardBlockedReasons.push(`already_sent_standard_today (${localYmd})`);
-    }
-    if (localHour !== STANDARD_REMINDER_LOCAL_HOUR) {
-      standardBlockedReasons.push(
-        `standard_only_at_local_hour_${STANDARD_REMINDER_LOCAL_HOUR}_current_${localHour}`,
+      const hasWorkToday = (sessions ?? []).some((s: { payload: unknown }) =>
+        payloadHasWork(s.payload)
       );
-    }
 
-    const standardEligible =
-      !hasWorkToday &&
-      !sentSomething &&
-      localHour === STANDARD_REMINDER_LOCAL_HOUR &&
-      p.lastStandardReminderLocalDate !== localYmd;
+      console.log(`[reminder-cron]   Has work today? ${hasWorkToday}`);
 
-    if (verboseReminders && !standardEligible && !sentSomething && !hasWorkToday) {
-      console.log(
-        `[reminder-cron]   Standard not sent; blocking factors: ${standardBlockedReasons.join("; ") || "unknown"}`,
-      );
-    }
+      if (reminderTestBypass) {
+        console.log(
+          `[reminder-cron] Patient ${label}: Local hour is ${localHour}. test_now active — bypassing schedule & daily locks; session gate only.`,
+        );
+      } else {
+        console.log(
+          `[reminder-cron] Patient ${label}: Local hour is ${localHour}. Checking eligibility for Standard/Momentum...`,
+        );
+      }
 
-    if (
-      !hasWorkToday &&
-      !sentSomething &&
-      localHour === STANDARD_REMINDER_LOCAL_HOUR &&
-      p.lastStandardReminderLocalDate !== localYmd
-    ) {
       console.log(
-        `[reminder-cron]   Branch: attempting standard reminder (local hour ${STANDARD_REMINDER_LOCAL_HOUR}).`,
+        `[reminder-cron]   Momentum check: Last activity was ${
+          hoursSinceActivity === null ? "unknown (no timestamp)" : `${hoursSinceActivity.toFixed(2)}`
+        } hours ago. Is it within 3 hours? ${within3h}`,
       );
-      const r = await sendPatientReminder(token, STANDARD_BODY, p.payload);
       console.log(
-        `[reminder-cron]   Gateway response (standard) for ${label}: ${r.ok ? "sent_ok" : r.detail ?? "failed"}${
-          r.statusCode ? ` [HTTP ${r.statusCode}]` : ""
-        }${r.stale ? " [STALE → clearing token]" : ""}`,
+        `[reminder-cron]   Daily lock: momentum_date=${p.lastMomentumReminderLocalDate ?? "null"}, standard_date=${p.lastStandardReminderLocalDate ?? "null"}. Local day is ${localYmd}.`,
       );
-      if (r.ok) {
-        await persistReminderLockInPayload(supabase, p, {
-          lastStandardReminderLocalDate: localYmd,
-        });
-        standardSent += 1;
-        standardDelivered = true;
-        if (hoursSinceActivity !== null && hoursSinceActivity >= STALE_ACTIVITY_WARN_HOURS) {
-          console.warn(
-            `[reminder-cron]   Note: standard push reported sent_ok for ${label} (${p.id}) but last activity was ${hoursSinceActivity.toFixed(0)}h ago (>= ${STALE_ACTIVITY_WARN_HOURS}h) — device service worker may be OS-throttled/stale. It will self-heal when the patient next opens the app (auto re-subscribe).`,
+
+      if (reminderTestBypass) {
+        if (hasWorkToday) {
+          console.log(
+            `[reminder-cron]   Test bypass: skip send — patient already has qualifying session work today (${localYmd}).`,
           );
+          continue;
         }
-      } else {
-        errors.push(`${p.id}: standard ${r.detail ?? "push failed"}`);
-        if (r.stale) {
-          await markPatientPushTokenStale(supabase, p.id, `standard: ${r.detail ?? "stale"}`);
+        console.log(
+          `[reminder-cron]   Test bypass: sending TEST_NOW_BODY (ignoring schedule, 3h window, daily locks; not updating lock columns).`,
+        );
+        const r = await sendPatientReminder(token, TEST_NOW_BODY, p.payload);
+        console.log(
+          `[reminder-cron]   Test bypass send result: ${r.ok ? "sent_ok" : r.detail ?? "failed"}`,
+        );
+        if (r.ok) {
+          testBypassSent += 1;
+          sentSuccess += 1;
+        } else {
+          throw new Error(`test_bypass ${r.detail ?? "push failed"}`);
+        }
+        continue;
+      }
+
+      let momentumDelivered = false;
+      let sentSomething = false;
+      let standardDelivered = false;
+
+      const inMomentumDayWindow =
+        localHour >= MOMENTUM_WINDOW_START_HOUR &&
+        localHour < MOMENTUM_WINDOW_END_HOUR;
+
+      console.log(
+        `[reminder-cron]   Momentum quiet-hours: local hour ${localHour} must be in [${MOMENTUM_WINDOW_START_HOUR}, ${MOMENTUM_WINDOW_END_HOUR}) → ${inMomentumDayWindow ? "eligible window" : "outside window (no momentum nudge)"}.`,
+      );
+      console.log(
+        `[reminder-cron]   Standard schedule: sends only when local hour === ${STANDARD_REMINDER_LOCAL_HOUR} (currently ${localHour}).`,
+      );
+
+      const momentumBlockedReasons: string[] = [];
+      if (hasWorkToday) momentumBlockedReasons.push("has_work_today");
+      if (!p.lastLoginAt) momentumBlockedReasons.push("missing_last_login_at");
+      if (p.lastLoginAt && !within3h) {
+        momentumBlockedReasons.push(
+          `last_login_older_than_3h (${Math.round(msSinceActivity / 60000)} min ago)`,
+        );
+      }
+      if (p.lastMomentumReminderLocalDate === localYmd) {
+        momentumBlockedReasons.push(`already_sent_momentum_today (${localYmd})`);
+      }
+      if (!inMomentumDayWindow) {
+        momentumBlockedReasons.push(
+          `outside_momentum_quiet_window (hour ${localHour}; need ${MOMENTUM_WINDOW_START_HOUR}≤H<${MOMENTUM_WINDOW_END_HOUR})`,
+        );
+      }
+
+      const momentumEligible =
+        !hasWorkToday &&
+        Boolean(p.lastLoginAt) &&
+        within3h &&
+        p.lastMomentumReminderLocalDate !== localYmd &&
+        inMomentumDayWindow;
+
+      if (verboseReminders && !hasWorkToday && !momentumEligible) {
+        console.log(
+          `[reminder-cron]   Momentum not sent; blocking factors: ${momentumBlockedReasons.join("; ") || "none listed"}`,
+        );
+      }
+
+      if (
+        !hasWorkToday &&
+        p.lastLoginAt &&
+        nowMs - new Date(p.lastLoginAt).getTime() <= THREE_HOURS_MS &&
+        p.lastMomentumReminderLocalDate !== localYmd &&
+        inMomentumDayWindow
+      ) {
+        console.log(
+          `[reminder-cron]   Branch: attempting momentum reminder (within 3h + quiet-hours window + daily lock OK).`,
+        );
+        const r = await sendPatientReminder(token, MOMENTUM_BODY, p.payload);
+        console.log(
+          `[reminder-cron]   Gateway response (momentum) for ${label}: ${r.ok ? "sent_ok" : r.detail ?? "failed"}${
+            r.statusCode ? ` [HTTP ${r.statusCode}]` : ""
+          }${r.stale ? " [STALE → clearing token]" : ""}`,
+        );
+        if (r.ok) {
+          await persistReminderLockInPayload(supabase, p, {
+            lastMomentumReminderLocalDate: localYmd,
+          });
+          momentumSent += 1;
+          momentumDelivered = true;
+          sentSomething = true;
+          sentSuccess += 1;
+        } else {
+          if (r.stale) {
+            await markPatientPushTokenStale(supabase, p.id, `momentum: ${r.detail ?? "stale"}`);
+          }
+          throw new Error(`momentum ${r.detail ?? "push failed"}`);
+        }
+      } else if (!hasWorkToday) {
+        console.log(
+          `[reminder-cron]   Branch: momentum skipped — falling through to standard eligibility check.`,
+        );
+      }
+
+      const standardBlockedReasons: string[] = [];
+      if (hasWorkToday) standardBlockedReasons.push("has_work_today");
+      if (sentSomething) standardBlockedReasons.push("momentum_already_sent_this_pass");
+      if (p.lastStandardReminderLocalDate === localYmd) {
+        standardBlockedReasons.push(`already_sent_standard_today (${localYmd})`);
+      }
+      if (localHour !== STANDARD_REMINDER_LOCAL_HOUR) {
+        standardBlockedReasons.push(
+          `standard_only_at_local_hour_${STANDARD_REMINDER_LOCAL_HOUR}_current_${localHour}`,
+        );
+      }
+
+      const standardEligible =
+        !hasWorkToday &&
+        !sentSomething &&
+        localHour === STANDARD_REMINDER_LOCAL_HOUR &&
+        p.lastStandardReminderLocalDate !== localYmd;
+
+      if (verboseReminders && !standardEligible && !sentSomething && !hasWorkToday) {
+        console.log(
+          `[reminder-cron]   Standard not sent; blocking factors: ${standardBlockedReasons.join("; ") || "unknown"}`,
+        );
+      }
+
+      if (
+        !hasWorkToday &&
+        !sentSomething &&
+        localHour === STANDARD_REMINDER_LOCAL_HOUR &&
+        p.lastStandardReminderLocalDate !== localYmd
+      ) {
+        console.log(
+          `[reminder-cron]   Branch: attempting standard reminder (local hour ${STANDARD_REMINDER_LOCAL_HOUR}).`,
+        );
+        const r = await sendPatientReminder(token, STANDARD_BODY, p.payload);
+        console.log(
+          `[reminder-cron]   Gateway response (standard) for ${label}: ${r.ok ? "sent_ok" : r.detail ?? "failed"}${
+            r.statusCode ? ` [HTTP ${r.statusCode}]` : ""
+          }${r.stale ? " [STALE → clearing token]" : ""}`,
+        );
+        if (r.ok) {
+          await persistReminderLockInPayload(supabase, p, {
+            lastStandardReminderLocalDate: localYmd,
+          });
+          standardSent += 1;
+          standardDelivered = true;
+          sentSuccess += 1;
+          if (hoursSinceActivity !== null && hoursSinceActivity >= STALE_ACTIVITY_WARN_HOURS) {
+            console.warn(
+              `[reminder-cron]   Note: standard push reported sent_ok for ${label} (${p.id}) but last activity was ${hoursSinceActivity.toFixed(0)}h ago (>= ${STALE_ACTIVITY_WARN_HOURS}h) — device service worker may be OS-throttled/stale. It will self-heal when the patient next opens the app (auto re-subscribe).`,
+            );
+          }
+        } else {
+          if (r.stale) {
+            await markPatientPushTokenStale(supabase, p.id, `standard: ${r.detail ?? "stale"}`);
+          }
+          throw new Error(`standard ${r.detail ?? "push failed"}`);
         }
       }
-    }
 
-    if (
-      verboseReminders &&
-      !hasWorkToday &&
-      !momentumDelivered &&
-      !standardDelivered
-    ) {
-      console.log(
-        `[reminder-cron]   Outcome: no push delivered this iteration (see momentum/standard logs above).`,
-      );
+      if (
+        verboseReminders &&
+        !hasWorkToday &&
+        !momentumDelivered &&
+        !standardDelivered
+      ) {
+        console.log(
+          `[reminder-cron]   Outcome: no push delivered this iteration (see momentum/standard logs above).`,
+        );
+      }
+    } catch (patientError: unknown) {
+      sentFailed += 1;
+      const errorMessage =
+        patientError instanceof Error
+          ? patientError.message || String(patientError)
+          : String(patientError);
+      failedDetails.push({
+        id: p.id,
+        name: label || "Unknown",
+        error: errorMessage,
+      });
+      errors.push(`${p.id}: ${errorMessage}`);
+      console.error(`[reminder-cron] ⚠️ Failed for patient ${p.id}:`, patientError);
+      continue;
     }
   }
 
-  return { momentumSent, standardSent, skipped, errors, testBypassSent };
+  console.info("==================================================");
+  console.info(`[reminder-cron] 📊 CRON EXECUTION SUMMARY REPORT`);
+  console.info(`Total Patients Scanned : ${totalScanned}`);
+  console.info(`✅ Successfully Sent   : ${sentSuccess}`);
+  console.info(`❌ Failed to Send      : ${sentFailed}`);
+  if (failedDetails.length > 0) {
+    console.info("--- Failure Details ---");
+    failedDetails.forEach((fail) => {
+      console.info(`• Patient ID: ${fail.id} (${fail.name}) -> Error: ${fail.error}`);
+    });
+  }
+  console.info("==================================================");
+
+  return {
+    momentumSent,
+    standardSent,
+    skipped,
+    errors,
+    testBypassSent,
+    totalScanned,
+    sentSuccess,
+    sentFailed,
+    failedDetails,
+  };
 }
 
 Deno.serve(async (req) => {
@@ -630,9 +681,14 @@ Deno.serve(async (req) => {
       momentumSent: dispatch.momentumSent,
       standardSent: dispatch.standardSent,
       skippedPatientsWithoutDeliverableToken: dispatch.skipped,
+      totalScanned: dispatch.totalScanned,
+      sentSuccess: dispatch.sentSuccess,
+      sentFailed: dispatch.sentFailed,
+      failedDetails: dispatch.failedDetails,
       errors: dispatch.errors.slice(0, 20),
     });
   } catch (error: unknown) {
+    // Global/setup failures only — per-patient errors are isolated inside runReminderDispatch.
     // Never return stack traces or internal error details to callers.
     console.error(
       "[reminder-cron] Unhandled error:",
