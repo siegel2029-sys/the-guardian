@@ -1,6 +1,7 @@
+/// <reference types="vitest/config" />
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defineConfig, type PluginOption } from 'vitest/config'
+import { defineConfig, type PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -8,11 +9,10 @@ import tailwindcss from '@tailwindcss/vite'
 const projectRoot = path.dirname(fileURLToPath(import.meta.url))
 
 /**
- * Vitest nests its own Vite type package; @vitejs/plugin-react / @tailwindcss/vite
- * resolve against top-level Vite (rolldown). Cast bridges Plugin metadata mismatch
- * so `tsc -b` (tsconfig.node → vite.config.ts) stays green (TS2769).
+ * Plugins resolve against top-level Vite. Cast keeps `tsc -b` green if plugin
+ * packages briefly disagree on Plugin metadata shapes.
  */
-const appPlugins = [react(), tailwindcss()] as unknown as PluginOption[]
+const appPlugins = [react(), tailwindcss()] as PluginOption[]
 
 export default defineConfig(({ command }) => ({
   root: projectRoot,
