@@ -7,10 +7,17 @@ import tailwindcss from '@tailwindcss/vite'
 /** תיקיית .env — תמיד ליד package.json (לא תחת src/) */
 const projectRoot = path.dirname(fileURLToPath(import.meta.url))
 
+/**
+ * Vitest nests its own Vite type package; @vitejs/plugin-react / @tailwindcss/vite
+ * resolve against top-level Vite (rolldown). `as any` bridges the Plugin metadata
+ * mismatch so `tsc -b` (tsconfig.node → vite.config.ts) stays green (TS2769).
+ */
+const appPlugins = [react(), tailwindcss()] as any
+
 export default defineConfig(({ command }) => ({
   root: projectRoot,
   envDir: projectRoot,
-  plugins: [react(), tailwindcss()],
+  plugins: appPlugins,
   test: {
     environment: 'node',
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
