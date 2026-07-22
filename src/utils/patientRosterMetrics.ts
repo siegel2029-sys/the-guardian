@@ -1,4 +1,4 @@
-import type { AiSuggestion, Patient } from '../types';
+import type { AiSuggestion, Patient, PatientStatus } from '../types';
 import { filterTherapistPendingAiSuggestions } from './clinicalAiQueueMerge';
 
 /** Placeholder copy shown in the demographics free-text field when empty. */
@@ -18,6 +18,36 @@ export function patientHasCompletedIntake(p: Patient): boolean {
   if (p.intakeStatus === 'pending') return false;
   if (p.intakeStatus === 'complete') return true;
   return p.initialIntakeArchive != null;
+}
+
+/**
+ * Portal account exists (credentials issued and/or patient has opened the portal).
+ * Intake completeness is intentionally unrelated.
+ */
+export function patientHasPortalAccess(
+  p: Pick<Patient, 'portalUsername' | 'lastLoginAt'>
+): boolean {
+  return Boolean((p.portalUsername ?? '').trim() || (p.lastLoginAt ?? '').trim());
+}
+
+/**
+ * Roster/clinical status for display and filters.
+ * Pending patients with portal access are treated as active — incomplete intake
+ * must not downgrade them to "ממתין".
+ */
+export function resolvePatientRosterStatus(
+  p: Pick<Patient, 'status' | 'accountFrozen' | 'portalUsername' | 'lastLoginAt'>
+): PatientStatus {
+  if (p.accountFrozen === true) return 'frozen';
+  if (p.status === 'paused' || p.status === 'frozen') return p.status;
+  if (p.status === 'pending' && patientHasPortalAccess(p)) return 'active';
+  return p.status;
+}
+
+/** Persistable promote: pending → active once a portal account exists. */
+export function promotePendingPatientIfPortalAccess<T extends Patient>(p: T): T {
+  if (p.status !== 'pending' || !patientHasPortalAccess(p)) return p;
+  return { ...p, status: 'active' };
 }
 
 export type PatientDataUpdateGap = 'demographics' | 'intake';
@@ -62,9 +92,11 @@ export function patientIsFrozenStatus(
   return p.status === 'paused' || p.status === 'frozen';
 }
 
-/** Active roster — clinical `active` status and portal not frozen by therapist. */
-export function patientIsActive(p: Pick<Patient, 'status' | 'accountFrozen'>): boolean {
-  return p.status === 'active' && !patientIsFrozenStatus(p);
+/** Active roster — effective clinical status and portal not frozen by therapist. */
+export function patientIsActive(
+  p: Pick<Patient, 'status' | 'accountFrozen' | 'portalUsername' | 'lastLoginAt'>
+): boolean {
+  return resolvePatientRosterStatus(p) === 'active' && !patientIsFrozenStatus(p);
 }
 
 export type RosterClinicalStats = {

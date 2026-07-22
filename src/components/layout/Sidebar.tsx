@@ -26,7 +26,7 @@ import type { NavSection } from '../../types';
 import SidebarNewPatient from './SidebarNewPatient';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { isProlongedAbsenceSafetyAlert } from '../../ai/proactiveAbsenceAlerts';
-import { getPatientDataUpdateGaps } from '../../utils/patientRosterMetrics';
+import { getPatientDataUpdateGaps, resolvePatientRosterStatus } from '../../utils/patientRosterMetrics';
 import { filterTherapistPendingAiSuggestions } from '../../utils/clinicalAiQueueMerge';
 
 const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -195,10 +195,13 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span
                       className="w-1.5 h-1.5 rounded-full shrink-0"
-                      style={{ background: statusColors[selectedPatient.status] }}
+                      style={{
+                        background:
+                          statusColors[resolvePatientRosterStatus(selectedPatient)],
+                      }}
                     />
                     <span className="text-[10px] font-bold text-slate-600">
-                      {statusLabels[selectedPatient.status]}
+                      {statusLabels[resolvePatientRosterStatus(selectedPatient)]}
                     </span>
                   </div>
                 )}
@@ -266,10 +269,12 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span
                             className="w-1.5 h-1.5 rounded-full shrink-0"
-                            style={{ background: statusColors[patient.status] }}
+                            style={{
+                              background: statusColors[resolvePatientRosterStatus(patient)],
+                            }}
                           />
                           <span className="text-[10px] font-bold text-slate-600">
-                            {statusLabels[patient.status]}
+                            {statusLabels[resolvePatientRosterStatus(patient)]}
                           </span>
                           {isPortalUnlinked && (
                             <span className="text-[9px] font-bold text-amber-700 bg-amber-100 rounded px-1 leading-tight">

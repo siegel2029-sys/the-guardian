@@ -7,7 +7,13 @@ import {
   isClinicalIntakeTextFieldAnswered,
 } from '../../../utils/clinicalIntakeFieldAnswers';
 import { stripLibraryExerciseIdsFromClinicalText } from '../../../utils/clinicalIntakeClinicalText';
+import {
+  getClinicalIntakeProfileValidation,
+  isClinicalIntakeTabMissing,
+} from '../../../utils/clinicalIntakeProfileValidation';
 import { parseRomRow, parseStrengthRows } from './intakeReviewUtils';
+import { MissingInfoBadge } from './MissingFieldHint';
+import { DATA_UPDATE_FIELD_HIGHLIGHT } from './patientDataUpdateHighlight';
 
 const TAB_IDS: ClinicalIntakeProfileSlotId[] = [
   'medical_history',
@@ -67,11 +73,22 @@ function formatRomDisplayLine(raw: string): string {
 
 type Props = {
   profile: PatientClinicalIntakeProfile | undefined;
+  /** Therapist view — purple highlight for empty / incomplete tabs */
+  highlightMissing?: boolean;
   className?: string;
 };
 
-export default function StructuredClinicalIntakeMetricsBar({ profile, className = '' }: Props) {
+export default function StructuredClinicalIntakeMetricsBar({
+  profile,
+  highlightMissing = false,
+  className = '',
+}: Props) {
   const [activeTab, setActiveTab] = useState<ClinicalIntakeProfileSlotId>('medical_history');
+
+  const validation = useMemo(
+    () => getClinicalIntakeProfileValidation(profile),
+    [profile]
+  );
 
   const tabContent = useMemo(() => {
     const p = profile ?? {};
@@ -101,6 +118,22 @@ export default function StructuredClinicalIntakeMetricsBar({ profile, className 
     };
   }, [profile]);
 
+  const activeTabMissing =
+    highlightMissing && isClinicalIntakeTabMissing(validation, activeTab);
+
+  const emptyPanelClass = activeTabMissing
+    ? `rounded-lg border ${DATA_UPDATE_FIELD_HIGHLIGHT} p-2`
+    : '';
+
+  const renderEmpty = (text: string) => (
+    <div className={emptyPanelClass}>
+      <p className="text-sm text-purple-800 italic flex flex-wrap items-center gap-1">
+        {text}
+        <MissingInfoBadge show={activeTabMissing} className="ms-0" />
+      </p>
+    </div>
+  );
+
   const renderPanel = () => {
     switch (activeTab) {
       case 'medical_history':
@@ -111,7 +144,7 @@ export default function StructuredClinicalIntakeMetricsBar({ profile, className 
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-slate-400 italic">{tabContent.medical_history.empty}</p>
+          renderEmpty(tabContent.medical_history.empty)
         );
 
       case 'ranges':
@@ -127,7 +160,7 @@ export default function StructuredClinicalIntakeMetricsBar({ profile, className 
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-slate-400 italic">{tabContent.ranges.empty}</p>
+          renderEmpty(tabContent.ranges.empty)
         );
 
       case 'strength':
@@ -143,7 +176,7 @@ export default function StructuredClinicalIntakeMetricsBar({ profile, className 
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-slate-400 italic">{tabContent.strength.empty}</p>
+          renderEmpty(tabContent.strength.empty)
         );
 
       case 'goals':
@@ -154,7 +187,7 @@ export default function StructuredClinicalIntakeMetricsBar({ profile, className 
             ))}
           </ol>
         ) : (
-          <p className="text-sm text-slate-400 italic">{tabContent.goals.empty}</p>
+          renderEmpty(tabContent.goals.empty)
         );
 
       default:
@@ -172,6 +205,7 @@ export default function StructuredClinicalIntakeMetricsBar({ profile, className 
         {TAB_IDS.map((tabId) => {
           const Icon = TAB_ICONS[tabId];
           const active = activeTab === tabId;
+          const tabMissing = highlightMissing && isClinicalIntakeTabMissing(validation, tabId);
           return (
             <button
               key={tabId}
@@ -179,12 +213,19 @@ export default function StructuredClinicalIntakeMetricsBar({ profile, className 
               onClick={() => setActiveTab(tabId)}
               className={`relative flex-1 min-w-[72px] flex flex-col items-center gap-0.5 py-2.5 px-1 text-[11px] font-semibold transition-colors ${
                 active
-                  ? 'text-teal-800 bg-teal-50 border-b-2 border-teal-600 -mb-px'
-                  : 'text-slate-700 hover:bg-slate-50'
+                  ? tabMissing
+                    ? 'text-purple-950 bg-purple-100 border-b-2 border-purple-600 -mb-px'
+                    : 'text-teal-800 bg-teal-50 border-b-2 border-teal-600 -mb-px'
+                  : tabMissing
+                    ? 'text-purple-900 bg-purple-50/90 border-b-2 border-transparent hover:bg-purple-50'
+                    : 'text-slate-700 hover:bg-slate-50'
               }`}
             >
               <Icon className="w-4 h-4" aria-hidden />
               <span>{TAB_SHORT[tabId]}</span>
+              {tabMissing && (
+                <span className="absolute top-1 left-1 w-2 h-2 rounded-full bg-purple-600" aria-hidden />
+              )}
             </button>
           );
         })}

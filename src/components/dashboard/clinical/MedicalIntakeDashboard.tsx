@@ -14,6 +14,8 @@ import {
 import type { PatientClinicalIntakeProfile } from '../../../types';
 import StructuredClinicalIntakeMetricsBar from './StructuredClinicalIntakeMetricsBar';
 import StructuredClinicalIntakeTabs from './StructuredClinicalIntakeTabs';
+import MissingFieldHint, { MissingInfoBadge } from './MissingFieldHint';
+import { DATA_UPDATE_FIELD_HIGHLIGHT, DATA_UPDATE_FIELD_NEUTRAL } from './patientDataUpdateHighlight';
 
 export type AiSegmentKey =
   | 'differentialDiagnosis'
@@ -360,6 +362,9 @@ export function MedicalIntakeSectionedReport({
     },
   };
 
+  const diagnosisMissing = !clinicalDiagnosis.trim();
+  const storyMissing = !caseStory.trim();
+
   return (
     <div className={`space-y-6 ${className}`} dir="rtl">
       <ReportSection
@@ -368,8 +373,17 @@ export function MedicalIntakeSectionedReport({
         subtitle="אבחון ראשוני ומדד כאב"
       >
         <div className="space-y-4">
-          <div>
-            <p className="text-sm font-bold text-slate-900 mb-2">אבחון / רושם קליני</p>
+          <div
+            className={
+              diagnosisMissing
+                ? `rounded-lg border ${DATA_UPDATE_FIELD_HIGHLIGHT} p-2`
+                : ''
+            }
+          >
+            <p className="text-sm font-bold text-slate-900 mb-2 flex flex-wrap items-center">
+              אבחון / רושם קליני
+              <MissingInfoBadge show={diagnosisMissing} />
+            </p>
             {readOnly ? (
               <p className="text-sm font-semibold text-slate-800 leading-relaxed">
                 {clinicalDiagnosis.trim() || '—'}
@@ -380,10 +394,13 @@ export function MedicalIntakeSectionedReport({
                 type="text"
                 value={clinicalDiagnosis}
                 onChange={(e) => onClinicalDiagnosisChange(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-400/25"
+                className={`w-full rounded-lg border px-3 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500/25 ${
+                  diagnosisMissing ? DATA_UPDATE_FIELD_HIGHLIGHT : DATA_UPDATE_FIELD_NEUTRAL
+                }`}
                 placeholder="רושם קליני / אבחנה עיקרית"
               />
             )}
+            <MissingFieldHint show={diagnosisMissing} message="* חסר מידע" />
           </div>
           {readOnly ? (
             <VasScoreReadOnly value={vasScore} />
@@ -398,20 +415,37 @@ export function MedicalIntakeSectionedReport({
         icon={FileText}
         subtitle="סובייקטיבי — תלונה, מנגנון פציעה, מצב נוכחי"
       >
-        {readOnly ? (
-          <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap min-h-[6rem]">
-            {caseStory.trim() || '—'}
-          </p>
-        ) : (
-          <textarea
-            id="medical-intake-case-story"
-            value={caseStory}
-            onChange={(e) => onCaseStoryChange(e.target.value)}
-            rows={compact ? 6 : 8}
-            className="w-full rounded-lg border border-slate-200 bg-slate-50/30 px-4 py-3 text-sm text-slate-800 leading-relaxed resize-y min-h-[9rem] focus:outline-none focus:ring-2 focus:ring-teal-400/30 focus:bg-white"
-            placeholder="תלונת המטופל, מנגנון הפציעה, התנהגות הכאב, הגבלה תפקודית…"
-          />
-        )}
+        <div
+          className={
+            storyMissing ? `rounded-lg border ${DATA_UPDATE_FIELD_HIGHLIGHT} p-2` : ''
+          }
+        >
+          {storyMissing && (
+            <p className="text-sm font-bold text-slate-900 mb-2 flex flex-wrap items-center">
+              סיפור המקרה
+              <MissingInfoBadge show />
+            </p>
+          )}
+          {readOnly ? (
+            <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap min-h-[6rem]">
+              {caseStory.trim() || '—'}
+            </p>
+          ) : (
+            <textarea
+              id="medical-intake-case-story"
+              value={caseStory}
+              onChange={(e) => onCaseStoryChange(e.target.value)}
+              rows={compact ? 6 : 8}
+              className={`w-full rounded-lg border px-4 py-3 text-sm text-slate-800 leading-relaxed resize-y min-h-[9rem] focus:outline-none focus:ring-2 focus:ring-purple-500/30 ${
+                storyMissing
+                  ? `${DATA_UPDATE_FIELD_HIGHLIGHT}`
+                  : `${DATA_UPDATE_FIELD_NEUTRAL} bg-slate-50/30 focus:bg-white`
+              }`}
+              placeholder="תלונת המטופל, מנגנון הפציעה, התנהגות הכאב, הגבלה תפקודית…"
+            />
+          )}
+          <MissingFieldHint show={storyMissing} message="* חסר מידע" />
+        </div>
       </ReportSection>
 
       <ReportSection
@@ -420,9 +454,17 @@ export function MedicalIntakeSectionedReport({
         subtitle="ROM, כוח שרירים, בדיקות מיוחדות — נפרד מהסיפור"
       >
         {objectiveEditable && profile && onProfileChange ? (
-          <StructuredClinicalIntakeTabs profile={profile} onProfileChange={onProfileChange} />
+          <StructuredClinicalIntakeTabs
+            profile={profile}
+            onProfileChange={onProfileChange}
+            validationHighlight
+          />
         ) : (
-          <StructuredClinicalIntakeMetricsBar profile={profile} className="border-0 shadow-none bg-transparent" />
+          <StructuredClinicalIntakeMetricsBar
+            profile={profile}
+            highlightMissing
+            className="border-0 shadow-none bg-transparent"
+          />
         )}
       </ReportSection>
 

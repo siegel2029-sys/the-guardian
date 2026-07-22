@@ -73,6 +73,7 @@ import {
   lifetimeXpFromPatient,
 } from '../body/patientLevelXp';
 import { computeStreakForPatient } from '../utils/exerciseStreak';
+import { promotePendingPatientIfPortalAccess } from '../utils/patientRosterMetrics';
 import { type GearEquipSlot } from '../config/gearCatalog';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
@@ -703,7 +704,7 @@ function normalizePatientsTherapistIds(
   const fallback = options?.fallbackTherapistId ?? '';
   return list.map((p) => {
     const wa = (p.contactWhatsappE164 ?? '').replace(/\D/g, '');
-    return normalizePatientProgressFields({
+    const withTherapist = normalizePatientProgressFields({
       ...p,
       therapistId: p.therapistId ?? fallback,
       injuryHighlightSegments: Array.isArray(p.injuryHighlightSegments)
@@ -715,6 +716,8 @@ function normalizePatientsTherapistIds(
       contactWhatsappE164: wa.length >= 9 ? wa : undefined,
       redFlagActive: p.redFlagActive === true,
     });
+    // Portal account ⇒ active; never keep "pending" solely for incomplete intake.
+    return promotePendingPatientIfPortalAccess(withTherapist);
   });
 }
 

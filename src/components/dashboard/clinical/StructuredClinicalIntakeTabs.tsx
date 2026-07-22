@@ -13,7 +13,7 @@ import {
   type ClinicalIntakeProfileValidation,
 } from '../../../utils/clinicalIntakeProfileValidation';
 import { intakeValidationFieldClass } from './patientDataUpdateHighlight';
-import MissingFieldHint, { INTAKE_ACTIVATION_MISSING_HINT } from './MissingFieldHint';
+import MissingFieldHint, { INTAKE_ACTIVATION_MISSING_HINT, MissingInfoBadge } from './MissingFieldHint';
 import {
   emptyClinicalProfile,
   formatRomRow,
@@ -204,6 +204,11 @@ export default function StructuredClinicalIntakeTabs({
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                 מחלות רקע
+                <MissingInfoBadge
+                  show={
+                    highlight && isClinicalIntakeFieldMissing(validation, 'backgroundDiseases')
+                  }
+                />
               </label>
               <textarea
                 value={draft.medical_history?.backgroundDiseases ?? ''}
@@ -228,6 +233,11 @@ export default function StructuredClinicalIntakeTabs({
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                 תרופות קבועות
+                <MissingInfoBadge
+                  show={
+                    highlight && isClinicalIntakeFieldMissing(validation, 'chronicMedications')
+                  }
+                />
               </label>
               <textarea
                 value={draft.medical_history?.chronicMedications ?? ''}
@@ -263,12 +273,16 @@ export default function StructuredClinicalIntakeTabs({
           <div
             className={
               highlight && rangesMissing
-                ? 'rounded-lg border-2 border-purple-600 bg-purple-50/50 p-2 -mx-0.5'
+                ? 'rounded-lg border border-purple-400 bg-purple-50/50 p-2 -mx-0.5'
                 : highlight && !rangesMissing
                   ? 'rounded-lg border border-emerald-400/80 bg-emerald-50/30 p-2 -mx-0.5'
                   : ''
             }
           >
+            <p className="text-[11px] font-semibold text-slate-600 mb-2 flex flex-wrap items-center">
+              טווחי תנועה (ROM)
+              <MissingInfoBadge show={highlight && rangesMissing} />
+            </p>
             <div className="overflow-x-auto -mx-1">
               <table className="w-full min-w-[420px] text-sm border-collapse">
                 <thead>
@@ -363,12 +377,16 @@ export default function StructuredClinicalIntakeTabs({
           <div
             className={
               highlight && strengthMissing
-                ? 'rounded-lg border-2 border-purple-600 bg-purple-50/50 p-2 -mx-0.5'
+                ? 'rounded-lg border border-purple-400 bg-purple-50/50 p-2 -mx-0.5'
                 : highlight && !strengthMissing
                   ? 'rounded-lg border border-emerald-400/80 bg-emerald-50/30 p-2 -mx-0.5'
                   : ''
             }
           >
+            <p className="text-[11px] font-semibold text-slate-600 mb-2 flex flex-wrap items-center">
+              כוח שרירים
+              <MissingInfoBadge show={highlight && strengthMissing} />
+            </p>
             <div className="overflow-x-auto -mx-1">
               <table className="w-full min-w-[360px] text-sm border-collapse">
                 <thead>
@@ -457,12 +475,16 @@ export default function StructuredClinicalIntakeTabs({
           <div
             className={
               highlight && goalsMissing
-                ? 'rounded-lg border-2 border-purple-600 bg-purple-50/50 p-2 -mx-0.5'
+                ? 'rounded-lg border border-purple-400 bg-purple-50/50 p-2 -mx-0.5'
                 : highlight && !goalsMissing
                   ? 'rounded-lg border border-emerald-400/80 bg-emerald-50/30 p-2 -mx-0.5'
                   : ''
             }
           >
+            <p className="text-[11px] font-semibold text-slate-600 mb-2 flex flex-wrap items-center">
+              מטרות שיקום
+              <MissingInfoBadge show={highlight && goalsMissing} />
+            </p>
             <ul className="space-y-2">
               {rows.map((goal, i) => (
                 <li key={goalRowIds[i] ?? `goal-fallback-${i}`} className="flex gap-2 items-start">

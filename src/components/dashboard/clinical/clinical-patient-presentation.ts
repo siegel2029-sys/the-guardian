@@ -1,4 +1,5 @@
 import type { Patient } from '../../../types';
+import { resolvePatientRosterStatus } from '../../../utils/patientRosterMetrics';
 
 export type AvatarPresentationState = {
   labelHe: string;
@@ -10,7 +11,8 @@ export type AvatarPresentationState = {
 
 /** מצב תצוגה ויזואלי (אווטאר) — נגזר מסטטוס, דגל אדום וכאב אחרון */
 export function getPatientAvatarPresentation(p: Patient): AvatarPresentationState {
-  if (p.status === 'paused' || p.status === 'frozen') {
+  const status = resolvePatientRosterStatus(p);
+  if (status === 'paused' || status === 'frozen') {
     return {
       labelHe: 'מוקפא',
       subtitleHe: 'התוכנית אינה פעילה כרגע',
@@ -19,7 +21,7 @@ export function getPatientAvatarPresentation(p: Patient): AvatarPresentationStat
       badgeText: '#5b21b6',
     };
   }
-  if (p.status === 'pending') {
+  if (status === 'pending') {
     return {
       labelHe: 'ממתין להתחלה',
       subtitleHe: 'נדרשת הקצאת תוכנית / פרופיל קליני',

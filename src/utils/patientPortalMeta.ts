@@ -1,7 +1,7 @@
 import type { BodyArea, Patient } from '../types';
 import { bodyAreaLabels, getMuscleGroupLabel } from '../types';
 import { addClinicalDays, getClinicalDate } from './clinicalCalendar';
-import { patientHasCompletedIntake } from './patientRosterMetrics';
+import { resolvePatientRosterStatus } from './patientRosterMetrics';
 
 export type PatientLastVisitLabel = {
   text: string;
@@ -180,7 +180,8 @@ export function getPatientPushRegistrationStatus(p: Patient): PatientPushRegistr
   return { registered, keysVerified: registered && keysVerified };
 }
 
-/** Status pill on roster cards — omit default "active"; show restrictions only. */
+/** Status pill on roster cards — omit default "active"; show restrictions only.
+ * Incomplete intake is NOT a roster status — it is surfaced in the intake UI. */
 export function patientRosterStatusBadge(
   p: Patient
 ): { label: string; className: string } | null {
@@ -190,19 +191,14 @@ export function patientRosterStatusBadge(
       className: 'bg-sky-50 text-sky-900 border-sky-200',
     };
   }
-  if (p.status === 'paused' || p.status === 'frozen') {
+  const status = resolvePatientRosterStatus(p);
+  if (status === 'paused' || status === 'frozen') {
     return {
       label: 'מוקפא',
       className: 'bg-violet-50 text-violet-900 border-violet-200',
     };
   }
-  if (!patientHasCompletedIntake(p)) {
-    return {
-      label: 'יש צורך בהשלמת אינטייק',
-      className: 'bg-amber-50 text-amber-900 border-amber-400 font-bold',
-    };
-  }
-  if (p.status === 'pending') {
+  if (status === 'pending') {
     return {
       label: 'ממתין',
       className: 'bg-amber-50 text-amber-900 border-amber-200',

@@ -1305,7 +1305,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         age: 30,
         diagnosis: 'חדש — עדכנו אבחון ואזור גוף',
         primaryBodyArea: 'back_lower',
-        status: 'pending',
+        // Account/credentials exist at create time — status is active regardless of intake.
+        status: 'active',
         level: 1,
         xp: 0,
         xpForNextLevel: xpRequiredToReachNextLevel(1),

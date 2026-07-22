@@ -258,7 +258,7 @@ export default function PatientOverview() {
   const exerciseCount = plan?.exercises.length ?? 0;
   const portalUsernameDisplay =
     p.portalUsername ?? getPatientCredentialsByPatientId(p.id)?.loginId ?? null;
-  const needsClinicalSetup = p.status === 'pending' || exerciseCount === 0;
+  const needsClinicalSetup = exerciseCount === 0;
   const intakeIncomplete = !patientHasCompletedIntake(p);
   const showIntakeAction = needsClinicalSetup || intakeIncomplete;
   const dataUpdateGaps = getPatientDataUpdateGaps(p);
