@@ -15,6 +15,8 @@ import {
   usePatientExerciseContext,
   usePatientGamificationContext,
   usePatientSyncContext,
+  usePatientClinicalContext,
+  usePatientAiQueueContext,
 } from './patientDomainContexts';
 
 /** Roster + selection + navigation — therapist dashboard shell and patient pickers. */
@@ -37,12 +39,20 @@ export function usePatientGamification() {
   return usePatientGamificationContext();
 }
 
-/** Cloud sync status — for save indicators and error surfaces. */
+/**
+ * Cloud sync status + persistence helpers — save indicators and cloud write paths
+ * without the god `usePatient()` hook.
+ */
 export function usePatientCloudSync() {
-  const ctx = usePatientSyncContext();
-  return {
-    supabaseSyncStatus: ctx.supabaseSyncStatus,
-    supabaseSyncError: ctx.supabaseSyncError,
-    supabaseLastSavedAt: ctx.supabaseLastSavedAt,
-  };
+  return usePatientSyncContext();
+}
+
+/** Clinical mutations — red flags, notes, body-map / pain fields, patient profile writes. */
+export function usePatientClinical() {
+  return usePatientClinicalContext();
+}
+
+/** AI suggestion queue + Guardian reps-increase requests (therapist / portal). */
+export function usePatientAiQueue() {
+  return usePatientAiQueueContext();
 }

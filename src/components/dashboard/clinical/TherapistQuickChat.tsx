@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Send, MessageCircle } from 'lucide-react';
-import { usePatient } from '../../../context/PatientContext';
+import { usePatientChat } from '../../../context/patientDomainHooks';
 import { devLog, redactId } from '../../../lib/safeLog';
 
 /** צ׳אט מהיר — הודעות פנימיות לפורטל */
@@ -11,7 +11,7 @@ export default function TherapistQuickChat({
   patientId: string;
   patientName: string;
 }) {
-  const { sendTherapistReply } = usePatient();
+  const { sendTherapistReply } = usePatientChat();
   const [text, setText] = useState('');
 
   const threadPatientId = patientId.trim();

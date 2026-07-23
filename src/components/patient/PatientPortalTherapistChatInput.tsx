@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Send } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientChat } from '../../context/patientDomainHooks';
 
 /** מפתח קבוע — מונע איבוד פוקוס בעת רינדור מחדש של הורה */
 export const PATIENT_PORTAL_THERAPIST_CHAT_INPUT_KEY = 'patient-portal-therapist-chat-input';
@@ -22,7 +22,7 @@ function PatientPortalTherapistChatInput({
   draftSeed,
   onDraftSeedConsumed,
 }: Props) {
-  const { sendPatientMessage } = usePatient();
+  const { sendPatientMessage } = usePatientChat();
   const sendPatientMessageRef = useRef(sendPatientMessage);
   sendPatientMessageRef.current = sendPatientMessage;
 

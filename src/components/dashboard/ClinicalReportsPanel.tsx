@@ -1,9 +1,9 @@
-import { usePatient } from '../../context/PatientContext';
+import { usePatientRoster } from '../../context/patientDomainHooks';
 import PainAnalytics from './PainAnalytics';
 
 /** דוחות קליניים למטופל נבחר — כאב ואזורים (ללא מפת גוף / תרגילים — בפורטל בלבד) */
 export default function ClinicalReportsPanel() {
-  const { selectedPatient } = usePatient();
+  const { selectedPatient } = usePatientRoster();
 
   if (!selectedPatient) {
     return (

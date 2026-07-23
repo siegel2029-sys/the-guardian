@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Send, MessageSquare, Clock, User, Bot } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientRoster, usePatientChat } from '../../context/patientDomainHooks';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { devLog, redactId } from '../../lib/safeLog';
 import ErrorBoundary from '../ui/error-boundary';
@@ -17,14 +17,13 @@ function MessagesPanelContent({
   embedded = false,
   embeddedMessageMaxHeight = 380,
 }: MessagesPanelProps) {
+  const { selectedPatient, selectedPatientId } = usePatientRoster();
   const {
-    selectedPatient,
-    selectedPatientId,
     getPatientMessages,
     markMessageRead,
     sendTherapistReply,
     messages: allMessages,
-  } = usePatient();
+  } = usePatientChat();
   const [replyText, setReplyText] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
 

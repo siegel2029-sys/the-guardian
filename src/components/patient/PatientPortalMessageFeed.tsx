@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo } from 'react';
 import { User, Bot, Clock } from 'lucide-react';
 import type { Message } from '../../types';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientChat } from '../../context/patientDomainHooks';
 
 type Props = {
   patientId: string;
@@ -9,7 +9,7 @@ type Props = {
 };
 
 function PatientPortalMessageFeed({ patientId, careGiverName }: Props) {
-  const { messages, getPatientMessages, markMessageRead } = usePatient();
+  const { messages, getPatientMessages, markMessageRead } = usePatientChat();
 
   const portalMessages = useMemo(
     () => getPatientMessages(patientId),

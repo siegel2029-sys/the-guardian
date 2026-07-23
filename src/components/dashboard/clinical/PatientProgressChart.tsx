@@ -1,5 +1,5 @@
 import type { Patient } from '../../../types';
-import { usePatient } from '../../../context/PatientContext';
+import { usePatientExercisePlans } from '../../../context/patientDomainHooks';
 import PatientProgressChartPanel from '../../charts/PatientProgressChartPanel';
 
 type Props = {
@@ -8,7 +8,7 @@ type Props = {
 
 /** Therapist dashboard progress chart — navigable 30-day window with finish-report drill-down. */
 export default function PatientProgressChart({ patient }: Props) {
-  const { getPatientExerciseFinishReports, clinicalToday } = usePatient();
+  const { getPatientExerciseFinishReports, clinicalToday } = usePatientExercisePlans();
   const finishReports = getPatientExerciseFinishReports(patient.id);
 
   return (

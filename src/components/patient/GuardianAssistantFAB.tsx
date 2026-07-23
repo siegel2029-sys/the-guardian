@@ -17,7 +17,7 @@ import {
 } from './build-guardian-reply';
 import { analyzePatientProgress, buildPatientProgressPayload } from '../../ai/patientProgressReasoning';
 import { screenPatientFreeTextForEmergency } from '../../safety/clinicalEmergencyScreening';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientChat } from '../../context/patientDomainHooks';
 import { getGeminiApiKey } from '../../ai/geminiClient';
 import { guardiPatientChatWithGemini } from '../../ai/geminiGordyPatient';
 import PatientPortalAiChatInput, {
@@ -79,7 +79,7 @@ const GuardianAssistantFAB = forwardRef<GuardianAssistantFABHandle, GuardianAssi
   const portalInline = isPortal && portalSurface === 'inline';
   const showPortalFixedPeek =
     isPortal && portalSurface === 'fixed-peek' && !suppressPortalPeekBar;
-  const { screenAndHandleEmergencyText } = usePatient();
+  const { screenAndHandleEmergencyText } = usePatientChat();
   const [open, setOpen] = useState(false);
   /** פורטל: סרגל מורחב נשאר פתוח אחרי לחיצה (עד לחיצה מחוץ או X) */
   const [portalBarSticky, setPortalBarSticky] = useState(false);

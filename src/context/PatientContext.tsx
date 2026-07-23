@@ -159,6 +159,8 @@ import {
   type PatientExerciseSlice,
   type PatientGamificationSlice,
   type PatientSyncSlice,
+  type PatientClinicalSlice,
+  type PatientAiQueueSlice,
 } from './patientDomainContexts';
 import { useExercisePlan } from '../hooks/useExercisePlan';
 import { useClinicalData } from '../hooks/useClinicalData';
@@ -3803,6 +3805,9 @@ export function PatientProvider({
       supabaseLastSavedAt: patientContextValue.supabaseLastSavedAt,
       supabaseConfigured: patientContextValue.supabaseConfigured,
       savePersistedStateToCloud: patientContextValue.savePersistedStateToCloud,
+      saveSinglePatientPayloadToCloud: patientContextValue.saveSinglePatientPayloadToCloud,
+      saveExercisePlanForPatientToCloud: patientContextValue.saveExercisePlanForPatientToCloud,
+      persistExercisePlanCacheForPatient: patientContextValue.persistExercisePlanCacheForPatient,
     }),
     [
       patientContextValue.supabaseSyncStatus,
@@ -3810,6 +3815,67 @@ export function PatientProvider({
       patientContextValue.supabaseLastSavedAt,
       patientContextValue.supabaseConfigured,
       patientContextValue.savePersistedStateToCloud,
+      patientContextValue.saveSinglePatientPayloadToCloud,
+      patientContextValue.saveExercisePlanForPatientToCloud,
+      patientContextValue.persistExercisePlanCacheForPatient,
+    ]
+  );
+
+  const clinicalSlice = useMemo<PatientClinicalSlice>(
+    () => ({
+      resolveRedFlag: patientContextValue.resolveRedFlag,
+      reportPatientUrgentRedFlag: patientContextValue.reportPatientUrgentRedFlag,
+      setPatientContactWhatsapp: patientContextValue.setPatientContactWhatsapp,
+      updateTherapistNotes: patientContextValue.updateTherapistNotes,
+      runClinicalAssessmentEngine: patientContextValue.runClinicalAssessmentEngine,
+      applyInitialClinicalProfile: patientContextValue.applyInitialClinicalProfile,
+      deletePatient: patientContextValue.deletePatient,
+      updatePatient: patientContextValue.updatePatient,
+      resetPatientPainReports: patientContextValue.resetPatientPainReports,
+      togglePatientInjuryHighlight: patientContextValue.togglePatientInjuryHighlight,
+      clearPatientInjuryHighlights: patientContextValue.clearPatientInjuryHighlights,
+      cycleTherapistBodyMapClinical: patientContextValue.cycleTherapistBodyMapClinical,
+      setTherapistPrimaryBodyArea: patientContextValue.setTherapistPrimaryBodyArea,
+      applyTherapistPainFields: patientContextValue.applyTherapistPainFields,
+    }),
+    [
+      patientContextValue.resolveRedFlag,
+      patientContextValue.reportPatientUrgentRedFlag,
+      patientContextValue.setPatientContactWhatsapp,
+      patientContextValue.updateTherapistNotes,
+      patientContextValue.runClinicalAssessmentEngine,
+      patientContextValue.applyInitialClinicalProfile,
+      patientContextValue.deletePatient,
+      patientContextValue.updatePatient,
+      patientContextValue.resetPatientPainReports,
+      patientContextValue.togglePatientInjuryHighlight,
+      patientContextValue.clearPatientInjuryHighlights,
+      patientContextValue.cycleTherapistBodyMapClinical,
+      patientContextValue.setTherapistPrimaryBodyArea,
+      patientContextValue.applyTherapistPainFields,
+    ]
+  );
+
+  const aiQueueSlice = useMemo<PatientAiQueueSlice>(
+    () => ({
+      aiSuggestions: patientContextValue.aiSuggestions,
+      getPendingAiSuggestions: patientContextValue.getPendingAiSuggestions,
+      getAwaitingTherapistSuggestions: patientContextValue.getAwaitingTherapistSuggestions,
+      patientAgreeToAiSuggestion: patientContextValue.patientAgreeToAiSuggestion,
+      patientDeclineAiSuggestion: patientContextValue.patientDeclineAiSuggestion,
+      therapistApproveAiSuggestion: patientContextValue.therapistApproveAiSuggestion,
+      therapistDeclineAiSuggestion: patientContextValue.therapistDeclineAiSuggestion,
+      submitGuardianRepsIncreaseRequest: patientContextValue.submitGuardianRepsIncreaseRequest,
+    }),
+    [
+      patientContextValue.aiSuggestions,
+      patientContextValue.getPendingAiSuggestions,
+      patientContextValue.getAwaitingTherapistSuggestions,
+      patientContextValue.patientAgreeToAiSuggestion,
+      patientContextValue.patientDeclineAiSuggestion,
+      patientContextValue.therapistApproveAiSuggestion,
+      patientContextValue.therapistDeclineAiSuggestion,
+      patientContextValue.submitGuardianRepsIncreaseRequest,
     ]
   );
 
@@ -3821,6 +3887,8 @@ export function PatientProvider({
         exercise={exerciseSlice}
         gamification={gamificationSlice}
         sync={syncSlice}
+        clinical={clinicalSlice}
+        aiQueue={aiQueueSlice}
       >
         {children}
       </PatientDomainProviders>

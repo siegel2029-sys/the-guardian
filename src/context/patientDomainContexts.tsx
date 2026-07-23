@@ -20,6 +20,7 @@ import type {
   AiSuggestion,
   PatientExerciseFinishReport,
   SelfCareSessionReport,
+  InitialClinicalProfileExtras,
 } from '../types';
 import type { GearEquipSlot } from '../config/gearCatalog';
 import type { StorePurchaseResult } from '../config/storeCatalog';
@@ -169,6 +170,70 @@ export type PatientSyncSlice = {
     persistSnapshotOverride?: PersistedPatientStateV1;
     trustKnowledgeFactDeletions?: boolean;
   }) => Promise<boolean>;
+  saveSinglePatientPayloadToCloud: (
+    patient: Patient,
+    options?: { trustIncomingAccountControl?: boolean }
+  ) => Promise<boolean>;
+  saveExercisePlanForPatientToCloud: (
+    patientId: string,
+    exercises: PatientExercise[],
+    options?: { changeSummary?: string; forceSave?: boolean }
+  ) => Promise<{ ok: true } | { ok: false; message: string }>;
+  persistExercisePlanCacheForPatient: (
+    patientId: string,
+    exercises: PatientExercise[]
+  ) => Promise<{ ok: true } | { ok: false; message: string }>;
+};
+
+/** Clinical mutations — body map, pain fields, notes, red flags, patient profile writes. */
+export type PatientClinicalSlice = {
+  resolveRedFlag: (patientId: string) => void;
+  reportPatientUrgentRedFlag: (patientId: string, portalLogLine: string) => void;
+  setPatientContactWhatsapp: (patientId: string, phoneDigitsOrEmpty: string) => void;
+  updateTherapistNotes: (patientId: string, notes: string) => void;
+  runClinicalAssessmentEngine: (patientId: string, notes: string) => void;
+  applyInitialClinicalProfile: (
+    patientId: string,
+    primaryBodyArea: BodyArea,
+    libraryExerciseIds: string[],
+    extras?: InitialClinicalProfileExtras
+  ) => void;
+  deletePatient: (patientId: string) => Promise<{ ok: true } | { ok: false; message: string }>;
+  updatePatient: (
+    patientId: string,
+    patch: Partial<Omit<Patient, 'id' | 'therapistId'>>
+  ) => void;
+  resetPatientPainReports: (patientId: string) => void;
+  togglePatientInjuryHighlight: (patientId: string, area: BodyArea) => void;
+  clearPatientInjuryHighlights: (patientId: string) => void;
+  cycleTherapistBodyMapClinical: (patientId: string, area: BodyArea) => void;
+  setTherapistPrimaryBodyArea: (patientId: string, area: BodyArea) => void;
+  applyTherapistPainFields: (
+    patientId: string,
+    fields: {
+      injuryHighlightSegments: BodyArea[];
+      secondaryClinicalBodyAreas: BodyArea[];
+      primaryBodyArea: BodyArea;
+    }
+  ) => void;
+};
+
+/** Therapist/patient AI suggestion queue and Guardian plan-adjustment requests. */
+export type PatientAiQueueSlice = {
+  aiSuggestions: AiSuggestion[];
+  getPendingAiSuggestions: (patientId: string) => AiSuggestion[];
+  getAwaitingTherapistSuggestions: (patientId: string) => AiSuggestion[];
+  patientAgreeToAiSuggestion: (suggestionId: string) => void;
+  patientDeclineAiSuggestion: (suggestionId: string) => void;
+  therapistApproveAiSuggestion: (suggestionId: string) => void;
+  therapistDeclineAiSuggestion: (suggestionId: string) => void;
+  submitGuardianRepsIncreaseRequest: (
+    patientId: string,
+    exerciseId: string,
+    exerciseName: string,
+    currentReps: number,
+    suggestedReps: number
+  ) => void;
 };
 
 const PatientRosterContext = createContext<PatientRosterSlice | null>(null);
@@ -176,6 +241,8 @@ const PatientChatContext = createContext<PatientChatSlice | null>(null);
 const PatientExerciseContext = createContext<PatientExerciseSlice | null>(null);
 const PatientGamificationContext = createContext<PatientGamificationSlice | null>(null);
 const PatientSyncContext = createContext<PatientSyncSlice | null>(null);
+const PatientClinicalContext = createContext<PatientClinicalSlice | null>(null);
+const PatientAiQueueContext = createContext<PatientAiQueueSlice | null>(null);
 
 export function PatientDomainProviders({
   roster,
@@ -183,6 +250,8 @@ export function PatientDomainProviders({
   exercise,
   gamification,
   sync,
+  clinical,
+  aiQueue,
   children,
 }: {
   roster: PatientRosterSlice;
@@ -190,6 +259,8 @@ export function PatientDomainProviders({
   exercise: PatientExerciseSlice;
   gamification: PatientGamificationSlice;
   sync: PatientSyncSlice;
+  clinical: PatientClinicalSlice;
+  aiQueue: PatientAiQueueSlice;
   children: ReactNode;
 }) {
   return (
@@ -197,7 +268,13 @@ export function PatientDomainProviders({
       <PatientChatContext.Provider value={chat}>
         <PatientExerciseContext.Provider value={exercise}>
           <PatientGamificationContext.Provider value={gamification}>
-            <PatientSyncContext.Provider value={sync}>{children}</PatientSyncContext.Provider>
+            <PatientSyncContext.Provider value={sync}>
+              <PatientClinicalContext.Provider value={clinical}>
+                <PatientAiQueueContext.Provider value={aiQueue}>
+                  {children}
+                </PatientAiQueueContext.Provider>
+              </PatientClinicalContext.Provider>
+            </PatientSyncContext.Provider>
           </PatientGamificationContext.Provider>
         </PatientExerciseContext.Provider>
       </PatientChatContext.Provider>
@@ -232,5 +309,17 @@ export function usePatientGamificationContext(): PatientGamificationSlice {
 export function usePatientSyncContext(): PatientSyncSlice {
   const ctx = useContext(PatientSyncContext);
   if (!ctx) throw new Error('usePatientCloudSync must be used inside PatientProvider');
+  return ctx;
+}
+
+export function usePatientClinicalContext(): PatientClinicalSlice {
+  const ctx = useContext(PatientClinicalContext);
+  if (!ctx) throw new Error('usePatientClinical must be used inside PatientProvider');
+  return ctx;
+}
+
+export function usePatientAiQueueContext(): PatientAiQueueSlice {
+  const ctx = useContext(PatientAiQueueContext);
+  if (!ctx) throw new Error('usePatientAiQueue must be used inside PatientProvider');
   return ctx;
 }

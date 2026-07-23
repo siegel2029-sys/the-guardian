@@ -1,12 +1,12 @@
 import { memo, useMemo } from 'react';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientChat } from '../../context/patientDomainHooks';
 
 type Props = {
   patientId: string;
 };
 
 function PatientPortalMessagesUnreadBadge({ patientId }: Props) {
-  const { messages, getPatientMessages } = usePatient();
+  const { messages, getPatientMessages } = usePatientChat();
 
   const unreadForPatient = useMemo(() => {
     const portalMessages = getPatientMessages(patientId);
