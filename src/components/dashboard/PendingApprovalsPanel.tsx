@@ -2,7 +2,7 @@ import {
   Wand2, ThumbsUp, ThumbsDown, TrendingUp, TrendingDown, Sparkles, UserCheck,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientRoster, usePatientAiQueue } from '../../context/patientDomainHooks';
 import type { AiSuggestion } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { filterTherapistPendingAiSuggestions } from '../../utils/clinicalAiQueueMerge';
@@ -108,13 +108,12 @@ function ApprovalCard({
 }
 
 export default function PendingApprovalsPanel() {
+  const { selectedPatient, patients } = usePatientRoster();
   const {
-    selectedPatient,
-    patients,
     aiSuggestions,
     therapistApproveAiSuggestion,
     therapistDeclineAiSuggestion,
-  } = usePatient();
+  } = usePatientAiQueue();
 
   if (!selectedPatient) return null;
 

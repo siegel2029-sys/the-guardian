@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { Patient } from '../types';
-import { usePatient } from '../context/PatientContext';
+import {
+  usePatientExercisePlans,
+  usePatientClinical,
+  usePatientAiQueue,
+} from '../context/patientDomainHooks';
 import { aggregateClinicalInsights } from '../services/clinicalInsightsAggregation';
 import { computeClinicalProgressInsight } from '../ai/clinicalCommandInsight';
 import {
@@ -137,15 +141,17 @@ export function useTherapistPatientSmartClinical(
     getSelfCareZones,
     getSelfCareReportsForPatient,
     patientExerciseFinishReportsByPatientId,
-    aiSuggestions,
-    runClinicalAssessmentEngine,
     updateExerciseInPlan,
     addExerciseToPlan,
     removeExerciseFromPlan,
     replaceExercisePlanForPatient,
+  } = usePatientExercisePlans();
+  const { runClinicalAssessmentEngine } = usePatientClinical();
+  const {
+    aiSuggestions,
     therapistApproveAiSuggestion,
     therapistDeclineAiSuggestion,
-  } = usePatient();
+  } = usePatientAiQueue();
 
   const patientId = patient?.id?.trim() || null;
   const safePatient = patientId && patient ? withSafePatientAnalytics(patient) : null;

@@ -3,7 +3,7 @@ import { AlertTriangle, X, Phone } from 'lucide-react';
 import type { BodyArea } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { getTherapistAlertEmail, openClinicalMailto } from '../../utils/clinicalAlertEmail';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientClinical } from '../../context/patientDomainHooks';
 
 type SymptomItem = {
   id: string;
@@ -108,7 +108,7 @@ export default function PatientRedFlagEmergencyModal({
   /** אזור פעיל נוכחי — נשלח בדוח ללא בחירה ידנית */
   defaultBodyArea?: BodyArea | null;
 }) {
-  const { reportPatientUrgentRedFlag } = usePatient();
+  const { reportPatientUrgentRedFlag } = usePatientClinical();
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [freeText, setFreeText] = useState('');
 

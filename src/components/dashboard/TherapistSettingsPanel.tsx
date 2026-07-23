@@ -2,7 +2,7 @@ import { useState, useEffect, type FormEvent } from 'react';
 import { Mail, Lock, Save, AlertCircle, Shield, User, CloudUpload } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getTherapistRecord } from '../../context/authPersistence';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientCloudSync } from '../../context/patientDomainHooks';
 import { validateNewPassword } from '../../lib/passwordPolicy';
 
 export default function TherapistSettingsPanel() {
@@ -13,7 +13,7 @@ export default function TherapistSettingsPanel() {
     supabaseSyncError,
     supabaseLastSavedAt,
     savePersistedStateToCloud,
-  } = usePatient();
+  } = usePatientCloudSync();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

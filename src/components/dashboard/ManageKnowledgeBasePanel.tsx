@@ -9,7 +9,7 @@ import {
   Trash2,
   Plus,
 } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientGamification, usePatientCloudSync } from '../../context/patientDomainHooks';
 import type { KnowledgeFact } from '../../types';
 import { getKnowledgeSourceBadgeText } from '../../utils/knowledgeSourceBadge';
 import { KNOWLEDGE_TEASER_MAX_CHARS } from '../../utils/knowledgeFactNormalize';
@@ -20,8 +20,8 @@ export default function ManageKnowledgeBasePanel() {
     addManualKnowledgeFact,
     deleteKnowledgeFactAndForceCloudSave,
     refreshKnowledgeBaseFromCloud,
-    supabaseConfigured,
-  } = usePatient();
+  } = usePatientGamification();
+  const { supabaseConfigured } = usePatientCloudSync();
 
   const [pullBusy, setPullBusy] = useState(false);
   const [teaser, setTeaser] = useState('');

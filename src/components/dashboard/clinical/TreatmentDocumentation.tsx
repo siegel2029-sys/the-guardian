@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Loader2, Sparkles, Save, History } from 'lucide-react';
 import type { ClinicalTimelineEntry, Patient, TreatmentAiInsights } from '../../../types';
-import { usePatient } from '../../../context/PatientContext';
+import { usePatientClinical, usePatientCloudSync } from '../../../context/patientDomainHooks';
 import { getGeminiApiKey, GeminiRateLimitedError } from '../../../ai/geminiClient';
 import { analyzeTreatmentAiInsights } from '../../../ai/geminiTreatmentAiInsights';
 import { buildSupabaseClinicalDatastoreJson } from '../../../utils/buildSupabaseClinicalDatastoreJson';
@@ -61,7 +61,8 @@ function InsightsSections({ insights }: { insights: TreatmentAiInsights }) {
 }
 
 export default function TreatmentDocumentation({ patient, embedded = false }: Props) {
-  const { updatePatient, saveSinglePatientPayloadToCloud } = usePatient();
+  const { updatePatient } = usePatientClinical();
+  const { saveSinglePatientPayloadToCloud } = usePatientCloudSync();
 
   const [draftNote, setDraftNote] = useState('');
   const [saveBusy, setSaveBusy] = useState(false);

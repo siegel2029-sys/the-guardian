@@ -1,6 +1,6 @@
 import { memo, useCallback, useRef, useState } from 'react';
 import type { Patient, PatientExercise } from '../../types';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientAiQueue, usePatientChat } from '../../context/patientDomainHooks';
 import GuardianAssistantFAB, { type GuardianAssistantFABHandle } from './GuardianAssistantFAB';
 import PatientPortalAiChatInput from './PatientPortalAiChatInput';
 
@@ -19,7 +19,8 @@ function PatientPortalHomeAiChatDock({
   exercises,
   onPatientEmergencyText,
 }: Props) {
-  const { submitGuardianRepsIncreaseRequest, sendAiClinicalAlert } = usePatient();
+  const { submitGuardianRepsIncreaseRequest } = usePatientAiQueue();
+  const { sendAiClinicalAlert } = usePatientChat();
   const guardianRef = useRef<GuardianAssistantFABHandle>(null);
   const [aiReplyLoading, setAiReplyLoading] = useState(false);
 

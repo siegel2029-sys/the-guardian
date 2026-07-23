@@ -113,6 +113,9 @@ export type PatientExerciseSlice = {
   ) => boolean | Promise<boolean>;
   /** Portal safety lock (effort / red-flag style gates). */
   isPatientExerciseSafetyLocked: (patientId: string) => boolean;
+  clearPatientExerciseSafetyLock: (patientId: string) => void;
+  replaceExercisePlanForPatient: (patientId: string, exercises: PatientExercise[]) => void;
+  patientExerciseFinishReportsByPatientId: Record<string, PatientExerciseFinishReport[]>;
   submitPatientAiPlanAdjustmentRequest: (suggestion: AiSuggestion) => void;
   getSelfCareZones: (patientId: string) => BodyArea[];
   toggleSelfCareZone: (patientId: string, area: BodyArea) => void;
@@ -156,6 +159,14 @@ export type PatientGamificationSlice = {
   knowledgeFacts: KnowledgeFact[];
   recordDidYouKnowTipOpened: (patientId: string, localCalendarYmd: string) => void;
   getDidYouKnowTipOpenedLocalYmd: (patientId: string) => string | null;
+  addManualKnowledgeFact: (input: {
+    teaser: string;
+    title: string;
+    explanation: string;
+    sourceUrl: string;
+  }) => void;
+  deleteKnowledgeFactAndForceCloudSave: (factId: string) => void;
+  refreshKnowledgeBaseFromCloud: () => Promise<void>;
 };
 
 export type PatientSyncSlice = {

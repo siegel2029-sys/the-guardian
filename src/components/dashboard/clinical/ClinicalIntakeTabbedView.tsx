@@ -15,7 +15,7 @@ import {
   type UpsertIntakeVersionResult,
 } from '../../../utils/clinicalIntakeVersions';
 import IntakeVersionEditor from './IntakeVersionEditor';
-import { usePatient } from '../../../context/PatientContext';
+import { usePatientExercisePlans } from '../../../context/patientDomainHooks';
 
 type Props = {
   patient: Patient;
@@ -170,7 +170,7 @@ export default function ClinicalIntakeTabbedView({
   updatePatient,
   className = '',
 }: Props) {
-  const { clinicalToday } = usePatient();
+  const { clinicalToday } = usePatientExercisePlans();
   const onSaveTimelineRef = useRef(onSaveTimeline);
   useEffect(() => {
     onSaveTimelineRef.current = onSaveTimeline;

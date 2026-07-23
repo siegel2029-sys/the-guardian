@@ -3717,6 +3717,10 @@ export function PatientProvider({
       toggleExercise: patientContextValue.toggleExercise,
       submitExerciseReport: patientContextValue.submitExerciseReport,
       isPatientExerciseSafetyLocked: patientContextValue.isPatientExerciseSafetyLocked,
+      clearPatientExerciseSafetyLock: patientContextValue.clearPatientExerciseSafetyLock,
+      replaceExercisePlanForPatient: patientContextValue.replaceExercisePlanForPatient,
+      patientExerciseFinishReportsByPatientId:
+        patientContextValue.patientExerciseFinishReportsByPatientId,
       submitPatientAiPlanAdjustmentRequest: patientContextValue.submitPatientAiPlanAdjustmentRequest,
       getSelfCareZones: patientContextValue.getSelfCareZones,
       toggleSelfCareZone: patientContextValue.toggleSelfCareZone,
@@ -3741,6 +3745,9 @@ export function PatientProvider({
       patientContextValue.toggleExercise,
       patientContextValue.submitExerciseReport,
       patientContextValue.isPatientExerciseSafetyLocked,
+      patientContextValue.clearPatientExerciseSafetyLock,
+      patientContextValue.replaceExercisePlanForPatient,
+      patientContextValue.patientExerciseFinishReportsByPatientId,
       patientContextValue.submitPatientAiPlanAdjustmentRequest,
       patientContextValue.getSelfCareZones,
       patientContextValue.toggleSelfCareZone,
@@ -3774,6 +3781,9 @@ export function PatientProvider({
       knowledgeFacts: patientContextValue.knowledgeFacts,
       recordDidYouKnowTipOpened: patientContextValue.recordDidYouKnowTipOpened,
       getDidYouKnowTipOpenedLocalYmd: patientContextValue.getDidYouKnowTipOpenedLocalYmd,
+      addManualKnowledgeFact: patientContextValue.addManualKnowledgeFact,
+      deleteKnowledgeFactAndForceCloudSave: patientContextValue.deleteKnowledgeFactAndForceCloudSave,
+      refreshKnowledgeBaseFromCloud: patientContextValue.refreshKnowledgeBaseFromCloud,
     }),
     [
       patientContextValue.grantPatientCoins,
@@ -3795,6 +3805,9 @@ export function PatientProvider({
       patientContextValue.knowledgeFacts,
       patientContextValue.recordDidYouKnowTipOpened,
       patientContextValue.getDidYouKnowTipOpenedLocalYmd,
+      patientContextValue.addManualKnowledgeFact,
+      patientContextValue.deleteKnowledgeFactAndForceCloudSave,
+      patientContextValue.refreshKnowledgeBaseFromCloud,
     ]
   );
 

@@ -1,6 +1,9 @@
 import { useMemo } from 'react';
 import { Star, Flame, Trophy, Activity, TrendingUp, Dumbbell, BarChart3 } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import {
+  usePatientRoster,
+  usePatientExercisePlans,
+} from '../../context/patientDomainHooks';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { addClinicalDays } from '../../utils/clinicalCalendar';
 import StatsCard from './StatsCard';
@@ -11,7 +14,8 @@ import { effortToScale10 } from '../../utils/effortScale';
 
 /** היסטוריה, אנליטיקה והתקדמות — ללא לוח שנה/מפת גוף (מופיעים בפורטל מטופל) */
 export default function HistoryAnalyticsPanel() {
-  const { selectedPatient, clinicalToday, dailyHistoryByPatient, getExercisePlan } = usePatient();
+  const { selectedPatient } = usePatientRoster();
+  const { clinicalToday, dailyHistoryByPatient, getExercisePlan } = usePatientExercisePlans();
 
   const p = selectedPatient;
   const plan = p ? getExercisePlan(p.id) : null;

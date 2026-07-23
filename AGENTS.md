@@ -135,21 +135,21 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — Wave D (Edge hermetic Zod) closed; awaiting Wave E._
+_Idle — Refactoring Plan (Waves A–E) officially closed._
 
 ### Completed Steps (recent)
 
-- Wave D: shared `_shared/schemas.ts` + Zod pin; hermetic validation on `gemini-proxy`, `send-therapist-chat-push`, `notify-new-message`, `reminder-cron`; all four redeployed (`--no-verify-jwt`).
-- Wave C ServiceResult multi-key fetches + Wave B domain slices remain in place.
-- Verification: `tsc -b` green; Edge deploys succeeded.
+- Wave E: remaining production UI off fat `usePatient()` (settings/KB, AI panels, clinical writers, ManagePlanModal, PatientOverview, smart clinical); exercise/KB slice gaps filled; only DEV debug panels retain `usePatient()`.
+- Waves A–D remain in place (ErrorBoundaries, domain slices, ServiceResult fetches, Edge Zod).
+- Verification: `tsc -b`, build, Vitest 66 green.
 
 ### Next Action Items
 
-1. **Wave E:** remaining dashboard off fat `usePatient()` (clinical writers → ManagePlanModal / PatientOverview last).
-2. Spot-check gemini-proxy + chat push + webhook/cron after Zod deploy.
-3. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
-4. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
-5. Lazy-load gear armory + portal modal stack / AI intake wizard.
+1. Spot-check therapist overview / plan manage / portal after Wave E.
+2. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
+3. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
+4. Lazy-load gear armory + portal modal stack / AI intake wizard.
+5. Optional: migrate DEV debug panels off god hook or add `usePatientDev` slice.
 
 ### Update protocol
 

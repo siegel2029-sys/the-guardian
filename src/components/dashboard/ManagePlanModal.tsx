@@ -6,7 +6,11 @@ import {
   ClipboardList, Filter, Clock, RotateCcw, ChevronDown, ChevronUp,
   Wand2, Sparkles, AlertCircle, Loader2, MessageSquare,
 } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import {
+  usePatientRoster,
+  usePatientExercisePlans,
+  usePatientCloudSync,
+} from '../../context/patientDomainHooks';
 import { EXERCISE_LIBRARY } from '../../data/mockData';
 import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../../data/exerciseVideoDefaults';
 import type { PatientExercise, BodyArea, ExerciseDifficulty } from '../../types';
@@ -904,21 +908,23 @@ function LibraryToggleRow({
 
 // ── Main modal ────────────────────────────────────────────────────
 export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
+  const { selectedPatient } = usePatientRoster();
   const {
-    selectedPatient,
     getExercisePlan,
     addExerciseToPlan,
     removeExerciseFromPlan,
     updateExerciseInPlan,
-    persistExercisePlanCacheForPatient,
     replaceExercisePlanForPatient,
-    saveExercisePlanForPatientToCloud,
     readExercisePlanSnapshot,
     exercisePlans,
+  } = usePatientExercisePlans();
+  const {
+    persistExercisePlanCacheForPatient,
+    saveExercisePlanForPatientToCloud,
     supabaseConfigured,
     supabaseSyncStatus,
     supabaseSyncError,
-  } = usePatient();
+  } = usePatientCloudSync();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeGroup, setActiveGroup] = useState('הכל');

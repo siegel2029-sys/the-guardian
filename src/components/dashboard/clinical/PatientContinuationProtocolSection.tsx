@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import type { Patient, ProtocolTrackingState } from '../../../types';
-import { usePatient } from '../../../context/PatientContext';
+import { usePatientClinical, usePatientCloudSync } from '../../../context/patientDomainHooks';
 import {
   buildPatchForLatestVersionSave,
   loadLatestIntakeFields,
@@ -26,7 +26,8 @@ export default function PatientContinuationProtocolSection({
   onEditClick,
   className = '',
 }: Props) {
-  const { updatePatient, saveSinglePatientPayloadToCloud } = usePatient();
+  const { updatePatient } = usePatientClinical();
+  const { saveSinglePatientPayloadToCloud } = usePatientCloudSync();
 
   const fields = useMemo(() => loadLatestIntakeFields(patient), [patient]);
 

@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react';
 import { ClipboardList, Activity, Search } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import {
+  usePatientRoster,
+  usePatientExercisePlans,
+} from '../../context/patientDomainHooks';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import {
   formatPatientLastVisitHe,
@@ -60,14 +63,8 @@ export default function TherapistPatientGrid({
   rosterFilterKey,
   onRosterFilterKeyChange,
 }: TherapistPatientGridProps) {
-  const {
-    patients,
-    selectedPatient,
-    selectPatient,
-    clinicalToday,
-    getExercisePlan,
-    aiSuggestions,
-  } = usePatient();
+  const { patients, selectedPatient, selectPatient, aiSuggestions } = usePatientRoster();
+  const { clinicalToday, getExercisePlan } = usePatientExercisePlans();
 
   const [search, setSearch] = useState('');
 

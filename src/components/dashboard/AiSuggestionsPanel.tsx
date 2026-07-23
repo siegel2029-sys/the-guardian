@@ -2,7 +2,7 @@ import {
   Wand2, TrendingUp, TrendingDown, Sparkles, CheckCircle2, XCircle, Clock, Info,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientRoster, usePatientAiQueue } from '../../context/patientDomainHooks';
 import type { AiSuggestion } from '../../types';
 
 const typeConfig: Record<string, { label: string; icon: LucideIcon; color: string; bg: string }> = {
@@ -90,7 +90,8 @@ function HistoryCard({ suggestion }: { suggestion: AiSuggestion }) {
 }
 
 export default function AiSuggestionsPanel() {
-  const { selectedPatient, aiSuggestions } = usePatient();
+  const { selectedPatient } = usePatientRoster();
+  const { aiSuggestions } = usePatientAiQueue();
 
   if (!selectedPatient) return null;
 

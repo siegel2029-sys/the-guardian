@@ -1,5 +1,5 @@
 import { AlertTriangle, X, CheckCircle } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientClinical } from '../../context/patientDomainHooks';
 import type { Patient } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 
@@ -8,7 +8,7 @@ interface RedFlagAlertProps {
 }
 
 export default function RedFlagAlert({ patient }: RedFlagAlertProps) {
-  const { resolveRedFlag } = usePatient();
+  const { resolveRedFlag } = usePatientClinical();
 
   if (!patient.hasRedFlag) return null;
 

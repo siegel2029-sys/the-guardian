@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Patient, PatientExerciseFinishReport } from '../../../types';
-import { usePatient } from '../../../context/PatientContext';
+import { usePatientExercisePlans } from '../../../context/patientDomainHooks';
 import { effortToScale10 } from '../../../utils/effortScale';
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -43,7 +43,7 @@ function normalizeRow(r: PatientExerciseFinishReport) {
 }
 
 export default function TherapistReportsView({ patient }: { patient: Patient }) {
-  const { getPatientExerciseFinishReports } = usePatient();
+  const { getPatientExerciseFinishReports } = usePatientExercisePlans();
   const rows = useMemo(() => {
     const raw = getPatientExerciseFinishReports(patient.id);
     return raw.map(normalizeRow);

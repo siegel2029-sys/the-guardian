@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef } from 'react';
 import { X, Archive } from 'lucide-react';
 import type { Patient } from '../../../types';
 import { bodyAreaLabels } from '../../../types';
-import { usePatient } from '../../../context/PatientContext';
+import { usePatientClinical, usePatientCloudSync } from '../../../context/patientDomainHooks';
 import { useComparativeIntakeAnalysis } from '../../../hooks/useComparativeIntakeAnalysis';
 import ClinicalIntakeProfilePanel from './ClinicalIntakeProfilePanel';
 
@@ -12,7 +12,8 @@ type Props = {
 };
 
 export default function FullIntakeVaultModal({ patient, onClose }: Props) {
-  const { updatePatient, savePersistedStateToCloud } = usePatient();
+  const { updatePatient } = usePatientClinical();
+  const { savePersistedStateToCloud } = usePatientCloudSync();
   const intake = patient.initialIntakeArchive;
   const usingFallback = !patient.initialIntakeArchive;
   const patientIdRef = useRef(patient.id);

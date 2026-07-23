@@ -3,7 +3,12 @@ import { X } from 'lucide-react';
 import ErrorBoundary from '../../ui/error-boundary';
 import type { BodyArea, Patient } from '../../../types';
 import { bodyAreaLabels } from '../../../types';
-import { usePatient } from '../../../context/PatientContext';
+import {
+  usePatientRoster,
+  usePatientExercisePlans,
+  usePatientCloudSync,
+  usePatientClinical,
+} from '../../../context/patientDomainHooks';
 import {
   canonicalPrimaryBodyAreaFromPrimaries,
   PAIN_MANAGEMENT_TABLE_ROWS,
@@ -22,12 +27,10 @@ export default function PainManagement({
   patient: Patient;
   onClose: () => void;
 }) {
-  const {
-    selectedPatient,
-    getExercisePlan,
-    savePersistedStateToCloud,
-    applyTherapistPainFields,
-  } = usePatient();
+  const { selectedPatient } = usePatientRoster();
+  const { getExercisePlan } = usePatientExercisePlans();
+  const { savePersistedStateToCloud } = usePatientCloudSync();
+  const { applyTherapistPainFields } = usePatientClinical();
 
   const patient =
     selectedPatient?.id === patientProp.id ? selectedPatient : patientProp;

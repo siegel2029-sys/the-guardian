@@ -14,7 +14,13 @@ import {
   Sparkles,
   BellRing,
 } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import {
+  usePatientRoster,
+  usePatientExercisePlans,
+  usePatientClinical,
+  usePatientCloudSync,
+  usePatientChat,
+} from '../../context/patientDomainHooks';
 import { formatPatientLastWorkoutHe } from '../../utils/patientPortalMeta';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { PI_PUSH_SYNC_TEST_PATIENT_ID } from '../../constants/pushSyncTestPatients';
@@ -72,21 +78,20 @@ export default function PatientOverview() {
   const [portalBannerDismissed, setPortalBannerDismissed] = useState(false);
   const {
     selectedPatient,
+    patients,
+    isPatientSessionLocked,
+    unlinkedPortalPatientIds,
+    aiSuggestions,
+  } = usePatientRoster();
+  const {
     getExercisePlan,
     isPatientExerciseSafetyLocked,
     clearPatientExerciseSafetyLock,
-    applyInitialClinicalProfile,
-    patients,
-    updatePatient,
-    savePersistedStateToCloud,
-    saveSinglePatientPayloadToCloud,
-    deletePatient,
-    isPatientSessionLocked,
-    safetyAlerts,
-    unlinkedPortalPatientIds,
-    aiSuggestions,
     clinicalToday,
-  } = usePatient();
+  } = usePatientExercisePlans();
+  const { applyInitialClinicalProfile, updatePatient, deletePatient } = usePatientClinical();
+  const { savePersistedStateToCloud, saveSinglePatientPayloadToCloud } = usePatientCloudSync();
+  const { safetyAlerts } = usePatientChat();
   const [showManageModal, setShowManageModal] = useState(false);
   const [clinicalModalMode, setClinicalModalMode] = useState<'none' | 'completion' | 'wizard'>(
     'none'

@@ -1,10 +1,14 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { UserPlus, KeyRound, Copy, X, RefreshCw } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import { randomPatientPassword } from '../../context/PatientContext';
+import {
+  usePatientRoster,
+  usePatientClinical,
+  usePatientCloudSync,
+} from '../../context/patientDomainHooks';
 import ClinicalAiIntakeWizard from '../dashboard/ClinicalAiIntakeWizard';
 import ErrorBoundary from '../ui/error-boundary';
-import { randomPatientPassword } from '../../context/PatientContext';
 import { validateNewPassword } from '../../lib/passwordPolicy';
 
 type SidebarNewPatientProps = {
@@ -19,7 +23,9 @@ function ModalPortal({ children }: { children: ReactNode }) {
 }
 
 export default function SidebarNewPatient({ compact = false, layout = 'sidebar' }: SidebarNewPatientProps) {
-  const { createPatientWithAccess, applyInitialClinicalProfile, savePersistedStateToCloud } = usePatient();
+  const { createPatientWithAccess } = usePatientRoster();
+  const { applyInitialClinicalProfile } = usePatientClinical();
+  const { savePersistedStateToCloud } = usePatientCloudSync();
   const [open, setOpen] = useState(false);
   const [credentialsOpen, setCredentialsOpen] = useState(false);
   const [portalUsername, setPortalUsername] = useState('');
