@@ -135,21 +135,21 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — Wave A (Error Boundaries) closed; awaiting Wave B._
+_Idle — Push outage fixed; Wave B still paused until verified in prod._
 
 ### Completed Steps (recent)
 
-- Wave A resilience: section `ErrorBoundary` around dashboard `renderContent`, portal tabs (home/activity/messages/gear), and `MessagesPanel` export wrapper.
-- Freemium guest lock + prior type-safety / result-shape sweep.
-- Verification: `tsc --noEmit` + lint on touched files + `npm run build` green for Wave A.
+- P0 push fix: removed dangling `usedFallback` in `patientPushDelivery` (ReferenceError on every Web Push send after VAPID fail-closed hygiene); redeployed `reminder-cron` + `send-therapist-chat-push`.
+- Confirmed client `PushRegisterResult` / `ServiceResult` callers and Wave A ErrorBoundaries were not the break; cron was HTTP 500 in prod logs.
+- Wave A ErrorBoundaries + freemium guest lock remain in place.
 
 ### Next Action Items
 
-1. **Wave B:** continue dashboard off fat `usePatient()` (domain hooks / clinical+AI slices).
-2. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
-3. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
-4. P2: multi-key clinical fetch → `ServiceResult.data`; Edge hermetic Zod.
-5. Lazy-load gear armory + portal modal stack / AI intake wizard.
+1. **Verify:** next hourly `reminder-cron` returns 200; spot-check therapist chat push delivery.
+2. **Wave B** (after verify): dashboard off fat `usePatient()`.
+3. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
+4. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
+5. P2: multi-key clinical fetch → `ServiceResult.data`; Edge hermetic Zod.
 
 ### Update protocol
 

@@ -273,7 +273,8 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
       envPrivateRawLength: envPrivateRaw.length,
       resolvedPublicLength: publicKey.length,
       resolvedPrivateLength: privateKey.length,
-      publicUsedHardcodedFallback: usedFallback,
+      // Hardcoded public-key fallback was removed (fail-closed). Keep field for log continuity.
+      publicUsedHardcodedFallback: false,
     }),
   );
   logVapidKeyShapeTelemetry("publicKey (resolved)", publicKey);
