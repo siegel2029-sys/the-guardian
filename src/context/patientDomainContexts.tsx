@@ -17,6 +17,9 @@ import type {
   SafetyAlert,
   ClinicalSafetyTier,
   KnowledgeFact,
+  AiSuggestion,
+  PatientExerciseFinishReport,
+  SelfCareSessionReport,
 } from '../types';
 import type { GearEquipSlot } from '../config/gearCatalog';
 import type { StorePurchaseResult } from '../config/storeCatalog';
@@ -47,6 +50,10 @@ export type PatientRosterSlice = {
     | { ok: true; loginId: string; password: string; patientId: string }
     | { ok: false; message: string }
   >;
+  /** Therapist dashboard chrome: pending AI queue + portal link gaps. */
+  getTotalAwaitingTherapistCount: () => number;
+  aiSuggestions: AiSuggestion[];
+  unlinkedPortalPatientIds: string[];
 };
 
 export type PatientChatSlice = {
@@ -103,6 +110,25 @@ export type PatientExerciseSlice = {
       isManualPlan?: boolean;
     }
   ) => boolean | Promise<boolean>;
+  /** Portal safety lock (effort / red-flag style gates). */
+  isPatientExerciseSafetyLocked: (patientId: string) => boolean;
+  submitPatientAiPlanAdjustmentRequest: (suggestion: AiSuggestion) => void;
+  getSelfCareZones: (patientId: string) => BodyArea[];
+  toggleSelfCareZone: (patientId: string, area: BodyArea) => void;
+  logSelfCareSession: (
+    patientId: string,
+    exerciseId: string,
+    exerciseName: string,
+    effortRating: number
+  ) => void;
+  getSelfCareReportsForPatient: (patientId: string) => SelfCareSessionReport[];
+  appendPatientExerciseFinishReport: (
+    patientId: string,
+    entry: Omit<PatientExerciseFinishReport, 'id' | 'patientId' | 'timestamp'>
+  ) => void | Promise<void>;
+  getPatientExerciseFinishReports: (patientId: string) => PatientExerciseFinishReport[];
+  getSelfCareStrengthTier: (patientId: string, area: BodyArea) => 0 | 1 | 2;
+  setSelfCareStrengthTier: (patientId: string, area: BodyArea, tier: 0 | 1 | 2) => void;
 };
 
 export type PatientGamificationSlice = {
@@ -121,6 +147,7 @@ export type PatientGamificationSlice = {
   equipStoreItem: (patientId: string, itemId: string) => boolean;
   unequipStoreItem: (patientId: string, itemId: string) => void;
   claimDailyLoginBonusIfNeeded: (patientId: string) => boolean;
+  hasDailyLoginBonusPending: (patientId: string) => boolean;
   rewardFeedback: PatientRewardFeedback | null;
   clearRewardFeedback: () => void;
   getMountainDailyEnvironmentState: (clinicalYmd: string) => MountainDailyEnvironmentState;

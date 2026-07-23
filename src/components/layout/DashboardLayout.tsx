@@ -8,12 +8,12 @@ import ClinicalReportsPanel from '../dashboard/ClinicalReportsPanel';
 import HistoryAnalyticsPanel from '../dashboard/HistoryAnalyticsPanel';
 import TherapistSettingsPanel from '../dashboard/TherapistSettingsPanel';
 import ManageKnowledgeBasePanel from '../dashboard/ManageKnowledgeBasePanel';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientRoster } from '../../context/patientDomainHooks';
 import { useTherapistPushInfrastructure } from '../../hooks/useTherapistPushInfrastructure';
 import type { NavSection } from '../../types';
 
 export default function DashboardLayout() {
-  const { activeSection } = usePatient();
+  const { activeSection } = usePatientRoster();
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   // Refresh + persist the therapist's push subscription on dashboard open (server-validated VAPID key).

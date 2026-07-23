@@ -291,8 +291,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Freemium / App Store: role=patient or tier=free without clinic patient_id.
-      if (getPatientProductTier(user) === 'free') {
+      const productTier = getPatientProductTier(user);
+      const appMeta = (user.app_metadata ?? {}) as Record<string, unknown>;
+      const explicitFreemium =
+        metadataString(appMeta, 'tier') === 'free' || metadataString(appMeta, 'role') === 'patient';
+
+      // Explicit free / patient claims → freemium portal (never therapist profile upsert).
+      if (productTier === 'free' && explicitFreemium) {
         const meta = getSupabaseUserMetadata(user);
         const pun = metadataString(meta, 'portal_username') ?? null;
         setPatientPortalDisplayId(pun);
@@ -324,6 +329,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (e) {
         if (import.meta.env.DEV) console.warn('[Auth] profiles fetch', e);
+      }
+
+      // No therapist claim and no profiles row → App Store guest (fail-closed to free).
+      if (productTier !== 'therapist' && !prof) {
+        const meta = getSupabaseUserMetadata(user);
+        const pun = metadataString(meta, 'portal_username') ?? null;
+        setPatientPortalDisplayId(pun);
+        setTherapist(null);
+        setPatientSessionId(null);
+        setSession({ role: 'patient', patientId: '' });
+        setProfile(null);
+        return;
       }
 
       setProfile(prof ?? null);
@@ -359,18 +376,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(null);
         return;
       }
-      if (getPatientProductTier(user) === 'free') {
-        setPatientPortalDisplayId(metadataString(getSupabaseUserMetadata(user), 'portal_username') ?? null);
-        setTherapist(null);
-        setPatientSessionId(null);
-        setSession({ role: 'patient', patientId: '' });
+      const productTier = getPatientProductTier(user);
+      if (productTier === 'therapist') {
         setProfile(null);
+        setTherapist(mapSupabaseUserToTherapist(user, undefined));
+        setPatientSessionId(null);
+        setSession({ role: 'therapist', therapistId: user.id });
         return;
       }
-      setProfile(null);
-      setTherapist(mapSupabaseUserToTherapist(user, undefined));
+      // Catch path: prefer free over therapist fail-open when claims are ambiguous.
+      setPatientPortalDisplayId(metadataString(getSupabaseUserMetadata(user), 'portal_username') ?? null);
+      setTherapist(null);
       setPatientSessionId(null);
-      setSession({ role: 'therapist', therapistId: user.id });
+      setSession({ role: 'patient', patientId: '' });
+      setProfile(null);
     }
   }, [supabase, clearSupabaseAuthStateIfSessionGone, syncTherapistProfileRow]);
 
@@ -462,8 +481,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const u = supabaseAuthSession?.user;
     if (!u) return null;
     if (getClinicPatientIdFromUser(u)) return 'patient';
-    if (getPatientProductTier(u) === 'free') return 'patient';
-    return 'therapist';
+    const tier = getPatientProductTier(u);
+    if (tier === 'free' || tier === 'pro') return 'patient';
+    if (tier === 'therapist') return 'therapist';
+    return 'patient';
   }, [session, supabaseAuthSession]);
 
   const patientSessionIdForUi = useMemo(() => {

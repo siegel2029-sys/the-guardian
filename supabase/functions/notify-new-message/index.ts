@@ -25,6 +25,7 @@ import {
   readPushTokenFromPatientPayload,
   stripPushFieldsFromPatientPayload,
 } from "../_shared/patientPayloadMeta.ts";
+import { isWebPushEndpoint } from "../_shared/webPushEndpointAllowlist.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -43,10 +44,6 @@ type PushSendResult = { ok: boolean; detail?: string; statusCode?: number; stale
 // ---------------------------------------------------------------------------
 // Web Push (Web-Crypto / @negrel/webpush)
 // ---------------------------------------------------------------------------
-
-function isWebPushEndpoint(token: string): boolean {
-  return token.trim().toLowerCase().startsWith("https://");
-}
 
 function hasDeliverableToken(token: string): boolean {
   return token.trim().length > 0 && isWebPushEndpoint(token);

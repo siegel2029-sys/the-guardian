@@ -3626,6 +3626,9 @@ export function PatientProvider({
       setActiveSection: patientContextValue.setActiveSection,
       isPatientSessionLocked: patientContextValue.isPatientSessionLocked,
       createPatientWithAccess: patientContextValue.createPatientWithAccess,
+      getTotalAwaitingTherapistCount: patientContextValue.getTotalAwaitingTherapistCount,
+      aiSuggestions: patientContextValue.aiSuggestions,
+      unlinkedPortalPatientIds: patientContextValue.unlinkedPortalPatientIds,
     }),
     [
       patientContextValue.patients,
@@ -3636,6 +3639,9 @@ export function PatientProvider({
       patientContextValue.setActiveSection,
       patientContextValue.isPatientSessionLocked,
       patientContextValue.createPatientWithAccess,
+      patientContextValue.getTotalAwaitingTherapistCount,
+      patientContextValue.aiSuggestions,
+      patientContextValue.unlinkedPortalPatientIds,
     ]
   );
 
@@ -3682,6 +3688,16 @@ export function PatientProvider({
       getTodaySession: patientContextValue.getTodaySession,
       toggleExercise: patientContextValue.toggleExercise,
       submitExerciseReport: patientContextValue.submitExerciseReport,
+      isPatientExerciseSafetyLocked: patientContextValue.isPatientExerciseSafetyLocked,
+      submitPatientAiPlanAdjustmentRequest: patientContextValue.submitPatientAiPlanAdjustmentRequest,
+      getSelfCareZones: patientContextValue.getSelfCareZones,
+      toggleSelfCareZone: patientContextValue.toggleSelfCareZone,
+      logSelfCareSession: patientContextValue.logSelfCareSession,
+      getSelfCareReportsForPatient: patientContextValue.getSelfCareReportsForPatient,
+      appendPatientExerciseFinishReport: patientContextValue.appendPatientExerciseFinishReport,
+      getPatientExerciseFinishReports: patientContextValue.getPatientExerciseFinishReports,
+      getSelfCareStrengthTier: patientContextValue.getSelfCareStrengthTier,
+      setSelfCareStrengthTier: patientContextValue.setSelfCareStrengthTier,
     }),
     [
       patientContextValue.exercisePlans,
@@ -3696,6 +3712,16 @@ export function PatientProvider({
       patientContextValue.getTodaySession,
       patientContextValue.toggleExercise,
       patientContextValue.submitExerciseReport,
+      patientContextValue.isPatientExerciseSafetyLocked,
+      patientContextValue.submitPatientAiPlanAdjustmentRequest,
+      patientContextValue.getSelfCareZones,
+      patientContextValue.toggleSelfCareZone,
+      patientContextValue.logSelfCareSession,
+      patientContextValue.getSelfCareReportsForPatient,
+      patientContextValue.appendPatientExerciseFinishReport,
+      patientContextValue.getPatientExerciseFinishReports,
+      patientContextValue.getSelfCareStrengthTier,
+      patientContextValue.setSelfCareStrengthTier,
     ]
   );
 
@@ -3712,6 +3738,7 @@ export function PatientProvider({
       equipStoreItem: patientContextValue.equipStoreItem,
       unequipStoreItem: patientContextValue.unequipStoreItem,
       claimDailyLoginBonusIfNeeded: patientContextValue.claimDailyLoginBonusIfNeeded,
+      hasDailyLoginBonusPending: patientContextValue.hasDailyLoginBonusPending,
       rewardFeedback: patientContextValue.rewardFeedback,
       clearRewardFeedback: patientContextValue.clearRewardFeedback,
       getMountainDailyEnvironmentState: patientContextValue.getMountainDailyEnvironmentState,
@@ -3730,6 +3757,7 @@ export function PatientProvider({
       patientContextValue.equipStoreItem,
       patientContextValue.unequipStoreItem,
       patientContextValue.claimDailyLoginBonusIfNeeded,
+      patientContextValue.hasDailyLoginBonusPending,
       patientContextValue.rewardFeedback,
       patientContextValue.clearRewardFeedback,
       patientContextValue.getMountainDailyEnvironmentState,

@@ -1,5 +1,5 @@
 import { ChevronRight, Menu } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientRoster } from '../../context/patientDomainHooks';
 import type { NavSection } from '../../types';
 
 /** Aligns with DashboardLayout: legacy sections render overview content */
@@ -28,7 +28,7 @@ type Props = {
 };
 
 export default function Header({ onMenuToggle }: Props) {
-  const { activeSection, selectPatient } = usePatient();
+  const { activeSection, selectPatient } = usePatientRoster();
   const rawSection = activeSection as string;
   const hubSection = effectiveNavSection(rawSection);
   const showBackToHub = hubSection !== 'overview';

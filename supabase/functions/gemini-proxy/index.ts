@@ -152,12 +152,12 @@ function checkRateLimit(userId: string): boolean {
  * Resolve payload budget from DB membership — not editable user_metadata.
  * Patient: row in patients with auth_user_id = uid.
  * Therapist: row in profiles for uid.
- * Fallback: metadata patient_id only if neither row exists (legacy portal JWTs).
+ * Fallback: app_metadata.role/tier only (never user_metadata).
  */
 async function resolveIsPatientBudget(
   supabaseAuth: ReturnType<typeof createClient>,
   userId: string,
-  userMetadata: Record<string, unknown> | undefined,
+  appMetadata: Record<string, unknown> | undefined,
 ): Promise<boolean> {
   const [{ data: patientRow }, { data: profileRow }] = await Promise.all([
     supabaseAuth.from("patients").select("id").eq("auth_user_id", userId).maybeSingle(),
@@ -167,8 +167,12 @@ async function resolveIsPatientBudget(
   if (patientRow?.id) return true;
   if (profileRow?.id) return false;
 
-  const metaPid = userMetadata?.patient_id;
-  return typeof metaPid === "string" && metaPid.trim().length > 0;
+  const role = typeof appMetadata?.role === "string" ? appMetadata.role.trim() : "";
+  const tier = typeof appMetadata?.tier === "string" ? appMetadata.tier.trim() : "";
+  if (role === "therapist") return false;
+  if (role === "patient" || tier === "free" || tier === "pro") return true;
+  // Unknown → tighter patient budget (fail closed on payload size).
+  return true;
 }
 
 Deno.serve(async (req) => {
@@ -225,7 +229,7 @@ Deno.serve(async (req) => {
   const isPatient = await resolveIsPatientBudget(
     supabaseAuth,
     user.id,
-    user.user_metadata as Record<string, unknown> | undefined,
+    user.app_metadata as Record<string, unknown> | undefined,
   );
   const maxBodyBytes = isPatient ? MAX_BODY_BYTES_PATIENT : MAX_BODY_BYTES_THERAPIST;
 

@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { PortalDropdown } from '../ui/PortalDropdown';
 import { useAuth } from '../../context/AuthContext';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientRoster, usePatientChat } from '../../context/patientDomainHooks';
 import type { NavSection } from '../../types';
 import SidebarNewPatient from './SidebarNewPatient';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
@@ -68,13 +68,11 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
     selectPatient,
     activeSection,
     setActiveSection,
-    getPatientMessages,
     getTotalAwaitingTherapistCount,
     aiSuggestions,
-    safetyAlerts,
-    dismissSafetyAlert,
     unlinkedPortalPatientIds,
-  } = usePatient();
+  } = usePatientRoster();
+  const { getPatientMessages, safetyAlerts, dismissSafetyAlert } = usePatientChat();
   const [patientOpen, setPatientOpen] = useState(false);
   const patientTriggerRef = useRef<HTMLButtonElement>(null);
 

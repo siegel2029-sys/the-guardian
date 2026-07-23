@@ -7,6 +7,9 @@ import {
   mergePatientPayloadFields,
   stripPushFieldsFromPatientPayload,
 } from "./patientPayloadMeta.ts";
+import { isWebPushEndpoint } from "./webPushEndpointAllowlist.ts";
+
+export { isWebPushEndpoint } from "./webPushEndpointAllowlist.ts";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
@@ -30,11 +33,6 @@ export function isStaleSubscriptionStatus(status: number | undefined): boolean {
 export function isExpoPushToken(token: string): boolean {
   const t = token.trim();
   return t.startsWith("ExponentPushToken[") || t.startsWith("ExpoPushToken");
-}
-
-/** HTTPS PushSubscription endpoints (FCM, Safari / Apple, Firefox autopush, …). */
-export function isWebPushEndpoint(token: string): boolean {
-  return token.trim().toLowerCase().startsWith("https://");
 }
 
 export function hasDeliverableReminderToken(token: string): boolean {
@@ -232,11 +230,9 @@ export function getConfiguredVapidPublicKey(): string {
   return envPublic.length > 40 ? envPublic : HARDCODED_FALLBACK_PUBLIC_KEY;
 }
 
-/** Safe prefix/suffix peek for Supabase secret corruption (quotes, newlines, truncation). */
-function logVapidKeyPreSetTelemetry(label: string, key: string): void {
+/** Length + format flags only — never log key material (Iron Rule 1 / secret hygiene). */
+function logVapidKeyShapeTelemetry(label: string, key: string): void {
   const len = key.length;
-  const head = len === 0 ? "(empty)" : key.slice(0, Math.min(5, len));
-  const tail = len === 0 ? "(empty)" : len <= 5 ? key : key.slice(-5);
   const flags = {
     hasWhitespace: /\s/.test(key),
     hasSingleQuotes: key.includes("'"),
@@ -245,7 +241,7 @@ function logVapidKeyPreSetTelemetry(label: string, key: string): void {
     hasBackslash: key.includes("\\"),
   };
   console.log(
-    `patient-push: VAPID ${label} resolved length=${len} head=[${head}] tail=[${tail}] formatFlags=`,
+    `patient-push: VAPID ${label} resolved length=${len} formatFlags=`,
     JSON.stringify(flags),
   );
 }
@@ -295,8 +291,8 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
       publicUsedHardcodedFallback: usedFallback,
     }),
   );
-  logVapidKeyPreSetTelemetry("publicKey (resolved)", publicKey);
-  logVapidKeyPreSetTelemetry("privateKey (resolved)", privateKey);
+  logVapidKeyShapeTelemetry("publicKey (resolved)", publicKey);
+  logVapidKeyShapeTelemetry("privateKey (resolved)", privateKey);
 
   try {
     webPush.setVapidDetails(subject, publicKey, privateKey);

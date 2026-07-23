@@ -135,21 +135,21 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — awaiting next PM/roadmap assignment._
+_Idle — store-readiness P0/P1 remediation closed._
 
 ### Completed Steps (recent)
 
-- Freemium prep: `app_metadata.patient_id` promotion trigger + hook; `useTierRouting` / `FreemiumGuard` / `GuestDailyView`; clinic create inserts patient before Auth signup.
-- PatientContext domain providers (roster/chat/exercise/gamification/sync) + hooks; migration history aligned; `reminder-cron` deployed; insecure cron job 4 removed.
-- Board close-out: HIBP script Pro-plan comments; `tsc` / lint (0 errors) / Vitest 55 green.
+- P0 store-readiness: chat notify trigger cutover; freemium auth default; domain-hook adoption; GuestDailyView; boot-probe lock.
+- Follow-up from Edge audit: `link_patient_auth_user` app_metadata-only; Web Push host allowlist (SSRF); VAPID key-fragment logs removed; `test_now` gated + response redaction; gemini budget no longer uses user_metadata.
+- Deployed `gemini-proxy`, `notify-new-message`, `reminder-cron`, `send-therapist-chat-push`.
 
 ### Next Action Items
 
-1. Enable Auth leaked-password protection after Pro upgrade: `node scripts/enable-password-hibp.mjs`.
-2. Build real GuestDailyView product UI (replace placeholder).
-3. Set freemium `app_metadata.tier=free` / `role=patient` on App Store signup path when that flow ships.
-4. Continue carving `useExercisePlan.submitExerciseReport` and remaining PatientContext orchestrator surface.
-5. Prefer CLI `supabase db push` for future migrations (rename local versions to MCP timestamps if apply_migration is used).
+1. **Ops:** Rotate `service_role` (exposed in old Dashboard webhook); confirm `INTERNAL_MESSAGES_WEBHOOK_SECRET` ↔ `private.app_config`.
+2. Enable HIBP after Pro: `node scripts/enable-password-hibp.mjs`.
+3. Set `REMINDER_ALLOW_TEST_NOW=true` only in non-prod when intentionally testing pushes.
+4. Continue migrating remaining dashboard panels off fat `usePatient()`.
+5. Wire GuestDailyView invite code → portal signup end-to-end.
 
 ### Update protocol
 

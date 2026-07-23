@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { MessageCircle, Home, ShoppingBag } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientRoster, usePatientChat, usePatientExercisePlans, usePatientGamification } from '../../context/patientDomainHooks';
 import { useAuth } from '../../context/AuthContext';
 import { type GuardiTransientAppearance } from './GordyCompanion';
 import { useOptionalRehabPool, type StrengthMissionRow } from './useOptionalRehabPool';
@@ -52,15 +52,32 @@ export default function PatientDailyView() {
     completePatientPasswordChange,
     usesSupabaseSession,
   } = useAuth();
+  const { selectedPatient } = usePatientRoster();
   const {
-    selectedPatient,
     messages,
+    getPatientMessages,
+    emergencyModalPatientId,
+    setEmergencyModalPatientId,
+    safetyAlerts,
+  } = usePatientChat();
+  const {
     exercisePlans,
     getExercisePlan,
     dailySessions,
     submitExerciseReport,
-    getPatientMessages,
+    clinicalToday,
+    dailyHistoryByPatient,
+    isPatientExerciseSafetyLocked,
     submitPatientAiPlanAdjustmentRequest,
+    getSelfCareZones,
+    toggleSelfCareZone,
+    logSelfCareSession,
+    appendPatientExerciseFinishReport,
+    getPatientExerciseFinishReports,
+    getSelfCareStrengthTier,
+    setSelfCareStrengthTier,
+  } = usePatientExercisePlans();
+  const {
     hasDailyLoginBonusPending,
     getPatientGear,
     purchaseGearItem,
@@ -72,20 +89,7 @@ export default function PatientDailyView() {
     claimDailyLoginBonusIfNeeded,
     rewardFeedback,
     clearRewardFeedback,
-    emergencyModalPatientId,
-    setEmergencyModalPatientId,
-    isPatientExerciseSafetyLocked,
-    safetyAlerts,
-    clinicalToday,
-    dailyHistoryByPatient,
-    getSelfCareZones,
-    toggleSelfCareZone,
-    logSelfCareSession,
-    appendPatientExerciseFinishReport,
-    getPatientExerciseFinishReports,
-    getSelfCareStrengthTier,
-    setSelfCareStrengthTier,
-  } = usePatient();
+  } = usePatientGamification();
 
   const totalActiveDaysForScenery = useMemo(() => {
     if (!selectedPatient) return 1;

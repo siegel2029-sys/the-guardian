@@ -1,5 +1,5 @@
 import { LayoutDashboard, FileText, BarChart3, MessageSquare, Menu } from 'lucide-react';
-import { usePatient } from '../../context/PatientContext';
+import { usePatientRoster, usePatientChat } from '../../context/patientDomainHooks';
 import type { NavSection } from '../../types';
 
 type Props = {
@@ -14,7 +14,8 @@ const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ cla
 ];
 
 export default function MobileBottomNav({ onOpenSidebar }: Props) {
-  const { activeSection, setActiveSection, patients, getPatientMessages, selectPatient } = usePatient();
+  const { activeSection, setActiveSection, patients, selectPatient } = usePatientRoster();
+  const { getPatientMessages } = usePatientChat();
 
   const totalUnread = patients.reduce((sum, p) => {
     return (

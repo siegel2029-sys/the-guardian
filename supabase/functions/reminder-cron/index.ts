@@ -484,6 +484,14 @@ Deno.serve(async (req) => {
     const bodyFlags = await parseCronJsonBody(req);
     const { test_now, test_patient_id, verbose_reminders } = mergeCronFlagsFromUrl(bodyFlags, url);
 
+    if (test_now) {
+      const allowTest = (Deno.env.get("REMINDER_ALLOW_TEST_NOW") ?? "").trim().toLowerCase() === "true";
+      if (!allowTest) {
+        console.warn("[reminder-cron] test_now rejected — set REMINDER_ALLOW_TEST_NOW=true to enable");
+        return jsonResponse({ ok: false, error: "test_now_disabled" }, 403);
+      }
+    }
+
     if (test_now && test_patient_id) {
       const { data: targeted, error: targetedErr } = await supabase
         .from("patients")
@@ -492,7 +500,8 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (targetedErr) {
-        return jsonResponse({ ok: false, test_now: true, error: targetedErr.message }, 503);
+        console.warn(`[reminder-cron test_now] targeted lookup failed: ${targetedErr.message}`);
+        return jsonResponse({ ok: false, test_now: true, error: "lookup_failed" }, 503);
       }
 
       if (!targeted) {
@@ -501,7 +510,7 @@ Deno.serve(async (req) => {
           test_now: true,
           sent: false,
           reason: "patient_not_found",
-          patientId: test_patient_id,
+          patientRef: patientLogRef(test_patient_id),
         });
       }
 
@@ -514,7 +523,7 @@ Deno.serve(async (req) => {
           test_now: true,
           sent: false,
           reason: "blocked_status_or_frozen",
-          patientId: test_patient_id,
+          patientRef: patientLogRef(test_patient_id),
         });
       }
 
@@ -540,7 +549,7 @@ Deno.serve(async (req) => {
           test_now: true,
           sent: false,
           reason: "no_deliverable_push_token",
-          patientId: tp.id,
+          patientRef: label,
         });
       }
 
@@ -554,9 +563,9 @@ Deno.serve(async (req) => {
         ok: true,
         test_now: true,
         sent: r.ok,
-        patientId: tp.id,
+        patientRef: label,
         channel: isWebPushEndpoint(tt) ? "web_push" : "expo",
-        ...(r.ok ? {} : { deliveryError: r.detail }),
+        ...(r.ok ? {} : { deliveryError: "push_failed" }),
       });
     }
 
@@ -581,7 +590,8 @@ Deno.serve(async (req) => {
       .or("payload->>account_frozen.is.null,payload->>account_frozen.neq.true");
 
     if (listErr) {
-      return jsonResponse({ ok: false, error: listErr.message }, 503);
+      console.warn(`[reminder-cron] patient list failed: ${listErr.message}`);
+      return jsonResponse({ ok: false, error: "list_failed" }, 503);
     }
 
     // Defense in depth: re-check payload in case JSON boolean/string quirks bypass PostgREST filters.
@@ -612,8 +622,12 @@ Deno.serve(async (req) => {
       totalScanned: dispatch.totalScanned,
       sentSuccess: dispatch.sentSuccess,
       sentFailed: dispatch.sentFailed,
-      failedDetails: dispatch.failedDetails,
-      errors: dispatch.errors.slice(0, 20),
+      // Opaque refs only — never full patient UUIDs in HTTP responses.
+      failedDetails: dispatch.failedDetails.map((f) => ({
+        patientRef: patientLogRef(f.id),
+        error: "push_failed",
+      })),
+      errors: dispatch.errors.slice(0, 20).map((e) => e.replace(/[0-9a-f-]{8,}/gi, "…")),
     });
   } catch (error: unknown) {
     // Global/setup failures only — per-patient errors are isolated inside runReminderDispatch.
