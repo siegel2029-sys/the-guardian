@@ -27,8 +27,8 @@ import {
 } from "../_shared/patientPayloadMeta.ts";
 import { isWebPushEndpoint } from "../_shared/webPushEndpointAllowlist.ts";
 import { patientLogRef } from "../_shared/reminderEligibility.ts";
-import { asJsonObject } from "../_shared/safeJson.ts";
 import { timingSafeEqualString } from "../_shared/timingSafeEqual.ts";
+import { NotifyNewMessageBodySchema, parseBody } from "../_shared/schemas.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -374,14 +374,16 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, error: "invalid_json_body" }, 400);
   }
 
-  const payloadObj = asJsonObject(payload);
-  if (!payloadObj) {
-    return jsonResponse({ ok: false, error: "invalid_json_body" }, 400);
+  const validated = parseBody(NotifyNewMessageBodySchema, payload);
+  if (!validated.ok) {
+    return jsonResponse({ ok: false, error: "invalid_payload" }, 400);
   }
+
+  const body = validated.data;
 
   // ── test-notification helper (gated): POST {"type":"test-notification"} with secret
   // Requires NOTIFY_ALLOW_TEST=true — never echo payload (may contain PHI).
-  if (payloadObj.type === "test-notification") {
+  if (body.type === "test-notification") {
     const allowTest = (Deno.env.get("NOTIFY_ALLOW_TEST") ?? "").trim().toLowerCase() === "true";
     if (!allowTest) {
       return jsonResponse({ ok: false, error: "test_notification_disabled" }, 403);
@@ -397,12 +399,8 @@ Deno.serve(async (req) => {
     });
   }
 
-  const tableName = typeof payloadObj.table === "string" ? payloadObj.table : "(unknown)";
-  if (tableName !== "chat_messages" && tableName !== "(unknown)") {
-    console.warn(`[notify-new-message] unexpected table=${tableName}`);
-    return jsonResponse({ ok: false, error: "unexpected_table" }, 400);
-  }
-  const record = extractRecord(payload);
+  const tableName = typeof body.table === "string" ? body.table : "(unknown)";
+  const record = extractRecord(body);
   const direction = resolveChatDirection(record);
   console.log(`[notify-new-message] Trigger fired: table=${tableName} from=${describeSender(record ?? {})} direction=${direction}`);
 

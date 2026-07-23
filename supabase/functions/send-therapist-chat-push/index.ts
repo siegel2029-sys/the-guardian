@@ -15,6 +15,7 @@ import {
 } from "../_shared/patientPushDelivery.ts";
 import { readPushTokenFromPatientPayload } from "../_shared/patientPayloadMeta.ts";
 import { patientLogRef } from "../_shared/reminderEligibility.ts";
+import { parseBody, TherapistChatPushBodySchema } from "../_shared/schemas.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -78,19 +79,20 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Forbidden", detail: "therapist_role_required" }, 403);
   }
 
-  let body: { patientId?: string; body?: string; intent?: string };
+  let rawBody: unknown;
   try {
-    body = (await req.json()) as { patientId?: string; body?: string; intent?: string };
+    rawBody = await req.json();
   } catch {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
 
-  const patientId = typeof body.patientId === "string" ? body.patientId.trim() : "";
-  if (!patientId) {
-    return jsonResponse({ error: "missing_patientId" }, 400);
+  const parsed = parseBody(TherapistChatPushBodySchema, rawBody);
+  if (!parsed.ok) {
+    return jsonResponse({ error: "invalid_payload" }, 400);
   }
 
-  const pushSyncIntent = body.intent === "push_sync";
+  const patientId = parsed.data.patientId;
+  const pushSyncIntent = parsed.data.intent === "push_sync";
 
   const { data: patient, error: patientErr } = await supabaseAuth
     .from("patients")

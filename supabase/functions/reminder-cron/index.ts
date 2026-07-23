@@ -24,7 +24,7 @@ import {
   STANDARD_REMINDER_LOCAL_HOUR,
   THREE_HOURS_MS,
 } from "../_shared/reminderEligibility.ts";
-import { parseJsonObject } from "../_shared/safeJson.ts";
+import { ReminderCronBodySchema, parseJsonText, PatientIdSchema } from "../_shared/schemas.ts";
 
 /**
  * Hourly reminder dispatcher: "momentum" (recent activity, no session yet today) vs 8pm local standard.
@@ -111,12 +111,16 @@ async function sendPatientReminderWithRetry(
 }
 
 /** POST/PATCH/PUT JSON body flags (empty object if none). Consumes the request body once. */
-async function parseCronJsonBody(req: Request): Promise<{
-  test_now: boolean;
-  test_patient_id: string | null;
-  verbose_reminders: boolean;
-}> {
-  const empty = { test_now: false, test_patient_id: null, verbose_reminders: false };
+async function parseCronJsonBody(req: Request): Promise<
+  | { ok: true; test_now: boolean; test_patient_id: string | null; verbose_reminders: boolean }
+  | { ok: false; error: "invalid_json" | "invalid_payload" }
+> {
+  const empty = {
+    ok: true as const,
+    test_now: false,
+    test_patient_id: null as string | null,
+    verbose_reminders: false,
+  };
   if (!["POST", "PUT", "PATCH"].includes(req.method)) {
     return empty;
   }
@@ -127,24 +131,31 @@ async function parseCronJsonBody(req: Request): Promise<{
   try {
     const raw = await req.text();
     if (!raw.trim()) return empty;
-    const j = parseJsonObject(raw);
-    if (!j) return empty;
-    const pidRaw = j.patient_id ?? j.test_patient_id;
+    const parsed = parseJsonText(ReminderCronBodySchema, raw);
+    if (!parsed.ok) {
+      return { ok: false, error: parsed.error };
+    }
+    const pidRaw = parsed.data.patient_id ?? parsed.data.test_patient_id;
     const test_patient_id =
       typeof pidRaw === "string" && pidRaw.trim().length > 0 ? pidRaw.trim() : null;
     return {
-      test_now: j.test_now === true,
+      ok: true,
+      test_now: parsed.data.test_now === true,
       test_patient_id,
-      verbose_reminders: j.verbose_reminders === true,
+      verbose_reminders: parsed.data.verbose_reminders === true,
     };
   } catch {
-    return empty;
+    return { ok: false, error: "invalid_json" };
   }
 }
 
 /** Merge JSON body flags with URL query (?test_now=true, ?patient_id=). */
 function mergeCronFlagsFromUrl(
-  body: Awaited<ReturnType<typeof parseCronJsonBody>>,
+  body: {
+    test_now: boolean;
+    test_patient_id: string | null;
+    verbose_reminders: boolean;
+  },
   url: URL,
 ): {
   test_now: boolean;
@@ -153,10 +164,12 @@ function mergeCronFlagsFromUrl(
 } {
   const test_now =
     body.test_now || url.searchParams.get("test_now") === "true";
-  const pidUrl =
+  const pidUrlRaw =
     url.searchParams.get("patient_id")?.trim() ||
     url.searchParams.get("test_patient_id")?.trim() ||
     null;
+  const pidUrl =
+    pidUrlRaw && PatientIdSchema.safeParse(pidUrlRaw).success ? pidUrlRaw : null;
   const test_patient_id = body.test_patient_id ?? pidUrl;
   return {
     test_now,
@@ -485,6 +498,9 @@ Deno.serve(async (req) => {
     );
 
     const bodyFlags = await parseCronJsonBody(req);
+    if (!bodyFlags.ok) {
+      return jsonResponse({ ok: false, error: bodyFlags.error }, 400);
+    }
     const { test_now, test_patient_id, verbose_reminders } = mergeCronFlagsFromUrl(bodyFlags, url);
 
     if (test_now) {

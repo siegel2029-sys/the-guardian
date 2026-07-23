@@ -135,21 +135,21 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — Wave C (ServiceResult multi-key fetches) closed; awaiting Wave D._
+_Idle — Wave D (Edge hermetic Zod) closed; awaiting Wave E._
 
 ### Completed Steps (recent)
 
-- Wave C: clinical fetches (`fetchPatients`, `getPatientById`, leaf plan/payload fetches) → `ServiceResult` / `data`; callers in PatientContext, supabaseSync, useExercisePlan updated atomically.
-- Wave B domain slices + Wave A ErrorBoundaries remain in place.
-- Verification: `tsc -b`, build, Vitest 66 green.
+- Wave D: shared `_shared/schemas.ts` + Zod pin; hermetic validation on `gemini-proxy`, `send-therapist-chat-push`, `notify-new-message`, `reminder-cron`; all four redeployed (`--no-verify-jwt`).
+- Wave C ServiceResult multi-key fetches + Wave B domain slices remain in place.
+- Verification: `tsc -b` green; Edge deploys succeeded.
 
 ### Next Action Items
 
-1. **Wave D:** Edge hermetic Zod (`gemini-proxy` → chat-push → notify → cron).
-2. Continue dashboard off fat `usePatient()` (clinical writers → hubs last).
+1. **Wave E:** remaining dashboard off fat `usePatient()` (clinical writers → ManagePlanModal / PatientOverview last).
+2. Spot-check gemini-proxy + chat push + webhook/cron after Zod deploy.
 3. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
 4. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
-5. **Verify:** reminder-cron / notify / chat push delivery in prod.
+5. Lazy-load gear armory + portal modal stack / AI intake wizard.
 
 ### Update protocol
 

@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { parseJsonObject } from "../_shared/safeJson.ts";
+import { GeminiProxyBodySchema, parseJsonText } from "../_shared/schemas.ts";
 
 const GEMINI_HOST = "https://generativelanguage.googleapis.com";
 const GEMINI_VERSION = "v1beta";
@@ -23,13 +23,6 @@ type GenerationBody = {
   contents: GenContent[];
   systemInstruction?: { parts: GenPart[] };
   generationConfig: Record<string, unknown>;
-};
-
-type RequestPayload = {
-  generation: GenerationBody;
-  patientInitials?: string;
-  /** Explicit name/alias tokens from the client (Hebrew + Latin) — scrubbed before Gemini. */
-  nameTokens?: string[];
 };
 
 function escapeRegExp(s: string): string {
@@ -254,54 +247,32 @@ Deno.serve(async (req) => {
     );
   }
 
-  let payload: RequestPayload;
+  let payload: {
+    generation: GenerationBody;
+    patientInitials?: string;
+    nameTokens?: string[];
+  };
   try {
     const rawText = await req.text();
     if (rawText.length > maxBodyBytes) {
       return jsonResponse({ error: "Payload too large" }, 413, corsHeaders);
     }
-    const parsedBody = parseJsonObject(rawText);
-    if (!parsedBody) {
-      return jsonResponse({ error: "Invalid JSON body" }, 400, corsHeaders);
-    }
-    const generationRaw = parsedBody.generation;
-    if (!generationRaw || typeof generationRaw !== "object" || Array.isArray(generationRaw)) {
+    const parsed = parseJsonText(GeminiProxyBodySchema, rawText);
+    if (!parsed.ok) {
       return jsonResponse(
-        { error: "Missing generation.contents or generation.generationConfig" },
+        { error: parsed.error === "invalid_json" ? "Invalid JSON body" : "invalid_payload" },
         400,
         corsHeaders,
       );
     }
-    const genRec = generationRaw as Record<string, unknown>;
-    const contents = genRec.contents;
-    const generationConfig = genRec.generationConfig;
-    if (!Array.isArray(contents) || contents.length === 0) {
-      return jsonResponse(
-        { error: "Missing generation.contents or generation.generationConfig" },
-        400,
-        corsHeaders,
-      );
-    }
-    if (!generationConfig || typeof generationConfig !== "object" || Array.isArray(generationConfig)) {
-      return jsonResponse(
-        { error: "Missing generation.contents or generation.generationConfig" },
-        400,
-        corsHeaders,
-      );
-    }
-    const patientInitials =
-      typeof parsedBody.patientInitials === "string" ? parsedBody.patientInitials : undefined;
-    const nameTokens = Array.isArray(parsedBody.nameTokens)
-      ? parsedBody.nameTokens.filter((t): t is string => typeof t === "string")
-      : undefined;
     payload = {
       generation: {
-        contents: contents as GenerationBody["contents"],
-        systemInstruction: genRec.systemInstruction as GenerationBody["systemInstruction"],
-        generationConfig: generationConfig as Record<string, unknown>,
+        contents: parsed.data.generation.contents,
+        systemInstruction: parsed.data.generation.systemInstruction,
+        generationConfig: parsed.data.generation.generationConfig as Record<string, unknown>,
       },
-      patientInitials,
-      nameTokens,
+      patientInitials: parsed.data.patientInitials,
+      nameTokens: parsed.data.nameTokens,
     };
   } catch {
     return jsonResponse({ error: "Invalid JSON body" }, 400, corsHeaders);
