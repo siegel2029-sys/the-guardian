@@ -28,7 +28,7 @@ import type {
 } from '../hooks/useGamification';
 import type { PatientGearState } from './patientGearUtils';
 import type { SupabasePushResult } from '../lib/supabaseSync';
-import type { PersistedPatientStateV1 } from '../utils/persistence';
+import type { PersistedPatientStateV1 } from './patientPersistence';
 
 // ── Slice shapes (match patientDomainHooks public API) ───────────────────────
 

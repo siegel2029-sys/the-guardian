@@ -130,7 +130,7 @@ function cellStyle(
 
 interface ClinicalMonthCalendarProps {
   /** מפת תאריך קליני → רשומה */
-  dayMap: Record<string, DailyHistoryEntry>;
+  dayMap: Record<string, DailyHistoryEntry | undefined>;
   clinicalToday: string;
 }
 

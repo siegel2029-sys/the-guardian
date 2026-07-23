@@ -24,7 +24,7 @@ export type TierRoutingState = {
  * Foundational for B2C freemium — does not invent billing beyond JWT metadata.
  */
 export function useTierRouting(): TierRoutingState {
-  const { session, sessionRole, patientSessionId, isLoading } = useAuth();
+  const { sessionRole, patientSessionId, isLoading } = useAuth();
 
   return useMemo(() => {
     if (isLoading) {
@@ -38,7 +38,7 @@ export function useTierRouting(): TierRoutingState {
       };
     }
 
-    if (sessionRole === 'therapist' || session?.role === 'therapist') {
+    if (sessionRole === 'therapist') {
       return {
         tier: 'therapist',
         clinicPatientId: null,
@@ -80,7 +80,7 @@ export function useTierRouting(): TierRoutingState {
       isTherapist: false,
       isLoading: false,
     };
-  }, [isLoading, session, sessionRole, patientSessionId]);
+  }, [isLoading, sessionRole, patientSessionId]);
 }
 
 /** Pure helper for tests / non-hook callers with a Supabase User. */
