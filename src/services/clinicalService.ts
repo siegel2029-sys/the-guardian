@@ -22,7 +22,7 @@ import {
   logSupabaseCallError,
 } from '../lib/supabaseSessionGuard';
 import { sanitizeDbErrorMessage } from '../lib/dbErrorSanitizer';
-import { devLog, redactId } from '../lib/safeLog';
+import { devLog, devWarn, redactId } from '../lib/safeLog';
 import {
   getAppKbHydratedFromCloud,
   hasAttemptedGlobalKbMigrationForTherapist,
@@ -989,7 +989,17 @@ function logExercisePlansSupabaseError(
   err: unknown,
   context?: Record<string, unknown>
 ) {
+  if (!import.meta.env.DEV) return;
   const p = err as (PostgrestError & { status?: number; statusText?: string }) | undefined;
+  const safeContext =
+    context == null
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(context).map(([k, v]) => [
+            k,
+            typeof v === 'string' && /(id|patient|therapist|auth|uid)/i.test(k) ? redactId(v) : v,
+          ]),
+        );
   console.error(`[upsertExercisePlans] ${scope}`, {
     message: p?.message ?? (err instanceof Error ? err.message : String(err)),
     code: p?.code,
@@ -997,7 +1007,7 @@ function logExercisePlansSupabaseError(
     statusText: p?.statusText,
     details: p?.details,
     hint: p?.hint,
-    ...context,
+    ...safeContext,
   });
 }
 
@@ -1162,9 +1172,9 @@ async function updateActiveExercisePlanInPlace(
     };
   }
 
-  console.log('[upsertExercisePlans] in-place update OK', {
-    patientId: args.patientId,
-    planRowId: args.planRowId,
+  devLog('[upsertExercisePlans] in-place update OK', {
+    patientRef: redactId(args.patientId),
+    planRowRef: redactId(args.planRowId),
     exerciseCount: args.exercises.length,
   });
 
@@ -1221,9 +1231,9 @@ async function insertNewActiveExercisePlanVersion(
     };
 
     if (!insertPayload.patient_id || !args.authUid) {
-      console.warn('[upsertExercisePlans] ⚠ חסר patient_id או auth_uid לפני insert', {
-        patient_id: insertPayload.patient_id,
-        auth_uid: args.authUid,
+      devWarn('[upsertExercisePlans] missing patient_id or auth_uid before insert', {
+        patientRef: redactId(insertPayload.patient_id),
+        authRef: redactId(args.authUid),
       });
     }
 
@@ -1241,7 +1251,10 @@ async function insertNewActiveExercisePlanVersion(
       .select('id');
 
     if (!insErr) {
-      console.log('[upsertExercisePlans] insert OK', { data: insData, label: args.logLabel });
+      devLog('[upsertExercisePlans] insert OK', {
+        label: args.logLabel,
+        rowCount: Array.isArray(insData) ? insData.length : 0,
+      });
       return { ok: true };
     }
 
@@ -1453,16 +1466,20 @@ export async function upsertExercisePlans(
         // Patient row not visible via RLS (may not exist yet, or therapist_id is stale).
         // We'll still try the exercise_plans write; it will succeed only if the patients
         // row on the DB side already has therapist_id = auth.uid().
-        console.warn(
-          '[upsertExercisePlans] patients.therapist_id לא נמצא — ייתכן שה-RLS יחסום את ה-INSERT',
-          { patientId, auth_uid: authUid }
+        devWarn(
+          '[upsertExercisePlans] patients.therapist_id not found — RLS may block INSERT',
+          { patientRef: redactId(patientId), authRef: redactId(authUid) }
         );
       } else if (rowTherapistId !== authUid) {
         // Mismatch: the stored therapist_id is different from the current JWT.
         // The RLS policy will block the INSERT with a silent 0-rows result or 403.
-        console.warn(
-          '[upsertExercisePlans] patients.therapist_id אינו תואם ל-auth.uid() — RLS ייחסום את הכתיבה',
-          { patientId, row_therapist_id: rowTherapistId, auth_uid: authUid }
+        devWarn(
+          '[upsertExercisePlans] patients.therapist_id mismatch vs auth.uid() — RLS will block write',
+          {
+            patientRef: redactId(patientId),
+            rowTherapistRef: redactId(rowTherapistId),
+            authRef: redactId(authUid),
+          }
         );
       }
 
@@ -1476,8 +1493,8 @@ export async function upsertExercisePlans(
       const forceSave = forceSavePatientIds.has(patientId);
       const atVersionCap = currentVn >= EXERCISE_PLAN_VERSION_INSERT_CAP;
 
-      if (hadPrev && !forceSave) {
-        const dbSig = exercisesComparableSignatureFromUnknown(prevActive!.exercises);
+      if (hadPrev && prevActive && !forceSave) {
+        const dbSig = exercisesComparableSignatureFromUnknown(prevActive.exercises);
         const incomingSig = exercisePlanExercisesComparableSignature(exercises);
         if (dbSig === incomingSig) {
           devLog('[SAVE_CHECK] Attempting to save exercise plan. Change detected: NO', {
@@ -1508,36 +1525,36 @@ export async function upsertExercisePlans(
 
       // At version cap: UPDATE the canonical active row instead of INSERTing another version.
       // forceSave bypasses the old session halt; auto-save also uses in-place update (never drops edits).
-      if (atVersionCap && hadPrev) {
+      if (atVersionCap && hadPrev && prevActive) {
         if (!forceSave) {
-          console.warn(
+          devWarn(
             `[upsertExercisePlans] version_number >= ${EXERCISE_PLAN_VERSION_INSERT_CAP} — in-place UPDATE (auto-save)`,
-            { patientId, version_number: currentVn }
+            { patientRef: redactId(patientId), version_number: currentVn }
           );
         } else {
-          console.log(
+          devLog(
             `[upsertExercisePlans] version_number >= ${EXERCISE_PLAN_VERSION_INSERT_CAP} — in-place UPDATE (explicit forceSave)`,
-            { patientId, version_number: currentVn }
+            { patientRef: redactId(patientId), version_number: currentVn }
           );
         }
 
         const upd = await updateActiveExercisePlanInPlace(client, {
-          planRowId: prevActive!.id,
+          planRowId: prevActive.id,
           patientId,
           exercises,
           now,
           changeSummary,
           authUid,
           rowTherapistId,
-          prevExercises: prevActive!.exercises,
+          prevExercises: prevActive.exercises,
           therapistId,
         });
         if (!upd.ok) return upd;
         continue;
       }
 
-      const nextVersion = hadPrev ? (prevActive!.version_number ?? 1) + 1 : 1;
-      const parentPlanId = hadPrev ? prevActive!.id : null;
+      const nextVersion = hadPrev && prevActive ? (prevActive.version_number ?? 1) + 1 : 1;
+      const parentPlanId = hadPrev && prevActive ? prevActive.id : null;
       const logLabel = hadPrev ? 'exercise_plans INSERT (new version)' : 'exercise_plans INSERT (v1)';
 
       const ins = await insertNewActiveExercisePlanVersion(client, {
@@ -1564,13 +1581,13 @@ export async function upsertExercisePlans(
           newValue: { exercises },
         });
         if (!audit.ok) return audit;
-      } else {
+      } else if (prevActive) {
         const audit = await insertClinicalAuditLog(client, {
           therapistId,
           patientId,
           entityType: 'plan',
           action: 'update',
-          oldValue: { exercises: prevActive!.exercises },
+          oldValue: { exercises: prevActive.exercises },
           newValue: { exercises },
         });
         if (!audit.ok) return audit;
@@ -1580,7 +1597,9 @@ export async function upsertExercisePlans(
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[upsertExercisePlans] שגיאה בלתי צפויה', msg, e);
+    if (import.meta.env.DEV) {
+      console.error('[upsertExercisePlans] unexpected error', msg);
+    }
     return { ok: false, message: `exercise_plans: ${msg}` };
   }
 }

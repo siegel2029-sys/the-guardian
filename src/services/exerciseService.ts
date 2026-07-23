@@ -19,7 +19,7 @@ import {
 import { clinicalPushFail, touchPatientPortalWorkoutActivity, type ClinicalPushResult } from './clinicalService';
 import { supabase } from '../lib/supabase';
 import { isSupabaseAuthEnabled } from '../lib/patientPortalAuth';
-import { devWarn, redactId } from '../lib/safeLog';
+import { devError, devWarn, redactId } from '../lib/safeLog';
 import {
   ensureSupabaseSessionReady,
   logSupabaseCallError,
@@ -539,9 +539,10 @@ export async function upsertDailySessionRowMerged(
     await touchPatientPortalWorkoutActivity(client, session.patientId);
     return { ok: true };
   } catch (e) {
-    console.error('[SYNC_ERROR] upsertDailySessionRowMerged/unexpected', e, {
-      patientId: session.patientId,
+    devError('[SYNC_ERROR] upsertDailySessionRowMerged/unexpected', {
+      patientRef: redactId(session.patientId),
       session_date: session.date,
+      message: e instanceof Error ? e.message : String(e),
     });
     logSupabaseCallError('upsertDailySessionRowMerged/unexpected', e, {
       patientId: session.patientId,
@@ -569,9 +570,10 @@ export async function persistPatientFinishReportToCloud(
       { therapistId: options?.therapistId?.trim() || undefined }
     );
   } catch (e) {
-    console.error('[SYNC_ERROR] persistPatientFinishReportToCloud', e, {
-      patientId: report.patientId,
-      exerciseId: report.exerciseId,
+    devError('[SYNC_ERROR] persistPatientFinishReportToCloud', {
+      patientRef: redactId(report.patientId),
+      exerciseRef: redactId(report.exerciseId),
+      message: e instanceof Error ? e.message : String(e),
     });
     return { ok: false, message: e instanceof Error ? e.message : String(e) };
   }
@@ -886,4 +888,23 @@ export async function fetch7dComplianceFromSupabase(
     });
   }
   return out;
+}
+
+/**
+ * Exact count of `exercise_logs` rows for a patient (head-only). Used by reminder UI.
+ */
+export async function countExerciseLogsForPatient(
+  client: SupabaseClient,
+  patientId: string,
+): Promise<{ ok: true; data: number } | { ok: false; message: string }> {
+  const pid = patientId.trim();
+  if (!pid) return { ok: false, message: 'missing patient id' };
+  const { count, error } = await client
+    .from('exercise_logs')
+    .select('*', { count: 'exact', head: true })
+    .eq('patient_id', pid);
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+  return { ok: true, data: count ?? 0 };
 }

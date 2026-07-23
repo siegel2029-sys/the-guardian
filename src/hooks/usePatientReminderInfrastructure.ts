@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { countExerciseLogsForPatient } from '../services/exerciseService';
 import {
   persistPatientPushProfile,
   registerPatientPushForSupabase,
   syncWebPushDatabasePayloadIfStale,
   touchPatientLastLoginThrottled,
 } from '../services/patientPushNotifications';
+import { devWarn } from '../lib/safeLog';
 
 export function usePatientReminderInfrastructure(opts: {
   patientId: string | null;
@@ -32,16 +34,13 @@ export function usePatientReminderInfrastructure(opts: {
       setExerciseLogCount(null);
       return;
     }
-    const { count, error } = await supabase
-      .from('exercise_logs')
-      .select('*', { count: 'exact', head: true })
-      .eq('patient_id', patientId);
-    if (error) {
-      console.warn('[usePatientReminderInfrastructure] exercise_logs count', error.message);
+    const result = await countExerciseLogsForPatient(supabase, patientId);
+    if (!result.ok) {
+      devWarn('[usePatientReminderInfrastructure] exercise_logs count', { message: result.message });
       setExerciseLogCount(null);
       return;
     }
-    setExerciseLogCount(count ?? 0);
+    setExerciseLogCount(result.data);
   }, [patientId, authReady]);
 
   useEffect(() => {
@@ -83,7 +82,7 @@ export function usePatientReminderInfrastructure(opts: {
       await syncWebPushDatabasePayloadIfStale(patientId);
       const reg = await registerPatientPushForSupabase(patientId);
       if (!reg.ok) {
-        console.warn('[usePatientReminderInfrastructure] push register skipped:', reg.reason);
+        devWarn('[usePatientReminderInfrastructure] push register skipped:', { reason: reg.message });
         return;
       }
       const saved = await persistPatientPushProfile({
@@ -92,7 +91,7 @@ export function usePatientReminderInfrastructure(opts: {
         webPushSubscription: reg.webPushSubscription,
       });
       if (!saved.ok) {
-        console.warn('[usePatientReminderInfrastructure] push persist', saved.message);
+        devWarn('[usePatientReminderInfrastructure] push persist', { message: saved.message });
       }
     })();
   }, [active, patientId, authReady]);

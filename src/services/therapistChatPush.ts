@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 import { getSupabaseAuthSession } from '../lib/supabaseSessionGuard';
+import { devError, devLog, devWarn, redactId } from '../lib/safeLog';
 import { readPushTokenFromPatientPayload } from './patientPushNotifications';
 
 export type PatientChatPushContext = {
@@ -40,13 +41,11 @@ export async function fetchPatientChatPushContext(
     .maybeSingle();
 
   if (error) {
-    console.warn('[Push Dispatch] fetchPatientChatPushContext failed:', error.message);
+    devWarn('[Push Dispatch] fetchPatientChatPushContext failed:', { message: error.message });
     return null;
   }
   if (!data?.id) {
-    if (import.meta.env.DEV) {
-      console.warn('[Push Dispatch] fetchPatientChatPushContext: no patient row');
-    }
+    devWarn('[Push Dispatch] fetchPatientChatPushContext: no patient row');
     return null;
   }
 
@@ -84,24 +83,23 @@ export async function dispatchTherapistChatPushNotification(
   if (import.meta.env.DEV) {
     console.log('[Push Dispatch] Firing push', {
       hasToken: hasDeliverablePatientPushToken(token),
+      patientRef: redactId(patientId),
     });
   }
 
   if (!hasDeliverablePatientPushToken(token)) {
-    if (import.meta.env.DEV) {
-      console.warn('[Push Dispatch] Skipping — no deliverable Expo/Web Push token');
-    }
+    devWarn('[Push Dispatch] Skipping — no deliverable Expo/Web Push token');
     return;
   }
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.warn('[Push Dispatch] Skipping — Supabase env not configured');
+    devWarn('[Push Dispatch] Skipping — Supabase env not configured');
     return;
   }
 
   const session = await getSupabaseAuthSession(client);
   if (!session?.access_token) {
-    console.warn('[Push Dispatch] Skipping — no therapist auth session');
+    devWarn('[Push Dispatch] Skipping — no therapist auth session');
     return;
   }
 
@@ -129,19 +127,24 @@ export async function dispatchTherapistChatPushNotification(
     }
 
     if (!res.ok) {
-      console.error('[Push Dispatch] Edge function HTTP error', res.status, parsed.error ?? raw.slice(0, 200));
+      devError('[Push Dispatch] Edge function HTTP error', {
+        status: res.status,
+        detail: parsed.error ?? raw.slice(0, 200),
+      });
       return;
     }
 
     if (parsed.sent) {
-      if (import.meta.env.DEV) console.log('[Push Dispatch] Push sent OK');
+      devLog('[Push Dispatch] Push sent OK');
     } else if (parsed.ok && parsed.reason) {
       if (import.meta.env.DEV) console.warn('[Push Dispatch] Push not sent:', parsed.reason);
     } else if (!parsed.ok) {
-      console.error('[Push Dispatch] Push failed:', parsed.error ?? 'upstream error');
+      devError('[Push Dispatch] Push failed:', { detail: parsed.error ?? 'upstream error' });
     }
   } catch (e) {
-    console.error('[Push Dispatch] Network error calling send-therapist-chat-push', e);
+    devError('[Push Dispatch] Network error calling send-therapist-chat-push', {
+      message: e instanceof Error ? e.message : String(e),
+    });
   }
 }
 
@@ -222,12 +225,12 @@ export async function dispatchPatientPushSyncRequest(
 
     if (!res.ok) {
       const detail = parsed.error ?? raw.slice(0, 200);
-      console.error('[Push Sync Request] HTTP error', res.status, detail);
+      devError('[Push Sync Request] HTTP error', { status: res.status, detail });
       return { ok: false, sent: false, message: `שגיאת שרת (${res.status}): ${detail}` };
     }
 
     if (parsed.sent) {
-      console.log('[Push Sync Request] Sent push_sync for', pid);
+      devLog('[Push Sync Request] Sent push_sync', { patientRef: redactId(pid) });
       return {
         ok: true,
         sent: true,
@@ -255,7 +258,7 @@ export async function dispatchPatientPushSyncRequest(
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[Push Sync Request] Network error', e);
+    devError('[Push Sync Request] Network error', { message: msg });
     return { ok: false, sent: false, message: `שגיאת רשת: ${msg}` };
   }
 }

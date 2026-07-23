@@ -36,6 +36,7 @@ const typeBg: Record<string, string>   = { clinical: '#e0f2fe', standard: '#f3e8
 const typeText: Record<string, string> = { clinical: '#0369a1', standard: '#6b21a8', custom: '#c2410c' };
 
 import { formatTime } from '../../utils/formatExerciseTime';
+import { devError, devLog, redactId } from '../../lib/safeLog';
 export { formatTime };
 
 // ── Custom form state ─────────────────────────────────────────────
@@ -1348,7 +1349,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                   const latestExercises = resolveExercisesForCloudSave();
                   if (import.meta.env.DEV) {
                     console.log('[ManagePlanModal] cloud save payload instructions sample', {
-                      patientId: selectedPatient.id,
+                      patientRef: redactId(selectedPatient.id),
                       exercises: latestExercises.map((e) => ({
                         id: e.id,
                         instructions: e.instructions,
@@ -1364,14 +1365,14 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                   if (res.ok) {
                     setSuccessMsg('נשמר לענן בהצלחה (exercise_plans).');
                     window.setTimeout(() => setSuccessMsg(null), 2800);
-                    console.log('[ManagePlanModal] תוכנית תרגילים נשמרה לענן', {
-                      patientId: selectedPatient.id,
+                    devLog('[ManagePlanModal] exercise plan saved to cloud', {
+                      patientRef: redactId(selectedPatient.id),
                     });
                   } else if (!supabaseConfigured) {
                     setSuccessMsg('Supabase לא מוגדר — עודכנה רק המצב המקומי.');
                     window.setTimeout(() => setSuccessMsg(null), 4000);
                   } else {
-                    console.error('[ManagePlanModal] שמירת תוכנית לענן נכשלה', res.message);
+                    devError('[ManagePlanModal] cloud plan save failed', { reason: res.message });
                     setSuccessMsg(`שמירה לענן נכשלה: ${res.message}`);
                     window.setTimeout(() => setSuccessMsg(null), 5000);
                   }

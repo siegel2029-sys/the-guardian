@@ -1,6 +1,6 @@
 /**
  * @deprecated Import from `./clinicalRecommendationEngine` instead.
- * Re-exports preserved for existing import paths.
+ * Re-exports preserved for existing import paths — kept intact for future product iterations.
  */
 export {
   fetchAiPlanAdjustmentSuggestion,

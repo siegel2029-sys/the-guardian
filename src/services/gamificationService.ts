@@ -1,6 +1,7 @@
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 import type { KnowledgeFact } from '../types';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
+import { devLog, devWarn, redactId } from '../lib/safeLog';
 
 export type AppKnowledgeBaseRow = {
   items: KnowledgeFact[];
@@ -86,19 +87,19 @@ async function executeAppKbFetch(
           ? ((data as Record<string, unknown>).items as unknown[]).length
           : null;
 
-      console.log('[TIP_SYNC] Database returned:', {
+      devLog('[TIP_SYNC] Database returned:', {
         step: 'WHERE id = therapistAuthUserId',
-        therapistAuthUserId: therapistKey,
+        therapistRef: redactId(therapistKey),
         rowPresent: !!(data && typeof data === 'object'),
         postgrestError: error?.message ?? null,
         rawItemsLength: rawLen,
-        rowId:
+        rowRef:
           data && typeof data === 'object'
-            ? String((data as Record<string, unknown>).id ?? '')
+            ? redactId(String((data as Record<string, unknown>).id ?? ''))
             : undefined,
-        rowTherapistIdCol:
+        rowTherapistRef:
           data && typeof data === 'object'
-            ? String((data as Record<string, unknown>).therapist_id ?? '')
+            ? redactId(String((data as Record<string, unknown>).therapist_id ?? ''))
             : undefined,
       });
 
@@ -120,9 +121,9 @@ async function executeAppKbFetch(
           ? ((data as Record<string, unknown>).items as unknown[]).length
           : null;
 
-      console.log('[TIP_SYNC] Database returned:', {
+      devLog('[TIP_SYNC] Database returned:', {
         step: 'WHERE therapist_id = therapistAuthUserId',
-        therapistAuthUserId: therapistKey,
+        therapistRef: redactId(therapistKey),
         rowPresent: !!(data && typeof data === 'object'),
         postgrestError: error?.message ?? null,
         rawItemsLength: rawLen2,
@@ -144,7 +145,7 @@ async function executeAppKbFetch(
 
     warnKbMissingTable(legacyErr);
 
-    console.log('[TIP_SYNC] Database returned:', {
+    devLog('[TIP_SYNC] Database returned:', {
       step: 'WHERE id = global',
       rowPresent: !!(legacyData && typeof legacyData === 'object'),
       postgrestError: legacyErr?.message ?? null,
@@ -159,7 +160,9 @@ async function executeAppKbFetch(
     if (legacyErr || !legacyData || typeof legacyData !== 'object') return null;
     return rowToAppKnowledgeBaseRow(legacyData as Record<string, unknown>, options);
   } catch (e) {
-    console.warn('[TIP_SYNC] executeAppKbFetch error', e);
+    devWarn('[TIP_SYNC] executeAppKbFetch error', {
+      message: e instanceof Error ? e.message : String(e),
+    });
     return emptyKbRow();
   }
 }
@@ -184,7 +187,7 @@ export async function fetchAppKnowledgeBaseFromSupabase(
     const outcome = await Promise.race([fetchPromise, timeoutPromise]);
 
     if (outcome.tag === 'timeout') {
-      console.warn(
+      devWarn(
         `[TIP_SYNC] fetchAppKnowledgeBaseFromSupabase timed out after ${APP_KB_FETCH_TIMEOUT_MS}ms — returning empty items`
       );
       return emptyKbRow();
@@ -192,9 +195,11 @@ export async function fetchAppKnowledgeBaseFromSupabase(
 
     return outcome.value;
   } catch (e) {
-    console.warn('[TIP_SYNC] fetchAppKnowledgeBaseFromSupabase error', e);
+    devWarn('[TIP_SYNC] fetchAppKnowledgeBaseFromSupabase error', {
+      message: e instanceof Error ? e.message : String(e),
+    });
     return emptyKbRow();
   } finally {
-    console.log('[TIP_SYNC] Fetch sequence ended', { elapsedMs: Date.now() - started });
+    devLog('[TIP_SYNC] Fetch sequence ended', { elapsedMs: Date.now() - started });
   }
 }

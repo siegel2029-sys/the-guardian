@@ -34,3 +34,24 @@ export function redactId(id: string | null | undefined): string {
   if (t.length <= 8) return `…${t.length}c`;
   return `${t.slice(0, 4)}…${t.slice(-2)}`;
 }
+
+const ID_KEY_RE = /(^|_)(id|patient|therapist|auth|user|uid|profile)(id|Id|_id)?$/i;
+
+/**
+ * Shallow-redact string values whose keys look like identifiers.
+ * Use before attaching `extra` bags to any console / logSupabaseCallError path.
+ */
+export function redactLogContext(
+  extra: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!extra) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(extra)) {
+    if (typeof v === 'string' && ID_KEY_RE.test(k)) {
+      out[k] = redactId(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}

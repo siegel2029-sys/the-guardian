@@ -115,8 +115,8 @@ export async function registerAndPersistTherapistPush(
 
   const reg = await registerPatientPushForSupabase(id);
   if (!reg.ok) {
-    console.warn('[PhysioShield therapist push] register skipped:', reg.reason);
-    return { ok: false, message: reg.reason };
+    console.warn('[PhysioShield therapist push] register skipped:', reg.message);
+    return { ok: false, message: reg.message };
   }
 
   const saved = await persistTherapistPushProfile({

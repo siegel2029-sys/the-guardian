@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { hasAcceptedAllLegalTerms, type LegalConsentStatus } from './legalConsent';
+import { devError, redactId } from '../lib/safeLog';
 
 export { hasAcceptedAllLegalTerms };
 export type { LegalConsentStatus };
@@ -28,8 +29,8 @@ function logSupabaseError(
   patientId: string,
   error: { message?: string; code?: string; details?: string; hint?: string }
 ): void {
-  console.error(`[patientLegalConsent] ${operation} failed`, {
-    patientId,
+  devError(`[patientLegalConsent] ${operation} failed`, {
+    patientRef: redactId(patientId),
     message: error.message,
     code: error.code,
     details: error.details,
@@ -46,10 +47,7 @@ export async function fetchPatientLegalConsentStatus(
 ): Promise<LegalConsentStatus | null> {
   if (!isSupabaseConfigured || !supabase) {
     const err = new Error('[patientLegalConsent] Supabase is not configured.');
-    console.error('[patientLegalConsent] fetchPatientLegalConsentStatus failed', {
-      patientId,
-      message: err.message,
-    });
+    logSupabaseError('fetchPatientLegalConsentStatus', patientId, { message: err.message });
     throw err;
   }
 
@@ -74,10 +72,7 @@ export async function fetchPatientLegalConsentStatus(
 export async function acceptPatientLegalTerms(patientId: string): Promise<LegalConsentStatus> {
   if (!isSupabaseConfigured || !supabase) {
     const err = new Error('[patientLegalConsent] Supabase is not configured.');
-    console.error('[patientLegalConsent] acceptPatientLegalTerms failed', {
-      patientId,
-      message: err.message,
-    });
+    logSupabaseError('acceptPatientLegalTerms', patientId, { message: err.message });
     throw err;
   }
 
@@ -102,10 +97,7 @@ export async function acceptPatientLegalTerms(patientId: string): Promise<LegalC
     const err = new Error(
       '[patientLegalConsent] Consent update matched no patient row (missing row or RLS mismatch).'
     );
-    console.error('[patientLegalConsent] acceptPatientLegalTerms failed', {
-      patientId,
-      message: err.message,
-    });
+    logSupabaseError('acceptPatientLegalTerms', patientId, { message: err.message });
     throw err;
   }
 

@@ -1058,7 +1058,9 @@ export function PatientProvider({
       // because the therapist-scoped localStorage snapshot is not available.
       const portalTherapistId = fetched.therapistId?.trim();
       if (portalTherapistId) {
-        console.warn(`[TIP_SYNC] Initializing fetch for Therapist ID: ${portalTherapistId}`);
+        devWarn('[TIP_SYNC] Initializing fetch for therapist', {
+          therapistRef: redactId(portalTherapistId),
+        });
       }
       try {
         const kbRes = await fetchAppKnowledgeBaseFromSupabase(supabaseClient, {
@@ -1069,8 +1071,8 @@ export function PatientProvider({
           setKnowledgeFacts((prev) => mergeKnowledgeFactsForUpsert(kbRes?.items ?? [], prev));
         }
       } catch (e) {
-        console.warn('[TIP_SYNC] fetchAppKnowledgeBaseFromSupabase failed — keeping prior tips', {
-          patientId: restrictPatientSessionId,
+        devWarn('[TIP_SYNC] fetchAppKnowledgeBaseFromSupabase failed — keeping prior tips', {
+          patientRef: redactId(restrictPatientSessionId),
           message: e instanceof Error ? e.message : String(e),
         });
       }

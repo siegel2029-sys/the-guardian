@@ -879,10 +879,11 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             }
           }
         } catch (e) {
-          console.error('[SYNC_ERROR] submitExerciseReport/portalCloud', e, {
-            patientId,
-            exerciseId,
+          devError('[SYNC_ERROR] submitExerciseReport/portalCloud', {
+            patientRef: redactId(patientId),
+            exerciseRef: redactId(exerciseId),
             clinicalDay,
+            message: e instanceof Error ? e.message : String(e),
           });
           logSupabaseCallError('submitExerciseReport/portalCloud', e, {
             patientId,
@@ -1547,9 +1548,10 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             // Still keep the report locally so effort/pain appear in history & charts
           }
         } catch (e) {
-          console.error('[SYNC_ERROR] appendPatientExerciseFinishReport', e, {
-            patientId,
-            reportId: full.id,
+          devError('[SYNC_ERROR] appendPatientExerciseFinishReport', {
+            patientRef: redactId(patientId),
+            reportRef: redactId(full.id),
+            message: e instanceof Error ? e.message : String(e),
           });
           logSupabaseCallError('appendPatientExerciseFinishReport', e, { patientId, reportId: full.id });
           onExerciseCloudSyncError?.(

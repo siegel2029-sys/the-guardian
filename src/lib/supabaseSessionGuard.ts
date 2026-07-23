@@ -4,6 +4,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isSupabaseAuthEnabled } from './patientPortalAuth';
 import { hasPersistedSupabaseAuthSession } from './supabase';
+import { isDevLoggingEnabled, redactLogContext } from './safeLog';
 
 export type SupabaseSessionGuardResult = { ok: true } | { ok: false; message: string };
 
@@ -22,24 +23,29 @@ export async function getSupabaseAuthSession(client: SupabaseClient) {
   return session;
 }
 
-/** Log the full PostgREST / Auth error for RLS / policy debugging. */
+/** Log PostgREST / Auth errors for RLS debugging — DEV only; redacts id-like keys (Iron Rule 1). */
 export function logSupabaseCallError(
   scope: string,
   err: unknown,
   extra?: Record<string, unknown>
 ): void {
-  const base =
-    err && typeof err === 'object'
-      ? { ...(err as Record<string, unknown>) }
-      : { message: String(err) };
+  if (!isDevLoggingEnabled()) return;
+  const message =
+    err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string'
+      ? (err as { message: string }).message
+      : err instanceof Error
+        ? err.message
+        : String(err);
+  const code =
+    err && typeof err === 'object' && 'code' in err ? (err as { code?: unknown }).code : undefined;
   try {
     console.error(`[Supabase:${scope}]`, {
-      ...base,
-      ...extra,
-      raw: err,
+      message,
+      code,
+      ...redactLogContext(extra),
     });
   } catch {
-    console.error(`[Supabase:${scope}]`, err, extra);
+    console.error(`[Supabase:${scope}]`, message);
   }
 }
 

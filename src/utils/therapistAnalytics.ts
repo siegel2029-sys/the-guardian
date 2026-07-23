@@ -1,6 +1,7 @@
 import type { PatientExerciseFinishReport } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { persistPatientFinishReportToCloud } from '../services/exerciseService';
+import { devWarn } from '../lib/safeLog';
 
 /**
  * מדביר דיווח סיום תרגיל ל־`session_history` (שילוב ב־payload של אותו יום קליני).
@@ -10,6 +11,6 @@ export async function sendDataToTherapist(report: PatientExerciseFinishReport): 
   if (!isSupabaseConfigured || !supabase) return;
   const res = await persistPatientFinishReportToCloud(supabase, report);
   if (!res.ok) {
-    console.warn('[sendDataToTherapist] session_history', res.message);
+    devWarn('[sendDataToTherapist] session_history', { message: res.message });
   }
 }

@@ -16,6 +16,7 @@ import type {
 } from '../types';
 import { normalizeKnowledgeFactsList } from '../utils/knowledgeFactNormalize';
 import { computeStreakForPatient } from '../utils/exerciseStreak';
+import { devLog } from '../lib/safeLog';
 import {
   lifetimeXpFromPatient,
   normalizePatientProgressFields,
@@ -215,7 +216,7 @@ export function mergeKnowledgeFactsForUpsert(
   }
 
   if (server.length > 0 || local.length > 0) {
-    console.log(
+    devLog(
       `[TIP_SYNC] Merging tip content. Local: ${local.length}, Server: ${server.length}`
     );
   }

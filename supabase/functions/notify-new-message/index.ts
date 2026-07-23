@@ -209,7 +209,7 @@ async function markPatientPushTokenStaleInPayload(
       .maybeSingle();
 
     if (fetchErr) {
-      console.error(`patient-push: failed to load payload for stale clear patients.id=${patientId}: ${fetchErr.message}`);
+      console.error(`patient-push: failed to load payload for stale clear ${patientLogRef(patientId)}: ${fetchErr.message}`);
       return;
     }
     if (!row) return;
@@ -223,7 +223,7 @@ async function markPatientPushTokenStaleInPayload(
       });
 
     if (!merged) {
-      console.error(`patient-push: failed to strip push fields from payload for patients.id=${patientId}`);
+      console.error(`patient-push: failed to strip push fields from payload for ${patientLogRef(patientId)}`);
       return;
     }
 
@@ -233,12 +233,12 @@ async function markPatientPushTokenStaleInPayload(
       .eq("id", patientId);
 
     if (error) {
-      console.error(`patient-push: failed to flag stale token for patients.id=${patientId}: ${error.message}`);
+      console.error(`patient-push: failed to flag stale token for ${patientLogRef(patientId)}: ${error.message}`);
     } else {
-      console.log(`patient-push: flagged stale push token for patients.id=${patientId} (cleared payload.pushToken).`);
+      console.log(`patient-push: flagged stale push token for ${patientLogRef(patientId)} (cleared payload.pushToken).`);
     }
   } catch (e) {
-    console.error(`patient-push: exception flagging stale token for patients.id=${patientId}:`, e instanceof Error ? e.message : String(e));
+    console.error(`patient-push: exception flagging stale token for ${patientLogRef(patientId)}:`, e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -257,12 +257,12 @@ async function markProfilePushTokenStale(
       })
       .eq("id", profileId);
     if (error) {
-      console.error(`patient-push: failed to flag stale token for profiles.id=${profileId}: ${error.message}`);
+      console.error(`patient-push: failed to flag stale token for profiles ${patientLogRef(profileId)}: ${error.message}`);
     } else {
-      console.log(`patient-push: flagged stale push token for profiles.id=${profileId} (cleared push_token).`);
+      console.log(`patient-push: flagged stale push token for profiles ${patientLogRef(profileId)} (cleared push_token).`);
     }
   } catch (e) {
-    console.error(`patient-push: exception flagging stale token for profiles.id=${profileId}:`, e instanceof Error ? e.message : String(e));
+    console.error(`patient-push: exception flagging stale token for profiles ${patientLogRef(profileId)}:`, e instanceof Error ? e.message : String(e));
   }
 }
 

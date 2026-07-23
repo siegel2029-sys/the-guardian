@@ -161,7 +161,9 @@ export default function ProceduralHumanoidScene({
       if (primaryBodyArea != null && isPickKeyClinicalFocus(key, primaryBodyArea)) {
         return;
       }
-      console.log('[PHYSIOSHIELD BodyMap] procedural pick', { part, pickKey: key });
+      if (import.meta.env.DEV) {
+        console.log('[PHYSIOSHIELD BodyMap] procedural pick', { part, pickKey: key });
+      }
 
       if (onPickKey) {
         onPickKey(key);

@@ -413,7 +413,7 @@ export function useTherapistPatientSmartClinical(
             : applyLoadAdjustment(patientId, row.item, planHandlers);
         setDismissedRowKeys((prev) => new Set([...prev, approvableRowKey(row)]));
         setPlanModificationFeedback(
-          result.ok ? 'השינוי יושם בתוכנית המקומית.' : result.error
+          result.ok ? 'השינוי יושם בתוכנית המקומית.' : result.message
         );
       } else {
         therapistApproveAiSuggestion(action.suggestionId);

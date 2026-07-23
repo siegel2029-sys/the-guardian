@@ -135,13 +135,13 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — security audit P0/P1 remediation closed._
+_Idle — code hygiene & regression sweep closed._
 
 ### Completed Steps (recent)
 
-- Security audit P0: blocked therapist self-claim via user_metadata; fixed chat INSERT tautology; restored chat column-lock trigger; single auth-delete path; `register-therapist` Edge Function.
-- PHI/logging: scrubbed production patient upsert dumps; plan-fetch returns `ok: false` on error; opaque Edge push IDs; redacted delivery errors.
-- Deployed `register-therapist`, `send-therapist-chat-push`, `notify-new-message`, `reminder-cron`, `gemini-proxy`, `web-push-public-key`, `boot-probe`.
+- Hygiene sweep: PHI-safe `devLog`/`redactId` on clinical/TIP_SYNC/push/legal paths; Edge `notify-new-message` uses `patientLogRef`.
+- Result shape: `serviceResult` helper; plan-mod + push register aligned to `{ ok, message }`; exercise_logs count moved to service layer.
+- Pinned `"strict": true` in app/node tsconfigs; removed `prevActive!` on plan versioning; `tsc -b` / `build` / 62 tests green.
 
 ### Next Action Items
 

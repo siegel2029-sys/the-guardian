@@ -65,7 +65,7 @@ export type ApplyPlanModificationHandlers = {
 
 export type ApplyPlanModificationResult =
   | { ok: true }
-  | { ok: false; error: string };
+  | { ok: false; message: string };
 
 export function applySuggestedExerciseChange(
   patientId: string,
@@ -76,17 +76,17 @@ export function applySuggestedExerciseChange(
 
   if (change.action === 'REMOVE') {
     const id = change.currentExerciseId?.trim();
-    if (!id) return { ok: false, error: 'חסר מזהה תרגיל להסרה' };
-    if (!plan.some((e) => e.id === id)) return { ok: false, error: 'תרגיל לא נמצא' };
+    if (!id) return { ok: false, message: 'חסר מזהה תרגיל להסרה' };
+    if (!plan.some((e) => e.id === id)) return { ok: false, message: 'תרגיל לא נמצא' };
     handlers.removeExerciseFromPlan(patientId, id);
     return { ok: true };
   }
 
   if (change.action === 'ADD') {
     const catalogId = change.newExerciseChainId?.trim();
-    if (!catalogId) return { ok: false, error: 'חסר תרגיל מוצע' };
+    if (!catalogId) return { ok: false, message: 'חסר תרגיל מוצע' };
     const found = findCatalogExerciseById(catalogId);
-    if (!found) return { ok: false, error: 'תרגיל לא נמצא בקטלוג' };
+    if (!found) return { ok: false, message: 'תרגיל לא נמצא בקטלוג' };
     handlers.addExerciseToPlan(patientId, catalogToExercise(found));
     return { ok: true };
   }
@@ -94,11 +94,11 @@ export function applySuggestedExerciseChange(
   if (change.action === 'REPLACE') {
     const currentId = change.currentExerciseId?.trim();
     const catalogId = change.newExerciseChainId?.trim();
-    if (!currentId || !catalogId) return { ok: false, error: 'חסרים מזהי תרגיל' };
+    if (!currentId || !catalogId) return { ok: false, message: 'חסרים מזהי תרגיל' };
     const current = plan.find((e) => e.id === currentId);
-    if (!current) return { ok: false, error: 'תרגיל נוכחי לא נמצא' };
+    if (!current) return { ok: false, message: 'תרגיל נוכחי לא נמצא' };
     const found = findCatalogExerciseById(catalogId);
-    if (!found) return { ok: false, error: 'תרגיל חלופי לא נמצא' };
+    if (!found) return { ok: false, message: 'תרגיל חלופי לא נמצא' };
     const base = catalogToExercise(found);
     const newEntry: PatientExercise = {
       ...base,
@@ -116,7 +116,7 @@ export function applySuggestedExerciseChange(
     return { ok: true };
   }
 
-  return { ok: false, error: 'פעולה לא נתמכת' };
+  return { ok: false, message: 'פעולה לא נתמכת' };
 }
 
 export function applyLoadAdjustment(
@@ -126,12 +126,12 @@ export function applyLoadAdjustment(
 ): ApplyPlanModificationResult {
   const plan = handlers.getPlanExercises(patientId);
   const ex = plan.find((e) => e.id === adj.exerciseId);
-  if (!ex) return { ok: false, error: 'תרגיל לא נמצא' };
+  if (!ex) return { ok: false, message: 'תרגיל לא נמצא' };
 
   const updates: Partial<Pick<PatientExercise, 'patientReps' | 'patientSets'>> = {};
   if (adj.suggestedReps != null) updates.patientReps = adj.suggestedReps;
   if (adj.suggestedSets != null) updates.patientSets = adj.suggestedSets;
-  if (Object.keys(updates).length === 0) return { ok: false, error: 'לא צוינו ערכים' };
+  if (Object.keys(updates).length === 0) return { ok: false, message: 'לא צוינו ערכים' };
 
   handlers.updateExerciseInPlan(patientId, adj.exerciseId, updates);
   return { ok: true };
@@ -145,7 +145,7 @@ export function applyPlanModificationSuggestion(
 ): ApplyPlanModificationResult {
   if (suggestion.actionType === 'MODIFY_PARAMS') {
     const id = suggestion.currentExerciseId?.trim();
-    if (!id) return { ok: false, error: 'חסר מזהה' };
+    if (!id) return { ok: false, message: 'חסר מזהה' };
     return applyLoadAdjustment(
       patientId,
       {
@@ -180,7 +180,7 @@ export function applyPlanModificationSuggestion(
       handlers
     );
   }
-  return { ok: false, error: 'לא נתמך' };
+  return { ok: false, message: 'לא נתמך' };
 }
 
 export function formatPlanModificationLabel(

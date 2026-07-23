@@ -116,7 +116,9 @@ export default function FallbackHumanoidPick({
     (meshName: string) => (e: ThreeEvent<MouseEvent>) => {
       e.stopPropagation();
       const key = meshNameToPickKey(meshName);
-      console.log('[PHYSIOSHIELD BodyMap] pick (fallback humanoid)', { meshName, pickKey: key });
+      if (import.meta.env.DEV) {
+        console.log('[PHYSIOSHIELD BodyMap] pick (fallback humanoid)', { meshName, pickKey: key });
+      }
       if (!key) return;
       if (onPickKey) {
         onPickKey(key);

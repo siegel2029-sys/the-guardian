@@ -538,7 +538,7 @@ export type PushRegisterResult =
       permission: NotificationPermission | 'unsupported';
       webPushSubscription?: WebPushSubscriptionPayload;
     }
-  | { ok: false; reason: string };
+  | { ok: false; message: string; reason: string };
 
 /**
  * Requests notification permission. On web with `VITE_WEB_PUSH_VAPID_PUBLIC_KEY` set and permission granted,
@@ -552,7 +552,7 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
   }
 
   if (typeof window === 'undefined' || typeof Notification === 'undefined') {
-    return { ok: false, reason: 'notifications_unsupported' };
+    return { ok: false, message: 'notifications_unsupported', reason: 'notifications_unsupported' };
   }
 
   let prompted = false;
@@ -579,7 +579,7 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
   }
 
   if (permission === 'denied') {
-    return { ok: false, reason: 'permission_denied' };
+    return { ok: false, message: 'permission_denied', reason: 'permission_denied' };
   }
 
   const vapidPublic = await resolveVapidPublicKey();
@@ -594,7 +594,7 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
         console.warn(
           '[PhysioShield push] VAPID key is set but pushManager.subscribe did not produce a subscription'
         );
-        return { ok: false, reason: 'web_push_subscribe_failed' };
+        return { ok: false, message: 'web_push_subscribe_failed', reason: 'web_push_subscribe_failed' };
       }
       webPushSubscription = subJson;
       token = subJson.endpoint;
@@ -689,7 +689,7 @@ export async function forceReregisterPatientWebPushClearStaleAndPersist(patientI
  */
 export async function forceReregisterPatientWebPush(patientId: string): Promise<PushRegisterResult> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
-    return { ok: false, reason: 'notifications_unsupported' };
+    return { ok: false, message: 'notifications_unsupported', reason: 'notifications_unsupported' };
   }
   try {
     localStorage.removeItem(WEB_PUSH_SUBSCRIPTION_SNAPSHOT_KEY);
