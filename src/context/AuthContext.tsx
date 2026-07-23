@@ -28,7 +28,7 @@ import {
 } from './authPersistence';
 import { readPersistedOnce } from '../bootstrap/persistedBootstrap';
 import type { Session, User } from '@supabase/supabase-js';
-import { hasPersistedSupabaseAuthSession, supabase } from '../lib/supabase';
+import { hasPersistedSupabaseAuthSession, supabase, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 import { supabaseAuthErrorMessageHe } from '../lib/supabaseAuthErrors';
 import {
   getClinicPatientIdFromUser,
@@ -123,7 +123,7 @@ interface AuthContextValue {
   clearLoginError: () => void;
   login: (identifier: string, password: string) => Promise<'therapist' | 'patient' | null>;
   /**
-   * הרשמת מטפל ב-Supabase Auth (מטא־דאטה: full_name, role=therapist).
+   * הרשמת מטפל דרך Edge Function `register-therapist` (app_metadata.role=therapist בלבד).
    * session — נכנסים מיד; verify_email — נרשמו בהצלחה, יש לאשר דוא״ל; failure — ראו loginError.
    */
   signUp: (email: string, password: string, displayName?: string) => Promise<TherapistSignUpResult>;
@@ -558,30 +558,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true);
       setLoginError(null);
       try {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              full_name: name,
-              role: 'therapist',
-            },
+        // Therapist role must be set via Edge Function (app_metadata) — never client user_metadata.
+        const registerUrl = `${supabaseUrl.replace(/\/$/, '')}/functions/v1/register-therapist`;
+        const registerRes = await fetch(registerUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: supabaseAnonKey,
+            Authorization: `Bearer ${supabaseAnonKey}`,
           },
+          body: JSON.stringify({
+            email,
+            password,
+            full_name: name,
+          }),
         });
-        if (error) {
-          setLoginError(
-            supabaseAuthErrorMessageHe(error, 'לא ניתן להשלים הרשמה. נסו שוב.')
-          );
+        let registerJson: { ok?: boolean; error?: string } = {};
+        try {
+          registerJson = (await registerRes.json()) as { ok?: boolean; error?: string };
+        } catch {
+          registerJson = {};
+        }
+        if (!registerRes.ok || registerJson.ok !== true) {
+          const code = registerJson.error ?? '';
+          if (code === 'email_taken' || registerRes.status === 409) {
+            setLoginError('כתובת הדוא״ל כבר רשומה במערכת.');
+          } else if (code === 'invalid_password' || code === 'invalid_payload') {
+            setLoginError('פרטי ההרשמה אינם תקינים. בדקו שם, דוא״ל וסיסמה.');
+          } else if (code === 'rate_limited' || registerRes.status === 429) {
+            setLoginError('יותר מדי ניסיונות. נסו שוב בעוד דקה.');
+          } else {
+            setLoginError('לא ניתן להשלים הרשמה. נסו שוב.');
+          }
           setIsLoading(false);
           return 'failure';
         }
-        if (data.session) {
-          await loadSupabaseUserIntoState();
+
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error || !data.session) {
+          // Email confirmation required, or session not issued yet.
           setIsLoading(false);
-          return 'session';
+          return 'verify_email';
         }
+        await loadSupabaseUserIntoState();
         setIsLoading(false);
-        return 'verify_email';
+        return 'session';
       } catch {
         setLoginError('שגיאת הרשמה. נסו שוב.');
         setIsLoading(false);

@@ -63,7 +63,7 @@ export type PatientProductTier = 'free' | 'pro' | 'therapist';
 
 /**
  * - `pro`: clinic invite — `app_metadata.patient_id` (or legacy user_metadata) set
- * - `therapist`: explicit `app_metadata.role=therapist` (legacy user_metadata only if not free)
+ * - `therapist`: explicit `app_metadata.role=therapist` only (never user_metadata)
  * - `free`: App Store / freemium — default when no clinic id and not therapist
  *
  * Never fail-open to therapist for unknown / incomplete signups.
@@ -73,15 +73,11 @@ export function getPatientProductTier(user: User): PatientProductTier {
   if (pid) return 'pro';
 
   const app = (user.app_metadata ?? {}) as Record<string, unknown>;
-  const um = (user.user_metadata ?? {}) as Record<string, unknown>;
   const appRole = metadataString(app, 'role');
   const appTier = metadataString(app, 'tier');
-  const legacyRole = metadataString(um, 'role');
 
   if (appRole === 'therapist') return 'therapist';
   if (appTier === 'free' || appRole === 'patient') return 'free';
-  // Legacy therapist JWTs before app_metadata promotion (not free-tier).
-  if (legacyRole === 'therapist' && appTier !== 'free') return 'therapist';
 
   return 'free';
 }

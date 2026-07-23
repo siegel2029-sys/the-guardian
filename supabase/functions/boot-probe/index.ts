@@ -3,6 +3,8 @@
  * `INTERNAL_CRON_SECRET` (same header used by reminder-cron). Unauthenticated
  * callers receive 401 — never expose VAPID lengths or key-build errors publicly.
  */
+import { timingSafeEqualString } from "../_shared/timingSafeEqual.ts";
+
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-cron-secret, content-type",
@@ -22,7 +24,7 @@ Deno.serve(async (req) => {
 
   const expected = (Deno.env.get("INTERNAL_CRON_SECRET") ?? "").trim();
   const provided = req.headers.get("x-cron-secret")?.trim() ?? "";
-  if (!expected || provided !== expected) {
+  if (!(await timingSafeEqualString(expected, provided))) {
     return json({ ok: false, error: "Unauthorized" }, 401);
   }
 

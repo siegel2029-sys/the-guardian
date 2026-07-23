@@ -382,6 +382,14 @@ verify_jwt = false
 [functions.reminder-cron]
 verify_jwt = false
 
+# Public therapist registration; sets app_metadata.role=therapist via service_role (no client claim).
+[functions.register-therapist]
+verify_jwt = false
+
+# Diagnostic probe; auth via x-cron-secret === INTERNAL_CRON_SECRET (lengths only in response).
+[functions.boot-probe]
+verify_jwt = false
+
 [edge_runtime]
 enabled = true
 # Supported request policies: `oneshot`, `per_worker`.

@@ -797,14 +797,14 @@ export async function upsertPatientRecords(
 
     const upsertRow = shallowStripUndefined(baseRow);
 
-    console.log('[upsertPatientRecords] row preview', {
-      id: upsertRow.id,
-      therapist_id: upsertRow.therapist_id,
-      original_therapistId: p.therapistId,
+    devLog('[upsertPatientRecords] row preview', {
+      id: typeof upsertRow.id === 'string' ? redactId(upsertRow.id) : undefined,
+      therapist_id:
+        typeof upsertRow.therapist_id === 'string' ? redactId(upsertRow.therapist_id) : undefined,
       therapist_id_repaired: p.therapistId !== therapistIdForRow,
       full_denormalized: PATIENTS_UPSERT_FULL_DENORMALIZED,
     });
-    consoleTableBeforePatientsUpsert(upsertRow, `UPSERT patients id=${payloadForUpsert.id}`);
+    consoleTableBeforePatientsUpsert(upsertRow, `UPSERT patients id=${redactId(payloadForUpsert.id)}`);
 
     const selectCols = PATIENTS_UPSERT_FULL_DENORMALIZED
       ? 'id, therapist_id, updated_at, first_name, age, gender, occupation, birth_date, demographics_free_text, active_area, contact_email, payload'
@@ -815,21 +815,15 @@ export async function upsertPatientRecords(
       .upsert([upsertRow], { onConflict: 'id' })
       .select(selectCols);
     if (error) {
-      console.error('[SYNC_ERROR] upsertPatientRecords/upsert', {
-        patientId: payloadForUpsert.id,
-        therapist_id: therapistIdForRow,
-        error_message: error.message,
-        error_code: (error as { code?: string }).code,
-        error_details: (error as { details?: string }).details,
-        error,
-      });
       logSupabaseCallError('upsertPatientRecords/upsert', error, {
-        patientId: payloadForUpsert.id,
-        therapist_id: therapistIdForRow,
+        patientId: redactId(payloadForUpsert.id),
+        therapist_id: redactId(therapistIdForRow),
       });
       return clinicalPushFail(`patients: ${error.message}`, error);
     }
-    console.log('[upsertPatientRecords] upsert select() response', { upserted, error: null });
+    devLog('[upsertPatientRecords] upsert select() ok', {
+      rowCount: upserted?.length ?? 0,
+    });
 
     for (const u of upserted ?? []) {
       const pl = (u as { payload?: unknown }).payload;
@@ -1769,19 +1763,17 @@ export async function fetchActiveExercisePlansForPatientIds(
     .select('id, patient_id, exercises, version_number, updated_at, is_active')
     .in('patient_id', ids);
 
-  console.log('[fetchActiveExercisePlansForPatientIds] raw Supabase response', {
-    patientIds: ids,
+  devLog('[fetchActiveExercisePlansForPatientIds] raw Supabase response', {
+    patientIdCount: ids.length,
     rowCount: data?.length ?? 0,
-    error,
+    hasError: Boolean(error),
   });
 
   if (error) {
-    console.warn('[fetchActiveExercisePlansForPatientIds] soft-fail — returning no plans', {
-      patientIds: ids,
-      message: error.message,
-      code: (error as { code?: string }).code,
-    });
-    return { ok: true, exercisePlans: [] };
+    return {
+      ok: false,
+      message: sanitizeDbErrorMessage(error.message || 'exercise_plans fetch failed'),
+    };
   }
 
   const rowsByPatient = new Map<string, ExercisePlanDbRow[]>();
@@ -1825,30 +1817,27 @@ export async function fetchActiveExercisePlanForPatient(
     .order('version_number', { ascending: false })
     .order('updated_at', { ascending: false });
 
-  console.log('[fetchActiveExercisePlanForPatient] raw Supabase response', {
-    patientId: id,
+  devLog('[fetchActiveExercisePlanForPatient] raw Supabase response', {
+    patientId: redactId(id),
     rowCount: data?.length ?? 0,
-    error,
+    hasError: Boolean(error),
   });
 
   if (error) {
-    console.warn('[fetchActiveExercisePlanForPatient] soft-fail — treating as empty plan', {
-      patientId: id,
-      message: error.message,
-      code: (error as { code?: string }).code,
-    });
-    return { ok: true, exercisePlan: null };
+    return {
+      ok: false,
+      message: sanitizeDbErrorMessage(error.message || 'exercise_plans fetch failed'),
+    };
   }
 
   const rows = data ?? [];
   if (rows.length > 1) {
-    console.warn(
-      '[fetchActiveExercisePlanForPatient] multiple exercise_plans rows for patient_id — using first after sort (newest version)',
+    devLog(
+      '[fetchActiveExercisePlanForPatient] multiple exercise_plans rows — using newest version',
       {
-        patientId: id,
+        patientId: redactId(id),
         rowCount: rows.length,
         pickedVersion: rows[0]?.version_number,
-        pickedId: rows[0]?.id,
       }
     );
   }

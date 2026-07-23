@@ -1,3 +1,4 @@
+import { timingSafeEqualString } from "../_shared/timingSafeEqual.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   hasDeliverableReminderToken,
@@ -444,7 +445,7 @@ Deno.serve(async (req) => {
   // whitespace from a pasted secret can never cause a silent mismatch.
   const secret = (Deno.env.get("INTERNAL_CRON_SECRET") ?? "").trim();
   const authHeader = req.headers.get("x-cron-secret")?.trim() ?? "";
-  const isValid = secret.length > 0 && authHeader === secret;
+  const isValid = await timingSafeEqualString(secret, authHeader);
   if (!isValid) {
     console.error("[reminder-cron] Unauthorized — missing or invalid cron secret (x-cron-secret vs INTERNAL_CRON_SECRET)");
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -634,7 +635,7 @@ Deno.serve(async (req) => {
     // Never return stack traces or internal error details to callers.
     console.error(
       "[reminder-cron] Unhandled error:",
-      error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error),
+      error instanceof Error ? error.message : String(error),
     );
     return new Response(
       JSON.stringify({ ok: false, error: "internal_error" }),

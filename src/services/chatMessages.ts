@@ -142,7 +142,7 @@ function isChatMessageRow(value: unknown): value is ChatMessageRow {
 function parseChatMessageRows(data: unknown): ChatMessageRow[] {
   if (!Array.isArray(data)) {
     if (data != null) {
-      console.warn('[fetchChatMessages] unexpected response shape — treating as empty', data);
+      console.warn('[fetchChatMessages] unexpected response shape — treating as empty');
     }
     return [];
   }

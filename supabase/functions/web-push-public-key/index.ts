@@ -12,6 +12,7 @@
  * Supabase gateway before this handler can attach CORS headers.
  *
  * Secret: `WEB_PUSH_VAPID_PUBLIC_KEY` (must pair with `WEB_PUSH_VAPID_PRIVATE_KEY` used to send).
+ * Fail closed (503) when the env key is missing — never bake a fallback key into the repo.
  */
 
 const corsHeaders: Record<string, string> = {
@@ -19,13 +20,6 @@ const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
-
-/**
- * Last-resort public key if the env secret is genuinely missing. NOTE: this only works if
- * WEB_PUSH_VAPID_PRIVATE_KEY pairs with it. Prefer setting WEB_PUSH_VAPID_PUBLIC_KEY.
- */
-const HARDCODED_FALLBACK_PUBLIC_KEY =
-  "BIRiFTcrsL5UwU6kkrQ3ThpZZJbGWmteXiILW0Zh3XXkgPWN1QGzs0tnCn0vy3OVVjIoaKuFB_LL-5j6DpBbr98";
 
 function normalizeVapidKeyString(raw: string | undefined | null): string {
   return (raw ?? "")
@@ -38,7 +32,7 @@ function normalizeVapidKeyString(raw: string | undefined | null): string {
 
 function getConfiguredVapidPublicKey(): string {
   const envPublic = normalizeVapidKeyString(Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY"));
-  return envPublic.length > 40 ? envPublic : HARDCODED_FALLBACK_PUBLIC_KEY;
+  return envPublic.length > 40 ? envPublic : "";
 }
 
 Deno.serve((req) => {
@@ -47,26 +41,27 @@ Deno.serve((req) => {
   }
 
   const publicKey = getConfiguredVapidPublicKey();
-  const ok = publicKey.length > 40;
-
-  if (!ok) {
+  if (!publicKey) {
     console.error(
-      "[web-push-public-key] WEB_PUSH_VAPID_PUBLIC_KEY is missing/short — frontend cannot subscribe correctly.",
+      "[web-push-public-key] WEB_PUSH_VAPID_PUBLIC_KEY is missing/short — refusing to serve a key.",
     );
-  } else {
-    console.log(
-      `[web-push-public-key] Served VAPID public key (length=${publicKey.length}, prefix=${publicKey.slice(0, 8)}).`,
-    );
+    return new Response(JSON.stringify({ ok: false, error: "vapid_public_key_unconfigured" }), {
+      status: 503,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
+  console.log(
+    `[web-push-public-key] Served VAPID public key (length=${publicKey.length}).`,
+  );
+
   return new Response(
-    JSON.stringify({ ok, publicKey }),
+    JSON.stringify({ ok: true, publicKey }),
     {
       status: 200,
       headers: {
         ...corsHeaders,
         "Content-Type": "application/json",
-        // Key rarely rotates; let clients cache briefly to avoid a request on every app open.
         "Cache-Control": "public, max-age=300",
       },
     },

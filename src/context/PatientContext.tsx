@@ -864,11 +864,11 @@ export function PatientProvider({
     void (async () => {
       const authUserId = supabase ? (await supabase.auth.getUser()).data.user?.id ?? null : null;
       if (cancelled) return;
-      console.log('[Patients load scope]', {
-        authUserId,
-        therapistId: therapist?.id ?? null,
-        therapistScopeIdsFiltered: therapistScopeIds,
-        therapistPatientScopeIds,
+      devLog('[Patients load scope]', {
+        authUserId: authUserId ? redactId(authUserId) : null,
+        therapistId: therapist?.id ? redactId(therapist.id) : null,
+        therapistScopeCount: therapistScopeIds?.length ?? 0,
+        therapistPatientScopeCount: therapistPatientScopeIds.length,
       });
     })();
     return () => {
@@ -1288,7 +1288,7 @@ export function PatientProvider({
         if (planRes.ok === false) {
           console.error(
             '[PatientContext] fetchActiveExercisePlanForPatient failed — using baseline plan so session_history hydration can still run',
-            { patientId: pid, reason: planRes.message }
+            { patientId: redactId(pid), reason: planRes.message }
           );
           const patientRow = allPatientsRef.current.find((p) => p.id === pid);
           return [
@@ -2057,7 +2057,7 @@ export function PatientProvider({
         if (fresh.ok === false) {
           console.warn(
             '[Exercise cloud save] רענון תוכנית מהשרת נכשל לאחר שמירה — משמרים תוכנית מקומית ממוזגת',
-            { patientId, reason: fresh.message }
+            { patientId: redactId(patientId), reason: fresh.message }
           );
           const fallback = mergeFetchedExercisePlanWithLocal(
             pickCanonicalExercisePlan(exercisePlansRef.current, patientId),
@@ -2629,14 +2629,15 @@ export function PatientProvider({
         immediate: true,
         persistSnapshotOverride,
         onPushComplete: (pushResult) => {
-          console.log('[TIP_SYNC] Supabase cloud push — full result after therapist tip save:', pushResult);
+          devLog('[TIP_SYNC] Supabase cloud push — result after therapist tip save', {
+            ok: pushResult.ok,
+            httpStatus: pushResult.ok === false ? pushResult.httpStatus : undefined,
+          });
           const kbUpsert = pushResult.knowledgeBaseUpsert;
           if (kbUpsert !== undefined) {
-            console.log('[TIP_SYNC] app_knowledge_base upsert response:', kbUpsert);
             if (!kbUpsert.ok) {
               console.warn('[TIP_SYNC] KB upsert error:', kbUpsert.message, {
                 httpStatus: kbUpsert.httpStatus,
-                raw: kbUpsert.raw,
               });
             }
           }
@@ -2736,14 +2737,15 @@ export function PatientProvider({
         trustKnowledgeFactDeletions: true,
         ...(seedToAppend ? { appendKnowledgeDeletedSeedIds: [seedToAppend] } : {}),
         onPushComplete: (pushResult) => {
-          console.log('[TIP_SYNC] Supabase cloud push — full result after therapist tip delete:', pushResult);
+          devLog('[TIP_SYNC] Supabase cloud push — result after therapist tip delete', {
+            ok: pushResult.ok,
+            httpStatus: pushResult.ok === false ? pushResult.httpStatus : undefined,
+          });
           const kbUpsert = pushResult.knowledgeBaseUpsert;
           if (kbUpsert !== undefined) {
-            console.log('[TIP_SYNC] app_knowledge_base upsert response (delete):', kbUpsert);
             if (!kbUpsert.ok) {
               console.warn('[TIP_SYNC] KB upsert error (delete):', kbUpsert.message, {
                 httpStatus: kbUpsert.httpStatus,
-                raw: kbUpsert.raw,
               });
             }
           }

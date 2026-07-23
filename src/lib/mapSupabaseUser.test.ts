@@ -34,7 +34,7 @@ describe('getPatientProductTier', () => {
     expect(getPatientProductTier(mockUser({}))).toBe('free');
   });
 
-  it('keeps legacy therapist user_metadata when not free', () => {
-    expect(getPatientProductTier(mockUser({ user: { role: 'therapist' } }))).toBe('therapist');
+  it('ignores user_metadata.role=therapist (client-writable — not authoritative)', () => {
+    expect(getPatientProductTier(mockUser({ user: { role: 'therapist' } }))).toBe('free');
   });
 });

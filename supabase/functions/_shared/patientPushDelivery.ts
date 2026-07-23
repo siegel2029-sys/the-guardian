@@ -8,6 +8,7 @@ import {
   stripPushFieldsFromPatientPayload,
 } from "./patientPayloadMeta.ts";
 import { isWebPushEndpoint } from "./webPushEndpointAllowlist.ts";
+import { patientLogRef } from "./reminderEligibility.ts";
 
 export { isWebPushEndpoint } from "./webPushEndpointAllowlist.ts";
 
@@ -205,11 +206,9 @@ let webPushVapidConfigured = false;
 let resolvedVapidPublicKey = "";
 
 /**
- * Last-resort public key if the env secret is genuinely missing. NOTE: this only works if
- * WEB_PUSH_VAPID_PRIVATE_KEY pairs with it. Prefer setting WEB_PUSH_VAPID_PUBLIC_KEY.
+ * Last-resort public key removed — fail closed when WEB_PUSH_VAPID_PUBLIC_KEY is missing
+ * so subscriptions never silently pair with the wrong signer.
  */
-const HARDCODED_FALLBACK_PUBLIC_KEY =
-  "BIRiFTcrsL5UwU6kkrQ3ThpZZJbGWmteXiILW0Zh3XXkgPWN1QGzs0tnCn0vy3OVVjIoaKuFB_LL-5j6DpBbr98";
 
 function normalizeVapidKeyString(raw: string | undefined | null): string {
   return (raw ?? "")
@@ -227,7 +226,7 @@ function normalizeVapidKeyString(raw: string | undefined | null): string {
 export function getConfiguredVapidPublicKey(): string {
   if (resolvedVapidPublicKey) return resolvedVapidPublicKey;
   const envPublic = normalizeVapidKeyString(Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY"));
-  return envPublic.length > 40 ? envPublic : HARDCODED_FALLBACK_PUBLIC_KEY;
+  return envPublic.length > 40 ? envPublic : "";
 }
 
 /** Length + format flags only — never log key material (Iron Rule 1 / secret hygiene). */
@@ -251,21 +250,7 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
 
   const ENV_PUBLIC_KEY = Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY");
   const envPublicKey = normalizeVapidKeyString(ENV_PUBLIC_KEY);
-
-  // CRITICAL: prefer the env public key. It is the one the browser subscribed against
-  // (VITE_WEB_PUSH_VAPID_PUBLIC_KEY) and the one that pairs with WEB_PUSH_VAPID_PRIVATE_KEY.
-  // Forcing a hardcoded key here was the source of the HTTP 403 "VAPID credentials do not
-  // correspond" failures — we now only fall back when the env key is genuinely absent.
-  const publicKey = envPublicKey.length > 40 ? envPublicKey : HARDCODED_FALLBACK_PUBLIC_KEY;
-  const usedFallback = publicKey === HARDCODED_FALLBACK_PUBLIC_KEY &&
-    envPublicKey.length <= 40;
-  if (usedFallback) {
-    console.warn(
-      "patient-push: WEB_PUSH_VAPID_PUBLIC_KEY env missing/short — using hardcoded fallback. " +
-        "Set WEB_PUSH_VAPID_PUBLIC_KEY to the key paired with WEB_PUSH_VAPID_PRIVATE_KEY to avoid 403 mismatches.",
-    );
-  }
-
+  const publicKey = envPublicKey.length > 40 ? envPublicKey : "";
   const privateKey = normalizeVapidKeyString(Deno.env.get("WEB_PUSH_VAPID_PRIVATE_KEY"));
 
   const subject = sanitizeVapidSubjectEnv(Deno.env.get("WEB_PUSH_VAPID_SUBJECT"));
@@ -274,7 +259,7 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
     return {
       ok: false,
       detail:
-        "Missing WEB_PUSH_VAPID_PUBLIC_KEY or WEB_PUSH_VAPID_PRIVATE_KEY. Public must match VITE_WEB_PUSH_VAPID_PUBLIC_KEY. " +
+        "Missing WEB_PUSH_VAPID_PUBLIC_KEY or WEB_PUSH_VAPID_PRIVATE_KEY. Public must match browser subscription key. " +
         "Generate: npx web-push generate-vapid-keys",
     };
   }
@@ -311,8 +296,7 @@ function ensureWebPushVapid(): { ok: true } | { ok: false; detail: string } {
   console.log(
     "patient-push: WEB_PUSH_VAPID_PUBLIC_KEY loaded:",
     "length=" + publicKey.length,
-    "prefix=" + publicKey.slice(0, 8),
-    "(must match browser VITE_WEB_PUSH_VAPID_PUBLIC_KEY bytes)",
+    "(must match browser subscription key bytes)",
   );
   return { ok: true };
 }
@@ -533,12 +517,12 @@ export async function markPatientPushTokenStale(
 
     if (fetchErr) {
       console.error(
-        `patient-push: failed to load payload for stale clear patients.id=${patientId}: ${fetchErr.message}`,
+        `patient-push: failed to load payload for stale clear ${patientLogRef(patientId)}: ${fetchErr.message}`,
       );
       return;
     }
     if (!row) {
-      console.warn(`patient-push: stale clear skipped — patient ${patientId} not found`);
+      console.warn(`patient-push: stale clear skipped — patient ${patientLogRef(patientId)} not found`);
       return;
     }
 
@@ -552,7 +536,7 @@ export async function markPatientPushTokenStale(
 
     if (!merged) {
       console.error(
-        `patient-push: failed to strip push fields from payload for patients.id=${patientId}`,
+        `patient-push: failed to strip push fields from payload for ${patientLogRef(patientId)}`,
       );
       return;
     }
@@ -564,16 +548,16 @@ export async function markPatientPushTokenStale(
 
     if (error) {
       console.error(
-        `patient-push: failed to flag stale token for patients.id=${patientId}: ${error.message}`,
+        `patient-push: failed to flag stale token for ${patientLogRef(patientId)}: ${error.message}`,
       );
     } else {
       console.log(
-        `patient-push: flagged stale push token for patients.id=${patientId} (cleared payload.pushToken). Reason: ${detail.slice(0, 120)}`,
+        `patient-push: flagged stale push token for ${patientLogRef(patientId)} (cleared payload.pushToken)`,
       );
     }
   } catch (e) {
     console.error(
-      `patient-push: exception flagging stale token for patients.id=${patientId}:`,
+      `patient-push: exception flagging stale token for ${patientLogRef(patientId)}:`,
       e instanceof Error ? e.message : String(e),
     );
   }

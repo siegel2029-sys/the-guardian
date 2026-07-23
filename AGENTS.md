@@ -135,19 +135,19 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — store-readiness P0/P1 remediation closed._
+_Idle — security audit P0/P1 remediation closed._
 
 ### Completed Steps (recent)
 
-- P0 store-readiness: chat notify trigger cutover; freemium auth default; domain-hook adoption; GuestDailyView; boot-probe lock.
-- Follow-up from Edge audit: `link_patient_auth_user` app_metadata-only; Web Push host allowlist (SSRF); VAPID key-fragment logs removed; `test_now` gated + response redaction; gemini budget no longer uses user_metadata.
-- Deployed `gemini-proxy`, `notify-new-message`, `reminder-cron`, `send-therapist-chat-push`.
+- Security audit P0: blocked therapist self-claim via user_metadata; fixed chat INSERT tautology; restored chat column-lock trigger; single auth-delete path; `register-therapist` Edge Function.
+- PHI/logging: scrubbed production patient upsert dumps; plan-fetch returns `ok: false` on error; opaque Edge push IDs; redacted delivery errors.
+- Deployed `register-therapist`, `send-therapist-chat-push`, `notify-new-message`, `reminder-cron`, `gemini-proxy`, `web-push-public-key`, `boot-probe`.
 
 ### Next Action Items
 
 1. **Ops:** Rotate `service_role` (exposed in old Dashboard webhook); confirm `INTERNAL_MESSAGES_WEBHOOK_SECRET` ↔ `private.app_config`.
 2. Enable HIBP after Pro: `node scripts/enable-password-hibp.mjs`.
-3. Set `REMINDER_ALLOW_TEST_NOW=true` only in non-prod when intentionally testing pushes.
+3. Set `ALLOWED_ORIGINS` in Edge secrets for CORS fail-closed on JWT-facing functions.
 4. Continue migrating remaining dashboard panels off fat `usePatient()`.
 5. Wire GuestDailyView invite code → portal signup end-to-end.
 

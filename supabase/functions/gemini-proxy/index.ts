@@ -286,10 +286,8 @@ Deno.serve(async (req) => {
   const rawBody = await geminiRes.text();
 
   if (geminiRes.status === 429) {
-    return new Response(rawBody || JSON.stringify({ error: "Rate limited" }), {
-      status: 429,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("[gemini-proxy] Gemini HTTP 429:", rawBody.slice(0, 200));
+    return jsonResponse({ error: "Rate limited" }, 429, corsHeaders);
   }
 
   if (!geminiRes.ok) {

@@ -26,6 +26,8 @@ import {
   stripPushFieldsFromPatientPayload,
 } from "../_shared/patientPayloadMeta.ts";
 import { isWebPushEndpoint } from "../_shared/webPushEndpointAllowlist.ts";
+import { patientLogRef } from "../_shared/reminderEligibility.ts";
+import { timingSafeEqualString } from "../_shared/timingSafeEqual.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -349,7 +351,7 @@ Deno.serve(async (req) => {
   // leak into proxy and load-balancer access logs.
   const secret = getWebhookSecret();
   const authHeader = req.headers.get("x-webhook-secret")?.trim() ?? "";
-  const isValid = secret.length > 0 && authHeader === secret;
+  const isValid = await timingSafeEqualString(secret, authHeader);
   if (!isValid) {
     console.error("[notify-new-message] Unauthorized — missing or invalid webhook secret");
     return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
@@ -373,18 +375,29 @@ Deno.serve(async (req) => {
 
   const payloadObj = payload as Record<string, unknown>;
 
-  // ── test-notification helper: POST {"type":"test-notification"} (with the secret header)
-  // to verify end-to-end reachability without inserting a chat row. Echoes the payload back
-  // and logs it, so you can confirm in the Dashboard logs that requests actually arrive.
+  // ── test-notification helper (gated): POST {"type":"test-notification"} with secret
+  // Requires NOTIFY_ALLOW_TEST=true — never echo payload (may contain PHI).
   if (payloadObj.type === "test-notification") {
-    console.log(
-      "[notify-new-message][test-notification] Reached function with valid secret. Payload:",
-      JSON.stringify(payloadObj).slice(0, 1000),
-    );
-    return jsonResponse({ ok: true, test: true, receivedAt: new Date().toISOString(), echo: payloadObj });
+    const allowTest = (Deno.env.get("NOTIFY_ALLOW_TEST") ?? "").trim().toLowerCase() === "true";
+    if (!allowTest) {
+      return jsonResponse({ ok: false, error: "test_notification_disabled" }, 403);
+    }
+    console.log("[notify-new-message][test-notification] ok", {
+      type: "test-notification",
+      receivedAt: new Date().toISOString(),
+    });
+    return jsonResponse({
+      ok: true,
+      test: true,
+      receivedAt: new Date().toISOString(),
+    });
   }
 
   const tableName = typeof payloadObj.table === "string" ? payloadObj.table : "(unknown)";
+  if (tableName !== "chat_messages" && tableName !== "(unknown)") {
+    console.warn(`[notify-new-message] unexpected table=${tableName}`);
+    return jsonResponse({ ok: false, error: "unexpected_table" }, 400);
+  }
   const record = extractRecord(payload);
   const direction = resolveChatDirection(record);
   console.log(`[notify-new-message] Trigger fired: table=${tableName} from=${describeSender(record ?? {})} direction=${direction}`);
@@ -394,9 +407,11 @@ Deno.serve(async (req) => {
     ? (coerceBool(record?.ai_clinical_alert) ? THERAPIST_ALERT_NOTIFY_BODY : THERAPIST_CHAT_NOTIFY_BODY)
     : CHAT_NOTIFY_BODY;
   const previewUrl = direction === "to_therapist" ? THERAPIST_MESSAGES_PATH : PORTAL_MESSAGES_PATH;
+  const patientRef = patientLogRef(pickId(record, ["patient_id"]) ?? "");
+  const therapistRef = patientLogRef(pickId(record, ["therapist_id"]) ?? "");
   console.log(
-    `[notify-new-message] Valid payload received: message=${pickId(record, ["id"]) ?? "(no id)"} ` +
-      `patient=${pickId(record, ["patient_id"]) ?? "(none)"} therapist=${pickId(record, ["therapist_id"]) ?? "(none)"} ` +
+    `[notify-new-message] Valid payload received: message=${patientLogRef(pickId(record, ["id"]) ?? "")} ` +
+      `patient=${patientRef} therapist=${therapistRef} ` +
       `→ push {title="Physio-Shield", body="${previewBody}", url="${previewUrl}"}`,
   );
 
@@ -422,21 +437,27 @@ async function notifyPatient(supabase: SupabaseClient, record: Record<string, un
   if (!patient) return jsonResponse({ ok: false, error: "patient_not_found" }, 200);
 
   const token = readPushTokenFromPatientPayload(patient.payload);
+  const patientLabel = patientLogRef(recipientId);
   if (!hasDeliverableToken(token)) {
-    console.log(`[notify-new-message] Tokens resolved: 0 for patient (${recipientId}).`);
+    console.log(`[notify-new-message] Tokens resolved: 0 for patient (${patientLabel}).`);
     return jsonResponse({ ok: true, sent: false, patientId: recipientId, reason: "no_deliverable_push_token" });
   }
 
-  console.log(`[notify-new-message] Tokens resolved: 1 web_push token for patient(${recipientId}); routing to gateway...`);
+  console.log(`[notify-new-message] Tokens resolved: 1 web_push token for patient(${patientLabel}); routing to gateway...`);
   const res = await sendWebPush(token, patient.payload, CHAT_NOTIFY_BODY, {
     data: { url: PORTAL_MESSAGES_PATH },
     tag: "physioshield-chat-message",
   });
-  console.log(`[notify-new-message] Gateway response for patient(${recipientId}): ${res.ok ? "sent_ok" : res.detail ?? "failed"}${res.stale ? " [STALE → clearing token]" : ""}`);
+  console.log(`[notify-new-message] Gateway response for patient(${patientLabel}): ${res.ok ? "sent_ok" : "failed"}${res.stale ? " [STALE → clearing token]" : ""}`);
 
   if (!res.ok) {
     if (res.stale) await markPatientPushTokenStaleInPayload(supabase, recipientId, `chat: ${res.detail ?? "stale"}`);
-    return jsonResponse({ ok: false, patientId: recipientId, deliveryError: res.detail, stale: res.stale ?? false }, 200);
+    return jsonResponse({
+      ok: false,
+      patientId: recipientId,
+      error: res.stale ? "stale_token" : "push_failed",
+      stale: res.stale ?? false,
+    }, 200);
   }
   return jsonResponse({ ok: true, sent: true, recipient: "patient", patientId: recipientId });
 }
@@ -480,17 +501,19 @@ async function notifyTherapist(supabase: SupabaseClient, record: Record<string, 
     hasDeliverableToken(row.endpoint ?? "")
   );
 
+  const therapistLabel = patientLogRef(therapistId);
+
   // STRICT if/else: when device rows exist, the legacy profiles.push_token path is NEVER used,
   // so a therapist registered on both paths can never receive duplicate notifications.
   if (devices.length > 0) {
-    console.log(`[notify-new-message] Tokens resolved: ${devices.length} device subscription(s) for therapist(${therapistId}); fanning out...`);
+    console.log(`[notify-new-message] Tokens resolved: ${devices.length} device subscription(s) for therapist(${therapistLabel}); fanning out...`);
 
     const results = await Promise.allSettled(
       devices.map((row) => sendWebPush(row.endpoint.trim(), row.subscription_data, notifyBody, notifyExtras)),
     );
 
     let sent = 0;
-    const failures: Array<{ endpointId: string; detail?: string; stale: boolean }> = [];
+    const failures: Array<{ endpointId: string; error: string; stale: boolean }> = [];
     const cleanups: Promise<void>[] = [];
 
     results.forEach((settled, i) => {
@@ -502,7 +525,11 @@ async function notifyTherapist(supabase: SupabaseClient, record: Record<string, 
         sent++;
         return;
       }
-      failures.push({ endpointId: row.id, detail: res.detail, stale: res.stale ?? false });
+      failures.push({
+        endpointId: patientLogRef(row.id),
+        error: res.stale ? "stale_token" : "push_failed",
+        stale: res.stale ?? false,
+      });
       if (res.stale) {
         // 410 Gone (and 404/403) — this specific device subscription is dead; delete only its row.
         cleanups.push(deleteStaleTherapistSubscription(supabase, row.id, `chat: ${res.detail ?? "stale"}`));
@@ -510,7 +537,7 @@ async function notifyTherapist(supabase: SupabaseClient, record: Record<string, 
     });
     await Promise.allSettled(cleanups);
 
-    console.log(`[notify-new-message] Fan-out for therapist(${therapistId}): sent=${sent} failed=${failures.length} total=${devices.length}${failures.some((f) => f.stale) ? " [stale rows deleted]" : ""}`);
+    console.log(`[notify-new-message] Fan-out for therapist(${therapistLabel}): sent=${sent} failed=${failures.length} total=${devices.length}${failures.some((f) => f.stale) ? " [stale rows deleted]" : ""}`);
 
     if (sent === 0) {
       return jsonResponse({ ok: false, therapistId, sent, failed: failures.length, total: devices.length, failures }, 200);
@@ -523,7 +550,7 @@ async function notifyTherapist(supabase: SupabaseClient, record: Record<string, 
   let profileErr: { message: string } | null = null;
   ({ data: profile, error: profileErr } = await supabase
     .from("profiles")
-    .select("id, name, push_token, push_payload")
+    .select("id, push_token, push_payload")
     .eq("id", therapistId)
     .maybeSingle());
 
@@ -531,7 +558,7 @@ async function notifyTherapist(supabase: SupabaseClient, record: Record<string, 
     console.warn("[notify-new-message] profiles push columns missing — apply migration. Falling back.");
     ({ data: profile, error: profileErr } = await supabase
       .from("profiles")
-      .select("id, name")
+      .select("id")
       .eq("id", therapistId)
       .maybeSingle());
   }
@@ -544,17 +571,22 @@ async function notifyTherapist(supabase: SupabaseClient, record: Record<string, 
 
   const token = (profile.push_token as string | null | undefined)?.trim() ?? "";
   if (!hasDeliverableToken(token)) {
-    console.log(`[notify-new-message] Tokens resolved: 0 for therapist (${therapistId}) — not registered on any device.`);
+    console.log(`[notify-new-message] Tokens resolved: 0 for therapist (${therapistLabel}) — not registered on any device.`);
     return jsonResponse({ ok: true, sent: false, therapistId, reason: "no_deliverable_push_token" });
   }
 
-  console.log(`[notify-new-message] Tokens resolved: 1 legacy web_push token for therapist(${therapistId}); routing to gateway...`);
+  console.log(`[notify-new-message] Tokens resolved: 1 legacy web_push token for therapist(${therapistLabel}); routing to gateway...`);
   const res = await sendWebPush(token, profile.push_payload, notifyBody, notifyExtras);
-  console.log(`[notify-new-message] Gateway response for therapist(${therapistId}): ${res.ok ? "sent_ok" : res.detail ?? "failed"}${res.stale ? " [STALE → clearing token]" : ""}`);
+  console.log(`[notify-new-message] Gateway response for therapist(${therapistLabel}): ${res.ok ? "sent_ok" : "failed"}${res.stale ? " [STALE → clearing token]" : ""}`);
 
   if (!res.ok) {
     if (res.stale) await markProfilePushTokenStale(supabase, therapistId, `chat: ${res.detail ?? "stale"}`);
-    return jsonResponse({ ok: false, therapistId, deliveryError: res.detail, stale: res.stale ?? false }, 200);
+    return jsonResponse({
+      ok: false,
+      therapistId,
+      error: res.stale ? "stale_token" : "push_failed",
+      stale: res.stale ?? false,
+    }, 200);
   }
   return jsonResponse({ ok: true, sent: true, recipient: "therapist", therapistId });
 }
