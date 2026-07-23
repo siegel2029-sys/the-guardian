@@ -82,7 +82,7 @@ export async function pullPersistedState(
         if (!row.ok) return { ok: false, message: row.message };
         return {
           ok: true,
-          clinicalInsights: pullClinicalInsightsFromPatientPayloads([row.patient]),
+          clinicalInsights: pullClinicalInsightsFromPatientPayloads([row.data.patient]),
         };
       }
 
@@ -90,7 +90,7 @@ export async function pullPersistedState(
       if (!base.ok) return { ok: false, message: base.message };
       return {
         ok: true,
-        clinicalInsights: pullClinicalInsightsFromPatientPayloads(base.patients),
+        clinicalInsights: pullClinicalInsightsFromPatientPayloads(base.data),
       };
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);

@@ -1620,9 +1620,7 @@ export async function fetchClinicalAuditLogsForPatient(
   return (data ?? []) as ClinicalAuditLogRow[];
 }
 
-export type FetchPatientPayloadsForTherapistResult =
-  | { ok: true; patients: Patient[] }
-  | { ok: false; message: string };
+export type FetchPatientPayloadsForTherapistResult = ServiceResult<Patient[]>;
 
 /**
  * Loads `patients.payload` rows visible to the current JWT (RLS: therapist_id = auth.uid()).
@@ -1691,7 +1689,7 @@ export async function fetchPatientPayloadsForTherapist(
       context: 'טעינת רשימת מטופלים',
     });
     if (!sessionGuard.ok) {
-      return { ok: false, message: sessionGuard.message };
+      return serviceFail(sessionGuard.message);
     }
 
     const {
@@ -1699,7 +1697,7 @@ export async function fetchPatientPayloadsForTherapist(
       error: userErr,
     } = await client.auth.getUser();
     if (userErr || !user?.id) {
-      return { ok: false, message: userErr?.message ?? 'אין משתמש מחובר' };
+      return serviceFail(userErr?.message ?? 'אין משתמש מחובר');
     }
 
     const therapistId = user.id.trim();
@@ -1716,7 +1714,7 @@ export async function fetchPatientPayloadsForTherapist(
         httpStatus: postgrestHttpStatus(error),
         selectColumns: PATIENTS_THERAPIST_FETCH_SELECT,
       });
-      return { ok: false, message: error.message };
+      return serviceFail(error.message);
     }
 
     const rows = (data ?? null) as PatientRowForTherapistFetch[] | null;
@@ -1739,19 +1737,14 @@ export async function fetchPatientPayloadsForTherapist(
       });
     }
 
-    return { ok: true, patients: out };
+    return serviceOk(out);
   } catch (e) {
     logSupabaseCallError('fetchPatientPayloadsForTherapist/catch', e);
-    return {
-      ok: false,
-      message: e instanceof Error ? e.message : String(e),
-    };
+    return serviceFail(e instanceof Error ? e.message : String(e));
   }
 }
 
-export type FetchActiveExercisePlansResult =
-  | { ok: true; exercisePlans: ExercisePlan[] }
-  | { ok: false; message: string };
+export type FetchActiveExercisePlansResult = ServiceResult<ExercisePlan[]>;
 
 /**
  * Fetches exercise plans for the given patient IDs from `exercise_plans`.
@@ -1765,7 +1758,7 @@ export async function fetchActiveExercisePlansForPatientIds(
 ): Promise<FetchActiveExercisePlansResult> {
   const ids = [...new Set(patientIds.map((id) => id.trim()).filter(Boolean))];
   if (ids.length === 0) {
-    return { ok: true, exercisePlans: [] };
+    return serviceOk([]);
   }
 
   const { data, error } = await client
@@ -1780,10 +1773,7 @@ export async function fetchActiveExercisePlansForPatientIds(
   });
 
   if (error) {
-    return {
-      ok: false,
-      message: sanitizeDbErrorMessage(error.message || 'exercise_plans fetch failed'),
-    };
+    return serviceFail(sanitizeDbErrorMessage(error.message || 'exercise_plans fetch failed'));
   }
 
   const rowsByPatient = new Map<string, ExercisePlanDbRow[]>();
@@ -1801,12 +1791,10 @@ export async function fetchActiveExercisePlansForPatientIds(
       exercisePlans.push(exercisePlanFromDbRow(canonical));
     }
   }
-  return { ok: true, exercisePlans };
+  return serviceOk(exercisePlans);
 }
 
-export type FetchActiveExercisePlanForPatientResult =
-  | { ok: true; exercisePlan: ExercisePlan | null }
-  | { ok: false; message: string };
+export type FetchActiveExercisePlanForPatientResult = ServiceResult<ExercisePlan | null>;
 
 export async function fetchActiveExercisePlanForPatient(
   client: SupabaseClient,
@@ -1814,7 +1802,7 @@ export async function fetchActiveExercisePlanForPatient(
 ): Promise<FetchActiveExercisePlanForPatientResult> {
   const id = patientId.trim();
   if (!id) {
-    return { ok: true, exercisePlan: null };
+    return serviceOk(null);
   }
 
   // With versioned `exercise_plans`, multiple rows per `patient_id` are possible until legacy
@@ -1834,10 +1822,7 @@ export async function fetchActiveExercisePlanForPatient(
   });
 
   if (error) {
-    return {
-      ok: false,
-      message: sanitizeDbErrorMessage(error.message || 'exercise_plans fetch failed'),
-    };
+    return serviceFail(sanitizeDbErrorMessage(error.message || 'exercise_plans fetch failed'));
   }
 
   const rows = data ?? [];
@@ -1854,18 +1839,16 @@ export async function fetchActiveExercisePlanForPatient(
 
   const canonical = pickCanonicalExercisePlanDbRow(rows as ExercisePlanDbRow[]);
   if (!canonical) {
-    return { ok: true, exercisePlan: null };
+    return serviceOk(null);
   }
 
-  return {
-    ok: true,
-    exercisePlan: exercisePlanFromDbRow(canonical),
-  };
+  return serviceOk(exercisePlanFromDbRow(canonical));
 }
 
-export type FetchPatientsResult =
-  | { ok: true; patients: Patient[]; exercisePlans: ExercisePlan[] }
-  | { ok: false; message: string };
+export type FetchPatientsResult = ServiceResult<{
+  patients: Patient[];
+  exercisePlans: ExercisePlan[];
+}>;
 
 /**
  * טעינת מטופלים + התוכנית הפעילה לכל אחד (מ־`exercise_plans`), לסנכרון מלא בעת כניסה.
@@ -1878,30 +1861,24 @@ export async function fetchPatients(client: SupabaseClient): Promise<FetchPatien
 
     const plans = await fetchActiveExercisePlansForPatientIds(
       client,
-      base.patients.map((p) => p.id)
+      base.data.map((p) => p.id)
     );
     if (!plans.ok) return plans;
 
-    return {
-      ok: true,
-      patients: base.patients,
-      exercisePlans: mergeExercisePlansWithPatientPayloadCache(
-        base.patients,
-        plans.exercisePlans
-      ),
-    };
+    return serviceOk({
+      patients: base.data,
+      exercisePlans: mergeExercisePlansWithPatientPayloadCache(base.data, plans.data),
+    });
   } catch (e) {
     logSupabaseCallError('fetchPatients/catch', e);
-    return {
-      ok: false,
-      message: e instanceof Error ? e.message : String(e),
-    };
+    return serviceFail(e instanceof Error ? e.message : String(e));
   }
 }
 
-export type GetPatientByIdResult =
-  | { ok: true; patient: Patient; exercisePlan: ExercisePlan | null }
-  | { ok: false; message: string };
+export type GetPatientByIdResult = ServiceResult<{
+  patient: Patient;
+  exercisePlan: ExercisePlan | null;
+}>;
 
 /**
  * משיג שורת `patients` (payload מלא) + תוכנית תרגול פעילה לפי `patient_id`.
@@ -1917,7 +1894,7 @@ export async function getPatientById(
 ): Promise<GetPatientByIdResult> {
   const id = patientId.trim();
   if (!id) {
-    return { ok: false, message: 'getPatientById: missing patient id' };
+    return serviceFail('getPatientById: missing patient id');
   }
 
   const [rowResult, activePlanResult] = await Promise.all([
@@ -1935,7 +1912,7 @@ export async function getPatientById(
   }
 
   if (error) {
-    return { ok: false, message: `patients: ${error.message}` };
+    return serviceFail(`patients: ${error.message}`);
   }
   const payload = tryParsePatientPayload((data as { payload?: unknown } | null)?.payload);
   if (!payload) {
@@ -1951,12 +1928,11 @@ export async function getPatientById(
             : [],
       });
     }
-    return { ok: false, message: 'patients: missing or invalid payload' };
+    return serviceFail('patients: missing or invalid payload');
   }
 
-  let exercisePlan: ExercisePlan | null = activePlanResult.ok
-    ? activePlanResult.exercisePlan
-    : null;
+  // Soft-fail: plan fetch errors do not fail the patient row — fall back to payload cache.
+  let exercisePlan: ExercisePlan | null = activePlanResult.ok ? activePlanResult.data : null;
   if (!activePlanResult.ok) {
     console.warn('[getPatientById] exercise_plans result not ok (unexpected) — using cache only', {
       patientId: id,
@@ -1974,11 +1950,11 @@ export async function getPatientById(
       exercisePlan = {
         patientId: id,
         exercises: cached,
-        planRowId: activePlanResult.ok ? activePlanResult.exercisePlan?.planRowId : undefined,
+        planRowId: activePlanResult.ok ? activePlanResult.data?.planRowId : undefined,
         versionNumber: activePlanResult.ok
-          ? activePlanResult.exercisePlan?.versionNumber
+          ? activePlanResult.data?.versionNumber
           : undefined,
-        isActive: activePlanResult.ok ? activePlanResult.exercisePlan?.isActive : undefined,
+        isActive: activePlanResult.ok ? activePlanResult.data?.isActive : undefined,
       };
     } else {
       console.warn('[getPatientById] exercise_plans ריק וגם אין _exercisePlanCache — ייתכן שה-RLS חוסם את המטופל מטבלת exercise_plans', {
@@ -1987,11 +1963,10 @@ export async function getPatientById(
     }
   }
 
-  return {
-    ok: true,
+  return serviceOk({
     patient: payload,
     exercisePlan,
-  };
+  });
 }
 
 /**
@@ -2046,7 +2021,7 @@ export async function migrateClinicalIntakeProfilesInSupabase(
       if (!fetched.ok) {
         return { ok: false, message: fetched.message };
       }
-      sourcePatients = fetched.patients;
+      sourcePatients = fetched.data;
     }
 
     const batch: BatchClinicalIntakeProfileMigrationResult =

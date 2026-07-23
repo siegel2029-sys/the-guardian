@@ -785,8 +785,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             let resolvedPlanRowId = options?.planRowId ?? plan?.planRowId ?? null;
             if (!resolvedPlanRowId && supabaseClient) {
               const freshPlan = await fetchActiveExercisePlanForPatient(supabaseClient, patientId);
-              if (freshPlan.ok && freshPlan.exercisePlan?.planRowId) {
-                resolvedPlanRowId = freshPlan.exercisePlan.planRowId;
+              if (freshPlan.ok && freshPlan.data?.planRowId) {
+                resolvedPlanRowId = freshPlan.data.planRowId;
               }
             }
 

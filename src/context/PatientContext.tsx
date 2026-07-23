@@ -957,7 +957,7 @@ export function PatientProvider({
         return;
       }
 
-      const { patient: fetched, exercisePlan } = res;
+      const { patient: fetched, exercisePlan } = res.data;
       devLog('[PatientPortal] נתוני מטופל התקבלו', {
         patientId: redactId(fetched.id),
         exercisePlanFound: !!exercisePlan,
@@ -1135,7 +1135,7 @@ export function PatientProvider({
         }
         return;
       }
-      const list = res.patients;
+      const list = res.data.patients;
 
       if (list.length === 0) {
         const prevCount = allPatientsRef.current.length;
@@ -1239,8 +1239,8 @@ export function PatientProvider({
         }
       }
 
-      setExercisePlans(res.exercisePlans);
-      exercisePlansSessionBaselineRef.current = cloneExercisePlansForBaseline(res.exercisePlans);
+      setExercisePlans(res.data.exercisePlans);
+      exercisePlansSessionBaselineRef.current = cloneExercisePlansForBaseline(res.data.exercisePlans);
 
       const remoteInsights = pullClinicalInsightsFromPatientPayloads(normalizedServer);
       setAiSuggestions((prev) =>
@@ -1332,7 +1332,7 @@ export function PatientProvider({
           ...rest,
           mergeFetchedExercisePlanWithLocal(
             localPlan,
-            planRes.exercisePlan,
+            planRes.data,
             pid,
             patientRow?._exercisePlanCache
           ),
@@ -2109,7 +2109,7 @@ export function PatientProvider({
         }
         const mergedPlan = mergeFetchedExercisePlanWithLocal(
           pickCanonicalExercisePlan(exercisePlansRef.current, patientId),
-          fresh.exercisePlan ?? ({ patientId, exercises: exercisesToPersist } as ExercisePlan),
+          fresh.data ?? ({ patientId, exercises: exercisesToPersist } as ExercisePlan),
           patientId,
           exercisesToPersist
         );
@@ -2983,10 +2983,10 @@ export function PatientProvider({
         );
       }
 
-      if (patientsRes.ok && patientsRes.patients.length > 0) {
+      if (patientsRes.ok && patientsRes.data.length > 0) {
         mergeServerPatientsIntoState(
-          patientsRes.patients,
-          patientsRes.patients.map((p) => p.id)
+          patientsRes.data,
+          patientsRes.data.map((p) => p.id)
         );
       }
     };

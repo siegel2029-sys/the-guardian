@@ -135,21 +135,21 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — Wave B (Domain 1.0–1.4) closed._
+_Idle — Wave C (ServiceResult multi-key fetches) closed; awaiting Wave D._
 
 ### Completed Steps (recent)
 
-- Wave B: expanded `usePatientCloudSync` (save APIs + `supabaseConfigured`); added `usePatientClinical` + `usePatientAiQueue`; migrated portal/therapist chat leaves + `ClinicalReportsPanel` / `PatientProgressChart` off fat `usePatient()`.
-- P0 Edge push/auth fixes (`timingSafeEqualString`, `usedFallback`) + Wave A ErrorBoundaries remain in place.
-- Verification: `tsc --noEmit`, `npm run build`, Vitest 66 green.
+- Wave C: clinical fetches (`fetchPatients`, `getPatientById`, leaf plan/payload fetches) → `ServiceResult` / `data`; callers in PatientContext, supabaseSync, useExercisePlan updated atomically.
+- Wave B domain slices + Wave A ErrorBoundaries remain in place.
+- Verification: `tsc -b`, build, Vitest 66 green.
 
 ### Next Action Items
 
-1. **Verify:** `reminder-cron` / `notify-new-message` no longer 500 on auth; chat push delivery.
-2. Continue dashboard off fat `usePatient()` (clinical writers → ManagePlanModal / PatientOverview last).
+1. **Wave D:** Edge hermetic Zod (`gemini-proxy` → chat-push → notify → cron).
+2. Continue dashboard off fat `usePatient()` (clinical writers → hubs last).
 3. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
 4. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
-5. P2: multi-key clinical fetch → `ServiceResult.data`; Edge hermetic Zod.
+5. **Verify:** reminder-cron / notify / chat push delivery in prod.
 
 ### Update protocol
 
