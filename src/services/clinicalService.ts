@@ -22,6 +22,11 @@ import {
   logSupabaseCallError,
 } from '../lib/supabaseSessionGuard';
 import { sanitizeDbErrorMessage } from '../lib/dbErrorSanitizer';
+import {
+  tryParsePatientExerciseArray,
+  tryParsePatientPayload,
+} from '../lib/clinicalJsonbParse';
+import { serviceFail, serviceOk, type ServiceResult } from '../lib/serviceResult';
 import { devLog, devWarn, redactId } from '../lib/safeLog';
 import {
   getAppKbHydratedFromCloud,
@@ -404,9 +409,10 @@ export function clinicalPushFail(message: string, err?: unknown): {
 } {
   const httpStatus = err !== undefined ? postgrestHttpStatus(err) : undefined;
   const safeMessage = sanitizeDbErrorMessage(message);
-  return httpStatus !== undefined
-    ? { ok: false, message: safeMessage, httpStatus }
-    : { ok: false, message: safeMessage };
+  return serviceFail(
+    safeMessage,
+    httpStatus !== undefined ? { httpStatus } : undefined,
+  );
 }
 
 /** תוצאת upsert ל־app_knowledge_base כולל גוף תשובה לדיבוג (403/400 וכו׳). */
@@ -711,7 +717,8 @@ export async function upsertPatientRecords(
       return clinicalPushFail(`patients: ${fetchErr.message}`, fetchErr);
     }
 
-    const oldPayload = existing?.payload != null ? (existing.payload as Patient) : undefined;
+    const oldPayload =
+      existing?.payload != null ? tryParsePatientPayload(existing.payload) ?? undefined : undefined;
 
     /** patients.auth_user_id = portal patient's Auth id only — never the therapist's uid */
 
@@ -826,15 +833,8 @@ export async function upsertPatientRecords(
     });
 
     for (const u of upserted ?? []) {
-      const pl = (u as { payload?: unknown }).payload;
-      if (
-        pl &&
-        typeof pl === 'object' &&
-        'id' in pl &&
-        typeof (pl as Patient).id === 'string'
-      ) {
-        syncedPatients.push(pl as Patient);
-      }
+      const pl = tryParsePatientPayload((u as { payload?: unknown }).payload);
+      if (pl) syncedPatients.push(pl);
     }
 
     wroteAny = true;
@@ -922,21 +922,22 @@ export async function upsertTreatmentReport(
  */
 export async function fetchUnlinkedPortalPatientIds(
   client: SupabaseClient
-): Promise<{ patientIds: string[]; error?: string }> {
+): Promise<ServiceResult<string[]>> {
   const { data, error } = await client
     .from('patients')
     .select('id, payload, auth_user_id')
     .is('auth_user_id', null);
 
   if (error) {
-    return { patientIds: [], error: error.message };
+    return serviceFail(error.message);
   }
 
   const unlinked: string[] = [];
   for (const row of data ?? []) {
-    const payload = row.payload as { portalUsername?: string } | null;
+    const payload = tryParsePatientPayload(row.payload);
     if (payload?.portalUsername?.trim()) {
-      unlinked.push(row.id as string);
+      const rowId = typeof row.id === 'string' ? row.id.trim() : '';
+      if (rowId) unlinked.push(rowId);
     }
   }
 
@@ -951,7 +952,7 @@ export async function fetchUnlinkedPortalPatientIds(
     );
   }
 
-  return { patientIds: unlinked };
+  return serviceOk(unlinked);
 }
 
 /** מחיקת שורת מטופל ב-Supabase (RLS — מטפל מחובר בלבד). מפעיל CASCADE למסדי תלות (תוכניות, היסטוריית סשנים, יומן ביקורת). חייב להצליח לפני ניקוי המצב המקומי. */
@@ -1311,8 +1312,7 @@ export function exercisePlanExercisesComparableSignature(exercises: PatientExerc
 }
 
 function exercisesComparableSignatureFromUnknown(raw: unknown): string {
-  if (!Array.isArray(raw)) return exercisePlanExercisesComparableSignature([]);
-  return exercisePlanExercisesComparableSignature(raw as PatientExercise[]);
+  return exercisePlanExercisesComparableSignature(tryParsePatientExerciseArray(raw));
 }
 
 /**
@@ -1640,15 +1640,8 @@ type PatientRowForTherapistFetch = {
 function patientsFromTherapistFetchRows(rows: PatientRowForTherapistFetch[] | null): Patient[] {
   const out: Patient[] = [];
   for (const row of rows ?? []) {
-    const payload = row.payload;
-    if (
-      payload &&
-      typeof payload === 'object' &&
-      'id' in payload &&
-      typeof (payload as Patient).id === 'string'
-    ) {
-      out.push(payload as Patient);
-    }
+    const patient = tryParsePatientPayload(row.payload);
+    if (patient) out.push(patient);
   }
   return out;
 }
@@ -1680,9 +1673,7 @@ export function pickCanonicalExercisePlanDbRow<T extends ExercisePlanDbRow>(
 }
 
 function exercisePlanFromDbRow(row: ExercisePlanDbRow): ExercisePlan {
-  const exercises = Array.isArray(row.exercises)
-    ? (row.exercises as PatientExercise[])
-    : ([] as PatientExercise[]);
+  const exercises = tryParsePatientExerciseArray(row.exercises);
   return {
     patientId: row.patient_id,
     exercises,
@@ -1946,17 +1937,18 @@ export async function getPatientById(
   if (error) {
     return { ok: false, message: `patients: ${error.message}` };
   }
-  const payload = (data as { payload?: unknown } | null)?.payload;
-  if (
-    !payload ||
-    typeof payload !== 'object' ||
-    !('id' in payload) ||
-    typeof (payload as Patient).id !== 'string'
-  ) {
+  const payload = tryParsePatientPayload((data as { payload?: unknown } | null)?.payload);
+  if (!payload) {
     if (import.meta.env.DEV) {
       console.warn('[getPatientById] patients payload חסר או לא תקין', {
         hasData: !!data,
-        payloadKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [],
+        payloadKeys:
+          data &&
+          typeof data === 'object' &&
+          (data as { payload?: unknown }).payload &&
+          typeof (data as { payload?: unknown }).payload === 'object'
+            ? Object.keys((data as { payload: object }).payload)
+            : [],
       });
     }
     return { ok: false, message: 'patients: missing or invalid payload' };
@@ -1973,15 +1965,15 @@ export async function getPatientById(
   }
 
   if (!exercisePlan) {
-    const cached = (payload as Patient)._exercisePlanCache;
-    if (Array.isArray(cached) && cached.length > 0) {
+    const cached = tryParsePatientExerciseArray(payload._exercisePlanCache);
+    if (cached.length > 0) {
       console.log('[getPatientById] exercise_plans ריק — משתמש ב-_exercisePlanCache מ-patients.payload', {
         patientId: id,
         cachedCount: cached.length,
       });
       exercisePlan = {
         patientId: id,
-        exercises: cached as PatientExercise[],
+        exercises: cached,
         planRowId: activePlanResult.ok ? activePlanResult.exercisePlan?.planRowId : undefined,
         versionNumber: activePlanResult.ok
           ? activePlanResult.exercisePlan?.versionNumber
@@ -1997,7 +1989,7 @@ export async function getPatientById(
 
   return {
     ok: true,
-    patient: payload as Patient,
+    patient: payload,
     exercisePlan,
   };
 }

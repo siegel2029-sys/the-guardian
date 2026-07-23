@@ -5,7 +5,6 @@ import type {
   ExercisePlanHistoryEntry,
   ExerciseSession,
   PainRecord,
-  PatientExercise,
   PatientExerciseFinishReport,
 } from '../types';
 import { bodyAreaLabels } from '../types';
@@ -24,6 +23,8 @@ import {
   ensureSupabaseSessionReady,
   logSupabaseCallError,
 } from '../lib/supabaseSessionGuard';
+import { tryParsePatientExerciseArray } from '../lib/clinicalJsonbParse';
+import { serviceFail, serviceOk, type ServiceResult } from '../lib/serviceResult';
 
 export type ExercisePushResult = ClinicalPushResult;
 
@@ -339,13 +340,13 @@ export async function fetchPlanHistory(
   if (error) return null;
 
   return (data ?? []).map((row) => ({
-    id: row.id as string,
-    patientId: row.patient_id as string,
-    exercises: row.exercises as PatientExercise[],
-    versionNumber: row.version_number as number,
-    parentPlanId: (row.parent_plan_id as string | null) ?? null,
-    changeSummary: (row.change_summary as string | null) ?? null,
-    updatedAt: row.updated_at as string,
+    id: typeof row.id === 'string' ? row.id : String(row.id ?? ''),
+    patientId: typeof row.patient_id === 'string' ? row.patient_id : String(row.patient_id ?? ''),
+    exercises: tryParsePatientExerciseArray(row.exercises),
+    versionNumber: typeof row.version_number === 'number' ? row.version_number : 0,
+    parentPlanId: typeof row.parent_plan_id === 'string' ? row.parent_plan_id : null,
+    changeSummary: typeof row.change_summary === 'string' ? row.change_summary : null,
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : '',
   }));
 }
 
@@ -896,15 +897,15 @@ export async function fetch7dComplianceFromSupabase(
 export async function countExerciseLogsForPatient(
   client: SupabaseClient,
   patientId: string,
-): Promise<{ ok: true; data: number } | { ok: false; message: string }> {
+): Promise<ServiceResult<number>> {
   const pid = patientId.trim();
-  if (!pid) return { ok: false, message: 'missing patient id' };
+  if (!pid) return serviceFail('missing patient id');
   const { count, error } = await client
     .from('exercise_logs')
     .select('*', { count: 'exact', head: true })
     .eq('patient_id', pid);
   if (error) {
-    return { ok: false, message: error.message };
+    return serviceFail(error.message);
   }
-  return { ok: true, data: count ?? 0 };
+  return serviceOk(count ?? 0);
 }

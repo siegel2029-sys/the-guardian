@@ -1082,7 +1082,7 @@ export function PatientProvider({
         viewer: 'patient',
       });
       if (!cancelled && chatRes.ok) {
-        setMessages((prev) => mergeChatMessages(prev, chatRes.messages, 'patient'));
+        setMessages((prev) => mergeChatMessages(prev, chatRes.data, 'patient'));
       } else if (!cancelled && chatRes.ok === false && import.meta.env.DEV) {
         console.warn('[PatientPortal] fetchChatMessages', chatRes.message);
       }
@@ -1235,17 +1235,17 @@ export function PatientProvider({
       // After loading patients, check which portal accounts are still unlinked
       // (auth_user_id = NULL). This doesn't affect therapist saves but does block
       // patient portal access until each patient signs in for the first time.
-      void fetchUnlinkedPortalPatientIds(supabaseClient).then(({ patientIds }) => {
-        if (!cancelled) setUnlinkedPortalPatientIds(patientIds);
+      void fetchUnlinkedPortalPatientIds(supabaseClient).then((res) => {
+        if (!cancelled && res.ok) setUnlinkedPortalPatientIds(res.data);
       });
 
       const chatRes = await fetchChatMessages(supabaseClient, { viewer: 'therapist' });
       if (!cancelled && chatRes.ok) {
-        setMessages((prev) => mergeChatMessages(prev, chatRes.messages, 'therapist'));
+        setMessages((prev) => mergeChatMessages(prev, chatRes.data, 'therapist'));
         setAllPatients((prev) =>
           prev.map((p) => ({
             ...p,
-            pendingMessages: countUnreadForTherapist(chatRes.messages, p.id),
+            pendingMessages: countUnreadForTherapist(chatRes.data, p.id),
           }))
         );
       } else if (!cancelled && chatRes.ok === false && import.meta.env.DEV) {
@@ -2463,7 +2463,7 @@ export function PatientProvider({
         });
 
         if (res.ok) {
-          appendLocal(res.message);
+          appendLocal(res.data);
           void dispatchTherapistChatPushNotification(supabase, {
             patientId: pid,
             pushToken: pushCtx?.pushToken,
@@ -2520,7 +2520,7 @@ export function PatientProvider({
         });
 
         if (res.ok) {
-          setMessages((prev) => mergeChatMessage(prev, res.message, 'patient'));
+          setMessages((prev) => mergeChatMessage(prev, res.data, 'patient'));
           setAllPatients((prev) =>
             prev.map((p) =>
               p.id === patientId ? { ...p, pendingMessages: p.pendingMessages + 1 } : p

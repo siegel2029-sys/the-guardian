@@ -1,5 +1,6 @@
 import { supabase, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 import { getSupabaseAuthSession } from '../lib/supabaseSessionGuard';
+import { serviceFail, serviceOk, type ServiceResult } from '../lib/serviceResult';
 import type { Patient } from '../types';
 
 export type WebPushSubscriptionPayload = NonNullable<Patient['webPushSubscription']>;
@@ -241,8 +242,8 @@ export async function syncWebPushDatabasePayloadIfStale(patientId: string): Prom
   if (!regResult.ok) return;
   await persistPatientPushProfile({
     patientId,
-    token: regResult.token,
-    webPushSubscription: regResult.webPushSubscription,
+    token: regResult.data.token,
+    webPushSubscription: regResult.data.webPushSubscription,
   });
 }
 
@@ -534,9 +535,11 @@ async function subscribeWebPushAfterPermissionGrantedWithRetries(
 export type PushRegisterResult =
   | {
       ok: true;
-      token: string;
-      permission: NotificationPermission | 'unsupported';
-      webPushSubscription?: WebPushSubscriptionPayload;
+      data: {
+        token: string;
+        permission: NotificationPermission | 'unsupported';
+        webPushSubscription?: WebPushSubscriptionPayload;
+      };
     }
   | { ok: false; message: string; reason: string };
 
@@ -548,7 +551,10 @@ export type PushRegisterResult =
 export async function registerPatientPushForSupabase(patientId: string): Promise<PushRegisterResult> {
   const native = getNativeExpoPushTokenSync();
   if (native) {
-    return { ok: true, token: native, permission: 'granted' };
+    return {
+      ok: true,
+      data: { token: native, permission: 'granted' },
+    };
   }
 
   if (typeof window === 'undefined' || typeof Notification === 'undefined') {
@@ -613,11 +619,13 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
 
   return {
     ok: true,
-    token,
-    permission: permission === 'granted' ? 'granted' : 'default',
-    webPushSubscription: webPushSubscription
-      ? normalizeCanonicalWebPushSubscription(webPushSubscription)
-      : undefined,
+    data: {
+      token,
+      permission: permission === 'granted' ? 'granted' : 'default',
+      webPushSubscription: webPushSubscription
+        ? normalizeCanonicalWebPushSubscription(webPushSubscription)
+        : undefined,
+    },
   };
 }
 
@@ -625,15 +633,12 @@ export async function registerPatientPushForSupabase(patientId: string): Promise
  * Clears `pushToken` and all Web Push fragments from `patients.payload` (other payload keys preserved).
  * Call before force re-register so no stale subscription JSON remains in Supabase.
  */
-export async function clearPatientWebPushFieldsInDatabase(patientId: string): Promise<{
-  ok: boolean;
-  message?: string;
-}> {
+export async function clearPatientWebPushFieldsInDatabase(patientId: string): Promise<ServiceResult> {
   if (!supabase) {
-    return { ok: false, message: 'supabase_not_configured' };
+    return serviceFail('supabase_not_configured');
   }
   if (!(await requireSupabaseAuthSessionForWrite('clearPatientWebPushFieldsInDatabase'))) {
-    return { ok: false, message: 'auth_session_missing' };
+    return serviceFail('auth_session_missing');
   }
   const { data: row, error: fetchErr } = await supabase
     .from('patients')
@@ -641,25 +646,23 @@ export async function clearPatientWebPushFieldsInDatabase(patientId: string): Pr
     .eq('id', patientId)
     .maybeSingle();
 
-  if (fetchErr) return { ok: false, message: fetchErr.message };
-  if (!row) return { ok: false, message: 'patient_not_found_or_unauthorized' };
+  if (fetchErr) return serviceFail(fetchErr.message);
+  if (!row) return serviceFail('patient_not_found_or_unauthorized');
 
   const clearedPayload = stripWebPushFromPatientPayload(row.payload);
   if (!clearedPayload) {
-    return { ok: false, message: 'patient_payload_unreadable' };
+    return serviceFail('patient_payload_unreadable');
   }
 
   const { data: updated, error } = await patchPatientRow(patientId, { payload: clearedPayload });
 
-  if (error) return { ok: false, message: error.message };
+  if (error) return serviceFail(error.message);
   if (!updated?.id) {
-    return {
-      ok: false,
-      message:
-        'patient_update_returned_no_rows (check RLS and patients.auth_user_id matches the signed-in user)',
-    };
+    return serviceFail(
+      'patient_update_returned_no_rows (check RLS and patients.auth_user_id matches the signed-in user)',
+    );
   }
-  return { ok: true };
+  return serviceOk();
 }
 
 /**
@@ -667,18 +670,18 @@ export async function clearPatientWebPushFieldsInDatabase(patientId: string): Pr
  */
 export async function forceReregisterPatientWebPushClearStaleAndPersist(patientId: string): Promise<{
   register: PushRegisterResult;
-  persist: { ok: boolean; message?: string };
-  clear: { ok: boolean; message?: string };
+  persist: ServiceResult;
+  clear: ServiceResult;
 }> {
   const clear = await clearPatientWebPushFieldsInDatabase(patientId);
   const register = await forceReregisterPatientWebPush(patientId);
   if (!register.ok) {
-    return { clear, register, persist: { ok: false, message: 'register_failed' } };
+    return { clear, register, persist: serviceFail('register_failed') };
   }
   const persist = await persistPatientPushProfile({
     patientId,
-    token: register.token,
-    webPushSubscription: register.webPushSubscription,
+    token: register.data.token,
+    webPushSubscription: register.data.webPushSubscription,
   });
   return { clear, register, persist };
 }
@@ -741,12 +744,12 @@ export async function persistPatientPushProfile(params: {
   patientId: string;
   token: string;
   webPushSubscription?: WebPushSubscriptionPayload;
-}): Promise<{ ok: boolean; message?: string }> {
+}): Promise<ServiceResult> {
   if (!supabase) {
-    return { ok: false, message: 'supabase_not_configured' };
+    return serviceFail('supabase_not_configured');
   }
   if (!(await requireSupabaseAuthSessionForWrite('persistPatientPushProfile'))) {
-    return { ok: false, message: 'auth_session_missing' };
+    return serviceFail('auth_session_missing');
   }
   const tz =
     typeof Intl !== 'undefined'
@@ -771,10 +774,10 @@ export async function persistPatientPushProfile(params: {
     .maybeSingle();
 
   if (fetchErr) {
-    return { ok: false, message: fetchErr.message };
+    return serviceFail(fetchErr.message);
   }
   if (!row) {
-    return { ok: false, message: 'patient_not_found_or_unauthorized' };
+    return serviceFail('patient_not_found_or_unauthorized');
   }
 
   const payloadFields: Record<string, unknown> = {
@@ -791,7 +794,7 @@ export async function persistPatientPushProfile(params: {
   mergedPayload = mergeScalarFieldsIntoPatientPayload(mergedPayload, payloadFields);
 
   if (!mergedPayload) {
-    return { ok: false, message: 'patient_payload_unreadable' };
+    return serviceFail('patient_payload_unreadable');
   }
 
   const { data: updated, error } = await patchPatientRow(params.patientId, {
@@ -799,16 +802,14 @@ export async function persistPatientPushProfile(params: {
   });
 
   if (error) {
-    return { ok: false, message: error.message };
+    return serviceFail(error.message);
   }
   if (!updated?.id) {
-    return {
-      ok: false,
-      message:
-        'patient_update_returned_no_rows (check RLS and patients.auth_user_id matches the signed-in user)',
-    };
+    return serviceFail(
+      'patient_update_returned_no_rows (check RLS and patients.auth_user_id matches the signed-in user)',
+    );
   }
-  return { ok: true };
+  return serviceOk();
 }
 
 const lastLoginWriteByPatient = new Map<string, number>();

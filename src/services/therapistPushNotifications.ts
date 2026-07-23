@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { getSupabaseAuthSession } from '../lib/supabaseSessionGuard';
+import { serviceFail, serviceOk, type ServiceResult } from '../lib/serviceResult';
 import {
   normalizeCanonicalWebPushSubscription,
   registerPatientPushForSupabase,
@@ -40,23 +41,23 @@ export async function persistTherapistPushProfile(params: {
   therapistId: string;
   token: string;
   webPushSubscription?: WebPushSubscriptionPayload;
-}): Promise<{ ok: boolean; message?: string }> {
+}): Promise<ServiceResult> {
   if (!supabase) {
-    return { ok: false, message: 'supabase_not_configured' };
+    return serviceFail('supabase_not_configured');
   }
   if (!(await requireTherapistAuthSession('persistTherapistPushProfile'))) {
-    return { ok: false, message: 'auth_session_missing' };
+    return serviceFail('auth_session_missing');
   }
 
   const endpoint = params.token.trim();
   // Only HTTPS Web Push endpoints belong in therapist_push_subscriptions (Expo tokens excluded).
   if (!endpoint.toLowerCase().startsWith('https://')) {
-    return { ok: false, message: 'token_is_not_web_push_endpoint' };
+    return serviceFail('token_is_not_web_push_endpoint');
   }
 
   // Without p256dh/auth keys the endpoint is undeliverable — nothing useful to persist.
   if (!params.webPushSubscription) {
-    return { ok: false, message: 'missing_web_push_subscription_keys' };
+    return serviceFail('missing_web_push_subscription_keys');
   }
   const canonical = normalizeCanonicalWebPushSubscription(params.webPushSubscription);
   const subscriptionData = JSON.parse(
@@ -80,11 +81,11 @@ export async function persistTherapistPushProfile(params: {
     console.warn(
       '[PhysioShield therapist push] therapist_push_subscriptions table missing — apply migration 20260610120000_therapist_push_subscriptions.sql.',
     );
-    return { ok: false, message: `therapist_push_subscriptions_missing: ${error.message}` };
+    return serviceFail(`therapist_push_subscriptions_missing: ${error.message}`);
   }
 
   if (error) {
-    return { ok: false, message: error.message };
+    return serviceFail(error.message);
   }
 
   // Non-fatal: keep profiles.last_activity_timestamp fresh for push-health triage.
@@ -99,7 +100,7 @@ export async function persistTherapistPushProfile(params: {
     );
   }
 
-  return { ok: true };
+  return serviceOk();
 }
 
 /**
@@ -109,20 +110,20 @@ export async function persistTherapistPushProfile(params: {
  */
 export async function registerAndPersistTherapistPush(
   therapistId: string,
-): Promise<{ ok: boolean; message?: string }> {
+): Promise<ServiceResult> {
   const id = therapistId.trim();
-  if (!id) return { ok: false, message: 'missing_therapist_id' };
+  if (!id) return serviceFail('missing_therapist_id');
 
   const reg = await registerPatientPushForSupabase(id);
   if (!reg.ok) {
     console.warn('[PhysioShield therapist push] register skipped:', reg.message);
-    return { ok: false, message: reg.message };
+    return serviceFail(reg.message);
   }
 
   const saved = await persistTherapistPushProfile({
     therapistId: id,
-    token: reg.token,
-    webPushSubscription: reg.webPushSubscription,
+    token: reg.data.token,
+    webPushSubscription: reg.data.webPushSubscription,
   });
   if (!saved.ok) {
     console.warn('[PhysioShield therapist push] persist failed:', saved.message);

@@ -2,6 +2,7 @@ import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { sanitizeDbErrorMessage } from '../lib/dbErrorSanitizer';
+import { serviceFail, serviceOk, type ServiceResult } from '../lib/serviceResult';
 import type { Message } from '../types';
 import { dispatchTherapistChatPushNotification } from './therapistChatPush';
 
@@ -164,7 +165,7 @@ function parseChatMessageRows(data: unknown): ChatMessageRow[] {
 export async function fetchChatMessages(
   client: SupabaseClient,
   opts?: { patientId?: string; limit?: number; viewer?: ChatViewerRole }
-): Promise<{ ok: true; messages: Message[] } | { ok: false; message: string }> {
+): Promise<ServiceResult<Message[]>> {
   const patientId = opts?.patientId?.trim();
   const limit = opts?.limit ?? CHAT_DEFAULT_LIMIT;
   const viewer = opts?.viewer ?? 'therapist';
@@ -188,28 +189,28 @@ export async function fetchChatMessages(
 
   if (error) {
     console.warn('[fetchChatMessages] query failed', error.message);
-    return { ok: false, message: sanitizeDbErrorMessage(error.message) };
+    return serviceFail(sanitizeDbErrorMessage(error.message));
   }
 
   const rows = parseChatMessageRows(data);
-  return { ok: true, messages: rows.map((row) => chatRowToMessage(row, viewer)) };
+  return serviceOk(rows.map((row) => chatRowToMessage(row, viewer)));
 }
 
 export async function markChatMessagesRead(
   client: SupabaseClient,
   messageIds: string[],
   viewer: ChatViewerRole
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<ServiceResult> {
   const ids = [...new Set(messageIds.map((id) => id.trim()).filter(Boolean))];
-  if (ids.length === 0) return { ok: true };
+  if (ids.length === 0) return serviceOk();
 
   const column = viewer === 'therapist' ? 'read_by_therapist' : 'read_by_patient';
   const { error } = await client.from('chat_messages').update({ [column]: true }).in('id', ids);
 
   if (error) {
-    return { ok: false, message: sanitizeDbErrorMessage(error.message) };
+    return serviceFail(sanitizeDbErrorMessage(error.message));
   }
-  return { ok: true };
+  return serviceOk();
 }
 
 export async function insertTherapistChatMessage(
@@ -219,10 +220,10 @@ export async function insertTherapistChatMessage(
     therapistId: string;
     content: string;
   }
-): Promise<{ ok: true; message: Message } | { ok: false; message: string }> {
+): Promise<ServiceResult<Message>> {
   const parsed = chatInsertSchema.safeParse(params);
   if (!parsed.success) {
-    return { ok: false, message: 'empty_patient_content_or_therapist' };
+    return serviceFail('empty_patient_content_or_therapist');
   }
   const { patientId: pid, therapistId: therapistRowId, content: body } = parsed.data;
 
@@ -241,13 +242,13 @@ export async function insertTherapistChatMessage(
     .single();
 
   if (error) {
-    return { ok: false, message: sanitizeDbErrorMessage(error.message) };
+    return serviceFail(sanitizeDbErrorMessage(error.message));
   }
   if (!data) {
-    return { ok: false, message: 'insert_returned_no_row' };
+    return serviceFail('insert_returned_no_row');
   }
 
-  return { ok: true, message: chatRowToMessage(data as ChatMessageRow, 'therapist') };
+  return serviceOk(chatRowToMessage(data as ChatMessageRow, 'therapist'));
 }
 
 export async function insertPatientChatMessage(
@@ -257,10 +258,10 @@ export async function insertPatientChatMessage(
     therapistId: string;
     content: string;
   }
-): Promise<{ ok: true; message: Message } | { ok: false; message: string }> {
+): Promise<ServiceResult<Message>> {
   const parsed = chatInsertSchema.safeParse(params);
   if (!parsed.success) {
-    return { ok: false, message: 'empty_patient_content_or_therapist' };
+    return serviceFail('empty_patient_content_or_therapist');
   }
   const { patientId: pid, therapistId, content: body } = parsed.data;
 
@@ -279,13 +280,13 @@ export async function insertPatientChatMessage(
     .single();
 
   if (error) {
-    return { ok: false, message: sanitizeDbErrorMessage(error.message) };
+    return serviceFail(sanitizeDbErrorMessage(error.message));
   }
   if (!data) {
-    return { ok: false, message: 'insert_returned_no_row' };
+    return serviceFail('insert_returned_no_row');
   }
 
-  return { ok: true, message: chatRowToMessage(data as ChatMessageRow, 'patient') };
+  return serviceOk(chatRowToMessage(data as ChatMessageRow, 'patient'));
 }
 
 export type ChatRealtimeSubscription = {

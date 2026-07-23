@@ -24,6 +24,7 @@ import {
   STANDARD_REMINDER_LOCAL_HOUR,
   THREE_HOURS_MS,
 } from "../_shared/reminderEligibility.ts";
+import { parseJsonObject } from "../_shared/safeJson.ts";
 
 /**
  * Hourly reminder dispatcher: "momentum" (recent activity, no session yet today) vs 8pm local standard.
@@ -126,7 +127,8 @@ async function parseCronJsonBody(req: Request): Promise<{
   try {
     const raw = await req.text();
     if (!raw.trim()) return empty;
-    const j = JSON.parse(raw) as Record<string, unknown>;
+    const j = parseJsonObject(raw);
+    if (!j) return empty;
     const pidRaw = j.patient_id ?? j.test_patient_id;
     const test_patient_id =
       typeof pidRaw === "string" && pidRaw.trim().length > 0 ? pidRaw.trim() : null;

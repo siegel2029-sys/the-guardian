@@ -17,6 +17,14 @@
 
     /* Strictness — pinned explicitly (do not rely on TS defaults alone) */
     "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "useUnknownInCatchVariables": true,
+    "alwaysStrict": true,
 
     /* Linting */
     "noUnusedLocals": true,

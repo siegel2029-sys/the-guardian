@@ -27,6 +27,7 @@ import {
 } from "../_shared/patientPayloadMeta.ts";
 import { isWebPushEndpoint } from "../_shared/webPushEndpointAllowlist.ts";
 import { patientLogRef } from "../_shared/reminderEligibility.ts";
+import { asJsonObject } from "../_shared/safeJson.ts";
 import { timingSafeEqualString } from "../_shared/timingSafeEqual.ts";
 
 const corsHeaders: Record<string, string> = {
@@ -373,7 +374,10 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, error: "invalid_json_body" }, 400);
   }
 
-  const payloadObj = payload as Record<string, unknown>;
+  const payloadObj = asJsonObject(payload);
+  if (!payloadObj) {
+    return jsonResponse({ ok: false, error: "invalid_json_body" }, 400);
+  }
 
   // ── test-notification helper (gated): POST {"type":"test-notification"} with secret
   // Requires NOTIFY_ALLOW_TEST=true — never echo payload (may contain PHI).

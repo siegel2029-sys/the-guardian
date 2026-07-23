@@ -135,13 +135,13 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — code hygiene & regression sweep closed._
+_Idle — type-safety & result-shape hardening sweep closed._
 
 ### Completed Steps (recent)
 
-- Hygiene sweep: PHI-safe `devLog`/`redactId` on clinical/TIP_SYNC/push/legal paths; Edge `notify-new-message` uses `patientLogRef`.
-- Result shape: `serviceResult` helper; plan-mod + push register aligned to `{ ok, message }`; exercise_logs count moved to service layer.
-- Pinned `"strict": true` in app/node tsconfigs; removed `prevActive!` on plan versioning; `tsc -b` / `build` / 62 tests green.
+- Result shape: wired `serviceOk`/`serviceFail`; chat fetch/insert → `data`; push persist/register → discriminated `ServiceResult` / `data`; `fetchUnlinkedPortalPatientIds` dropped `{ error }`.
+- JSONB guards: `clinicalJsonbParse` at clinical/exercise Supabase edges; Edge `safeJson` for gemini-proxy / notify-new-message / reminder-cron.
+- Strict flags pinned explicitly in app/node tsconfigs; `tsc -b` / `build` / 66 tests green.
 
 ### Next Action Items
 
@@ -149,7 +149,7 @@ _Idle — code hygiene & regression sweep closed._
 2. Enable HIBP after Pro: `node scripts/enable-password-hibp.mjs`.
 3. Set `ALLOWED_ORIGINS` in Edge secrets for CORS fail-closed on JWT-facing functions.
 4. Continue migrating remaining dashboard panels off fat `usePatient()`.
-5. Wire GuestDailyView invite code → portal signup end-to-end.
+5. Optionally migrate clinical fetch multi-key successes (`patients` / `exercisePlans`) → `data` wrappers.
 
 ### Update protocol
 

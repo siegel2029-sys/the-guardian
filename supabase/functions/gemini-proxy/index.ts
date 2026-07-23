@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { parseJsonObject } from "../_shared/safeJson.ts";
 
 const GEMINI_HOST = "https://generativelanguage.googleapis.com";
 const GEMINI_VERSION = "v1beta";
@@ -259,19 +260,54 @@ Deno.serve(async (req) => {
     if (rawText.length > maxBodyBytes) {
       return jsonResponse({ error: "Payload too large" }, 413, corsHeaders);
     }
-    payload = JSON.parse(rawText) as RequestPayload;
+    const parsedBody = parseJsonObject(rawText);
+    if (!parsedBody) {
+      return jsonResponse({ error: "Invalid JSON body" }, 400, corsHeaders);
+    }
+    const generationRaw = parsedBody.generation;
+    if (!generationRaw || typeof generationRaw !== "object" || Array.isArray(generationRaw)) {
+      return jsonResponse(
+        { error: "Missing generation.contents or generation.generationConfig" },
+        400,
+        corsHeaders,
+      );
+    }
+    const genRec = generationRaw as Record<string, unknown>;
+    const contents = genRec.contents;
+    const generationConfig = genRec.generationConfig;
+    if (!Array.isArray(contents) || contents.length === 0) {
+      return jsonResponse(
+        { error: "Missing generation.contents or generation.generationConfig" },
+        400,
+        corsHeaders,
+      );
+    }
+    if (!generationConfig || typeof generationConfig !== "object" || Array.isArray(generationConfig)) {
+      return jsonResponse(
+        { error: "Missing generation.contents or generation.generationConfig" },
+        400,
+        corsHeaders,
+      );
+    }
+    const patientInitials =
+      typeof parsedBody.patientInitials === "string" ? parsedBody.patientInitials : undefined;
+    const nameTokens = Array.isArray(parsedBody.nameTokens)
+      ? parsedBody.nameTokens.filter((t): t is string => typeof t === "string")
+      : undefined;
+    payload = {
+      generation: {
+        contents: contents as GenerationBody["contents"],
+        systemInstruction: genRec.systemInstruction as GenerationBody["systemInstruction"],
+        generationConfig: generationConfig as Record<string, unknown>,
+      },
+      patientInitials,
+      nameTokens,
+    };
   } catch {
     return jsonResponse({ error: "Invalid JSON body" }, 400, corsHeaders);
   }
 
-  const gen = payload?.generation;
-  if (!gen?.contents?.length || !gen.generationConfig || typeof gen.generationConfig !== "object") {
-    return jsonResponse(
-      { error: "Missing generation.contents or generation.generationConfig" },
-      400,
-      corsHeaders,
-    );
-  }
+  const gen = payload.generation;
 
   const modelId = (Deno.env.get("GEMINI_MODEL") ?? DEFAULT_MODEL).trim();
   const scrubbed = scrubGeneration(gen, payload.patientInitials, payload.nameTokens);
@@ -301,7 +337,11 @@ Deno.serve(async (req) => {
 
   let parsed: Parameters<typeof getResponseText>[0];
   try {
-    parsed = JSON.parse(rawBody) as Parameters<typeof getResponseText>[0];
+    const parsedObj = parseJsonObject(rawBody);
+    if (!parsedObj) {
+      return jsonResponse({ error: "Invalid JSON from Gemini" }, 502, corsHeaders);
+    }
+    parsed = parsedObj as Parameters<typeof getResponseText>[0];
   } catch {
     return jsonResponse({ error: "Invalid JSON from Gemini" }, 502, corsHeaders);
   }
