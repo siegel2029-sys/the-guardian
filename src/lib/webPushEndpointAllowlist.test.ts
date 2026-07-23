@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isWebPushEndpoint } from '../../supabase/functions/_shared/webPushEndpointAllowlist.ts';
+import { isWebPushEndpoint } from './webPushEndpointAllowlist.ts';
 
 describe('isWebPushEndpoint allowlist', () => {
   it('allows FCM / Apple / Mozilla hosts', () => {
