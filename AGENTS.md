@@ -139,17 +139,17 @@ _Idle — awaiting next PM/roadmap assignment._
 
 ### Completed Steps (recent)
 
-- Production readiness P0/P1: PHI-safe client logging via `safeLog`, ESLint ship gate green (React Compiler advisories warn-only), `ALLOWED_ORIGINS` set on Edge secrets, RPC DEFINER review + Vitest for `complete_exercise_safe`.
-- Denormalized `patients.account_frozen` / `patients.status` (migration + trigger); reminder-cron filters prefer columns.
-- Continued god-file carve: `patientPortalRouting.tsx`, `patientContextRoster.ts`; PatientDailyView / PatientContext LOC reduced.
+- Hardening audit P0: phase5 RLS repair applied live (C1 `therapist_id`+freeze lock, KB write ownership, `profiles_insert` gate, `link_patient_auth_user` prefers `app_metadata`); route-shell ErrorBoundaries; Edge `gemini-proxy` / `notify-new-message` sanitized + redeployed.
+- Perf: memoized `PatientContext` value; scenery helpers → `gamificationScenery.ts`; `useExercisePlan` date helpers use `clinicalToday` (not 60s tick).
+- PatientDailyView carve (~1788→~679 LOC shell): training orchestration hook + chrome/home/activity/modals; `tsc` + Vitest green (55).
 
 ### Next Action Items
 
 1. Enable Auth leaked-password protection (Pro): run `node scripts/enable-password-hibp.mjs` with `SUPABASE_ACCESS_TOKEN`, or Dashboard → Auth → Password strength.
-2. Continue god-file split: more PatientContext provider slices + PatientDailyView domain modules.
+2. Continue god-file split: PatientContext provider slices + `useExercisePlan` / `submitExerciseReport` carve.
 3. Deploy updated `reminder-cron` Edge Function with denorm column filters.
 4. Repair local↔remote migration history drift (`supabase migration repair` / `db pull`) so `db push` works cleanly.
-5. App Store UX pass: mobile 3D map lazy-load + a11y audit on portal FABs.
+5. Set `app_metadata.patient_id` at portal signup (Auth Admin) so `link_patient_auth_user` no longer needs `user_metadata` fallback.
 
 ### Update protocol
 

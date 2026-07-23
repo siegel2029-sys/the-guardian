@@ -1,6 +1,6 @@
-import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { X } from 'lucide-react';
-import BodyMap3D from '../../body-map/BodyMap3D';
+import ErrorBoundary from '../../ui/error-boundary';
 import type { BodyArea, Patient } from '../../../types';
 import { bodyAreaLabels } from '../../../types';
 import { usePatient } from '../../../context/PatientContext';
@@ -12,6 +12,8 @@ import {
   primaryPainAutoNeighborDisabled,
   type PainManagementTableRow,
 } from '../../../body/bodyPickMapping';
+
+const BodyMap3D = lazy(() => import('../../body-map/BodyMap3D'));
 
 export default function PainManagement({
   patient: patientProp,
@@ -179,22 +181,56 @@ export default function PainManagement({
         <div className="p-4 flex flex-col lg:flex-row gap-4">
           <div className="shrink-0 flex-1 min-w-0 order-1 flex flex-col min-h-0">
             <div className="flex-1 min-h-[min(64dvh,720px)] rounded-2xl overflow-hidden pointer-events-none select-none border-2 border-slate-900/25 bg-white shadow-inner shadow-slate-400/40 ring-1 ring-slate-900/10 flex items-center justify-center lg:justify-end">
-              <BodyMap3D
-                wrapperClassName="w-full h-full min-h-[min(60dvh,680px)] max-w-full"
-                painPickerFlat
-                painPickerCleanBackground
-                innerFrameMaxWidthPx={2000}
-                avatarScale={1.1}
-                activeAreas={activeAreas}
-                primaryArea={patient.primaryBodyArea}
-                clinicalArea={patient.primaryBodyArea}
-                painByArea={patient.analytics.painByArea}
-                level={patient.level}
-                injuryHighlightSegments={patient.injuryHighlightSegments}
-                secondaryClinicalBodyAreas={patient.secondaryClinicalBodyAreas}
-                stableInteraction
-                selectedArea={null}
-              />
+              <ErrorBoundary
+                variant="section"
+                scopeLabel="PainManagement.BodyMap3D"
+                fallback={(reset) => (
+                  <div
+                    role="alert"
+                    dir="rtl"
+                    className="pointer-events-auto flex h-full min-h-[min(60dvh,680px)] w-full flex-col items-center justify-center gap-3 bg-slate-50 px-4 text-center"
+                  >
+                    <p className="text-sm font-semibold text-slate-900">מפת הגוף אינה זמינה</p>
+                    <p className="text-xs text-slate-600">ניתן להמשיך לערוך את טבלת האזורים.</p>
+                    <button
+                      type="button"
+                      onClick={reset}
+                      className="rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-700 min-h-11"
+                    >
+                      נסה שוב
+                    </button>
+                  </div>
+                )}
+              >
+                <Suspense
+                  fallback={
+                    <div
+                      className="flex h-full min-h-[min(60dvh,680px)] w-full items-center justify-center bg-slate-100/80"
+                      aria-busy="true"
+                      aria-label="טוען מפת גוף"
+                    >
+                      <div className="h-10 w-10 animate-spin rounded-full border-2 border-teal-600 border-t-transparent" />
+                    </div>
+                  }
+                >
+                  <BodyMap3D
+                    wrapperClassName="w-full h-full min-h-[min(60dvh,680px)] max-w-full"
+                    painPickerFlat
+                    painPickerCleanBackground
+                    innerFrameMaxWidthPx={2000}
+                    avatarScale={1.1}
+                    activeAreas={activeAreas}
+                    primaryArea={patient.primaryBodyArea}
+                    clinicalArea={patient.primaryBodyArea}
+                    painByArea={patient.analytics.painByArea}
+                    level={patient.level}
+                    injuryHighlightSegments={patient.injuryHighlightSegments}
+                    secondaryClinicalBodyAreas={patient.secondaryClinicalBodyAreas}
+                    stableInteraction
+                    selectedArea={null}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             </div>
           </div>
 

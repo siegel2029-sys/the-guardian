@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { UserPlus, KeyRound, Copy, X, RefreshCw } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import ClinicalAiIntakeWizard from '../dashboard/ClinicalAiIntakeWizard';
+import ErrorBoundary from '../ui/error-boundary';
 import { randomPatientPassword } from '../../context/PatientContext';
 import { validateNewPassword } from '../../lib/passwordPolicy';
 
@@ -235,13 +236,38 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
       )}
 
       {draftPatientId && lockedPortalUsername && (
-        <ClinicalAiIntakeWizard
-          clinicalIntakeMode="create"
-          lockedPortalUsername={lockedPortalUsername}
-          initialPatientName={initialPatientDisplayName()}
-          onClose={onWizardClose}
-          onSave={onWizardSave}
-        />
+        <ErrorBoundary
+          variant="section"
+          scopeLabel="SidebarNewPatient.ClinicalAiIntakeWizard"
+          fallback={(reset) => (
+            <div
+              className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40"
+              role="alertdialog"
+              aria-modal="true"
+              dir="rtl"
+            >
+              <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-xl">
+                <p className="text-sm font-semibold text-slate-900">אשף האינטייק אינו זמין</p>
+                <p className="mt-1 text-xs text-slate-600">שאר לוח המטפל ממשיך לעבוד.</p>
+                <button
+                  type="button"
+                  onClick={reset}
+                  className="mt-4 rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-700"
+                >
+                  נסה שוב
+                </button>
+              </div>
+            </div>
+          )}
+        >
+          <ClinicalAiIntakeWizard
+            clinicalIntakeMode="create"
+            lockedPortalUsername={lockedPortalUsername}
+            initialPatientName={initialPatientDisplayName()}
+            onClose={onWizardClose}
+            onSave={onWizardSave}
+          />
+        </ErrorBoundary>
       )}
 
       {open && (

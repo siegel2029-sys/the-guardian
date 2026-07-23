@@ -1,78 +1,41 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { getStrengthenedBodyAreasToday } from '../../utils/strengthenedAreasToday';
 import { useNavigate, useLocation } from 'react-router-dom';
-import {
-  Zap,
-  MessageCircle,
-  Coins,
-  Activity,
-  LogOut,
-  Settings,
-  Home,
-  ShoppingBag,
-  Siren,
-} from 'lucide-react';
+import { MessageCircle, Home, ShoppingBag } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { useAuth } from '../../context/AuthContext';
-import BodyMap3D from '../body-map/BodyMap3D';
 import { type GuardiTransientAppearance } from './GordyCompanion';
-import ExerciseCard from './ExerciseCard';
-import OptionalSection from './OptionalSection';
-import { useOptionalRehabPool } from './useOptionalRehabPool';
-import ExerciseVideoTimerModal from './ExerciseVideoTimerModal';
-import ExerciseTrainingFeedbackModal, {
-  type ExerciseTrainingFeedbackPayload,
-} from './ExerciseTrainingFeedbackModal';
+import { useOptionalRehabPool, type StrengthMissionRow } from './useOptionalRehabPool';
 import PatientPortalMessagesTab from './PatientPortalMessagesTab';
 import PatientPortalHomeAiChatDock from './PatientPortalHomeAiChatDock';
 import { PatientDidYouKnowAnchorButton } from './PatientDidYouKnowPortal';
-import { formatPatientRepsLabel } from '../../utils/patientExerciseRepsLabel';
-import { patientFacingExerciseInstructions } from '../../utils/patientFacingExerciseInstructions';
-import type { StrengthExerciseLevelDef } from '../../data/strengthExerciseDatabase';
 import { getStrengthChainForArea } from '../../data/strengthExerciseDatabase';
 import { bodyAreaBlocksSelfCare } from '../../body/bodyPickMapping';
-import EmergencyStopModal from './EmergencyStopModal';
-import PatientAiPlanSuggestionModal from './PatientAiPlanSuggestionModal';
-import PainAnalyticsModal from './PainAnalyticsModal';
-import ClinicalMonthCalendar from './ClinicalMonthCalendar';
-import PatientTwoMonthGoalCard from './PatientTwoMonthGoalCard';
-import type { AiSuggestion, PatientExercise, BodyArea, DailySession } from '../../types';
-import { bodyAreaLabels } from '../../types';
-import {
-  PAIN_SURGE_PATIENT_COPY,
-  DIFFICULTY_MAX_PATIENT_COPY,
-} from '../../safety/clinicalEmergencyScreening';
-import { PATIENT_REWARDS, exerciseBaseXp } from '../../config/patientRewards';
+import type { PatientExercise, BodyArea, DailySession } from '../../types';
 import { validateNewPassword } from '../../lib/passwordPolicy';
-import { RewardLabel } from '../ui/RewardLabel';
 import StackedDumbbellsIcon from '../icons/StackedDumbbellsIcon';
 import GearStoreArmory from './GearStoreArmory';
-import { buildEquippedGearSnapshot } from '../../utils/gearSnapshot';
-import { normalizeStoreItemIds } from '../../config/storeCatalog';
 import PortalPatientDebugPanel from './PortalPatientDebugPanel';
 import Pilot11GamificationDebugPanel from './Pilot11GamificationDebugPanel';
 import { isPilot11GamificationDebugPatient } from '../../utils/pilot11GamificationDebug';
-import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
-import PatientPortalSettingsModal from './PatientPortalSettingsModal';
-import { fetchAiPlanAdjustmentSuggestion } from '../../ai/clinicalRecommendationEngine';
 import { evaluateAiProgramLongitudinalGate } from '../../ai/aiProgramLongitudinalGate';
 import { computeStreakForPatient } from '../../utils/exerciseStreak';
-import { getOptionalPoolExerciseId } from '../../utils/optionalExerciseUnlock';
-import { displayPortalRehabExerciseTitle } from '../../utils/portalRehabExerciseTitle';
 import {
   getTotalActiveDaysForScenery,
 } from '../../hooks/useGamification';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { usePatientReminderInfrastructure } from '../../hooks/usePatientReminderInfrastructure';
 import {
-  activateOnEnterSpace,
   portalHrefForTab,
-  portalTrainingAiPlanModalAckKey,
-  PORTAL_PROGRESS_NAV_SURFACE,
   PatientLoadingGate,
   tabFromPortalPath,
   type PortalTab,
 } from './patientPortalRouting';
+import { usePatientTrainingOrchestration } from './usePatientTrainingOrchestration';
+import PatientPortalChrome from './PatientPortalChrome';
+import PatientPortalHomeSection from './PatientPortalHomeSection';
+import PatientPortalActivitySection from './PatientPortalActivitySection';
+import PatientDailyViewModals from './PatientDailyViewModals';
 
 const EMPTY_COMPLETED_IDS: string[] = [];
 const EMPTY_EXERCISES: PatientExercise[] = [];
@@ -138,12 +101,13 @@ export default function PatientDailyView() {
   const [messageDraftSeed, setMessageDraftSeed] = useState<string | null>(null);
   const consumeMessageDraftSeed = useCallback(() => setMessageDraftSeed(null), []);
   const [painAnalyticsOpen, setPainAnalyticsOpen] = useState(false);
-  const [loadSafetyNudge, setLoadSafetyNudge] = useState<string | null>(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [pwCurrent, setPwCurrent] = useState('');
   const [pwNew, setPwNew] = useState('');
   const [pwConfirm, setPwConfirm] = useState('');
   const [pwFormError, setPwFormError] = useState<string | null>(null);
+  const [redFlagOpen, setRedFlagOpen] = useState(false);
+  const [redFlagSirenAssetFailed, setRedFlagSirenAssetFailed] = useState(false);
 
   const [portalTab, setPortalTab] = useState<PortalTab>(() =>
     tabFromPortalPath(typeof window !== 'undefined' ? window.location.pathname : '/patient-portal')
@@ -185,37 +149,6 @@ export default function PatientDailyView() {
     setGuardiTransient(null);
   }, [portalTab]);
 
-  const [exerciseVideoModal, setExerciseVideoModal] = useState<
-    | null
-    | { kind: 'rehab'; exercise: PatientExercise; xpAward: number; coinsAward: number }
-    | {
-        kind: 'selfCare';
-        bodyArea: BodyArea;
-        exercise: StrengthExerciseLevelDef;
-        xpAward: number;
-        coinsAward: number;
-      }
-  >(null);
-  type PendingTrainingSession = NonNullable<typeof exerciseVideoModal> & {
-    patientId: string;
-    planRowId?: string;
-    isManualPlan?: boolean;
-  };
-  const pendingTrainingSessionRef = useRef<PendingTrainingSession | null>(null);
-  const [pendingTrainingSession, setPendingTrainingSession] =
-    useState<PendingTrainingSession | null>(null);
-  const [trainingFeedbackOpen, setTrainingFeedbackOpen] = useState(false);
-  const [trainingSubmitError, setTrainingSubmitError] = useState<string | null>(null);
-  const [redFlagOpen, setRedFlagOpen] = useState(false);
-  const [redFlagSirenAssetFailed, setRedFlagSirenAssetFailed] = useState(false);
-  const [trainingAiPlanModalOpen, setTrainingAiPlanModalOpen] = useState(false);
-  const [trainingAiPlanModalLoading, setTrainingAiPlanModalLoading] = useState(false);
-  const [trainingAiPlanModalSuggestion, setTrainingAiPlanModalSuggestion] = useState<AiSuggestion | null>(
-    null
-  );
-  const [trainingAiPlanModalInfo, setTrainingAiPlanModalInfo] = useState<string | null>(null);
-  const [aiSteadyBannerDismissed, setAiSteadyBannerDismissed] = useState(false);
-
   const portalMessages = useMemo(
     () => (selectedPatient ? getPatientMessages(selectedPatient.id) : []),
     [selectedPatient, getPatientMessages, messages]
@@ -248,53 +181,6 @@ export default function PatientDailyView() {
     exercisePlans,
     getExercisePlan,
   ]);
-
-  const capturePendingTrainingSession = useCallback(
-    (modal: NonNullable<typeof exerciseVideoModal>): PendingTrainingSession | null => {
-      if (!selectedPatient) return null;
-      const activePlan = getExercisePlan(selectedPatient.id);
-      const hasCachedPlan =
-        (selectedPatient._exercisePlanCache?.length ?? 0) > 0 ||
-        (activePlan?.exercises.length ?? 0) > 0;
-      const session: PendingTrainingSession = {
-        ...modal,
-        patientId: selectedPatient.id,
-        planRowId: activePlan?.planRowId,
-        isManualPlan: !activePlan?.planRowId && hasCachedPlan,
-      };
-      pendingTrainingSessionRef.current = session;
-      setPendingTrainingSession(session);
-      if (import.meta.env.DEV) {
-        console.log('[TrainingSession] captured pending context:', {
-          patientId: session.patientId,
-          exerciseId: session.exercise.id,
-          planRowId: session.planRowId ?? null,
-          isManualPlan: session.isManualPlan ?? false,
-          kind: session.kind,
-        });
-      }
-      return session;
-    },
-    [selectedPatient, getExercisePlan]
-  );
-
-  const openExerciseTrainingModal = useCallback(
-    (modal: NonNullable<typeof exerciseVideoModal>) => {
-      capturePendingTrainingSession(modal);
-      setTrainingFeedbackOpen(false);
-      setTrainingSubmitError(null);
-      setExerciseVideoModal(modal);
-    },
-    [capturePendingTrainingSession]
-  );
-
-  const clearTrainingSession = useCallback(() => {
-    pendingTrainingSessionRef.current = null;
-    setPendingTrainingSession(null);
-    setTrainingFeedbackOpen(false);
-    setTrainingSubmitError(null);
-    setExerciseVideoModal(null);
-  }, []);
 
   const activeAreas = useMemo(
     () => [...new Set(exercises.map((e) => e.targetArea))],
@@ -338,10 +224,6 @@ export default function PatientDailyView() {
   const redFlagPortalLock = selectedPatient?.redFlagActive === true;
   const exercisesLocked = exerciseSafetyLocked || redFlagPortalLock;
 
-  useEffect(() => {
-    if (exercisesLocked) clearTrainingSession();
-  }, [exercisesLocked, clearTrainingSession]);
-
   /** Green zones (excludes clinical); synced with 3D picks + context. */
   const selectedZones = useMemo((): BodyArea[] => {
     if (!selectedPatient?.id) return EMPTY_BODY_AREAS;
@@ -360,7 +242,6 @@ export default function PatientDailyView() {
   }, [selectedPatient?.id, getPatientExerciseFinishReports]);
 
   const prevPatientIdRef = useRef<string | undefined>(undefined);
-  const trainingAiFetchKeyRef = useRef<string | null>(null);
   const bodyMapSectionRef = useRef<HTMLDivElement>(null);
   const [coinKick, setCoinKick] = useState(false);
 
@@ -427,26 +308,6 @@ export default function PatientDailyView() {
     [clinicalRehabExercises]
   );
 
-  const [optionalGlowBoost, setOptionalGlowBoost] = useState(0);
-  useEffect(() => {
-    setOptionalGlowBoost(0);
-  }, [selectedPatient?.id, clinicalToday]);
-
-  useEffect(() => {
-    setAiSteadyBannerDismissed(false);
-  }, [selectedPatient?.id, clinicalToday]);
-
-  type MissionRow =
-    | { kind: 'rehab'; exercise: PatientExercise }
-    | {
-        kind: 'strength';
-        area: BodyArea;
-        exercise: StrengthExerciseLevelDef;
-        strengthTier: 0 | 1 | 2;
-      };
-
-  type StrengthMissionRow = Extract<MissionRow, { kind: 'strength' }>;
-
   const strengthMissionRows = useMemo((): StrengthMissionRow[] => {
     if (!selectedPatient?.id) return [];
     return [...selectedZones]
@@ -477,26 +338,26 @@ export default function PatientDailyView() {
     dailySessions,
   });
 
-  const {
-    fullOptionalPool,
-    optionalPoolCompletionCount,
-    getNextOptionalAfterAddingId,
-    sessionNextOptionalPoolItem,
-    signalOptionalReveal,
-  } = optionalPool;
-
-  useEffect(() => {
-    if (!exerciseVideoModal) return;
-    const mid = exerciseVideoModal.exercise.id;
-    const nextId = sessionNextOptionalPoolItem
-      ? getOptionalPoolExerciseId(sessionNextOptionalPoolItem)
-      : null;
-    if (nextId === mid) return;
-    const wasInOptionalPool = fullOptionalPool.some((p) => getOptionalPoolExerciseId(p) === mid);
-    if (wasInOptionalPool) {
-      clearTrainingSession();
-    }
-  }, [sessionNextOptionalPoolItem?.poolKey, fullOptionalPool, exerciseVideoModal, clearTrainingSession]);
+  const training = usePatientTrainingOrchestration({
+    selectedPatient,
+    getExercisePlan,
+    exercises,
+    selectedZones,
+    clinicalRehabExercises,
+    clinicalToday,
+    patientDayMap,
+    portalTab,
+    patientMustChangePassword,
+    exercisesLocked,
+    portalOnboardingSilence,
+    aiProgramLongitudinalGate,
+    optionalPool,
+    submitExerciseReport,
+    appendPatientExerciseFinishReport,
+    logSelfCareSession,
+    getSelfCareStrengthTier,
+    submitPatientAiPlanAdjustmentRequest,
+  });
 
   /** ספירת משימות: כל תרגילי התוכנית שהמטפל הגדיר + תרגילי כוח (אזורי בחירה) */
   const totalMissions = exercises.length + strengthMissionRows.length;
@@ -514,36 +375,6 @@ export default function PatientDailyView() {
   const missionListHasAny =
     mandatoryRehabExercises.length + optionalRehabExercises.length + strengthMissionRows.length > 0;
 
-  const trainingTabContextKey = useMemo(() => {
-    const zoneKey = [...selectedZones].sort().join(',');
-    const exKey = [...exercises.map((e) => e.id)].sort().join(',');
-    return `${zoneKey}|${exKey}`;
-  }, [selectedZones, exercises]);
-
-  const acknowledgeTrainingAiPlanModal = useCallback(() => {
-    if (selectedPatient) {
-      try {
-        sessionStorage.setItem(portalTrainingAiPlanModalAckKey(selectedPatient.id, clinicalToday), '1');
-      } catch {
-        /* ייתכן מצב פרטי / חסימת אחסון */
-      }
-    }
-    setTrainingAiPlanModalOpen(false);
-    setTrainingAiPlanModalSuggestion(null);
-    setTrainingAiPlanModalInfo(null);
-  }, [selectedPatient, clinicalToday]);
-
-  const handleTrainingAiPlanApprove = useCallback(() => {
-    if (trainingAiPlanModalSuggestion) {
-      submitPatientAiPlanAdjustmentRequest(trainingAiPlanModalSuggestion);
-    }
-    acknowledgeTrainingAiPlanModal();
-  }, [
-    trainingAiPlanModalSuggestion,
-    submitPatientAiPlanAdjustmentRequest,
-    acknowledgeTrainingAiPlanModal,
-  ]);
-
   const goToClinicalDashboardFromStreak = useCallback(() => {
     if (portalTab !== 'home') {
       navigate('/patient-portal#patient-clinical-dashboard');
@@ -558,99 +389,6 @@ export default function PatientDailyView() {
     });
   }, [navigate, portalTab]);
 
-  useEffect(() => {
-    const patientId = selectedPatient?.id;
-    if (
-      !patientId ||
-      portalTab !== 'activity' ||
-      patientMustChangePassword ||
-      exercisesLocked ||
-      portalOnboardingSilence
-    ) {
-      trainingAiFetchKeyRef.current = null;
-      setTrainingAiPlanModalOpen(false);
-      setTrainingAiPlanModalLoading(false);
-      setTrainingAiPlanModalSuggestion(null);
-      setTrainingAiPlanModalInfo(null);
-      return;
-    }
-
-    const gate = aiProgramLongitudinalGate;
-    if (
-      !gate ||
-      clinicalRehabExercises.length === 0 ||
-      !gate.shouldSuggest
-    ) {
-      trainingAiFetchKeyRef.current = null;
-      setTrainingAiPlanModalOpen(false);
-      setTrainingAiPlanModalLoading(false);
-      setTrainingAiPlanModalSuggestion(null);
-      setTrainingAiPlanModalInfo(null);
-      return;
-    }
-
-    try {
-      if (sessionStorage.getItem(portalTrainingAiPlanModalAckKey(patientId, clinicalToday)) === '1') {
-        setTrainingAiPlanModalOpen(false);
-        return;
-      }
-    } catch {
-      /* ignore */
-    }
-
-    const fetchKey = `${patientId}|${clinicalToday}|${trainingTabContextKey}|${gate.shouldSuggest}`;
-    if (trainingAiFetchKeyRef.current === fetchKey) {
-      return;
-    }
-    trainingAiFetchKeyRef.current = fetchKey;
-
-    let cancelled = false;
-    setTrainingAiPlanModalOpen(true);
-    setTrainingAiPlanModalLoading(true);
-    setTrainingAiPlanModalSuggestion(null);
-    setTrainingAiPlanModalInfo(null);
-
-    const patient = selectedPatient;
-    const clinical = clinicalRehabExercises;
-
-    void (async () => {
-      const sug = await fetchAiPlanAdjustmentSuggestion({
-        patient,
-        clinicalExercises: clinical,
-        longitudinalGate: gate,
-        clinicalToday,
-        dayMap: patientDayMap,
-      });
-      if (cancelled) return;
-      setTrainingAiPlanModalLoading(false);
-      if (sug) {
-        setTrainingAiPlanModalSuggestion(sug);
-        setTrainingAiPlanModalInfo(null);
-      } else {
-        setTrainingAiPlanModalSuggestion(null);
-        setTrainingAiPlanModalInfo(
-          'אין כרגע תרגילי שיקום בתוכנית שאפשר להציע עבורם שינוי אוטומטי.'
-        );
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    portalTab,
-    selectedPatient?.id,
-    patientMustChangePassword,
-    clinicalToday,
-    trainingTabContextKey,
-    exercisesLocked,
-    clinicalRehabExercises.length,
-    aiProgramLongitudinalGate?.shouldSuggest,
-    portalOnboardingSilence,
-  ]);
-
-  // MUTED: Guardi session-complete / mandatory-extra / companion eligibility triggers removed pending redesign.
-
   const latestEmergencyReason = useMemo(() => {
     if (!selectedPatient) return undefined;
     const hit = [...safetyAlerts]
@@ -659,141 +397,8 @@ export default function PatientDailyView() {
     return hit?.reasonHebrew;
   }, [safetyAlerts, selectedPatient?.id]);
 
-  useEffect(() => {
-    setLoadSafetyNudge(null);
-  }, [selectedPatient?.id]);
-
   const portalFrozenUiLock =
     sessionRole === 'patient' && !!selectedPatient?.accountFrozen && !patientMustChangePassword;
-
-  const pushExerciseCompleteMilestone = (_painLevel?: number) => {
-    // MUTED: Guardi pop-up on single exercise completion disabled pending redesign.
-  };
-
-  const handleTrainingComplete = async (
-    payload: ExerciseTrainingFeedbackPayload
-  ): Promise<boolean> => {
-    const m = pendingTrainingSession ?? pendingTrainingSessionRef.current;
-    if (import.meta.env.DEV) {
-      console.log('[TrainingComplete] submitting with pending session:', {
-        hasPendingState: Boolean(pendingTrainingSession),
-        hasPendingRef: Boolean(pendingTrainingSessionRef.current),
-        patientId: m?.patientId ?? null,
-        exerciseId: m?.exercise.id ?? null,
-        planRowId: m?.planRowId ?? null,
-        isManualPlan: m?.isManualPlan ?? false,
-        kind: m?.kind ?? null,
-        payload,
-      });
-    }
-    if (!selectedPatient || !m || m.patientId !== selectedPatient.id) {
-      setTrainingSubmitError('לא נמצאו פרטי התרגיל. סגרו ופתחו את האימון מחדש.');
-      return false;
-    }
-
-    const exerciseInOptionalPool = fullOptionalPool.some(
-      (p) => getOptionalPoolExerciseId(p) === m.exercise.id
-    );
-    const optionalPoolNoReward =
-      exerciseInOptionalPool && optionalPoolCompletionCount >= 1;
-
-    if (m.kind === 'selfCare') {
-      const strengthTier = getSelfCareStrengthTier(selectedPatient.id, m.bodyArea);
-      const strengthTierLabel =
-        strengthTier === 0 ? 'קל' : strengthTier === 1 ? 'בינוני' : 'קשה';
-      const planXpForSelfCare = Math.max(1, Math.floor(m.exercise.xpReward * 0.5));
-      const nextAfterOptional =
-        exerciseInOptionalPool ? getNextOptionalAfterAddingId(m.exercise.id) : null;
-      const saved = await submitExerciseReport(
-        selectedPatient.id,
-        m.exercise.id,
-        payload.painLevel,
-        payload.effort,
-        planXpForSelfCare,
-        {
-          skipPainHistory: true,
-          completionSource: 'self-care',
-          sessionBodyArea: m.bodyArea,
-          optionalPoolNoReward,
-        }
-      );
-      if (!saved) return false;
-      await appendPatientExerciseFinishReport(selectedPatient.id, {
-        exerciseId: m.exercise.id,
-        exerciseName: m.exercise.name,
-        zone: bodyAreaLabels[m.bodyArea],
-        difficultyScore: payload.effort,
-        effortScale: 10,
-        painLevel: payload.painLevel,
-        source: 'self-care',
-        selfCareDifficultyTier: strengthTier,
-        selfCareDifficultyLabel: strengthTierLabel,
-      });
-      if (nextAfterOptional) {
-        signalOptionalReveal(true);
-      }
-      logSelfCareSession(
-        selectedPatient.id,
-        m.exercise.id,
-        m.exercise.name,
-        payload.effort
-      );
-      if (payload.effort >= 10) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
-      else setLoadSafetyNudge(null);
-      pushExerciseCompleteMilestone(payload.painLevel);
-      return true;
-    }
-
-    const pain = payload.painLevel;
-    const nextAfterOptional =
-      m.exercise.isOptional && exerciseInOptionalPool
-        ? getNextOptionalAfterAddingId(m.exercise.id)
-        : null;
-    const saved = await submitExerciseReport(
-      selectedPatient.id,
-      m.exercise.id,
-      pain,
-      payload.effort,
-      m.exercise.xpReward,
-      {
-        completionSource: 'rehab',
-        sessionBodyArea: m.exercise.targetArea,
-        optionalPoolNoReward:
-          m.exercise.isOptional && exerciseInOptionalPool && optionalPoolCompletionCount >= 1,
-        planRowId: m.planRowId,
-        isManualPlan: m.isManualPlan,
-      }
-    );
-    if (!saved) return false;
-
-    await appendPatientExerciseFinishReport(selectedPatient.id, {
-      exerciseId: m.exercise.id,
-      exerciseName: m.exercise.name,
-      zone: bodyAreaLabels[m.exercise.targetArea],
-      difficultyScore: payload.effort,
-      effortScale: 10,
-      painLevel: payload.painLevel,
-      source: 'therapist',
-    });
-    if (nextAfterOptional) {
-      signalOptionalReveal(true);
-    }
-    if (m.exercise.isOptional) {
-      setOptionalGlowBoost((n) => Math.min(5, n + 1));
-    }
-    pushExerciseCompleteMilestone(pain);
-    if (pain >= 7) setLoadSafetyNudge(PAIN_SURGE_PATIENT_COPY);
-    else if (payload.effort >= 10) setLoadSafetyNudge(DIFFICULTY_MAX_PATIENT_COPY);
-    else setLoadSafetyNudge(null);
-    return true;
-  };
-
-  const handleFinishPractice = useCallback(() => {
-    if (!exerciseVideoModal || !selectedPatient) return;
-    capturePendingTrainingSession(exerciseVideoModal);
-    setTrainingSubmitError(null);
-    setTrainingFeedbackOpen(true);
-  }, [exerciseVideoModal, selectedPatient, capturePendingTrainingSession]);
 
   const handleAvatarZoneClick = (area: BodyArea) => {
     if (!selectedPatient) return;
@@ -804,8 +409,6 @@ export default function PatientDailyView() {
     }
     toggleSelfCareZone(selectedPatient.id, area);
   };
-
-  const lastPainRecord = selectedPatient?.analytics?.painHistory?.slice(-1)?.[0];
 
   const submitPasswordChange = async () => {
     setPwFormError(null);
@@ -862,210 +465,36 @@ export default function PatientDailyView() {
 
   const showPortalFrozenOverlay = portalFrozenUiLock && portalTab !== 'messages';
 
+  const handleLogout = () => {
+    void logout().then(() => navigate('/login', { replace: true }));
+  };
+
   return (
     <div
       className="min-h-screen flex flex-col max-w-lg mx-auto w-full relative bg-medical-bg font-sans"
       dir="rtl"
     >
-      {/* MUTED: Guardi victory sequence disabled pending redesign.
-      <GuardiVictorySequence
-        burstKey={guardiVictoryBurst}
-        xpAdded={guardiVictoryRewards.xp}
-        coinsAdded={guardiVictoryRewards.coins}
-        streakBonusXp={guardiVictoryRewards.streak}
+      {/* MUTED: Guardi victory sequence disabled pending redesign. */}
+      <PatientPortalChrome
+        portalPatientLabel={portalPatientLabel}
+        xp={xp}
+        xpForNextLevel={next}
+        coins={selectedPatient.coins}
+        level={selectedPatient.level}
+        displayStreak={displayStreak}
+        patientMustChangePassword={patientMustChangePassword}
+        portalFrozenUiLock={portalFrozenUiLock}
+        sessionRole={sessionRole}
+        rewardFeedback={rewardFeedback}
+        coinKick={coinKick}
+        hasDailyLoginBonusPending={hasDailyLoginBonusPending(selectedPatient.id)}
+        redFlagSirenAssetFailed={redFlagSirenAssetFailed}
+        onRedFlagSirenAssetFailed={() => setRedFlagSirenAssetFailed(true)}
+        onOpenRedFlag={() => setRedFlagOpen(true)}
+        onOpenSettings={() => setSettingsModalOpen(true)}
+        onGoToClinicalDashboardFromStreak={goToClinicalDashboardFromStreak}
+        onLogout={handleLogout}
       />
-      */}
-      <header
-        dir="ltr"
-        className="relative grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 sm:gap-x-4 overflow-visible bg-white px-3 sm:px-4 py-3 border-b border-slate-200/80 shadow-md shadow-slate-200/40"
-      >
-        {/* טור 1 — שמאל: XP / מטבעות */}
-        <div className="relative shrink-0 justify-self-start flex flex-col items-start justify-center gap-2">
-          {rewardFeedback && (
-            <div
-              key={rewardFeedback.id}
-              className="absolute top-full left-0 mt-1 flex flex-col items-start gap-0.5 pointer-events-none z-30"
-            >
-              {rewardFeedback.xpAdded > 0 && (
-                <span className="text-xs font-black text-teal-600 tabular-nums drop-shadow-sm animate-portal-reward-float">
-                  +{rewardFeedback.xpAdded} XP
-                </span>
-              )}
-              {rewardFeedback.streakBonusXp != null && rewardFeedback.streakBonusXp > 0 && (
-                <span
-                  className="text-[10px] font-bold text-orange-600 tabular-nums animate-portal-reward-float"
-                  style={{ animationDelay: '0.08s' }}
-                >
-                  רצף +{rewardFeedback.streakBonusXp} XP
-                </span>
-              )}
-              {rewardFeedback.coinsAdded > 0 && (
-                <span
-                  className="text-xs font-black text-amber-600 tabular-nums animate-portal-reward-float"
-                  style={{ animationDelay: '0.14s' }}
-                >
-                  +{rewardFeedback.coinsAdded} מטבעות
-                </span>
-              )}
-            </div>
-          )}
-          {!patientMustChangePassword && (
-            <span
-              title={`${xp.toLocaleString()} / ${next.toLocaleString()} התקדמות לרמה הבאה`}
-              className="inline-flex flex-col items-center gap-0.5 rounded-xl border border-slate-200/90 bg-white px-2.5 py-1.5 text-sm font-bold text-slate-800 shadow-sm cursor-help min-w-[3rem]"
-              role="img"
-              aria-label={`${xp.toLocaleString()} מתוך ${next.toLocaleString()} נקודות ניסיון — התקדמות לרמה הבאה`}
-            >
-              <Zap className="w-4 h-4 shrink-0 text-amber-500" strokeWidth={2.25} aria-hidden />
-              <span className="tabular-nums leading-none">{xp.toLocaleString()}</span>
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={() => navigate('/shop')}
-            title="מטבעות למידה — חנות"
-            aria-label="מטבעות למידה — מעבר לחנות"
-            disabled={portalFrozenUiLock}
-            className={`inline-flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl text-sm font-bold text-slate-800 transition-transform duration-200 border-2 border-slate-200 bg-white hover:bg-amber-50/80 hover:border-amber-200/90 active:scale-[0.98] min-w-[3.25rem] disabled:opacity-40 disabled:pointer-events-none disabled:grayscale ${
-              coinKick ? 'motion-safe:scale-110' : ''
-            }`}
-          >
-            <Coins
-              className={`w-5 h-5 text-amber-600 motion-safe:transition-transform ${coinKick ? 'motion-safe:scale-125' : ''}`}
-            />
-            <span className="tabular-nums leading-none">{selectedPatient.coins}</span>
-          </button>
-        </div>
-
-        {/* טור 2 — מרכז: רמה ושם בשורה; רצף מתחת לשם בלבד (ממורכז לעמודת השם) */}
-        <div className="min-w-0 w-full max-w-full justify-self-stretch flex flex-col items-center justify-center gap-1 px-1 sm:px-2 text-center">
-          {!patientMustChangePassword && (
-            <>
-              <div
-                dir="ltr"
-                className="flex w-full min-w-0 max-w-full flex-nowrap items-start justify-center gap-2"
-              >
-                <span className="shrink-0 pt-0.5 text-xs sm:text-sm font-bold tabular-nums text-emerald-600">
-                  רמה {selectedPatient.level}
-                </span>
-                <div className="flex min-w-0 flex-1 basis-0 flex-col items-center gap-1 text-center">
-                  <span
-                    className="w-full min-w-0 text-lg sm:text-xl font-bold text-slate-900 leading-snug tracking-tight break-words text-center [overflow-wrap:anywhere]"
-                    dir="rtl"
-                  >
-                    {portalPatientLabel}
-                  </span>
-                  {hasDailyLoginBonusPending(selectedPatient.id) && (
-                    <div className="flex justify-center items-center gap-1.5 flex-wrap" dir="rtl">
-                      <RewardLabel
-                        xp={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.xp}
-                        coins={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.coins}
-                      />
-                      <span className="text-xs text-slate-500">כניסה יומית</span>
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    disabled={portalFrozenUiLock}
-                    onClick={goToClinicalDashboardFromStreak}
-                    onKeyDown={(e) => activateOnEnterSpace(e, goToClinicalDashboardFromStreak)}
-                    className="mx-auto text-xs font-black tabular-nums px-2.5 py-1 rounded-xl border w-fit max-w-full shrink-0 cursor-pointer touch-manipulation motion-safe:transition-[transform,box-shadow] motion-safe:duration-150 hover:brightness-[1.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 disabled:opacity-40 disabled:pointer-events-none"
-                    style={{
-                      borderColor: 'rgba(249, 115, 22, 0.45)',
-                      background: 'linear-gradient(135deg, rgba(255, 247, 237, 0.95), #fff7ed)',
-                      color: '#9a3412',
-                      boxShadow: '0 0 12px rgba(251, 146, 60, 0.2)',
-                    }}
-                    title="רצף ימים — מעבר ללוח קליני"
-                    aria-label="רצף ימים — מעבר ללוח קליני"
-                  >
-                    רצף {displayStreak} {displayStreak === 1 ? 'יום' : 'ימים'} 🔥
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-          {patientMustChangePassword && (
-            <p
-              className="w-full min-w-0 text-lg sm:text-xl font-bold leading-snug tracking-tight text-slate-900 break-words text-center [overflow-wrap:anywhere]"
-              dir="rtl"
-            >
-              {portalPatientLabel}
-            </p>
-          )}
-          {patientMustChangePassword && hasDailyLoginBonusPending(selectedPatient.id) && (
-            <div className="flex justify-center items-center gap-1.5 flex-wrap" dir="rtl">
-              <RewardLabel
-                xp={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.xp}
-                coins={PATIENT_REWARDS.FIRST_LOGIN_OF_DAY.coins}
-              />
-              <span className="text-xs text-slate-500">כניסה יומית</span>
-            </div>
-          )}
-        </div>
-
-        {/* טור 3 — ימין: כפתורים */}
-        <div className="shrink-0 justify-self-end flex flex-nowrap items-center justify-end gap-1.5">
-          {sessionRole === 'patient' ? (
-            <>
-              <button
-                type="button"
-                onClick={() => setRedFlagOpen(true)}
-                title="דיווח דחוף — Red Flag"
-                className="flex shrink-0 items-center justify-center min-h-11 min-w-11 rounded-xl border border-red-200 bg-red-50/90 text-red-600 hover:bg-red-100 hover:border-red-300 transition-colors"
-                aria-label="דיווח דחוף — Red Flag"
-              >
-                <span
-                  className="red-flag-siren-stage inline-flex h-6 w-6 items-center justify-center [direction:ltr]"
-                  aria-hidden
-                >
-                  <span className="red-flag-siren-rotor inline-flex h-6 w-6 items-center justify-center">
-                    {redFlagSirenAssetFailed ? (
-                      <Siren className="h-6 w-6 shrink-0" strokeWidth={2.25} />
-                    ) : (
-                      <img
-                        src="/image_5f21a1.png"
-                        alt=""
-                        width={24}
-                        height={24}
-                        decoding="async"
-                        draggable={false}
-                        className="h-6 w-6 max-h-6 object-contain pointer-events-none select-none"
-                        style={{ transform: 'translateZ(0.5px)' }}
-                        onError={() => setRedFlagSirenAssetFailed(true)}
-                      />
-                    )}
-                  </span>
-                </span>
-              </button>
-              {!patientMustChangePassword && (
-                <button
-                  type="button"
-                  disabled={portalFrozenUiLock}
-                  onClick={() => setSettingsModalOpen(true)}
-                  title="הגדרות"
-                  className="flex shrink-0 items-center justify-center min-h-11 min-w-11 rounded-xl hover:bg-slate-50 border border-slate-200 text-slate-700 disabled:opacity-40 disabled:pointer-events-none"
-                  aria-label="הגדרות"
-                >
-                  <Settings className="w-5 h-5 shrink-0" strokeWidth={2} aria-hidden />
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  void logout().then(() => navigate('/login', { replace: true }));
-                }}
-                title="התנתקות"
-                className="flex shrink-0 items-center justify-center gap-1 min-h-11 ps-2 pe-2.5 rounded-xl hover:bg-slate-50 border border-slate-200 text-slate-700"
-                aria-label="התנתקות"
-              >
-                <LogOut className="w-5 h-5 shrink-0" strokeWidth={2} aria-hidden />
-                <span className="text-sm font-semibold hidden sm:inline">יציאה</span>
-              </button>
-            </>
-          ) : null}
-        </div>
-      </header>
 
       <div
         className={
@@ -1075,131 +504,30 @@ export default function PatientDailyView() {
         }
       >
         {(portalTab === 'home' || portalTab === 'activity') &&
-          !exerciseVideoModal &&
-          !trainingFeedbackOpen && <PatientDidYouKnowAnchorButton />}
-        {portalTab === 'home' && !!selectedPatient && (
-          <section className="mb-5">
-            <div className="relative mx-auto w-full max-w-md touch-pan-y">
-              <div className="rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden mx-auto w-full">
-                <div
-                  ref={bodyMapSectionRef}
-                  className="relative w-full max-w-[300px] mx-auto aspect-[9/16] min-h-[420px] max-h-[min(640px,68dvh)] isolate overscroll-y-contain"
-                >
-                  <BodyMap3D
-                  activeAreas={exercises.length === 0 ? [] : activeAreas}
-                  primaryArea={selectedPatient.primaryBodyArea}
-                  clinicalArea={selectedPatient.primaryBodyArea}
-                  selfCareSelectedAreas={selectedZones}
-                  secondaryClinicalBodyAreas={selectedPatient.secondaryClinicalBodyAreas}
-                  stableInteraction={false}
-                  patientPortalInteractive
-                  dailyScenicBackgroundDayKey={clinicalToday}
-                  totalActiveDaysForScenery={totalActiveDaysForScenery}
-                  painByArea={selectedPatient.analytics.painByArea}
-                  level={selectedPatient.level}
-                  xp={selectedPatient.xp}
-                  xpForNextLevel={selectedPatient.xpForNextLevel}
-                  streak={displayStreak}
-                  strengthGlowBonus={optionalGlowBoost}
-                  strengthenedAreasToday={strengthenedAreasToday}
-                  injuryHighlightSegments={selectedPatient.injuryHighlightSegments}
-                  avatarScale={0.9}
-                  equippedGear={buildEquippedGearSnapshot(patientGearState)}
-                  equippedItems={normalizeStoreItemIds(selectedPatient.equippedItems)}
-                  minHeightPx={0}
-                  wrapperClassName="h-full w-full min-h-0"
-                  onAreaClick={handleAvatarZoneClick}
-                />
-                </div>
-              </div>
-            </div>
-
-            <PatientTwoMonthGoalCard patient={selectedPatient} />
-
-            {!patientMustChangePassword && totalMissions > 0 && (
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={goToDailyProgressTasks}
-                onKeyDown={(e) => activateOnEnterSpace(e, goToDailyProgressTasks)}
-                className={`mt-3 rounded-2xl p-4 min-h-[52px] border-2 border-emerald-200/80 bg-gradient-to-br from-emerald-50/95 via-white to-teal-50/40 shadow-md shadow-emerald-900/5 ${PORTAL_PROGRESS_NAV_SURFACE}`}
-                aria-label="התקדמות יומית — מעבר למשימות באימונים"
-              >
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="text-sm font-bold text-emerald-950">התקדמות היום</span>
-                  <span className="text-sm font-black tabular-nums text-emerald-800">
-                    {completedMissionCount}/{totalMissions} משימות
-                  </span>
-                </div>
-                <div
-                  className="h-3 rounded-full bg-emerald-100/90 overflow-hidden border border-emerald-200/60 pointer-events-none"
-                  aria-hidden
-                >
-                  <div
-                    className="h-full rounded-full motion-safe:transition-all motion-safe:duration-500 ease-out bg-gradient-to-l from-emerald-500 to-medical-success shadow-sm"
-                    style={{
-                      width: `${totalMissions > 0 ? Math.round((completedMissionCount / totalMissions) * 100) : 0}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {!patientMustChangePassword && (
-              <button
-                type="button"
-                onClick={() => setPainAnalyticsOpen(true)}
-                className="mt-4 w-full text-start rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 overflow-hidden cursor-pointer touch-manipulation motion-safe:transition-[box-shadow,transform,border-color] motion-safe:duration-200 hover:shadow-lg hover:border-teal-200/90 hover:-translate-y-0.5 active:translate-y-0 active:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
-                aria-label="מעקב כאב — פתיחת גרף וניתוח מגמה"
-              >
-                <div className="px-4 py-3 border-b border-slate-100/90 bg-slate-50/60 pointer-events-none">
-                  <div className="flex items-center gap-2">
-                    <Activity className="w-5 h-5 text-medical-primary shrink-0" aria-hidden />
-                    <p className="text-sm font-bold text-slate-900">מעקב כאב</p>
-                  </div>
-                </div>
-                <div className="min-h-[52px] px-4 py-3 flex items-center justify-between gap-3 pointer-events-none">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-slate-700 leading-snug">
-                      ממוצע {selectedPatient.analytics.averageOverallPain.toFixed(1)}/10
-                      {lastPainRecord != null && (
-                        <span className="text-slate-600">
-                          {' '}
-                          · אחרון {lastPainRecord.painLevel}/10
-                        </span>
-                      )}
-                      {lastPainRecord == null && ' · עדיין אין דיווחים'}
-                    </p>
-                  </div>
-                  <span className="text-sm font-bold text-medical-primary shrink-0">גרף</span>
-                </div>
-              </button>
-            )}
-
-            {unreadForPatient > 0 && (
-              <button
-                type="button"
-                onClick={() => navigate(portalHrefForTab('messages'))}
-                className="mt-3 w-full rounded-2xl border-2 border-medical-primary/25 bg-white px-4 py-3 flex items-center justify-between gap-3 text-start shadow-sm"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <MessageCircle className="w-6 h-6 text-medical-primary shrink-0" />
-                  <span className="text-base font-bold text-slate-900">הודעות חדשות מהמטפל</span>
-                </div>
-                <span className="shrink-0 min-w-[1.75rem] h-8 px-2 rounded-full text-sm font-black flex items-center justify-center text-white bg-medical-primary">
-                  {unreadForPatient > 9 ? '9+' : unreadForPatient}
-                </span>
-              </button>
-            )}
-            {!patientMustChangePassword && (
-              <div
-                id="patient-clinical-dashboard"
-                className="scroll-mt-28 mt-10 mb-2 mx-auto w-full max-w-md"
-              >
-                <ClinicalMonthCalendar dayMap={patientDayMap} clinicalToday={clinicalToday} />
-              </div>
-            )}
-          </section>
+          !training.exerciseVideoModal &&
+          !training.trainingFeedbackOpen && <PatientDidYouKnowAnchorButton />}
+        {portalTab === 'home' && (
+          <PatientPortalHomeSection
+            selectedPatient={selectedPatient}
+            bodyMapSectionRef={bodyMapSectionRef}
+            activeAreas={activeAreas}
+            selectedZones={selectedZones}
+            clinicalToday={clinicalToday}
+            totalActiveDaysForScenery={totalActiveDaysForScenery}
+            displayStreak={displayStreak}
+            optionalGlowBoost={training.optionalGlowBoost}
+            strengthenedAreasToday={strengthenedAreasToday}
+            patientGearState={patientGearState}
+            onAvatarZoneClick={handleAvatarZoneClick}
+            patientMustChangePassword={patientMustChangePassword}
+            totalMissions={totalMissions}
+            completedMissionCount={completedMissionCount}
+            onGoToDailyProgressTasks={goToDailyProgressTasks}
+            onOpenPainAnalytics={() => setPainAnalyticsOpen(true)}
+            unreadForPatient={unreadForPatient}
+            patientDayMap={patientDayMap}
+            exercisesLength={exercises.length}
+          />
         )}
 
         {portalTab === 'messages' && (
@@ -1211,176 +539,30 @@ export default function PatientDailyView() {
         )}
 
         {portalTab === 'activity' && (
-        <>
-        <div
-          className={[
-            'relative',
-            trainingAiPlanModalOpen
-              ? 'pointer-events-none select-none opacity-[0.35] motion-safe:transition-opacity motion-safe:duration-200'
-              : '',
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          aria-hidden={trainingAiPlanModalOpen || undefined}
-        >
-        <h1
-          id="today-missions"
-          className="text-lg font-bold text-slate-900 mb-2 tracking-tight scroll-mt-28 text-center"
-        >
-          תכנית השיקום (חובה)
-        </h1>
-        {aiProgramLongitudinalGate?.showSteadyProgress &&
-          !patientMustChangePassword &&
-          !exercisesLocked &&
-          !aiSteadyBannerDismissed && (
-            <div
-              className="mb-4 rounded-2xl border border-teal-200/90 bg-gradient-to-br from-teal-50/95 to-white px-4 py-3 shadow-sm"
-              role="status"
-            >
-              <p className="text-sm font-bold text-teal-900">התקדמות יציבה</p>
-              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                לפי נתוני הכאב, ההשלמה והתפקוד בימים האחרונים אין מגמה עקבית שמצדיקה הצעת שינוי תוכנית.
-              </p>
-              <button
-                type="button"
-                onClick={() => setAiSteadyBannerDismissed(true)}
-                className="mt-2 text-xs font-semibold text-teal-800 underline"
-              >
-                סגירה
-              </button>
-            </div>
-          )}
-        {loadSafetyNudge && (
-          <div
-            className="mb-4 rounded-2xl border-2 border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-950 leading-relaxed"
-            role="status"
-          >
-            <p className="font-bold text-amber-900 mb-1">עדכון בטיחות</p>
-            <p>{loadSafetyNudge}</p>
-            <button
-              type="button"
-              onClick={() => setLoadSafetyNudge(null)}
-              className="mt-2 text-xs font-semibold text-amber-800 underline"
-            >
-              סגירה
-            </button>
-          </div>
+          <PatientPortalActivitySection
+            selectedPatient={selectedPatient}
+            trainingAiPlanModalOpen={training.trainingAiPlanModalOpen}
+            aiProgramLongitudinalGate={aiProgramLongitudinalGate}
+            patientMustChangePassword={patientMustChangePassword}
+            exercisesLocked={exercisesLocked}
+            redFlagPortalLock={redFlagPortalLock}
+            exerciseSafetyLocked={exerciseSafetyLocked}
+            aiSteadyBannerDismissed={training.aiSteadyBannerDismissed}
+            onDismissAiSteadyBanner={() => training.setAiSteadyBannerDismissed(true)}
+            loadSafetyNudge={training.loadSafetyNudge}
+            onDismissLoadSafetyNudge={() => training.setLoadSafetyNudge(null)}
+            exercises={exercises}
+            selectedZones={selectedZones}
+            missionListHasAny={missionListHasAny}
+            mandatoryRehabExercises={mandatoryRehabExercises}
+            completedSet={completedSet}
+            optionalPool={optionalPool}
+            openExerciseTrainingModal={training.openExerciseTrainingModal}
+            setSelfCareStrengthTier={setSelfCareStrengthTier}
+          />
         )}
 
-        {redFlagPortalLock && (
-          <div
-            className="mb-4 rounded-2xl border-2 border-red-600 bg-red-50 px-4 py-3 text-center"
-            role="alert"
-          >
-            <p className="text-sm font-black text-red-950">תרגול נעול זמנית</p>
-            <p className="text-xs text-red-900 mt-1 leading-relaxed">
-              התרגילים נעולים זמנית עקב דיווח על כאב חריג. המטפל עודכן ויצור קשר בהקדם.
-            </p>
-          </div>
-        )}
-
-        {exerciseSafetyLocked && (
-          <div
-            className="mb-4 rounded-2xl border-2 border-red-500 bg-red-50 px-4 py-3 text-center"
-            role="alert"
-          >
-            <p className="text-sm font-black text-red-950">תרגול נעול</p>
-            <p className="text-xs text-red-900 mt-1 leading-relaxed">
-              רשימת התרגילים חסומה עד שמטפל ישחרר לאחר בדיקה. אם יש חשש לחירום — התקשרו ל־101.
-            </p>
-          </div>
-        )}
-
-        {exercises.length === 0 && selectedZones.length === 0 ? (
-          <div
-            className="rounded-2xl border border-dashed border-teal-200 p-8 text-center text-teal-800/80 text-sm"
-            style={{ background: 'rgba(240, 253, 250, 0.6)' }}
-          >
-            אין תרגילים בתוכנית. המטפל יכול להוסיף תרגילים ממסך ניהול התוכנית, או לבחור אזורי כוח במפה.
-          </div>
-        ) : !missionListHasAny ? (
-          <p className="text-sm text-slate-500 text-center py-6 leading-relaxed">
-            אין תרגילי שיקום שמתאימים לאזור המוגדר. בחרו אזורים ירוקים לתרגילי כוח, או פנו למטפל לעדכון
-            התוכנית.
-          </p>
-        ) : (
-          <div
-            className={`relative flex flex-col gap-4 ${exercisesLocked ? 'pointer-events-none select-none opacity-[0.38]' : ''}`}
-          >
-            {exercisesLocked && (
-              <div
-                className="absolute inset-0 z-10 rounded-2xl bg-red-950/5 pointer-events-none"
-                aria-hidden
-              />
-            )}
-            {mandatoryRehabExercises.length > 0 && (
-              <section
-                className="rounded-2xl border border-sky-200/85 bg-gradient-to-br from-sky-50/70 to-white px-3 pb-3 pt-2.5 shadow-sm"
-                aria-label="תרגילי שיקום חובה"
-              >
-                <ul className="space-y-2 flex flex-col">
-                  {mandatoryRehabExercises.map((ex, i) => {
-                    const idx = i + 1;
-                    const done = completedSet.has(ex.id);
-                    const displaySets = ex.patientSets;
-                    const repsShort = formatPatientRepsLabel({
-                      reps: ex.patientReps,
-                      holdSeconds: ex.holdSeconds,
-                    });
-                    const w = ex.patientWeightKg;
-                    const weightLabel =
-                      w != null && w > 0 ? `${w} ק״ג` : undefined;
-                    return (
-                      <li key={`rehab-core-${ex.id}`} className="w-full">
-                        <ExerciseCard
-                          variant="rehab"
-                          rehabTier="core"
-                          index={idx}
-                          isCompleted={done}
-                          title={displayPortalRehabExerciseTitle(ex.name)}
-                          setsLabel={String(displaySets)}
-                          repsLabel={repsShort}
-                          weightLabel={weightLabel}
-                          xpReward={ex.xpReward}
-                          videoUrl={ex.videoUrl ?? null}
-                          onOpenTraining={() =>
-                            openExerciseTrainingModal({
-                              kind: 'rehab',
-                              exercise: ex,
-                              xpAward: exerciseBaseXp(ex.xpReward),
-                              coinsAward: PATIENT_REWARDS.EXERCISE_COMPLETE.coins,
-                            })
-                          }
-                          disabled={exercisesLocked}
-                          typeKey={ex.type}
-                          isCustomExercise={ex.isCustom}
-                          rewardLabelXp={exerciseBaseXp(ex.xpReward)}
-                          rewardLabelCoins={PATIENT_REWARDS.EXERCISE_COMPLETE.coins}
-                        />
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            )}
-
-            {selectedPatient && (
-              <OptionalSection
-                pool={optionalPool}
-                selectedPatient={selectedPatient}
-                exercisesLocked={exercisesLocked}
-                openExerciseTrainingModal={openExerciseTrainingModal}
-                setSelfCareStrengthTier={setSelfCareStrengthTier}
-              />
-            )}
-          </div>
-        )}
-
-        </div>
-        </>
-        )}
-
-        {portalTab === 'gear' && selectedPatient && (
+        {portalTab === 'gear' && (
           <GearStoreArmory
             patientId={selectedPatient.id}
             coins={selectedPatient.coins}
@@ -1401,16 +583,15 @@ export default function PatientDailyView() {
       {import.meta.env.DEV && (
         <>
           <PortalPatientDebugPanel />
-          {selectedPatient && isPilot11GamificationDebugPatient(selectedPatient) && (
+          {isPilot11GamificationDebugPatient(selectedPatient) && (
             <Pilot11GamificationDebugPanel />
           )}
         </>
       )}
 
-      {selectedPatient &&
-        !patientMustChangePassword &&
-        !exerciseVideoModal &&
-        !trainingFeedbackOpen && (
+      {!patientMustChangePassword &&
+        !training.exerciseVideoModal &&
+        !training.trainingFeedbackOpen && (
           <PatientPortalHomeAiChatDock
             patient={selectedPatient}
             exercises={exercises}
@@ -1488,265 +669,67 @@ export default function PatientDailyView() {
         </div>
       </nav>
 
-      {/* MUTED: Guardi companion / full-screen celebration disabled pending redesign.
-      <GuardiCompanion
-        eligible={guardiCompanionEligible}
-        exerciseSafetyLocked={exerciseSafetyLocked}
-        redFlagPortalLock={redFlagPortalLock}
-        transient={guardiTransient}
-        celebrateBurstKey={guardiVictoryBurst}
-        contextAnimationName={guardiCompanionContextAnimation}
-        ambientEnvironmentBubble={guardiAmbientBubble}
-        placement="corner"
-        portalTab={portalTab === 'activity' ? 'activity' : 'home'}
-        onDismissRequest={dismissGuardiAndFocusTrainingList}
-      />
+      {/* MUTED: Guardi companion / full-screen celebration disabled pending redesign. */}
 
-      {sessionCelebrationBurst > 0 && (
-        <GuardiFullScreenCelebration
-          burstKey={sessionCelebrationBurst}
-          onClose={endSessionCelebration}
-        />
-      )}
-      */}
-
-      {selectedPatient && (
-        <PatientAiPlanSuggestionModal
-          open={trainingAiPlanModalOpen}
-          loading={trainingAiPlanModalLoading}
-          infoMessage={trainingAiPlanModalInfo}
-          suggestion={trainingAiPlanModalSuggestion}
-          onApprove={handleTrainingAiPlanApprove}
-          onDecline={acknowledgeTrainingAiPlanModal}
-          onClose={acknowledgeTrainingAiPlanModal}
-        />
-      )}
-
-      <PatientRedFlagEmergencyModal
-        open={redFlagOpen}
-        onClose={() => setRedFlagOpen(false)}
-        patientId={selectedPatient.id}
-        patientName={portalPatientLabel}
-        therapistId={selectedPatient.therapistId}
-        defaultBodyArea={selectedPatient.primaryBodyArea}
-      />
-
-      <PainAnalyticsModal
-        open={painAnalyticsOpen}
-        onClose={() => setPainAnalyticsOpen(false)}
-        patient={selectedPatient}
-        finishReports={getPatientExerciseFinishReports(selectedPatient.id)}
+      <PatientDailyViewModals
+        selectedPatient={selectedPatient}
+        portalPatientLabel={portalPatientLabel}
         clinicalToday={clinicalToday}
-      />
-
-      {exerciseVideoModal != null && (
-        <ExerciseVideoTimerModal
-          key={`${exerciseVideoModal.kind}-${exerciseVideoModal.exercise.id}-${
-            exerciseVideoModal.kind === 'selfCare' ? exerciseVideoModal.bodyArea : 'rehab'
-          }`}
-          open
-          title={exerciseVideoModal.exercise.name}
-          videoUrl={
-            exerciseVideoModal.kind === 'rehab'
-              ? exerciseVideoModal.exercise.videoUrl ?? ''
-              : exerciseVideoModal.exercise.videoUrl
-          }
-          description={patientFacingExerciseInstructions(exerciseVideoModal.exercise)}
-          targetSets={
-            exerciseVideoModal.kind === 'rehab'
-              ? exerciseVideoModal.exercise.patientSets
-              : exerciseVideoModal.exercise.sets
-          }
-          repsLabel={
-            exerciseVideoModal.kind === 'rehab'
-              ? formatPatientRepsLabel({
-                  reps: exerciseVideoModal.exercise.patientReps,
-                  holdSeconds: exerciseVideoModal.exercise.holdSeconds,
-                })
-              : formatPatientRepsLabel({
-                  reps: exerciseVideoModal.exercise.reps,
-                  repsAreSeconds: exerciseVideoModal.exercise.repsAreSeconds,
-                })
-          }
-          holdSeconds={
-            exerciseVideoModal.kind === 'rehab'
-              ? exerciseVideoModal.exercise.holdSeconds ?? 0
-              : exerciseVideoModal.exercise.repsAreSeconds
-                ? exerciseVideoModal.exercise.reps
-                : 0
-          }
-          isTimeBased={
-            exerciseVideoModal.kind === 'rehab'
-              ? Boolean(
-                  exerciseVideoModal.exercise.holdSeconds &&
-                    exerciseVideoModal.exercise.patientReps === 0
-                )
-              : Boolean(exerciseVideoModal.exercise.repsAreSeconds)
-          }
-          targetArea={
-            exerciseVideoModal.kind === 'rehab'
-              ? exerciseVideoModal.exercise.targetArea
-              : exerciseVideoModal.bodyArea
-          }
-          muscleGroup={
-            exerciseVideoModal.kind === 'rehab'
-              ? exerciseVideoModal.exercise.muscleGroup
-              : undefined
-          }
-          variant={exerciseVideoModal.kind === 'rehab' ? 'rehab' : 'selfCare'}
-          xpAward={exerciseVideoModal.xpAward}
-          coinsAward={exerciseVideoModal.coinsAward}
-          primeSeconds={30}
-          onClose={clearTrainingSession}
-          onFinishPractice={handleFinishPractice}
-        />
-      )}
-
-      {pendingTrainingSession != null && (
-        <ExerciseTrainingFeedbackModal
-          open={trainingFeedbackOpen}
-          submitError={trainingSubmitError}
-          onClose={() => {
-            setTrainingFeedbackOpen(false);
-            setTrainingSubmitError(null);
-          }}
-          onSubmit={async (payload) => {
-            setTrainingSubmitError(null);
-            const ok = await handleTrainingComplete(payload);
-            if (!ok) return false;
-            clearTrainingSession();
-            return true;
-          }}
-        />
-      )}
-
-      <EmergencyStopModal
-        open={
-          !!selectedPatient &&
-          emergencyModalPatientId === selectedPatient.id
-        }
-        syndromeDetailHebrew={latestEmergencyReason}
-        onAcknowledge={() => setEmergencyModalPatientId(null)}
-        onOpenTherapistMessage={() => {
+        sessionRole={sessionRole}
+        patientMustChangePassword={patientMustChangePassword}
+        showPortalFrozenOverlay={showPortalFrozenOverlay}
+        trainingAiPlanModalOpen={training.trainingAiPlanModalOpen}
+        trainingAiPlanModalLoading={training.trainingAiPlanModalLoading}
+        trainingAiPlanModalInfo={training.trainingAiPlanModalInfo}
+        trainingAiPlanModalSuggestion={training.trainingAiPlanModalSuggestion}
+        onTrainingAiPlanApprove={training.handleTrainingAiPlanApprove}
+        onTrainingAiPlanDecline={training.acknowledgeTrainingAiPlanModal}
+        redFlagOpen={redFlagOpen}
+        onCloseRedFlag={() => setRedFlagOpen(false)}
+        painAnalyticsOpen={painAnalyticsOpen}
+        onClosePainAnalytics={() => setPainAnalyticsOpen(false)}
+        finishReports={getPatientExerciseFinishReports(selectedPatient.id)}
+        exerciseVideoModal={training.exerciseVideoModal}
+        onClearTrainingSession={training.clearTrainingSession}
+        onFinishPractice={training.handleFinishPractice}
+        pendingTrainingSession={training.pendingTrainingSession}
+        trainingFeedbackOpen={training.trainingFeedbackOpen}
+        trainingSubmitError={training.trainingSubmitError}
+        onCloseTrainingFeedback={() => {
+          training.setTrainingFeedbackOpen(false);
+          training.setTrainingSubmitError(null);
+        }}
+        onSubmitTrainingFeedback={async (payload) => {
+          training.setTrainingSubmitError(null);
+          const ok = await training.handleTrainingComplete(payload);
+          if (!ok) return false;
+          training.clearTrainingSession();
+          return true;
+        }}
+        emergencyModalOpen={emergencyModalPatientId === selectedPatient.id}
+        latestEmergencyReason={latestEmergencyReason}
+        onAcknowledgeEmergency={() => setEmergencyModalPatientId(null)}
+        onOpenTherapistMessageFromEmergency={() => {
           setEmergencyModalPatientId(null);
           setMessageDraftSeed(
             'דחוף: דיווחתי על תסמינים שעלולים לחייב בדיקה רפואית דחופה. נא ליצור קשר בהקדם.'
           );
           navigate(portalHrefForTab('messages'));
         }}
+        pwCurrent={pwCurrent}
+        pwNew={pwNew}
+        pwConfirm={pwConfirm}
+        pwFormError={pwFormError}
+        onPwCurrentChange={setPwCurrent}
+        onPwNewChange={setPwNew}
+        onPwConfirmChange={setPwConfirm}
+        onSubmitPasswordChange={() => void submitPasswordChange()}
+        onNavigateToMessages={() => navigate(portalHrefForTab('messages'))}
+        onLogout={handleLogout}
+        settingsModalOpen={settingsModalOpen}
+        onCloseSettings={() => setSettingsModalOpen(false)}
+        completePatientPasswordChange={completePatientPasswordChange}
       />
-
-      {sessionRole === 'patient' && patientMustChangePassword && (
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
-          style={{ background: 'rgba(15, 118, 110, 0.35)' }}
-          dir="rtl"
-        >
-          <div
-            className="w-full max-w-md rounded-3xl border shadow-2xl p-6"
-            style={{ background: '#ffffff', borderColor: '#99f6e4' }}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="pw-gate-title"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <Settings className="w-6 h-6 text-teal-600" strokeWidth={2} aria-hidden />
-              <h2 id="pw-gate-title" className="text-lg font-bold text-slate-800">
-                עדכון סיסמה נדרש
-              </h2>
-            </div>
-            <p className="text-sm text-slate-600 leading-relaxed mb-4">
-              זו הכניסה הראשונה שלך לפורטל. לבטיחות, בחר סיסמה אישית חדשה (לפחות 8 תווים, אותיות ומספרים).
-            </p>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">סיסמה נוכחית</label>
-                <input
-                  type="password"
-                  value={pwCurrent}
-                  onChange={(e) => setPwCurrent(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                  autoComplete="current-password"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">סיסמה חדשה</label>
-                <input
-                  type="password"
-                  value={pwNew}
-                  onChange={(e) => setPwNew(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                  autoComplete="new-password"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">אימות סיסמה</label>
-                <input
-                  type="password"
-                  value={pwConfirm}
-                  onChange={(e) => setPwConfirm(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                  autoComplete="new-password"
-                />
-              </div>
-            </div>
-            {pwFormError && (
-              <p className="mt-3 text-sm text-red-600">{pwFormError}</p>
-            )}
-            <button
-              type="button"
-              onClick={() => void submitPasswordChange()}
-              className="mt-5 w-full py-3 rounded-2xl font-semibold text-white"
-              style={{ background: 'linear-gradient(135deg, #0d9488, #059669)' }}
-            >
-              שמירה והמשך
-            </button>
-          </div>
-        </div>
-      )}
-
-      {sessionRole === 'patient' && showPortalFrozenOverlay && (
-        <div
-          className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-[3px]"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="portal-frozen-title"
-        >
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 p-6 text-center">
-            <h2 id="portal-frozen-title" className="text-lg font-black text-slate-900 mb-3">
-              החשבון הוקפא
-            </h2>
-            <p className="text-sm text-slate-600 leading-relaxed mb-6">
-              החשבון שלך הוקפא זמנית על ידי המטפל. כל הנתונים שלך שמורים במערכת, אך הגישה לתוכנית האימונים חסומה
-              כרגע.
-            </p>
-            <button
-              type="button"
-              className="w-full py-3.5 rounded-xl font-bold text-white mb-3 shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
-              style={{ background: 'linear-gradient(135deg, #0d9488, #059669)' }}
-              onClick={() => navigate(portalHrefForTab('messages'))}
-            >
-              צור קשר עם המטפל
-            </button>
-            <button
-              type="button"
-              className="w-full py-2.5 rounded-xl text-sm font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
-              onClick={() => void logout().then(() => navigate('/login', { replace: true }))}
-            >
-              התנתקות
-            </button>
-          </div>
-        </div>
-      )}
-
-      {sessionRole === 'patient' && !patientMustChangePassword && selectedPatient && (
-        <PatientPortalSettingsModal
-          open={settingsModalOpen}
-          onClose={() => setSettingsModalOpen(false)}
-          patient={selectedPatient}
-          completePatientPasswordChange={completePatientPasswordChange}
-        />
-      )}
     </div>
   );
 }

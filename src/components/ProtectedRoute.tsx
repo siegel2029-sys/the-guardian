@@ -12,6 +12,7 @@ import RefundPolicy from './legal/RefundPolicy';
 import PatientLegalGate from './legal/PatientLegalGate';
 import PatientPortalLayout from './patient/PatientPortalLayout';
 import { LEGAL_PAGE_PATHS } from './legal/legalPaths';
+import ErrorBoundary from './ui/error-boundary';
 
 // Route-level code splitting: the therapist dashboard and patient portal pull in
 // Three.js, Recharts and large feature trees — keep them out of the login bundle.
@@ -115,9 +116,11 @@ function PatientPortalRoute() {
   return (
     <PatientLegalGate>
       <PatientPortalLayout>
-        <Suspense fallback={<AuthLoadingFallback />}>
-          <PatientDailyView />
-        </Suspense>
+        <ErrorBoundary variant="section" scopeLabel="PatientPortalRoute">
+          <Suspense fallback={<AuthLoadingFallback />}>
+            <PatientDailyView />
+          </Suspense>
+        </ErrorBoundary>
       </PatientPortalLayout>
     </PatientLegalGate>
   );
@@ -142,9 +145,11 @@ function TherapistRoute() {
     return <AuthLoadingFallback />;
   }
   return (
-    <Suspense fallback={<AuthLoadingFallback />}>
-      <DashboardLayout />
-    </Suspense>
+    <ErrorBoundary variant="section" scopeLabel="TherapistRoute">
+      <Suspense fallback={<AuthLoadingFallback />}>
+        <DashboardLayout />
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 

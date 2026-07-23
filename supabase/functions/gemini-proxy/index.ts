@@ -291,7 +291,7 @@ Deno.serve(async (req) => {
   if (!geminiRes.ok) {
     console.error(`[gemini-proxy] Gemini HTTP ${geminiRes.status}:`, rawBody.slice(0, 200));
     return jsonResponse(
-      { error: `Gemini HTTP ${geminiRes.status}`, detail: "Upstream AI service error" },
+      { error: "upstream_failed", detail: "Upstream AI service error" },
       502,
       corsHeaders,
     );
@@ -305,14 +305,18 @@ Deno.serve(async (req) => {
   }
 
   if (parsed.error?.message) {
-    return jsonResponse({ error: parsed.error.message }, 502, corsHeaders);
+    console.error("[gemini-proxy] Gemini API error:", String(parsed.error.message).slice(0, 200));
+    return jsonResponse({ error: "upstream_failed" }, 502, corsHeaders);
   }
 
   try {
     const text = getResponseText(parsed);
     return jsonResponse({ text, model: modelId }, 200, corsHeaders);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return jsonResponse({ error: msg }, 502, corsHeaders);
+    console.error(
+      "[gemini-proxy] empty/invalid model response:",
+      e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+    );
+    return jsonResponse({ error: "upstream_failed" }, 502, corsHeaders);
   }
 });

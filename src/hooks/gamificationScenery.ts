@@ -1,0 +1,561 @@
+﻿import type { CSSProperties } from 'react';
+import {
+  getMuscleEvolutionStage,
+  type MuscleEvolutionStage,
+} from '../body/anatomicalEvolution';
+import type { DailyHistoryEntry } from '../types';
+import { clinicalDateToLocalMidnight } from '../utils/clinicalCalendar';
+
+/**
+ * Pure mountain-climb / avatar scenery helpers — no React state.
+ * Kept out of useGamification so context providers do not re-export them via hook identity.
+ */
+
+/**
+ * מסע ההר (Mountain Climb) — שלבי נוף לפי רמה 1–30.
+ * רמה 1: דשא בלבד · רמות 2–10: קצה ההר ברקע · 11–16 שביל · 17–20 אדמה · 21–29 עלייה · 30 פסגה.
+ */
+export type MountainClimbJourneyPhase =
+  /** Level 1–10: The Approach — דשא; מרמה 2: קצה ההר ברחוק */
+  | 'approach'
+  /** Level 11–16: The Path — שביל, מעבר לשיפולי ההר */
+  | 'path'
+  /** Level 17–20: Arrival at the Base — אדמה; ברמה 20 תחתית ההר, צלע סלע דומיננטית */
+  | 'mountain_base'
+  /** Level 21–29: The Ascent — קרקע קשה, פסגה מעל, אוויר דליל, בלי צמחייה */
+  | 'ascent'
+  /** Level 30: The Summit — פסגה, עננים, אוויר גבוה */
+  | 'summit';
+
+/** סוג הקרקע המוצג (תואם עברית במוצר) */
+export type MountainGroundKind = 'דשא' | 'שביל' | 'אדמה' | 'קרקע קשה' | 'פסגה';
+
+export interface MountainClimbEnvironmentState {
+  /** רמה מחושבת לנוף (1–30; מעל 30 נשארים בוויזואל של פסגה) */
+  normalizedLevel: number;
+  phase: MountainClimbJourneyPhase;
+  groundKind: MountainGroundKind;
+  /**
+   * תיאורי נוף לשימוש בקוד / נגישות — דשא, קצה ההר, שביל, תחתית ההר, פסגה, אוויר דליל.
+   */
+  sceneryDescriptionHe: string;
+  /** 0–1 בתוך המקטע הנוכחי */
+  segmentT: number;
+  showVegetation: boolean;
+  /** רמות 21–29 — אוויר נראה דליל יותר */
+  thinAir: boolean;
+  /** רמה 20+ — רקע מושלם על ידי צלע סלע */
+  rockFaceDominant: boolean;
+  /** 0–1 — בין 21 ל־29 (מקטע עלייה): קרקע/ערפל/עננים; הפסגה המושלגת עצמה מונעת ע״י snowyPeakJourneyT */
+  summitApproachProgress: number;
+  /** אבן דרך: הגעה לתחתית ההר */
+  atMountainBase: boolean;
+  /** רמה 1 במקטע הגישה — רק דשא, בלי פסגה ברקע */
+  mountainSvgVisible: boolean;
+  /**
+   * 0–1 — רמות 2–30: אותה פסגה מושלגת מתקרבת ברציפות (ללא החלפת נכס).
+   * רמה 2 → 0 (רחוק, מטושטש מעט), רמה 30 → 1 (גדול ודומיננטי).
+   */
+  snowyPeakJourneyT: number;
+}
+
+/** מזג יומי יציב (לא תלוי ברמה) */
+export type MountainDailyWeather = 'בהיר' | 'מעונן' | 'גשום';
+
+/** מבקרים יומיים בנוף — יציב לכל היום */
+export type MountainDailyVisitors = 'ציפורים' | 'חיות' | 'ללא';
+
+export interface MountainDailyEnvironmentState {
+  /** מפתח יומי מקומי — לפי `toDateString()` של היום הקליני */
+  dayKeyLocal: string;
+  /** זרע יומי יציב לגלגולים (FNV על dayKeyLocal) */
+  daySeed: number;
+  /** גרדיאנט שמיים יומי (ייחודי ליום) */
+  skyGradientCss: string;
+  /** תווית עברית לפלטת השמיים (זריחה, כחול, סגול...) */
+  skyPaletteLabelHe: string;
+  weather: MountainDailyWeather;
+  visitors: MountainDailyVisitors;
+}
+
+export interface MountainBackdropContext {
+  climb: MountainClimbEnvironmentState;
+  daily: MountainDailyEnvironmentState;
+}
+
+function hashDaySeedString(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/**
+ * זרע יומי מ־תאריך קליני — משתמש ב־`Date(...).toDateString()` כדי שהיום יישאר קבוע בכל הסשנים.
+ */
+export function daySeedFromClinicalYmd(ymd: string): { dayKeyLocal: string; seed: number } {
+  const t = typeof ymd === 'string' ? ymd.trim() : '';
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
+  if (!m) {
+    const d = new Date();
+    const dayKeyLocal = d.toDateString();
+    return { dayKeyLocal, seed: hashDaySeedString(dayKeyLocal) };
+  }
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const da = Number(m[3]);
+  const local = new Date(y, mo - 1, da);
+  const dayKeyLocal = local.toDateString();
+  return { dayKeyLocal, seed: hashDaySeedString(dayKeyLocal) };
+}
+
+const SKY_GRADIENTS_CSS: readonly string[] = [
+  'linear-gradient(180deg, #0ea5e9 0%, #38bdf8 16%, #7dd3fc 30%, #fef08a 46%, #fde047 56%, #bbf7d0 74%, #4ade80 100%)',
+  'linear-gradient(180deg, #020617 0%, #1e3a8a 20%, #2563eb 38%, #38bdf8 58%, #bae6fd 78%, #f0f9ff 100%)',
+  'linear-gradient(180deg, #1e1b4b 0%, #4c1d95 22%, #7c3aed 42%, #c4b5fd 62%, #fce7f3 82%, #fdf4ff 100%)',
+  'linear-gradient(180deg, #0c4a6e 0%, #0ea5e9 18%, #f97316 45%, #fb923c 62%, #fcd34d 82%, #fef3c7 100%)',
+  'linear-gradient(180deg, #042f2e 0%, #0d9488 24%, #5eead4 48%, #a7f3d0 72%, #ecfdf5 100%)',
+  'linear-gradient(180deg, #0f172a 0%, #334155 18%, #f43f5e 42%, #fda4af 60%, #fde68a 82%, #fffbeb 100%)',
+];
+
+/** Solid sky tint for CSS Layer 0 — same palette index as `skyGradientCss` / daily seed. */
+const SKY_BASE_COLORS_CSS: readonly string[] = [
+  '#38bdf8',
+  '#2563eb',
+  '#7c3aed',
+  '#0ea5e9',
+  '#5eead4',
+  '#f43f5e',
+];
+
+const SKY_PALETTE_LABELS_HE: readonly string[] = [
+  'זריחה בהירה',
+  'כחול עמוק',
+  'סגול רך',
+  'שקיעה כתומה',
+  'טורקיז',
+  'בוקר ורוד',
+];
+
+/**
+ * שמיים, מזג ומבקרים — משתנים לפי התאריך בלבד (לא לפי רמת המטופל).
+ */
+export function getMountainDailyEnvironmentState(clinicalYmd: string): MountainDailyEnvironmentState {
+  const { dayKeyLocal, seed } = daySeedFromClinicalYmd(clinicalYmd);
+  const paletteIdx = seed % SKY_GRADIENTS_CSS.length;
+  const skyGradientCss = SKY_GRADIENTS_CSS[paletteIdx] ?? SKY_GRADIENTS_CSS[0];
+  const skyPaletteLabelHe = SKY_PALETTE_LABELS_HE[paletteIdx] ?? SKY_PALETTE_LABELS_HE[0];
+
+  const wRoll = (seed >> 4) % 10;
+  let weather: MountainDailyWeather;
+  if (wRoll === 0) weather = 'גשום';
+  else if (wRoll === 1 || wRoll === 2) weather = 'מעונן';
+  else weather = 'בהיר';
+
+  const vRoll = (seed >> 8) % 7;
+  let visitors: MountainDailyVisitors;
+  if (vRoll === 0) visitors = 'ציפורים';
+  else if (vRoll === 1) visitors = 'חיות';
+  else visitors = 'ללא';
+
+  return {
+    dayKeyLocal,
+    daySeed: seed,
+    skyGradientCss,
+    skyPaletteLabelHe,
+    weather,
+    visitors,
+  };
+}
+
+/**
+ * Layer 0 backdrop color — derived from the same daily seed as `getMountainDailyEnvironmentState`
+ * (`paletteIdx = seed % palettes`), for a flat `background-color` on the sky div.
+ */
+export function getMountainDailySkyBackgroundColor(clinicalYmd: string): string {
+  const { seed } = daySeedFromClinicalYmd(clinicalYmd);
+  const paletteIdx = seed % SKY_BASE_COLORS_CSS.length;
+  return SKY_BASE_COLORS_CSS[paletteIdx] ?? SKY_BASE_COLORS_CSS[0];
+}
+
+/**
+ * Layer 1 peak scale — `0.5 + level * 0.05` (Level 2 → 0.6 … Level 30 → 2.0).
+ * Level is clamped to 1–30 for the mountain journey.
+ */
+export function getMountainPeakTransformScale(level: number): number {
+  const L = Math.min(30, Math.max(1, Math.floor(Number(level)) || 1));
+  return 0.5 + L * 0.05;
+}
+
+/** מעבר ויזואלי אחיד — אווטאר, נוף, שכבות Daily Bloom */
+export const PATIENT_PORTAL_VISUAL_TRANSITION = 'all 0.7s ease-in-out';
+
+/**
+ * ימים עם לפחות תרגיל אחד שהושלם — לפי מפת היסטוריה יומית.
+ */
+export function countPatientActiveDaysFromHistory(
+  dayMap: Record<string, DailyHistoryEntry> | undefined
+): number {
+  if (!dayMap) return 0;
+  let n = 0;
+  for (const e of Object.values(dayMap)) {
+    if (e.exercisesCompleted > 0) n++;
+  }
+  return n;
+}
+
+/**
+ * «ימי פעילות» לנוף: עדיפות למספר ימים עם פעילות בפועל; אחרת ימי לוח מ־joinDate עד היום (מינימום 1).
+ */
+export function getTotalActiveDaysForScenery(
+  joinDateYmd: string,
+  clinicalTodayYmd: string,
+  dayMap: Record<string, DailyHistoryEntry> | undefined
+): number {
+  const fromHistory = countPatientActiveDaysFromHistory(dayMap);
+  if (fromHistory > 0) return fromHistory;
+  const j = joinDateYmd.trim().slice(0, 10);
+  const t = clinicalTodayYmd.trim().slice(0, 10);
+  const a = clinicalDateToLocalMidnight(j).getTime();
+  const b = clinicalDateToLocalMidnight(t).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 1;
+  const days = Math.floor((b - a) / 86400000) + 1;
+  return Math.max(1, Math.min(days, 3650));
+}
+
+/** שלבי «פריחה יומית» בנוף — בלתי תלויים ברמת XP (רק ימי פעילות). */
+export type MountainDailyBloomPhase = 'baseline' | 'flowers' | 'forest' | 'life';
+
+export interface MountainEnvironmentAssets {
+  bloomPhase: MountainDailyBloomPhase;
+  totalActiveDays: number;
+  /** 0–1 — צפיפות פרחים בשכבת הדשא (ימים 4–10). */
+  flowerDensity: number;
+  /** 0–1 — צפיפות עצים במדרונות (ימים 11–20+). */
+  treeDensity: number;
+  /** יום 21+: חיה אחת לפי זרע תאריך. */
+  animalOfTheDay: 'deer' | 'rabbit' | 'bird' | null;
+  daySeed: number;
+  transitionCss: string;
+}
+
+/**
+ * SceneryManager — נכסי סביבה לפי ימי פעילות מצטברים (לא לפי רמה).
+ * שומר על לוגיקת הפסגה המושלגת בנפרד (רמה).
+ */
+export function getMountainEnvironmentAssets(
+  totalActiveDays: number,
+  clinicalYmd: string
+): MountainEnvironmentAssets {
+  const { seed } = daySeedFromClinicalYmd(clinicalYmd);
+  const d = Math.max(1, Math.floor(totalActiveDays));
+  let bloomPhase: MountainDailyBloomPhase;
+  let flowerDensity = 0;
+  let treeDensity = 0;
+
+  if (d <= 3) {
+    bloomPhase = 'baseline';
+  } else if (d <= 10) {
+    bloomPhase = 'flowers';
+    flowerDensity = (d - 3) / 7;
+  } else if (d <= 20) {
+    bloomPhase = 'forest';
+    flowerDensity = 1;
+    treeDensity = (d - 10) / 10;
+  } else {
+    bloomPhase = 'life';
+    flowerDensity = 1;
+    treeDensity = 1;
+  }
+
+  let animalOfTheDay: 'deer' | 'rabbit' | 'bird' | null = null;
+  if (d >= 21) {
+    const r = seed % 3;
+    animalOfTheDay = r === 0 ? 'deer' : r === 1 ? 'rabbit' : 'bird';
+  }
+
+  return {
+    bloomPhase,
+    totalActiveDays: d,
+    flowerDensity,
+    treeDensity,
+    animalOfTheDay,
+    daySeed: seed,
+    transitionCss: PATIENT_PORTAL_VISUAL_TRANSITION,
+  };
+}
+
+/** מפתח localStorage — סף פרחים שכבר הוכרז לגארדי (ערך = מספר סף אחרון). */
+export function guardiBloomTierStorageKey(patientId: string): string {
+  return `guardiBloomTier:${patientId}`;
+}
+
+/**
+ * הודעת גארדי כשחוצים לראשונה את סף הפרחים (יום פעילות 4+).
+ * `lastAnnouncedTier` נקרא מ-localStorage (0 אם מעולם לא הוכרז).
+ */
+export function getGuardiFlowerBloomAnnouncement(
+  totalActiveDays: number,
+  lastAnnouncedTier: number
+): { message: string; nextTier: number } | null {
+  if (totalActiveDays >= 4 && lastAnnouncedTier < 4) {
+    return {
+      message: 'תראה כמה פרחים צמחו כאן מאז שהתחלת!',
+      nextTier: 4,
+    };
+  }
+  return null;
+}
+
+/**
+ * CSS לאווטאר בפורטל (שכבה מעל רקע ההר) — פוזה לפי רמה, זוהר מ־15, ניגודיות לשרירים.
+ * כאשר פעיל, יש לכבות ב-AnatomyModel את פוזת המותן/הילת האורות התלת־ממדיים כדי למנוע כפילות.
+ */
+export function getPatientAvatarCssStyle(level: number): CSSProperties {
+  const L = Math.min(30, Math.max(1, Math.floor(Number(level)) || 1));
+  const transition = PATIENT_PORTAL_VISUAL_TRANSITION;
+  let transform: string;
+  if (L <= 10) {
+    transform = 'rotate(4deg) scaleY(0.96)';
+  } else if (L <= 20) {
+    transform = 'rotate(0deg) scaleY(1) scaleX(1)';
+  } else {
+    transform = 'rotate(0deg) scaleY(1) scaleX(1.08)';
+  }
+
+  const filterParts: string[] = [];
+  if (L >= 15) {
+    const u = (L - 15) / 15;
+    const blur = 8 + u * 28;
+    const a = 0.32 + u * 0.48;
+    filterParts.push(`drop-shadow(0 0 ${blur}px rgba(56, 189, 248, ${a}))`);
+    filterParts.push(`drop-shadow(0 0 ${2 + u * 8}px rgba(250, 204, 21, ${a * 0.55}))`);
+  }
+  const contrast = 1 + Math.min(1, (L - 1) / 29) * 0.14;
+  const brightness = 1.02 + Math.min(1, (L - 1) / 29) * 0.06;
+  filterParts.push(`contrast(${contrast})`);
+  filterParts.push(`brightness(${brightness})`);
+
+  return {
+    transform,
+    filter: filterParts.join(' '),
+    transition,
+    transformOrigin: '50% 88%',
+    willChange: 'transform, filter',
+  };
+}
+
+/**
+ * שורת מזג/טבע לגארדי — מופיעה לעיתים (לא בכל יום), יציבה ליום הקליני.
+ */
+export function getGuardiMountainAmbientLine(clinicalYmd: string, level?: number): string | null {
+  void level;
+  const daily = getMountainDailyEnvironmentState(clinicalYmd);
+  if ((daily.daySeed % 7) >= 4) return null;
+  if (daily.weather === 'גשום') return 'קצת גשם בחוץ — נשמע לי מרענן.';
+  if (daily.weather === 'מעונן') return 'עננים היום — הרוח קרירה בבירור.';
+  if (daily.visitors === 'ציפורים') return 'שמת לב לציפורים בשמיים?';
+  if (daily.visitors === 'חיות') return 'יש לי הרגשה שאנחנו לא לבד בשביל היום...';
+  return 'תראה איזה יום יפה בחוץ!';
+}
+
+function mountainPhaseForLevel(lv: number): MountainClimbJourneyPhase {
+  if (lv >= 30) return 'summit';
+  if (lv >= 21) return 'ascent';
+  if (lv >= 17) return 'mountain_base';
+  if (lv >= 11) return 'path';
+  return 'approach';
+}
+
+function mountainGroundKindForPhase(phase: MountainClimbJourneyPhase): MountainGroundKind {
+  switch (phase) {
+    case 'approach':
+      return 'דשא';
+    case 'path':
+      return 'שביל';
+    case 'mountain_base':
+      return 'אדמה';
+    case 'ascent':
+      return 'קרקע קשה';
+    case 'summit':
+    default:
+      return 'פסגה';
+  }
+}
+
+function mountainSegmentT(lv: number, phase: MountainClimbJourneyPhase): number {
+  switch (phase) {
+    case 'approach':
+      return Math.min(1, Math.max(0, (lv - 1) / 9));
+    case 'path':
+      return Math.min(1, Math.max(0, (lv - 11) / 5));
+    case 'mountain_base':
+      return Math.min(1, Math.max(0, (lv - 17) / 3));
+    case 'ascent':
+      return Math.min(1, Math.max(0, (lv - 21) / 8));
+    case 'summit':
+    default:
+      return 1;
+  }
+}
+
+function mountainSceneryDescriptionHe(
+  phase: MountainClimbJourneyPhase,
+  opts: {
+    atMountainBase: boolean;
+    thinAir: boolean;
+    mountainSvgVisible: boolean;
+  }
+): string {
+  const parts: string[] = [];
+  switch (phase) {
+    case 'approach':
+      parts.push('דשא');
+      if (opts.mountainSvgVisible) parts.push('קצה ההר');
+      break;
+    case 'path':
+      parts.push('שביל', 'שיפולי ההר');
+      break;
+    case 'mountain_base':
+      parts.push('אדמה');
+      if (opts.atMountainBase) parts.push('תחתית ההר', 'צלע סלע');
+      break;
+    case 'ascent':
+      parts.push('קרקע קשה', 'פסגה', 'אוויר דליל', 'ללא צמחייה');
+      break;
+    case 'summit':
+    default:
+      parts.push('פסגה', 'סלע', 'עננים', 'אוויר גבוה');
+      break;
+  }
+  return parts.join(' · ');
+}
+
+/**
+ * מצב נוף למסע ההר — מעודכן כשהרמה משתנה; רמות מעל 30 נשארות בוויזואל של רמה 30 (פסגה).
+ */
+export function getMountainClimbEnvironmentState(level: number): MountainClimbEnvironmentState {
+  const raw = Number.isFinite(level) ? Math.floor(Number(level)) : 1;
+  const normalizedLevel = Math.min(30, Math.max(1, raw));
+  const phase = mountainPhaseForLevel(normalizedLevel);
+  const segmentT = mountainSegmentT(normalizedLevel, phase);
+  const groundKind = mountainGroundKindForPhase(phase);
+  const atMountainBase = normalizedLevel >= 20;
+  const rockFaceDominant = normalizedLevel >= 20;
+  const thinAir = normalizedLevel >= 21 && normalizedLevel < 30;
+  const showVegetation = normalizedLevel < 21;
+  const summitApproachProgress =
+    phase === 'ascent' ? segmentT : phase === 'summit' ? 1 : 0;
+
+  const mountainSvgVisible =
+    phase !== 'approach' || normalizedLevel >= 2;
+  const snowyPeakJourneyT =
+    normalizedLevel <= 1
+      ? 0
+      : Math.min(1, Math.max(0, (normalizedLevel - 2) / 28));
+
+  const sceneryDescriptionHe = mountainSceneryDescriptionHe(phase, {
+    atMountainBase,
+    thinAir,
+    mountainSvgVisible,
+  });
+
+  return {
+    normalizedLevel,
+    phase,
+    groundKind,
+    sceneryDescriptionHe,
+    segmentT,
+    showVegetation,
+    thinAir,
+    rockFaceDominant,
+    summitApproachProgress,
+    atMountainBase,
+    mountainSvgVisible,
+    snowyPeakJourneyT,
+  };
+}
+
+export function getMountainBackdropContext(
+  level: number,
+  clinicalYmd: string
+): MountainBackdropContext {
+  return {
+    climb: getMountainClimbEnvironmentState(level),
+    daily: getMountainDailyEnvironmentState(clinicalYmd),
+  };
+}
+
+/**
+ * תוספת גובה (יחידות Three.js) לאווטאר המטופל במסע ההר — 0 ברמה 1, עולה עד ~0.19 ברמה 30.
+ * גארדי (מנטור 2D) הוא שכבת UI נפרדת ולא משתמש בערך זה.
+ */
+export function getPatientAvatarMountainElevationY(level: number): number {
+  const L = Math.min(30, Math.max(1, Math.floor(Number(level)) || 1));
+  return ((L - 1) / 29) * 0.19;
+}
+
+/** פוזה קלינית: מנוחה (כופף קל) · פעיל · כוח (חזה החוצה) */
+export type PatientAvatarPostureTier = 'rest' | 'active' | 'power';
+
+/** רמות 1–10 מנוחה, 11–20 פעיל, 21–30 כוח — קשור לרמת המטופל במסע */
+export function getPatientAvatarPostureTier(level: number): PatientAvatarPostureTier {
+  const L = Math.min(30, Math.max(1, Math.floor(Number(level)) || 1));
+  if (L <= 10) return 'rest';
+  if (L <= 20) return 'active';
+  return 'power';
+}
+
+/**
+ * היסט pitch לציר X של המותן (רדיאנים) — נוסף על אנימציית ההליכה.
+ * חיובי = כיפוף קדימה קל (מנוחה), שלילי = חזה החוצה (כוח).
+ */
+export function getPatientAvatarPostureTorsoPitchOffset(level: number): number {
+  const L = Math.min(30, Math.max(1, Math.floor(Number(level)) || 1));
+  if (L <= 10) return 0.065;
+  if (L <= 20) return 0.018;
+  return -0.055;
+}
+
+/**
+ * קנה מידה [כתפיים X, גובה Y, עומק Z] — מתרחב מעט עם הרמה (1→~1.07).
+ */
+export function getPatientAvatarPhysiqueScale(level: number): [number, number, number] {
+  const L = Math.min(30, Math.max(1, Math.floor(Number(level)) || 1));
+  const t = (L - 1) / 29;
+  return [1 + t * 0.072, 1 + t * 0.038, 1 + t * 0.048];
+}
+
+/**
+ * הילה «כוח» — מרמה 15; עוצמה ועובי עולים עד רמה 30.
+ */
+export function getPatientAvatarStrengthAura(level: number): {
+  enabled: boolean;
+  intensity: number;
+  thickness: number;
+} {
+  const L = Math.min(30, Math.max(1, Math.floor(Number(level)) || 1));
+  if (L < 15) return { enabled: false, intensity: 0, thickness: 0 };
+  const u = (L - 15) / 15;
+  return {
+    enabled: true,
+    intensity: 0.12 + u * 0.88,
+    thickness: 0.05 + u * 0.28,
+  };
+}
+
+/**
+ * שלב ויזואלי לשרירים — אבני דרך 10, 20, 30; מעל 30 לפי אבולוציה כללית.
+ */
+export function getPatientAvatarMuscleVisualStage(level: number): MuscleEvolutionStage {
+  const L = Math.max(1, Math.floor(Number(level)) || 1);
+  if (L <= 30) {
+    if (L < 11) return 'post_injury';
+    if (L < 21) return 'active_rehab';
+    if (L < 30) return 'strengthening';
+    return 'power';
+  }
+  return getMuscleEvolutionStage(L);
+}

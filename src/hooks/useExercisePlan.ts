@@ -156,7 +156,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
     setExercisePlans,
     dailySessions,
     setDailySessions,
-    clinicalTick,
+    clinicalTick: _clinicalTick,
     clinicalToday,
     aiSuggestions,
     setAiSuggestions,
@@ -340,19 +340,18 @@ export function useExercisePlan(params: UseExercisePlanParams) {
   // ── Daily sessions ─────────────────────────────────────────────
   const getTodaySession = useCallback(
     (patientId: string): DailySession => {
-      void clinicalTick;
-      const cd = getClinicalDate();
+      const cd = clinicalToday || getClinicalDate();
       return (
         dailySessions.find((s) => s.patientId === patientId && s.date === cd) ??
         buildEmptySession(patientId, cd)
       );
     },
-    [dailySessions, clinicalTick]
+    [dailySessions, clinicalToday]
   );
 
   const toggleExercise = useCallback(
     (patientId: string, exerciseId: string, xpReward: number) => {
-      const cd = getClinicalDate();
+      const cd = clinicalToday || getClinicalDate();
       setDailySessions((prev) => {
         const existing = prev.find((s) => s.patientId === patientId && s.date === cd);
         if (!existing) {
@@ -371,7 +370,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         return prev.map((s) => (s.patientId === patientId && s.date === cd ? updated : s));
       });
     },
-    [clinicalTick]
+    [clinicalToday, setDailySessions]
   );
 
   const submitExerciseReport = useCallback(
@@ -393,7 +392,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         isManualPlan?: boolean;
       }
     ): Promise<boolean> => {
-      const clinicalDay = getClinicalDate();
+      const clinicalDay = clinicalToday || getClinicalDate();
       const prior = dailySessions.find((s) => s.patientId === patientId && s.date === clinicalDay);
       const wasRepeatCompletion = prior?.completedIds.includes(exerciseId) ?? false;
 
@@ -905,7 +904,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       exercisePlans,
       dailySessions,
       sendAiClinicalAlert,
-      clinicalTick,
+      clinicalToday,
       allPatients,
       pushRewardFeedback,
       patientGearByPatientId,

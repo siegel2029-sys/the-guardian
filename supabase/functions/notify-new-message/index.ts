@@ -418,8 +418,11 @@ async function notifyPatient(supabase: SupabaseClient, record: Record<string, un
     .select("id, payload")
     .eq("id", recipientId)
     .maybeSingle();
-  if (error) return jsonResponse({ ok: false, error: error.message }, 503);
-  if (!patient) return jsonResponse({ ok: false, error: "patient_not_found", patientId: recipientId }, 200);
+  if (error) {
+    console.error("[notify-new-message] patient lookup failed:", error.code ?? "unknown");
+    return jsonResponse({ ok: false, error: "patient_lookup_failed" }, 503);
+  }
+  if (!patient) return jsonResponse({ ok: false, error: "patient_not_found" }, 200);
 
   const token = readPushTokenFromPatientPayload(patient.payload);
   if (!hasDeliverableToken(token)) {
@@ -469,7 +472,8 @@ async function notifyTherapist(supabase: SupabaseClient, record: Record<string, 
   const tableMissing =
     subErr != null && /therapist_push_subscriptions|relation.*does not exist|schema cache/i.test(subErr.message);
   if (subErr && !tableMissing) {
-    return jsonResponse({ ok: false, error: subErr.message }, 503);
+    console.error("[notify-new-message] therapist subscriptions lookup failed:", subErr.code ?? "unknown");
+    return jsonResponse({ ok: false, error: "therapist_subscriptions_lookup_failed" }, 503);
   }
   if (tableMissing) {
     console.warn("[notify-new-message] therapist_push_subscriptions table missing — apply migration 20260610120000. Using legacy profiles path.");
@@ -535,8 +539,11 @@ async function notifyTherapist(supabase: SupabaseClient, record: Record<string, 
       .maybeSingle());
   }
 
-  if (profileErr) return jsonResponse({ ok: false, error: profileErr.message }, 503);
-  if (!profile) return jsonResponse({ ok: false, error: "therapist_not_found", therapistId }, 200);
+  if (profileErr) {
+    console.error("[notify-new-message] therapist profile lookup failed:", (profileErr as { code?: string }).code ?? "unknown");
+    return jsonResponse({ ok: false, error: "therapist_profile_lookup_failed" }, 503);
+  }
+  if (!profile) return jsonResponse({ ok: false, error: "therapist_not_found" }, 200);
 
   const token = (profile.push_token as string | null | undefined)?.trim() ?? "";
   if (!hasDeliverableToken(token)) {

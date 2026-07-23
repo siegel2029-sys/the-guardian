@@ -21,6 +21,7 @@ import { PI_PUSH_SYNC_TEST_PATIENT_ID } from '../../constants/pushSyncTestPatien
 import { requestPatientPushSync } from '../../services/therapistChatPush';
 import { getPatientCredentialsByPatientId } from '../../context/authPersistence';
 import { devError, redactId } from '../../lib/safeLog';
+import ErrorBoundary from '../ui/error-boundary';
 import RedFlagAlert from './RedFlagAlert';
 import AiSuggestionsPanel from './AiSuggestionsPanel';
 import ManagePlanModal from './ManagePlanModal';
@@ -875,7 +876,32 @@ export default function PatientOverview() {
         )}
 
         {showIntakeVault && (
-          <FullIntakeVaultModal patient={p} onClose={() => setShowIntakeVault(false)} />
+          <ErrorBoundary
+            variant="section"
+            scopeLabel="PatientOverview.FullIntakeVaultModal"
+            fallback={(reset) => (
+              <div
+                className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40"
+                role="alertdialog"
+                aria-modal="true"
+                dir="rtl"
+              >
+                <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-xl">
+                  <p className="text-sm font-semibold text-slate-900">כספת האינטייק אינה זמינה</p>
+                  <p className="mt-1 text-xs text-slate-600">שאר לוח המטפל ממשיך לעבוד.</p>
+                  <button
+                    type="button"
+                    onClick={reset}
+                    className="mt-4 rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-700"
+                  >
+                    נסה שוב
+                  </button>
+                </div>
+              </div>
+            )}
+          >
+            <FullIntakeVaultModal patient={p} onClose={() => setShowIntakeVault(false)} />
+          </ErrorBoundary>
         )}
 
         {showTreatmentDocs && (
@@ -919,39 +945,89 @@ export default function PatientOverview() {
         {showManageModal && <ManagePlanModal onClose={() => setShowManageModal(false)} />}
 
         {clinicalModalMode === 'completion' && (
-          <ClinicalIntakeCompletionModal
-            patient={p}
-            planExercises={plan?.exercises ?? []}
-            onClose={() => setClinicalModalMode('none')}
-            onOpenFullWizard={() => setClinicalModalMode('wizard')}
-            onSave={async (primaryBodyArea, libraryExerciseIds, extras) => {
-              applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds, extras);
-              const ok = await savePersistedStateToCloud({ immediate: true });
-              if (!ok) {
-                devError('[ClinicalIntakeCompletion] savePersistedStateToCloud failed', {
-                  patientId: redactId(p.id),
-                  primaryBodyArea,
-                });
-                throw new Error(
-                  'שמירה לענן נכשלה — הנתונים נשמרו מקומית בלבד. רעננו את הדף או נסו שוב.'
-                );
-              }
-            }}
-          />
+          <ErrorBoundary
+            variant="section"
+            scopeLabel="PatientOverview.ClinicalIntakeCompletionModal"
+            fallback={(reset) => (
+              <div
+                className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40"
+                role="alertdialog"
+                aria-modal="true"
+                dir="rtl"
+              >
+                <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-xl">
+                  <p className="text-sm font-semibold text-slate-900">מודאל השלמת אינטייק אינו זמין</p>
+                  <p className="mt-1 text-xs text-slate-600">שאר לוח המטפל ממשיך לעבוד.</p>
+                  <button
+                    type="button"
+                    onClick={reset}
+                    className="mt-4 rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-700"
+                  >
+                    נסה שוב
+                  </button>
+                </div>
+              </div>
+            )}
+          >
+            <ClinicalIntakeCompletionModal
+              patient={p}
+              planExercises={plan?.exercises ?? []}
+              onClose={() => setClinicalModalMode('none')}
+              onOpenFullWizard={() => setClinicalModalMode('wizard')}
+              onSave={async (primaryBodyArea, libraryExerciseIds, extras) => {
+                applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds, extras);
+                const ok = await savePersistedStateToCloud({ immediate: true });
+                if (!ok) {
+                  devError('[ClinicalIntakeCompletion] savePersistedStateToCloud failed', {
+                    patientId: redactId(p.id),
+                    primaryBodyArea,
+                  });
+                  throw new Error(
+                    'שמירה לענן נכשלה — הנתונים נשמרו מקומית בלבד. רעננו את הדף או נסו שוב.'
+                  );
+                }
+              }}
+            />
+          </ErrorBoundary>
         )}
 
         {clinicalModalMode === 'wizard' && (
-          <ClinicalAiIntakeWizard
-            clinicalIntakeMode="edit"
-            lockedPortalUsername={portalUsernameDisplay}
-            initialPatientName={getPatientDisplayName(p)}
-            initialIntakeStory={resolveCoreLegacyIntakeSummaryText(p) || undefined}
-            onClose={() => setClinicalModalMode('none')}
-            onSave={(primaryBodyArea, libraryExerciseIds, extras) => {
-              applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds, extras);
-              void savePersistedStateToCloud({ immediate: true });
-            }}
-          />
+          <ErrorBoundary
+            variant="section"
+            scopeLabel="PatientOverview.ClinicalAiIntakeWizard"
+            fallback={(reset) => (
+              <div
+                className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40"
+                role="alertdialog"
+                aria-modal="true"
+                dir="rtl"
+              >
+                <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-xl">
+                  <p className="text-sm font-semibold text-slate-900">אשף האינטייק אינו זמין</p>
+                  <p className="mt-1 text-xs text-slate-600">שאר לוח המטפל ממשיך לעבוד.</p>
+                  <button
+                    type="button"
+                    onClick={reset}
+                    className="mt-4 rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-700"
+                  >
+                    נסה שוב
+                  </button>
+                </div>
+              </div>
+            )}
+          >
+            <ClinicalAiIntakeWizard
+              clinicalIntakeMode="edit"
+              lockedPortalUsername={portalUsernameDisplay}
+              initialPatientName={getPatientDisplayName(p)}
+              initialIntakeStory={resolveCoreLegacyIntakeSummaryText(p) || undefined}
+              onClose={() => setClinicalModalMode('none')}
+              onSave={(primaryBodyArea, libraryExerciseIds, extras) => {
+                applyInitialClinicalProfile(p.id, primaryBodyArea, libraryExerciseIds, extras);
+                void savePersistedStateToCloud({ immediate: true });
+              }}
+            />
+          </ErrorBoundary>
         )}
 
         <TherapistClinicalConsultantFAB

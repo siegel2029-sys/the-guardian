@@ -26,6 +26,7 @@ import type { BodyArea, ManualClinicalSegmentLockOverride } from '../../types';
 import { EMPTY_EQUIPPED_GEAR, type EquippedGearSnapshot } from '../../config/gearCatalog';
 import { normalizeStoreItemIds, type StoreItemId } from '../../config/storeCatalog';
 import EquippedStoreFloorProps from './equipped-store/EquippedStoreFloorProps';
+import { devLog, devWarn } from '../../lib/safeLog';
 
 export interface BodyMap3DProps {
   activeAreas: BodyArea[];
@@ -385,13 +386,13 @@ function BodyMapWebGlLifecycle({
       onContextLostChange(true);
       stopRendererAnimationLoop(gl);
       clearStudioEnvironmentCache();
-      console.warn('[BodyMap3D] webglcontextlost — prevented default so the browser may restore');
+      devWarn('[BodyMap3D] webglcontextlost — prevented default so the browser may restore');
     };
 
     const onContextRestored = () => {
       contextLostRef.current = false;
       onContextLostChange(false);
-      console.log('[BodyMap3D] webglcontextrestored — syncing size & remounting Canvas');
+      devLog('[BodyMap3D] webglcontextrestored — syncing size & remounting Canvas');
       gl.setSize(canvas.clientWidth, canvas.clientHeight, false);
       requestAnimationFrame(() => onContextRestoredRemount());
     };
@@ -474,7 +475,9 @@ function BodyMapStudioEnvironment({
       },
       undefined,
       (err) => {
-        console.warn('[BodyMap3D] studio HDR load failed', err);
+        devWarn('[BodyMap3D] studio HDR load failed', {
+          name: err instanceof Error ? err.name : 'unknown',
+        });
       }
     );
 
@@ -855,7 +858,19 @@ function BodyMap3D(props: BodyMap3DProps) {
         <group
           position={[0, 0.1 + patientMountainElevation, 0]}
         >
-          <Suspense fallback={null}>
+          <Suspense
+            fallback={
+              <Html center style={{ pointerEvents: 'none' }}>
+                <div
+                  className="flex h-16 w-16 items-center justify-center"
+                  aria-busy="true"
+                  aria-label="טוען מודל גוף"
+                >
+                  <div className="h-10 w-10 animate-spin rounded-full border-2 border-teal-600 border-t-transparent" />
+                </div>
+              </Html>
+            }
+          >
             <group scale={avatarScale}>
               <StreakEnergyFloat enabled={streakEnergy && !stableInteraction}>
                 <AnatomyModel
@@ -994,6 +1009,25 @@ function BodyMap3D(props: BodyMap3DProps) {
         )}
         </WebGlRuntimeProvider>
       </Canvas>
+      {webglContextLost && (
+        <div
+          role="alert"
+          dir="rtl"
+          className="pointer-events-auto absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-slate-50/95 px-4 text-center"
+        >
+          <p className="text-sm font-semibold text-slate-900">מפת הגוף הושהתה</p>
+          <p className="text-xs text-slate-600 max-w-[16rem]">
+            הקשר הגרפי נותק. ניתן לטעון מחדש בלי לרענן את כל הדף.
+          </p>
+          <button
+            type="button"
+            onClick={bumpWebglCanvasKey}
+            className="rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-700 active:bg-teal-800 min-h-11"
+          >
+            הקישו לטעינה מחדש של המפה
+          </button>
+        </div>
+      )}
       </div>
 
       {/* ── HTML overlays ───────────────────────────────────────── */}
