@@ -135,21 +135,21 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — type-safety & result-shape hardening sweep closed._
+_Idle — freemium roster lock (frontend audit follow-up) closed._
 
 ### Completed Steps (recent)
 
-- Result shape: wired `serviceOk`/`serviceFail`; chat fetch/insert → `data`; push persist/register → discriminated `ServiceResult` / `data`; `fetchUnlinkedPortalPatientIds` dropped `{ error }`.
-- JSONB guards: `clinicalJsonbParse` at clinical/exercise Supabase edges; Edge `safeJson` for gemini-proxy / notify-new-message / reminder-cron.
-- Strict flags pinned explicitly in app/node tsconfigs; `tsc -b` / `build` / 66 tests green.
+- Freemium guest lock: `FREEMIUM_GUEST_SESSION_LOCK` empties roster, clears in-memory clinic state, skips portal hydrate; DidYouKnow skipped for guests and moved to domain hooks.
+- Prior: type-safety / result-shape sweep; Edge SSRF allowlist + link RPC app_metadata-only.
+- Verification: `tsc` clean; Vitest 66 green.
 
 ### Next Action Items
 
-1. **Ops:** Rotate `service_role` (exposed in old Dashboard webhook); confirm `INTERNAL_MESSAGES_WEBHOOK_SECRET` ↔ `private.app_config`.
-2. Enable HIBP after Pro: `node scripts/enable-password-hibp.mjs`.
-3. Set `ALLOWED_ORIGINS` in Edge secrets for CORS fail-closed on JWT-facing functions.
-4. Continue migrating remaining dashboard panels off fat `usePatient()`.
-5. Optionally migrate clinical fetch multi-key successes (`patients` / `exercisePlans`) → `data` wrappers.
+1. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
+2. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
+3. Lazy-load gear armory + portal modal stack / AI intake wizard.
+4. Stabilize `submitExerciseReport` deps; continue dashboard off fat `usePatient()`.
+5. Wire GuestDailyView invite → portal signup end-to-end.
 
 ### Update protocol
 

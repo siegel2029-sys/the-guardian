@@ -12,7 +12,11 @@ import {
 import { useLocation } from 'react-router-dom';
 import { Lightbulb, ExternalLink, Gift, Lock, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { usePatient } from '../../context/PatientContext';
+import {
+  usePatientRoster,
+  usePatientGamification,
+  usePatientExercisePlans,
+} from '../../context/patientDomainHooks';
 import type { KnowledgeFact, Patient } from '../../types';
 import { KNOWLEDGE_ENRICHMENT_DISCLAIMER_HE } from '../../config/clinicalDisclaimers';
 import { PATIENT_REWARDS } from '../../config/patientRewards';
@@ -292,15 +296,15 @@ function DidYouKnowPortalModal({
 export function PatientDidYouKnowProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const { sessionRole, patientMustChangePassword } = useAuth();
+  const { selectedPatient } = usePatientRoster();
+  const { clinicalToday } = usePatientExercisePlans();
   const {
-    selectedPatient,
     knowledgeFacts,
     markArticleAsRead,
     hasReadArticle,
     getDidYouKnowTipOpenedLocalYmd,
     recordDidYouKnowTipOpened,
-    clinicalToday,
-  } = usePatient();
+  } = usePatientGamification();
 
   const dykCalendarDayKey = clinicalToday;
   const isMobile = useIsMobileViewport();

@@ -153,6 +153,8 @@ export type PatientGamificationSlice = {
   getMountainDailyEnvironmentState: (clinicalYmd: string) => MountainDailyEnvironmentState;
   getMountainBackdropContext: (level: number, clinicalYmd: string) => MountainBackdropContext;
   knowledgeFacts: KnowledgeFact[];
+  recordDidYouKnowTipOpened: (patientId: string, localCalendarYmd: string) => void;
+  getDidYouKnowTipOpenedLocalYmd: (patientId: string) => string | null;
 };
 
 export type PatientSyncSlice = {

@@ -6,6 +6,7 @@ import { PatientDidYouKnowProvider } from './components/patient/PatientDidYouKno
 import CookieBanner from './components/legal/CookieBanner';
 import LegalOnboardingModal from './components/legal/LegalOnboardingModal';
 import { hasPersistedSupabaseAuthSession } from './lib/supabase';
+import { FREEMIUM_GUEST_SESSION_LOCK } from './context/patientContextRoster';
 
 /**
  * Patient list scope follows auth: therapist dashboard vs patient portal.
@@ -19,7 +20,12 @@ function PatientRouterShell() {
       : therapistPatientScopeIds.length > 0
         ? therapistPatientScopeIds
         : null;
-  const restrictPatientSessionId = sessionRole === 'patient' ? patientSessionId : null;
+  // Clinic pro: lock to patient id. Freemium (patient role, no clinic id): sentinel empty roster.
+  const restrictPatientSessionId =
+    sessionRole === 'patient'
+      ? patientSessionId?.trim() || FREEMIUM_GUEST_SESSION_LOCK
+      : null;
+  const isFreemiumGuest = restrictPatientSessionId === FREEMIUM_GUEST_SESSION_LOCK;
 
   // Unauthenticated visitors (login page) don't need the heavy PatientProvider —
   // skipping it avoids roster bootstrap, timers and cloud sync work before login.
@@ -35,17 +41,20 @@ function PatientRouterShell() {
     );
   }
 
+  const routes = (
+    <div className="min-h-dvh antialiased text-base text-slate-900">
+      <AppRoutes />
+      <CookieBanner />
+      {/* Mandatory legal gate — self-hides for users who already accepted. */}
+      <LegalOnboardingModal />
+    </div>
+  );
+
   return (
     <PatientProvider therapistScopeIds={therapistScopeIds} restrictPatientSessionId={restrictPatientSessionId}>
       <BrowserRouter>
-        <PatientDidYouKnowProvider>
-          <div className="min-h-dvh antialiased text-base text-slate-900">
-            <AppRoutes />
-            <CookieBanner />
-            {/* Mandatory legal gate — self-hides for users who already accepted. */}
-            <LegalOnboardingModal />
-          </div>
-        </PatientDidYouKnowProvider>
+        {/* Freemium has no clinic patient — skip DidYouKnow (needs selected patient + KB). */}
+        {isFreemiumGuest ? routes : <PatientDidYouKnowProvider>{routes}</PatientDidYouKnowProvider>}
       </BrowserRouter>
     </PatientProvider>
   );

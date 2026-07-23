@@ -6,6 +6,15 @@ import type { Patient } from '../types';
 import { normalizePatientProgressFields } from '../body/patientLevelXp';
 import { promotePendingPatientIfPortalAccess } from '../utils/patientRosterMetrics';
 
+/**
+ * Sentinel `restrictPatientSessionId` for App Store / freemium guests (no clinic patient row).
+ * Forces an empty roster and blocks portal cloud hydrate — never matches a real patient id.
+ */
+export const FREEMIUM_GUEST_SESSION_LOCK = '__freemium_guest__';
+
+export function isFreemiumGuestSessionLock(id: string | null | undefined): boolean {
+  return id === FREEMIUM_GUEST_SESSION_LOCK;
+}
 /** Must satisfy Supabase password policy: min 8 chars, letters + digits. */
 export function randomPatientPassword(): string {
   const letters = 'abcdefghijkmnpqrstuvwxyz';

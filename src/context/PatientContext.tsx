@@ -81,9 +81,11 @@ import {
 import {
   normalizePatientsTherapistIds,
   patientMatchesTherapistScope,
+  isFreemiumGuestSessionLock,
 } from './patientContextRoster';
 
 export { randomPatientPassword } from './patientContextRoster';
+export { FREEMIUM_GUEST_SESSION_LOCK } from './patientContextRoster';
 import {
   fetchPatients,
   fetchPatientPayloadsForTherapist,
@@ -609,6 +611,9 @@ export function PatientProvider({
   allPatientsRef.current = allPatients;
 
   const patients = useMemo(() => {
+    if (isFreemiumGuestSessionLock(restrictPatientSessionId)) {
+      return [];
+    }
     if (restrictPatientSessionId) {
       return allPatients.filter((p) => p.id === restrictPatientSessionId);
     }
@@ -620,11 +625,16 @@ export function PatientProvider({
 
   const [selectedPatientId, setSelectedPatientId] = useState<string>(() => {
     if (isSupabaseAuthEnabled()) {
+      if (isFreemiumGuestSessionLock(restrictPatientSessionId)) return '';
       return restrictPatientSessionId ?? '';
     }
     const persisted = readPersistedOnce().patient;
     const listAll = normalizePatientsTherapistIds(persisted?.patients ?? [], {});
-    if (restrictPatientSessionId && listAll.some((p) => p.id === restrictPatientSessionId)) {
+    if (
+      restrictPatientSessionId &&
+      !isFreemiumGuestSessionLock(restrictPatientSessionId) &&
+      listAll.some((p) => p.id === restrictPatientSessionId)
+    ) {
       return restrictPatientSessionId;
     }
     const scoped =
@@ -843,7 +853,18 @@ export function PatientProvider({
 
   useEffect(() => {
     if (!restrictPatientSessionId) return;
+    if (isFreemiumGuestSessionLock(restrictPatientSessionId)) return;
     setSelectedPatientId(restrictPatientSessionId);
+  }, [restrictPatientSessionId]);
+
+  /** Freemium guest: wipe in-memory clinic roster so prior therapist sessions cannot leak. */
+  useEffect(() => {
+    if (!isFreemiumGuestSessionLock(restrictPatientSessionId)) return;
+    setAllPatients([]);
+    setSelectedPatientId('');
+    setMessages([]);
+    setExercisePlans([]);
+    setDailySessions([]);
   }, [restrictPatientSessionId]);
 
   useEffect(() => {
@@ -909,6 +930,7 @@ export function PatientProvider({
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
     if (!restrictPatientSessionId) return;
+    if (isFreemiumGuestSessionLock(restrictPatientSessionId)) return;
     if (authLoading || !isAuthenticated) return;
 
     const supabaseClient = supabase;
@@ -3748,6 +3770,8 @@ export function PatientProvider({
       getMountainDailyEnvironmentState: patientContextValue.getMountainDailyEnvironmentState,
       getMountainBackdropContext: patientContextValue.getMountainBackdropContext,
       knowledgeFacts: patientContextValue.knowledgeFacts,
+      recordDidYouKnowTipOpened: patientContextValue.recordDidYouKnowTipOpened,
+      getDidYouKnowTipOpenedLocalYmd: patientContextValue.getDidYouKnowTipOpenedLocalYmd,
     }),
     [
       patientContextValue.grantPatientCoins,
@@ -3767,6 +3791,8 @@ export function PatientProvider({
       patientContextValue.getMountainDailyEnvironmentState,
       patientContextValue.getMountainBackdropContext,
       patientContextValue.knowledgeFacts,
+      patientContextValue.recordDidYouKnowTipOpened,
+      patientContextValue.getDidYouKnowTipOpenedLocalYmd,
     ]
   );
 
