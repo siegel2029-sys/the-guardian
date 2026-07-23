@@ -1277,23 +1277,6 @@ export function useExercisePlan(params: UseExercisePlanParams) {
 
       const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? '';
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
-      // authUserId is the Supabase Auth UUID for the new portal account.
-      // It is written to patients.auth_user_id immediately so the patient can
-      // access their data without waiting for their first login.
-      let newAuthUserId = '';
-      if (isSupabaseAuthEnabled() && url && anonKey) {
-        const su = await signUpPortalPatientOnCreate({
-          url,
-          anonKey,
-          portalUsername: normalized,
-          password,
-          patientId,
-        });
-        if (!su.ok) {
-          return { ok: false, message: su.message };
-        }
-        newAuthUserId = su.authUserId;
-      }
 
       const joinDate = new Date().toISOString().slice(0, 10);
       const newPatient: Patient = {
@@ -1332,20 +1315,52 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           sessionHistory: [],
         },
       };
+
+      // Insert patients row BEFORE Auth signup so before-user-created + app_metadata
+      // promotion can validate the clinic invite (patient_id) against a real row.
       if (isSupabaseAuthEnabled() && supabaseClient) {
         const upsertResult = await upsertPatientRecords(
           supabaseClient,
           [newPatient],
-          new Date().toISOString(),
-          // Pass the new Auth user's UUID so patients.auth_user_id is set right
-          // away, without requiring the patient to log in first.
-          newAuthUserId ? { authUserId: newAuthUserId } : undefined
+          new Date().toISOString()
         );
         if (!upsertResult.ok) {
           devError('[createPatientWithAccess] Failed to insert patient into DB', {
             message: upsertResult.message,
           });
           return { ok: false, message: `שגיאה בשמירת המטופל: ${upsertResult.message}` };
+        }
+      }
+
+      // authUserId is the Supabase Auth UUID for the new portal account.
+      // Written to patients.auth_user_id after signup so the patient can access data
+      // without waiting for their first login.
+      let newAuthUserId = '';
+      if (isSupabaseAuthEnabled() && url && anonKey) {
+        const su = await signUpPortalPatientOnCreate({
+          url,
+          anonKey,
+          portalUsername: normalized,
+          password,
+          patientId,
+        });
+        if (!su.ok) {
+          return { ok: false, message: su.message };
+        }
+        newAuthUserId = su.authUserId;
+        if (newAuthUserId && supabaseClient) {
+          const linkResult = await upsertPatientRecords(
+            supabaseClient,
+            [newPatient],
+            new Date().toISOString(),
+            { authUserId: newAuthUserId }
+          );
+          if (!linkResult.ok) {
+            devError('[createPatientWithAccess] Failed to link auth_user_id', {
+              message: linkResult.message,
+            });
+            return { ok: false, message: `שגיאה בקישור חשבון הפורטל: ${linkResult.message}` };
+          }
         }
         devLog('[createPatientWithAccess] Patient row created', {
           patientRef: redactId(patientId),

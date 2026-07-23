@@ -139,17 +139,17 @@ _Idle — awaiting next PM/roadmap assignment._
 
 ### Completed Steps (recent)
 
-- Hardening audit P0: phase5 RLS repair applied live (C1 `therapist_id`+freeze lock, KB write ownership, `profiles_insert` gate, `link_patient_auth_user` prefers `app_metadata`); route-shell ErrorBoundaries; Edge `gemini-proxy` / `notify-new-message` sanitized + redeployed.
-- Perf: memoized `PatientContext` value; scenery helpers → `gamificationScenery.ts`; `useExercisePlan` date helpers use `clinicalToday` (not 60s tick).
-- PatientDailyView carve (~1788→~679 LOC shell): training orchestration hook + chrome/home/activity/modals; `tsc` + Vitest green (55).
+- Freemium prep: `app_metadata.patient_id` promotion trigger + hook; `useTierRouting` / `FreemiumGuard` / `GuestDailyView`; clinic create inserts patient before Auth signup.
+- PatientContext domain providers (roster/chat/exercise/gamification/sync) + hooks; migration history aligned; `reminder-cron` deployed; insecure cron job 4 removed.
+- Board close-out: HIBP script Pro-plan comments; `tsc` / lint (0 errors) / Vitest 55 green.
 
 ### Next Action Items
 
-1. Enable Auth leaked-password protection (Pro): run `node scripts/enable-password-hibp.mjs` with `SUPABASE_ACCESS_TOKEN`, or Dashboard → Auth → Password strength.
-2. Continue god-file split: PatientContext provider slices + `useExercisePlan` / `submitExerciseReport` carve.
-3. Deploy updated `reminder-cron` Edge Function with denorm column filters.
-4. Repair local↔remote migration history drift (`supabase migration repair` / `db pull`) so `db push` works cleanly.
-5. Set `app_metadata.patient_id` at portal signup (Auth Admin) so `link_patient_auth_user` no longer needs `user_metadata` fallback.
+1. Enable Auth leaked-password protection after Pro upgrade: `node scripts/enable-password-hibp.mjs`.
+2. Build real GuestDailyView product UI (replace placeholder).
+3. Set freemium `app_metadata.tier=free` / `role=patient` on App Store signup path when that flow ships.
+4. Continue carving `useExercisePlan.submitExerciseReport` and remaining PatientContext orchestrator surface.
+5. Prefer CLI `supabase db push` for future migrations (rename local versions to MCP timestamps if apply_migration is used).
 
 ### Update protocol
 

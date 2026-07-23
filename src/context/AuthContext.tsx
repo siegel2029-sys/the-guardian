@@ -31,6 +31,8 @@ import type { Session, User } from '@supabase/supabase-js';
 import { hasPersistedSupabaseAuthSession, supabase } from '../lib/supabase';
 import { supabaseAuthErrorMessageHe } from '../lib/supabaseAuthErrors';
 import {
+  getClinicPatientIdFromUser,
+  getPatientProductTier,
   getSupabaseUserMetadata,
   mapSupabaseUserToTherapist,
   metadataString,
@@ -271,14 +273,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setUsesSupabaseSession(true);
-      const meta = getSupabaseUserMetadata(user);
-      const pid = metadataString(meta, 'patient_id') ?? '';
+      const pid = getClinicPatientIdFromUser(user) ?? '';
       if (pid) {
         try {
           await linkPatientAuthUserRow(supabase, pid);
         } catch (e) {
           if (import.meta.env.DEV) console.warn('[Auth] linkPatientAuthUserRow', e);
         }
+        const meta = getSupabaseUserMetadata(user);
         const pun = metadataString(meta, 'portal_username') ?? null;
         setPatientPortalDisplayId(pun);
         setTherapist(null);
@@ -286,6 +288,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession({ role: 'patient', patientId: pid });
         setProfile(null);
         void touchPatientLastLoginThrottled(pid, 0);
+        return;
+      }
+
+      // Freemium / App Store: role=patient or tier=free without clinic patient_id.
+      if (getPatientProductTier(user) === 'free') {
+        const meta = getSupabaseUserMetadata(user);
+        const pun = metadataString(meta, 'portal_username') ?? null;
+        setPatientPortalDisplayId(pun);
+        setTherapist(null);
+        setPatientSessionId(null);
+        setSession({ role: 'patient', patientId: '' });
+        setProfile(null);
         return;
       }
 
@@ -336,13 +350,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       /* Session still valid — never clear auth because profile or getUser failed. */
       setUsesSupabaseSession(true);
-      const meta = getSupabaseUserMetadata(user);
-      const pid = metadataString(meta, 'patient_id') ?? '';
+      const pid = getClinicPatientIdFromUser(user) ?? '';
       if (pid) {
-        setPatientPortalDisplayId(metadataString(meta, 'portal_username') ?? null);
+        setPatientPortalDisplayId(metadataString(getSupabaseUserMetadata(user), 'portal_username') ?? null);
         setTherapist(null);
         setPatientSessionId(pid);
         setSession({ role: 'patient', patientId: pid });
+        setProfile(null);
+        return;
+      }
+      if (getPatientProductTier(user) === 'free') {
+        setPatientPortalDisplayId(metadataString(getSupabaseUserMetadata(user), 'portal_username') ?? null);
+        setTherapist(null);
+        setPatientSessionId(null);
+        setSession({ role: 'patient', patientId: '' });
         setProfile(null);
         return;
       }
@@ -440,15 +461,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (session) return session.role;
     const u = supabaseAuthSession?.user;
     if (!u) return null;
-    const meta = getSupabaseUserMetadata(u);
-    return metadataString(meta, 'patient_id') ? 'patient' : 'therapist';
+    if (getClinicPatientIdFromUser(u)) return 'patient';
+    if (getPatientProductTier(u) === 'free') return 'patient';
+    return 'therapist';
   }, [session, supabaseAuthSession]);
 
   const patientSessionIdForUi = useMemo(() => {
-    if (session?.role === 'patient') return session.patientId;
+    if (session?.role === 'patient') {
+      const id = session.patientId?.trim();
+      if (id) return id;
+    }
     const u = supabaseAuthSession?.user;
     if (u) {
-      const fromJwt = metadataString(getSupabaseUserMetadata(u), 'patient_id');
+      const fromJwt = getClinicPatientIdFromUser(u);
       if (fromJwt) return fromJwt;
     }
     return patientSessionId;
@@ -458,8 +483,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (therapist) return therapistPatientScopeIdsForUser(therapist);
     const u = supabaseAuthSession?.user;
     if (!u) return [];
-    const meta = getSupabaseUserMetadata(u);
-    if (metadataString(meta, 'patient_id')) return [];
+    if (getClinicPatientIdFromUser(u) || getPatientProductTier(u) === 'free') return [];
     return [u.id];
   }, [therapist, supabaseAuthSession]);
 

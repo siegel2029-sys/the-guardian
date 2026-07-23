@@ -35,7 +35,8 @@ export type ProfileRow = {
 
 /**
  * Merge JWT app_metadata and user_metadata (user_metadata wins on key clash).
- * Use for role, full_name, patient_id, portal_username, etc.
+ * Use for display fields (full_name, portal_username). Prefer {@link getClinicPatientIdFromUser}
+ * for authorization — `patient_id` must come from app_metadata when present.
  */
 export function getSupabaseUserMetadata(user: User): Record<string, unknown> {
   const app = user.app_metadata as Record<string, unknown> | null | undefined;
@@ -46,6 +47,33 @@ export function getSupabaseUserMetadata(user: User): Record<string, unknown> {
 export function metadataString(meta: Record<string, unknown>, key: string): string | undefined {
   const v = meta[key];
   return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+}
+
+/** Secure clinic link — prefers non-editable `app_metadata.patient_id`. */
+export function getClinicPatientIdFromUser(user: User): string | undefined {
+  const app = (user.app_metadata ?? {}) as Record<string, unknown>;
+  const fromApp = metadataString(app, 'patient_id');
+  if (fromApp) return fromApp;
+  const um = (user.user_metadata ?? {}) as Record<string, unknown>;
+  return metadataString(um, 'patient_id');
+}
+
+/** Product tier for portal routing (B2C freemium prep). */
+export type PatientProductTier = 'free' | 'pro' | 'therapist';
+
+/**
+ * - `pro`: clinic invite — `app_metadata.patient_id` (or legacy user_metadata) set
+ * - `free`: App Store / freemium — `app_metadata.tier=free` or `role=patient` without patient_id
+ * - `therapist`: clinical dashboard account
+ */
+export function getPatientProductTier(user: User): PatientProductTier {
+  const pid = getClinicPatientIdFromUser(user);
+  if (pid) return 'pro';
+  const app = (user.app_metadata ?? {}) as Record<string, unknown>;
+  const tier = metadataString(app, 'tier');
+  const role = metadataString(app, 'role');
+  if (tier === 'free' || role === 'patient') return 'free';
+  return 'therapist';
 }
 
 /**

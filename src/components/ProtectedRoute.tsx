@@ -11,6 +11,7 @@ import MedicalDisclaimer from './legal/MedicalDisclaimer';
 import RefundPolicy from './legal/RefundPolicy';
 import PatientLegalGate from './legal/PatientLegalGate';
 import PatientPortalLayout from './patient/PatientPortalLayout';
+import FreemiumGuard from './patient/FreemiumGuard';
 import { LEGAL_PAGE_PATHS } from './legal/legalPaths';
 import ErrorBoundary from './ui/error-boundary';
 
@@ -110,16 +111,22 @@ function PatientPortalRoute() {
   if (!allow) {
     return <RedirectToLogin reason="PatientPortalRoute: !allow (no session / not authenticated)" />;
   }
-  if (sessionRole !== 'patient' || !patientSessionId) {
+  // Pro clinic: patientSessionId set. Freemium: sessionRole=patient without clinic id.
+  if (sessionRole !== 'patient') {
     return <Navigate to="/therapist" replace />;
   }
   return (
     <PatientLegalGate>
       <PatientPortalLayout>
         <ErrorBoundary variant="section" scopeLabel="PatientPortalRoute">
-          <Suspense fallback={<AuthLoadingFallback />}>
-            <PatientDailyView />
-          </Suspense>
+          <FreemiumGuard>
+            {/* Pro requires a clinic patient id; freemium is handled inside FreemiumGuard. */}
+            {patientSessionId ? (
+              <Suspense fallback={<AuthLoadingFallback />}>
+                <PatientDailyView />
+              </Suspense>
+            ) : null}
+          </FreemiumGuard>
         </ErrorBoundary>
       </PatientPortalLayout>
     </PatientLegalGate>

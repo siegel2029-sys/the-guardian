@@ -150,6 +150,14 @@ import {
   getPatientAvatarStrengthAura,
   getPatientAvatarMuscleVisualStage,
 } from '../hooks/gamificationScenery';
+import {
+  PatientDomainProviders,
+  type PatientRosterSlice,
+  type PatientChatSlice,
+  type PatientExerciseSlice,
+  type PatientGamificationSlice,
+  type PatientSyncSlice,
+} from './patientDomainContexts';
 import { useExercisePlan } from '../hooks/useExercisePlan';
 import { useClinicalData } from '../hooks/useClinicalData';
 import {
@@ -3608,9 +3616,156 @@ export function PatientProvider({
     ]
   );
 
+  const rosterSlice = useMemo<PatientRosterSlice>(
+    () => ({
+      patients: patientContextValue.patients,
+      selectedPatient: patientContextValue.selectedPatient,
+      selectedPatientId: patientContextValue.selectedPatientId,
+      selectPatient: patientContextValue.selectPatient,
+      activeSection: patientContextValue.activeSection,
+      setActiveSection: patientContextValue.setActiveSection,
+      isPatientSessionLocked: patientContextValue.isPatientSessionLocked,
+      createPatientWithAccess: patientContextValue.createPatientWithAccess,
+    }),
+    [
+      patientContextValue.patients,
+      patientContextValue.selectedPatient,
+      patientContextValue.selectedPatientId,
+      patientContextValue.selectPatient,
+      patientContextValue.activeSection,
+      patientContextValue.setActiveSection,
+      patientContextValue.isPatientSessionLocked,
+      patientContextValue.createPatientWithAccess,
+    ]
+  );
+
+  const chatSlice = useMemo<PatientChatSlice>(
+    () => ({
+      messages: patientContextValue.messages,
+      markMessageRead: patientContextValue.markMessageRead,
+      getPatientMessages: patientContextValue.getPatientMessages,
+      sendTherapistReply: patientContextValue.sendTherapistReply,
+      sendPatientMessage: patientContextValue.sendPatientMessage,
+      sendAiClinicalAlert: patientContextValue.sendAiClinicalAlert,
+      safetyAlerts: patientContextValue.safetyAlerts,
+      dismissSafetyAlert: patientContextValue.dismissSafetyAlert,
+      screenAndHandleEmergencyText: patientContextValue.screenAndHandleEmergencyText,
+      emergencyModalPatientId: patientContextValue.emergencyModalPatientId,
+      setEmergencyModalPatientId: patientContextValue.setEmergencyModalPatientId,
+    }),
+    [
+      patientContextValue.messages,
+      patientContextValue.markMessageRead,
+      patientContextValue.getPatientMessages,
+      patientContextValue.sendTherapistReply,
+      patientContextValue.sendPatientMessage,
+      patientContextValue.sendAiClinicalAlert,
+      patientContextValue.safetyAlerts,
+      patientContextValue.dismissSafetyAlert,
+      patientContextValue.screenAndHandleEmergencyText,
+      patientContextValue.emergencyModalPatientId,
+      patientContextValue.setEmergencyModalPatientId,
+    ]
+  );
+
+  const exerciseSlice = useMemo<PatientExerciseSlice>(
+    () => ({
+      exercisePlans: patientContextValue.exercisePlans,
+      getExercisePlan: patientContextValue.getExercisePlan,
+      readExercisePlanSnapshot: patientContextValue.readExercisePlanSnapshot,
+      addExerciseToPlan: patientContextValue.addExerciseToPlan,
+      removeExerciseFromPlan: patientContextValue.removeExerciseFromPlan,
+      updateExerciseInPlan: patientContextValue.updateExerciseInPlan,
+      dailySessions: patientContextValue.dailySessions,
+      clinicalToday: patientContextValue.clinicalToday,
+      dailyHistoryByPatient: patientContextValue.dailyHistoryByPatient,
+      getTodaySession: patientContextValue.getTodaySession,
+      toggleExercise: patientContextValue.toggleExercise,
+      submitExerciseReport: patientContextValue.submitExerciseReport,
+    }),
+    [
+      patientContextValue.exercisePlans,
+      patientContextValue.getExercisePlan,
+      patientContextValue.readExercisePlanSnapshot,
+      patientContextValue.addExerciseToPlan,
+      patientContextValue.removeExerciseFromPlan,
+      patientContextValue.updateExerciseInPlan,
+      patientContextValue.dailySessions,
+      patientContextValue.clinicalToday,
+      patientContextValue.dailyHistoryByPatient,
+      patientContextValue.getTodaySession,
+      patientContextValue.toggleExercise,
+      patientContextValue.submitExerciseReport,
+    ]
+  );
+
+  const gamificationSlice = useMemo<PatientGamificationSlice>(
+    () => ({
+      grantPatientCoins: patientContextValue.grantPatientCoins,
+      markArticleAsRead: patientContextValue.markArticleAsRead,
+      hasReadArticle: patientContextValue.hasReadArticle,
+      getPatientGear: patientContextValue.getPatientGear,
+      purchaseGearItem: patientContextValue.purchaseGearItem,
+      equipGearItem: patientContextValue.equipGearItem,
+      unequipGearSlot: patientContextValue.unequipGearSlot,
+      purchaseStoreItem: patientContextValue.purchaseStoreItem,
+      equipStoreItem: patientContextValue.equipStoreItem,
+      unequipStoreItem: patientContextValue.unequipStoreItem,
+      claimDailyLoginBonusIfNeeded: patientContextValue.claimDailyLoginBonusIfNeeded,
+      rewardFeedback: patientContextValue.rewardFeedback,
+      clearRewardFeedback: patientContextValue.clearRewardFeedback,
+      getMountainDailyEnvironmentState: patientContextValue.getMountainDailyEnvironmentState,
+      getMountainBackdropContext: patientContextValue.getMountainBackdropContext,
+      knowledgeFacts: patientContextValue.knowledgeFacts,
+    }),
+    [
+      patientContextValue.grantPatientCoins,
+      patientContextValue.markArticleAsRead,
+      patientContextValue.hasReadArticle,
+      patientContextValue.getPatientGear,
+      patientContextValue.purchaseGearItem,
+      patientContextValue.equipGearItem,
+      patientContextValue.unequipGearSlot,
+      patientContextValue.purchaseStoreItem,
+      patientContextValue.equipStoreItem,
+      patientContextValue.unequipStoreItem,
+      patientContextValue.claimDailyLoginBonusIfNeeded,
+      patientContextValue.rewardFeedback,
+      patientContextValue.clearRewardFeedback,
+      patientContextValue.getMountainDailyEnvironmentState,
+      patientContextValue.getMountainBackdropContext,
+      patientContextValue.knowledgeFacts,
+    ]
+  );
+
+  const syncSlice = useMemo<PatientSyncSlice>(
+    () => ({
+      supabaseSyncStatus: patientContextValue.supabaseSyncStatus,
+      supabaseSyncError: patientContextValue.supabaseSyncError,
+      supabaseLastSavedAt: patientContextValue.supabaseLastSavedAt,
+      supabaseConfigured: patientContextValue.supabaseConfigured,
+      savePersistedStateToCloud: patientContextValue.savePersistedStateToCloud,
+    }),
+    [
+      patientContextValue.supabaseSyncStatus,
+      patientContextValue.supabaseSyncError,
+      patientContextValue.supabaseLastSavedAt,
+      patientContextValue.supabaseConfigured,
+      patientContextValue.savePersistedStateToCloud,
+    ]
+  );
+
   return (
     <PatientContext.Provider value={patientContextValue}>
-      {children}
+      <PatientDomainProviders
+        roster={rosterSlice}
+        chat={chatSlice}
+        exercise={exerciseSlice}
+        gamification={gamificationSlice}
+        sync={syncSlice}
+      >
+        {children}
+      </PatientDomainProviders>
     </PatientContext.Provider>
   );
 }
