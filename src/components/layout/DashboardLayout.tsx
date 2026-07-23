@@ -8,6 +8,7 @@ import ClinicalReportsPanel from '../dashboard/ClinicalReportsPanel';
 import HistoryAnalyticsPanel from '../dashboard/HistoryAnalyticsPanel';
 import TherapistSettingsPanel from '../dashboard/TherapistSettingsPanel';
 import ManageKnowledgeBasePanel from '../dashboard/ManageKnowledgeBasePanel';
+import ErrorBoundary from '../ui/error-boundary';
 import { usePatientRoster } from '../../context/patientDomainHooks';
 import { useTherapistPushInfrastructure } from '../../hooks/useTherapistPushInfrastructure';
 import type { NavSection } from '../../types';
@@ -82,7 +83,9 @@ export default function DashboardLayout() {
         <main id="therapist-dashboard-main" className="flex-1 min-h-0 overflow-y-auto">
           {/* Extra bottom padding on mobile so content isn't hidden behind bottom nav */}
           <div className="h-full [padding-bottom:env(safe-area-inset-bottom)] pb-14 md:pb-0">
-            {renderContent()}
+            <ErrorBoundary variant="section" scopeLabel="סביבת עבודה">
+              {renderContent()}
+            </ErrorBoundary>
           </div>
         </main>
 

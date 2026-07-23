@@ -3,6 +3,7 @@ import { Send, MessageSquare, Clock, User, Bot } from 'lucide-react';
 import { usePatient } from '../../context/PatientContext';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { devLog, redactId } from '../../lib/safeLog';
+import ErrorBoundary from '../ui/error-boundary';
 
 type MessagesPanelProps = {
   /** מוטמע בתוך כרטיס פרופיל — כותרת קומפקטית ללא אווטאר כפול */
@@ -12,7 +13,7 @@ type MessagesPanelProps = {
 };
 
 /** צ׳אט ישיר מטפל ↔ המטופל הנבחר (המטופל רואה בפורטל) */
-export default function MessagesPanel({
+function MessagesPanelContent({
   embedded = false,
   embeddedMessageMaxHeight = 380,
 }: MessagesPanelProps) {
@@ -302,5 +303,14 @@ export default function MessagesPanel({
         </form>
       </div>
     </div>
+  );
+}
+
+/** Isolates chat render failures from the therapist dashboard shell / patient overview card. */
+export default function MessagesPanel(props: MessagesPanelProps) {
+  return (
+    <ErrorBoundary variant="section" scopeLabel="TherapistMessagesPanel">
+      <MessagesPanelContent {...props} />
+    </ErrorBoundary>
   );
 }

@@ -36,6 +36,7 @@ import PatientPortalChrome from './PatientPortalChrome';
 import PatientPortalHomeSection from './PatientPortalHomeSection';
 import PatientPortalActivitySection from './PatientPortalActivitySection';
 import PatientDailyViewModals from './PatientDailyViewModals';
+import ErrorBoundary from '../ui/error-boundary';
 
 const EMPTY_COMPLETED_IDS: string[] = [];
 const EMPTY_EXERCISES: PatientExercise[] = [];
@@ -511,76 +512,84 @@ export default function PatientDailyView() {
           !training.exerciseVideoModal &&
           !training.trainingFeedbackOpen && <PatientDidYouKnowAnchorButton />}
         {portalTab === 'home' && (
-          <PatientPortalHomeSection
-            selectedPatient={selectedPatient}
-            bodyMapSectionRef={bodyMapSectionRef}
-            activeAreas={activeAreas}
-            selectedZones={selectedZones}
-            clinicalToday={clinicalToday}
-            totalActiveDaysForScenery={totalActiveDaysForScenery}
-            displayStreak={displayStreak}
-            optionalGlowBoost={training.optionalGlowBoost}
-            strengthenedAreasToday={strengthenedAreasToday}
-            patientGearState={patientGearState}
-            onAvatarZoneClick={handleAvatarZoneClick}
-            patientMustChangePassword={patientMustChangePassword}
-            totalMissions={totalMissions}
-            completedMissionCount={completedMissionCount}
-            onGoToDailyProgressTasks={goToDailyProgressTasks}
-            onOpenPainAnalytics={() => setPainAnalyticsOpen(true)}
-            unreadForPatient={unreadForPatient}
-            patientDayMap={patientDayMap}
-            exercisesLength={exercises.length}
-          />
+          <ErrorBoundary variant="section" scopeLabel="PortalHome">
+            <PatientPortalHomeSection
+              selectedPatient={selectedPatient}
+              bodyMapSectionRef={bodyMapSectionRef}
+              activeAreas={activeAreas}
+              selectedZones={selectedZones}
+              clinicalToday={clinicalToday}
+              totalActiveDaysForScenery={totalActiveDaysForScenery}
+              displayStreak={displayStreak}
+              optionalGlowBoost={training.optionalGlowBoost}
+              strengthenedAreasToday={strengthenedAreasToday}
+              patientGearState={patientGearState}
+              onAvatarZoneClick={handleAvatarZoneClick}
+              patientMustChangePassword={patientMustChangePassword}
+              totalMissions={totalMissions}
+              completedMissionCount={completedMissionCount}
+              onGoToDailyProgressTasks={goToDailyProgressTasks}
+              onOpenPainAnalytics={() => setPainAnalyticsOpen(true)}
+              unreadForPatient={unreadForPatient}
+              patientDayMap={patientDayMap}
+              exercisesLength={exercises.length}
+            />
+          </ErrorBoundary>
         )}
 
         {portalTab === 'messages' && (
-          <PatientPortalMessagesTab
-            patient={selectedPatient}
-            draftSeed={messageDraftSeed}
-            onDraftSeedConsumed={consumeMessageDraftSeed}
-          />
+          <ErrorBoundary variant="section" scopeLabel="PortalMessages">
+            <PatientPortalMessagesTab
+              patient={selectedPatient}
+              draftSeed={messageDraftSeed}
+              onDraftSeedConsumed={consumeMessageDraftSeed}
+            />
+          </ErrorBoundary>
         )}
 
         {portalTab === 'activity' && (
-          <PatientPortalActivitySection
-            selectedPatient={selectedPatient}
-            trainingAiPlanModalOpen={training.trainingAiPlanModalOpen}
-            aiProgramLongitudinalGate={aiProgramLongitudinalGate}
-            patientMustChangePassword={patientMustChangePassword}
-            exercisesLocked={exercisesLocked}
-            redFlagPortalLock={redFlagPortalLock}
-            exerciseSafetyLocked={exerciseSafetyLocked}
-            aiSteadyBannerDismissed={training.aiSteadyBannerDismissed}
-            onDismissAiSteadyBanner={() => training.setAiSteadyBannerDismissed(true)}
-            loadSafetyNudge={training.loadSafetyNudge}
-            onDismissLoadSafetyNudge={() => training.setLoadSafetyNudge(null)}
-            exercises={exercises}
-            selectedZones={selectedZones}
-            missionListHasAny={missionListHasAny}
-            mandatoryRehabExercises={mandatoryRehabExercises}
-            completedSet={completedSet}
-            optionalPool={optionalPool}
-            openExerciseTrainingModal={training.openExerciseTrainingModal}
-            setSelfCareStrengthTier={setSelfCareStrengthTier}
-          />
+          <ErrorBoundary variant="section" scopeLabel="PortalActivity">
+            <PatientPortalActivitySection
+              selectedPatient={selectedPatient}
+              trainingAiPlanModalOpen={training.trainingAiPlanModalOpen}
+              aiProgramLongitudinalGate={aiProgramLongitudinalGate}
+              patientMustChangePassword={patientMustChangePassword}
+              exercisesLocked={exercisesLocked}
+              redFlagPortalLock={redFlagPortalLock}
+              exerciseSafetyLocked={exerciseSafetyLocked}
+              aiSteadyBannerDismissed={training.aiSteadyBannerDismissed}
+              onDismissAiSteadyBanner={() => training.setAiSteadyBannerDismissed(true)}
+              loadSafetyNudge={training.loadSafetyNudge}
+              onDismissLoadSafetyNudge={() => training.setLoadSafetyNudge(null)}
+              exercises={exercises}
+              selectedZones={selectedZones}
+              missionListHasAny={missionListHasAny}
+              mandatoryRehabExercises={mandatoryRehabExercises}
+              completedSet={completedSet}
+              optionalPool={optionalPool}
+              openExerciseTrainingModal={training.openExerciseTrainingModal}
+              setSelfCareStrengthTier={setSelfCareStrengthTier}
+            />
+          </ErrorBoundary>
         )}
 
         {portalTab === 'gear' && (
-          <GearStoreArmory
-            patientId={selectedPatient.id}
-            coins={selectedPatient.coins}
-            patientXp={selectedPatient.xp}
-            gear={patientGearState}
-            ownedStoreItemIds={selectedPatient.ownedStoreItemIds ?? []}
-            equippedItems={selectedPatient.equippedItems ?? []}
-            purchaseGearItem={purchaseGearItem}
-            equipGearItem={equipGearItem}
-            unequipGearSlot={unequipGearSlot}
-            purchaseStoreItem={purchaseStoreItem}
-            equipStoreItem={equipStoreItem}
-            unequipStoreItem={unequipStoreItem}
-          />
+          <ErrorBoundary variant="section" scopeLabel="PortalGear">
+            <GearStoreArmory
+              patientId={selectedPatient.id}
+              coins={selectedPatient.coins}
+              patientXp={selectedPatient.xp}
+              gear={patientGearState}
+              ownedStoreItemIds={selectedPatient.ownedStoreItemIds ?? []}
+              equippedItems={selectedPatient.equippedItems ?? []}
+              purchaseGearItem={purchaseGearItem}
+              equipGearItem={equipGearItem}
+              unequipGearSlot={unequipGearSlot}
+              purchaseStoreItem={purchaseStoreItem}
+              equipStoreItem={equipStoreItem}
+              unequipStoreItem={unequipStoreItem}
+            />
+          </ErrorBoundary>
         )}
       </div>
 

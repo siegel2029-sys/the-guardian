@@ -135,21 +135,21 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — freemium roster lock (frontend audit follow-up) closed._
+_Idle — Wave A (Error Boundaries) closed; awaiting Wave B._
 
 ### Completed Steps (recent)
 
-- Freemium guest lock: `FREEMIUM_GUEST_SESSION_LOCK` empties roster, clears in-memory clinic state, skips portal hydrate; DidYouKnow skipped for guests and moved to domain hooks.
-- Prior: type-safety / result-shape sweep; Edge SSRF allowlist + link RPC app_metadata-only.
-- Verification: `tsc` clean; Vitest 66 green.
+- Wave A resilience: section `ErrorBoundary` around dashboard `renderContent`, portal tabs (home/activity/messages/gear), and `MessagesPanel` export wrapper.
+- Freemium guest lock + prior type-safety / result-shape sweep.
+- Verification: `tsc --noEmit` + lint on touched files + `npm run build` green for Wave A.
 
 ### Next Action Items
 
-1. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
-2. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
-3. Lazy-load gear armory + portal modal stack / AI intake wizard.
-4. Stabilize `submitExerciseReport` deps; continue dashboard off fat `usePatient()`.
-5. Wire GuestDailyView invite → portal signup end-to-end.
+1. **Wave B:** continue dashboard off fat `usePatient()` (domain hooks / clinical+AI slices).
+2. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
+3. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
+4. P2: multi-key clinical fetch → `ServiceResult.data`; Edge hermetic Zod.
+5. Lazy-load gear armory + portal modal stack / AI intake wizard.
 
 ### Update protocol
 
