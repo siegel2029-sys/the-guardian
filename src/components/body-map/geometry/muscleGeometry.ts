@@ -13,6 +13,67 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
+/** `low` ≈ ¼–⅓ vertex count — for mobile WebGL memory budgets. */
+export type MuscleGeometryDetail = 'full' | 'low';
+
+type MuscleSegProfile = {
+  torsoR: number;
+  torsoH: number;
+  shoulderW: number;
+  shoulderH: number;
+  armR: number;
+  armH: number;
+  thighR: number;
+  thighH: number;
+  calfR: number;
+  calfH: number;
+  kneeW: number;
+  kneeH: number;
+  gluteW: number;
+  gluteH: number;
+  forearmR: number;
+  forearmH: number;
+};
+
+const MUSCLE_SEGS: Record<MuscleGeometryDetail, MuscleSegProfile> = {
+  full: {
+    torsoR: 40,
+    torsoH: 24,
+    shoulderW: 30,
+    shoulderH: 22,
+    armR: 32,
+    armH: 20,
+    thighR: 36,
+    thighH: 22,
+    calfR: 32,
+    calfH: 20,
+    kneeW: 28,
+    kneeH: 22,
+    gluteW: 28,
+    gluteH: 22,
+    forearmR: 28,
+    forearmH: 16,
+  },
+  low: {
+    torsoR: 16,
+    torsoH: 8,
+    shoulderW: 12,
+    shoulderH: 10,
+    armR: 12,
+    armH: 8,
+    thighR: 14,
+    thighH: 8,
+    calfR: 12,
+    calfH: 8,
+    kneeW: 12,
+    kneeH: 10,
+    gluteW: 12,
+    gluteH: 10,
+    forearmR: 12,
+    forearmH: 6,
+  },
+};
+
 // ── Core displacement kernel ─────────────────────────────────────────────────
 
 function gaussBump(
@@ -51,9 +112,9 @@ function gaussBump(
 }
 
 // ── Upper Torso – chest (pecs), traps, lats, rhomboids ───────────────────────
-export function createUpperTorso(): THREE.BufferGeometry {
-  // 40 radial, 24 height segments → dense enough for smooth bumps
-  const geo = new THREE.CylinderGeometry(0.24, 0.28, 0.64, 40, 24, false);
+export function createUpperTorso(detail: MuscleGeometryDetail = 'full'): THREE.BufferGeometry {
+  const s = MUSCLE_SEGS[detail];
+  const geo = new THREE.CylinderGeometry(0.24, 0.28, 0.64, s.torsoR, s.torsoH, false);
   const pos = geo.attributes.position as THREE.BufferAttribute;
 
   // Pectoralis major – two teardrop shapes on front (+Z)
@@ -81,8 +142,9 @@ export function createUpperTorso(): THREE.BufferGeometry {
 }
 
 // ── Lower Torso – rectus abdominis (6-pack), obliques, erector spinae ────────
-export function createLowerTorso(): THREE.BufferGeometry {
-  const geo = new THREE.CylinderGeometry(0.20, 0.24, 0.48, 40, 24, false);
+export function createLowerTorso(detail: MuscleGeometryDetail = 'full'): THREE.BufferGeometry {
+  const s = MUSCLE_SEGS[detail];
+  const geo = new THREE.CylinderGeometry(0.20, 0.24, 0.48, s.torsoR, s.torsoH, false);
   const pos = geo.attributes.position as THREE.BufferAttribute;
 
   // Rectus abdominis – three pairs of segmented bumps on front
@@ -109,8 +171,9 @@ export function createLowerTorso(): THREE.BufferGeometry {
 }
 
 // ── Shoulder (deltoid – anterior, lateral, posterior heads) ──────────────────
-export function createShoulder(): THREE.BufferGeometry {
-  const geo = new THREE.SphereGeometry(0.155, 30, 22);
+export function createShoulder(detail: MuscleGeometryDetail = 'full'): THREE.BufferGeometry {
+  const s = MUSCLE_SEGS[detail];
+  const geo = new THREE.SphereGeometry(0.155, s.shoulderW, s.shoulderH);
   const pos = geo.attributes.position as THREE.BufferAttribute;
 
   // Anterior head (front)
@@ -125,8 +188,9 @@ export function createShoulder(): THREE.BufferGeometry {
 }
 
 // ── Upper Arm – biceps brachii, brachialis, triceps (3 heads) ────────────────
-export function createUpperArm(): THREE.BufferGeometry {
-  const geo = new THREE.CylinderGeometry(0.074, 0.088, 0.40, 32, 20, false);
+export function createUpperArm(detail: MuscleGeometryDetail = 'full'): THREE.BufferGeometry {
+  const s = MUSCLE_SEGS[detail];
+  const geo = new THREE.CylinderGeometry(0.074, 0.088, 0.40, s.armR, s.armH, false);
   const pos = geo.attributes.position as THREE.BufferAttribute;
 
   // Biceps brachii – oval peak on front
@@ -146,8 +210,12 @@ export function createUpperArm(): THREE.BufferGeometry {
 
 // ── Thigh – quadriceps group, hamstrings ────────────────────────────────────
 // isRight: anatomical right leg (positioned at world x < 0, viewer's left)
-export function createThigh(isRight: boolean): THREE.BufferGeometry {
-  const geo = new THREE.CylinderGeometry(0.112, 0.130, 0.54, 36, 22, false);
+export function createThigh(
+  isRight: boolean,
+  detail: MuscleGeometryDetail = 'full'
+): THREE.BufferGeometry {
+  const s = MUSCLE_SEGS[detail];
+  const geo = new THREE.CylinderGeometry(0.112, 0.130, 0.54, s.thighR, s.thighH, false);
   const pos = geo.attributes.position as THREE.BufferAttribute;
 
   // lateral/medial sides differ between legs
@@ -169,8 +237,9 @@ export function createThigh(isRight: boolean): THREE.BufferGeometry {
 }
 
 // ── Calf – gastrocnemius (two heads) + soleus + tibialis anterior ─────────────
-export function createCalf(): THREE.BufferGeometry {
-  const geo = new THREE.CylinderGeometry(0.072, 0.092, 0.46, 32, 20, false);
+export function createCalf(detail: MuscleGeometryDetail = 'full'): THREE.BufferGeometry {
+  const s = MUSCLE_SEGS[detail];
+  const geo = new THREE.CylinderGeometry(0.072, 0.092, 0.46, s.calfR, s.calfH, false);
   const pos = geo.attributes.position as THREE.BufferAttribute;
 
   // Gastrocnemius – two prominent heads on back
@@ -186,8 +255,9 @@ export function createCalf(): THREE.BufferGeometry {
 }
 
 // ── Knee – patella landmark on front ────────────────────────────────────────
-export function createKnee(): THREE.BufferGeometry {
-  const geo = new THREE.SphereGeometry(0.124, 28, 22);
+export function createKnee(detail: MuscleGeometryDetail = 'full'): THREE.BufferGeometry {
+  const s = MUSCLE_SEGS[detail];
+  const geo = new THREE.SphereGeometry(0.124, s.kneeW, s.kneeH);
   const pos = geo.attributes.position as THREE.BufferAttribute;
 
   // Patella (kneecap) – small oval protrusion front-centre
@@ -198,8 +268,9 @@ export function createKnee(): THREE.BufferGeometry {
 }
 
 // ── Hip/Gluteus – gluteus maximus, medius ────────────────────────────────────
-export function createGlute(): THREE.BufferGeometry {
-  const geo = new THREE.SphereGeometry(0.168, 28, 22);
+export function createGlute(detail: MuscleGeometryDetail = 'full'): THREE.BufferGeometry {
+  const s = MUSCLE_SEGS[detail];
+  const geo = new THREE.SphereGeometry(0.168, s.gluteW, s.gluteH);
   const pos = geo.attributes.position as THREE.BufferAttribute;
 
   // Gluteus maximus – dominant back mass
@@ -213,10 +284,11 @@ export function createGlute(): THREE.BufferGeometry {
 }
 
 // ── Forearm – brachioradialis + extensor/flexor groups ──────────────────────
-export function createForearm(): THREE.BufferGeometry {
+export function createForearm(detail: MuscleGeometryDetail = 'full'): THREE.BufferGeometry {
   // Distal radius slightly narrower than the hand root so the wrist reads as one piece
   // (no separate joint sphere in the rig — hand attaches here).
-  const geo = new THREE.CylinderGeometry(0.060, 0.052, 0.36, 28, 16, false);
+  const s = MUSCLE_SEGS[detail];
+  const geo = new THREE.CylinderGeometry(0.060, 0.052, 0.36, s.forearmR, s.forearmH, false);
   const pos = geo.attributes.position as THREE.BufferAttribute;
 
   // Brachioradialis – front-outer ridge (tapers toward wrist)
@@ -418,6 +490,43 @@ export function createDetailedFootGeometry(mirror: boolean): THREE.BufferGeometr
   const merged = mergeGeometries(parts, false);
   if (mirror) merged.scale(-1, 1, 1);
 
+  merged.computeVertexNormals();
+  merged.computeBoundingBox();
+  const b = merged.boundingBox;
+  if (b) {
+    const cx = (b.min.x + b.max.x) / 2;
+    const cz = (b.min.z + b.max.z) / 2;
+    merged.translate(-cx, -b.max.y, -cz);
+  }
+  return merged;
+}
+
+/**
+ * Low-poly hand — single tapered box. Used on mobile to avoid merged finger capsules.
+ */
+export function createSimpleHandGeometry(mirror: boolean): THREE.BufferGeometry {
+  const palm = new THREE.BoxGeometry(0.036, 0.072, 0.026);
+  palm.translate(0, -0.04, 0);
+  if (mirror) palm.scale(-1, 1, 1);
+  palm.computeVertexNormals();
+  return palm;
+}
+
+/**
+ * Low-poly foot — box + heel sphere. Used on mobile instead of articulated toes.
+ */
+export function createSimpleFootGeometry(mirror: boolean): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const sc = 1.65;
+  const sole = new THREE.BoxGeometry(0.056 * sc, 0.022 * sc, 0.14 * sc);
+  sole.translate(0, -0.028 * sc, 0.02 * sc);
+  parts.push(sole);
+  const heel = new THREE.SphereGeometry(0.028 * sc, 10, 8);
+  heel.scale(0.7, 0.55, 1);
+  heel.translate(0, -0.026 * sc, -0.07 * sc);
+  parts.push(heel);
+  const merged = mergeGeometries(parts, false);
+  if (mirror) merged.scale(-1, 1, 1);
   merged.computeVertexNormals();
   merged.computeBoundingBox();
   const b = merged.boundingBox;

@@ -27,6 +27,9 @@ import {
   createGlute,
   createNormalHandGeometry,
   createDetailedFootGeometry,
+  createSimpleHandGeometry,
+  createSimpleFootGeometry,
+  type MuscleGeometryDetail,
 } from './geometry/muscleGeometry';
 import { getLevelTier, type LevelTier } from '../../body/levelTier';
 import { getMuscleVertexInflation } from '../../body/anatomicalEvolution';
@@ -834,6 +837,17 @@ function HeadFaceFeatures({ level: _level }: { level: number }) {
     return new THREE.TubeGeometry(curve, 32, 0.0029 * F, 6, false);
   }, [zSurf, F]);
 
+  useEffect(() => {
+    return () => {
+      eyeWhiteGeo.dispose();
+      irisGeo.dispose();
+      browGeoRight.dispose();
+      browGeoLeft.dispose();
+      noseGeo.dispose();
+      mouthTubeGeo.dispose();
+    };
+  }, [eyeWhiteGeo, irisGeo, browGeoRight, browGeoLeft, noseGeo, mouthTubeGeo]);
+
   const faceRootRef = useRef<THREE.Group>(null);
   useLayoutEffect(() => {
     const g = faceRootRef.current;
@@ -948,43 +962,55 @@ function HeadFaceFeatures({ level: _level }: { level: number }) {
   );
 }
 
-// ── Geometry cache (built once per render) ────────────────────────
-function useGeometries() {
-  return useMemo(() => ({
-    upperTorso:   createUpperTorso(),
-    lowerTorso:   createLowerTorso(),
-    shoulderL:    createShoulder(),
-    shoulderR:    createShoulder(),
-    upperArmL:    createUpperArm(),
-    upperArmR:    createUpperArm(),
-    forearmL:     createForearm(),
-    forearmR:     createForearm(),
-    thighL:       createThigh(false),  // patient left = world +x
-    thighR:       createThigh(true),   // patient right = world -x
-    calfL:        createCalf(),
-    calfR:        createCalf(),
-    kneeL:        createKnee(),
-    kneeR:        createKnee(),
-    gluteL:       createGlute(),
-    gluteR:       createGlute(),
-    // Simple spheres/capsules for non-displaced parts
-    head:         new THREE.SphereGeometry(HEAD_RADIUS, 36, 30),
-    ear:          new THREE.SphereGeometry(0.062, 12, 10),
-    neck:         new THREE.CylinderGeometry(0.096, 0.114, NECK_HEIGHT, 20, 6),
-    pelvis:       new THREE.CylinderGeometry(0.230, 0.212, 0.24, 20, 6),
-    handL:        createNormalHandGeometry(false),
-    handR:        createNormalHandGeometry(true),
-    elbowL:       new THREE.SphereGeometry(0.118, 18, 14),
-    elbowR:       new THREE.SphereGeometry(0.118, 18, 14),
-    wristL:       new THREE.SphereGeometry(0.074, 16, 12),
-    wristR:       new THREE.SphereGeometry(0.074, 16, 12),
-    ankleL:       new THREE.SphereGeometry(0.082, 16, 12),
-    ankleR:       new THREE.SphereGeometry(0.082, 16, 12),
-    footL:        createDetailedFootGeometry(false),
-    footR:        createDetailedFootGeometry(true),
-    shinL:        new THREE.CapsuleGeometry(0.068, 0.32, 4, 14),
-    shinR:        new THREE.CapsuleGeometry(0.068, 0.32, 4, 14),
-  }), []);
+// ── Geometry cache (built once per detail tier; disposed on remount) ──────────
+function useGeometries(detail: MuscleGeometryDetail) {
+  const geos = useMemo(() => {
+    const low = detail === 'low';
+    return {
+      upperTorso: createUpperTorso(detail),
+      lowerTorso: createLowerTorso(detail),
+      shoulderL: createShoulder(detail),
+      shoulderR: createShoulder(detail),
+      upperArmL: createUpperArm(detail),
+      upperArmR: createUpperArm(detail),
+      forearmL: createForearm(detail),
+      forearmR: createForearm(detail),
+      thighL: createThigh(false, detail),
+      thighR: createThigh(true, detail),
+      calfL: createCalf(detail),
+      calfR: createCalf(detail),
+      kneeL: createKnee(detail),
+      kneeR: createKnee(detail),
+      gluteL: createGlute(detail),
+      gluteR: createGlute(detail),
+      head: new THREE.SphereGeometry(HEAD_RADIUS, low ? 16 : 36, low ? 12 : 30),
+      ear: new THREE.SphereGeometry(0.062, low ? 8 : 12, low ? 6 : 10),
+      neck: new THREE.CylinderGeometry(0.096, 0.114, NECK_HEIGHT, low ? 10 : 20, low ? 3 : 6),
+      pelvis: new THREE.CylinderGeometry(0.230, 0.212, 0.24, low ? 10 : 20, low ? 3 : 6),
+      handL: low ? createSimpleHandGeometry(false) : createNormalHandGeometry(false),
+      handR: low ? createSimpleHandGeometry(true) : createNormalHandGeometry(true),
+      elbowL: new THREE.SphereGeometry(0.118, low ? 10 : 18, low ? 8 : 14),
+      elbowR: new THREE.SphereGeometry(0.118, low ? 10 : 18, low ? 8 : 14),
+      wristL: new THREE.SphereGeometry(0.074, low ? 8 : 16, low ? 6 : 12),
+      wristR: new THREE.SphereGeometry(0.074, low ? 8 : 16, low ? 6 : 12),
+      ankleL: new THREE.SphereGeometry(0.082, low ? 8 : 16, low ? 6 : 12),
+      ankleR: new THREE.SphereGeometry(0.082, low ? 8 : 16, low ? 6 : 12),
+      footL: low ? createSimpleFootGeometry(false) : createDetailedFootGeometry(false),
+      footR: low ? createSimpleFootGeometry(true) : createDetailedFootGeometry(true),
+      shinL: new THREE.CapsuleGeometry(0.068, 0.32, low ? 2 : 4, low ? 8 : 14),
+      shinR: new THREE.CapsuleGeometry(0.068, 0.32, low ? 2 : 4, low ? 8 : 14),
+    };
+  }, [detail]);
+
+  useEffect(() => {
+    return () => {
+      for (const geo of Object.values(geos)) {
+        geo.dispose();
+      }
+    };
+  }, [geos]);
+
+  return geos;
 }
 
 // ── Props ─────────────────────────────────────────────────────────
@@ -1032,6 +1058,14 @@ interface AnatomyModelProps {
    * פורטל + רקע הר: פוזה/הילה/קנה־מידה ממומשים ב־CSS על עטיפת הקנבס — מבטלים כפילות בתלת־ממד.
    */
   cssLayerVisualsForPortal?: boolean;
+  /**
+   * Mobile / constrained GPU: lower-poly meshes, smaller fiber maps, lighter ContactShadows.
+   */
+  lowDetailGpu?: boolean;
+  /** ContactShadows RT size — overridden from BodyMap GPU profile on mobile. */
+  contactShadowResolution?: number;
+  /** Procedural muscle texture edge length (default 256; mobile 64). */
+  muscleTextureSize?: number;
 }
 
 export default function AnatomyModel({
@@ -1057,9 +1091,13 @@ export default function AnatomyModel({
   hideContactGroundShadow = false,
   cssLayerVisualsForPortal = false,
   straightClinicalFrontView = false,
+  lowDetailGpu = false,
+  contactShadowResolution = 768,
+  muscleTextureSize = 256,
 }: AnatomyModelProps) {
   const gearGoldSkin = equippedGear.skin === 'gold_skin';
-  const geos = useGeometries();
+  const geoDetail: MuscleGeometryDetail = lowDetailGpu ? 'low' : 'full';
+  const geos = useGeometries(geoDetail);
   const primaryLightRef = useRef<THREE.PointLight>(null);
   const injurySet = useMemo(() => new Set(injuryHighlightSegments), [injuryHighlightSegments]);
   const secondarySet = useMemo(
@@ -1106,8 +1144,13 @@ export default function AnatomyModel({
     return getPatientAvatarStrengthAura(level);
   }, [level, cssLayerVisualsForPortal]);
   const muscleMaps = useMemo(
-    () => createMuscleFiberTextures(256, muscleStage === 'power' ? 'strong' : 'strengthening'),
-    [muscleStage]
+    () =>
+      createMuscleFiberTextures(
+        muscleTextureSize,
+        muscleStage === 'power' ? 'strong' : 'strengthening',
+        { anisotropy: lowDetailGpu ? 1 : 8 }
+      ),
+    [muscleStage, muscleTextureSize, lowDetailGpu]
   );
 
   useEffect(() => {
@@ -1659,10 +1702,10 @@ export default function AnatomyModel({
           position={[0, -1.712, 0]}
           opacity={0.42}
           scale={2.75 * physiqueScale[0]}
-          blur={2.85}
+          blur={lowDetailGpu ? 1.6 : 2.85}
           far={1.05}
           color="#1e293b"
-          resolution={768}
+          resolution={contactShadowResolution}
         />
       ) : null}
         </group>

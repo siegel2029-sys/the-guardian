@@ -135,18 +135,18 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — link_patient_auth_user 403 hotfix live on Supabase._
+_Idle — Body Map mobile WebGL optimizations landed (pixel-ratio cap, dispose, context-loss, low-poly LOD)._
 
 ### Completed Steps (recent)
 
-- Fixed portal load `link_patient_auth_user` 403: was already SECURITY DEFINER + GRANT; raised `not allowed` because all 8 portal users had patient_id only in user_metadata (0 in app_metadata). Backfilled app_metadata; RPC now idempotent when already linked + soft JSON fail (no RAISE 42501).
-- Prior: portal patients UPDATE path + lock-trigger restore + upsert INSERT compat; Production Vercel deploy Ready.
-- Client `linkPatientAuthUserRow` returns ServiceResult-style soft fail + EXERCISE_SAVE_FAIL_REASON logging (needs redeploy for console cleanup).
+- Body Map mobile GPU path: DPR capped (`setPixelRatio(min(dpr, 1.5|2))`), robust geo/mat/tex dispose, WebGL context-loss overlay + remount, low-poly meshes + skip HDR + smaller shadows/textures on coarse/narrow devices.
+- Prior: `link_patient_auth_user` 403 hotfix (app_metadata backfill + soft fail); portal UPDATE / lock-trigger restore.
+- Wave A ErrorBoundaries remain in place (caught the mobile Body Map crash).
 
 ### Next Action Items
 
-1. Hard-refresh portal / re-login; confirm no `link_patient_auth_user` 403; retry Pain/RPE Save.
-2. Redeploy client so soft-fail link helper ships (optional — DB already stops 403).
+1. Hard-refresh portal on a phone; confirm Body Map renders without ErrorBoundary fallback; retry Pain/RPE Save if still open.
+2. Redeploy client so soft-fail link helper + Body Map mobile opts ship together.
 3. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
 4. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
 5. Lazy-load gear armory + portal modal stack / AI intake wizard.

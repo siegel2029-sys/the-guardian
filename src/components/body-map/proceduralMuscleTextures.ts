@@ -8,13 +8,15 @@ export type MuscleFiberIntensity = 'strengthening' | 'strong';
  */
 export function createMuscleFiberTextures(
   size = 256,
-  intensity: MuscleFiberIntensity = 'strengthening'
+  intensity: MuscleFiberIntensity = 'strengthening',
+  options?: { anisotropy?: number }
 ): {
   normalMap: THREE.CanvasTexture;
   roughnessMap: THREE.CanvasTexture;
 } {
   const amp = intensity === 'strong' ? 1.42 : 1;
   const freq = intensity === 'strong' ? 1.12 : 1;
+  const anisotropy = options?.anisotropy ?? 8;
 
   const h: Float32Array = new Float32Array(size * size);
 
@@ -88,13 +90,14 @@ export function createMuscleFiberTextures(
   const normalMap = new THREE.CanvasTexture(normalCanvas);
   normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
   normalMap.repeat.set(5, 5);
-  normalMap.anisotropy = 8;
+  normalMap.anisotropy = anisotropy;
   normalMap.colorSpace = THREE.NoColorSpace;
   normalMap.needsUpdate = true;
 
   const roughnessMap = new THREE.CanvasTexture(roughCanvas);
   roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping;
   roughnessMap.repeat.set(5, 5);
+  roughnessMap.anisotropy = Math.min(anisotropy, 4);
   roughnessMap.colorSpace = THREE.NoColorSpace;
   roughnessMap.needsUpdate = true;
 

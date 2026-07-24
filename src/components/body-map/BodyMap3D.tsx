@@ -19,6 +19,11 @@ import { RGBELoader } from 'three-stdlib';
 import AnatomyModel from './AnatomyModel';
 import AvatarJourneyBackdrop from './AvatarJourneyBackdrop';
 import {
+  getBodyMapGpuProfile,
+  subscribeBodyMapMobileGpu,
+  type BodyMapGpuProfile,
+} from './bodyMapMobileGpu';
+import {
   getPatientAvatarCssStyle,
   getPatientAvatarMountainElevationY,
 } from '../../hooks/useGamification';
@@ -225,17 +230,32 @@ function disposeMaterialTextures(material: THREE.Material): void {
   }
 }
 
+function disposeObjectGpuResources(child: THREE.Object3D): void {
+  const meshLike = child as THREE.Mesh & THREE.Line & THREE.Points;
+  const isDrawable =
+    Boolean(meshLike.isMesh) || Boolean(meshLike.isLine) || Boolean(meshLike.isPoints);
+  if (!isDrawable) return;
+
+  const geometry = meshLike.geometry;
+  if (geometry && typeof geometry.dispose === 'function') {
+    geometry.dispose();
+  }
+
+  const materials = Array.isArray(meshLike.material)
+    ? meshLike.material
+    : meshLike.material
+      ? [meshLike.material]
+      : [];
+  for (const mat of materials) {
+    if (!mat) continue;
+    disposeMaterialTextures(mat);
+    mat.dispose();
+  }
+}
+
 function disposeSceneGpuResources(scene: THREE.Scene): void {
   scene.traverse((child) => {
-    const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    mesh.geometry?.dispose?.();
-    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    for (const mat of materials) {
-      if (!mat) continue;
-      disposeMaterialTextures(mat);
-      mat.dispose();
-    }
+    disposeObjectGpuResources(child);
   });
 
   if (scene.environment instanceof THREE.Texture) {
@@ -248,6 +268,12 @@ function disposeSceneGpuResources(scene: THREE.Scene): void {
   } else {
     scene.background = null;
   }
+}
+
+/** Cap backing-store size — critical on iOS/Android where DPR can be 3+. */
+function applyBodyMapPixelRatio(gl: THREE.WebGLRenderer, maxPixelRatio: number): void {
+  const capped = Math.min(window.devicePixelRatio || 1, maxPixelRatio);
+  gl.setPixelRatio(capped);
 }
 
 function stopRendererAnimationLoop(gl: THREE.WebGLRenderer): void {
@@ -348,6 +374,7 @@ type BodyMapWebGlLifecycleProps = {
   painCleanStudio: boolean;
   useScenicBackdrop: boolean;
   flatTherapistPicker: boolean;
+  maxPixelRatio: number;
   contextLostRef: MutableRefObject<boolean>;
   onContextLostChange: (lost: boolean) => void;
   onContextRestoredRemount: () => void;
@@ -358,6 +385,7 @@ function BodyMapWebGlLifecycle({
   painCleanStudio,
   useScenicBackdrop,
   flatTherapistPicker,
+  maxPixelRatio,
   contextLostRef,
   onContextLostChange,
   onContextRestoredRemount,
@@ -365,6 +393,7 @@ function BodyMapWebGlLifecycle({
   const { gl, scene } = useThree();
 
   useLayoutEffect(() => {
+    applyBodyMapPixelRatio(gl, maxPixelRatio);
     gl.shadowMap.enabled = !painCleanStudio;
     if (!painCleanStudio) {
       gl.shadowMap.type = THREE.PCFShadowMap;
@@ -375,7 +404,7 @@ function BodyMapWebGlLifecycle({
     } else if (flatTherapistPicker) {
       scene.background = new THREE.Color('#fafafa');
     }
-  }, [gl, scene, painCleanStudio, useScenicBackdrop, flatTherapistPicker]);
+  }, [gl, scene, painCleanStudio, useScenicBackdrop, flatTherapistPicker, maxPixelRatio]);
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -386,6 +415,11 @@ function BodyMapWebGlLifecycle({
       onContextLostChange(true);
       stopRendererAnimationLoop(gl);
       clearStudioEnvironmentCache();
+      try {
+        disposeSceneGpuResources(scene);
+      } catch {
+        /* context already invalid — best-effort CPU-side cleanup */
+      }
       devWarn('[BodyMap3D] webglcontextlost — prevented default so the browser may restore');
     };
 
@@ -393,6 +427,7 @@ function BodyMapWebGlLifecycle({
       contextLostRef.current = false;
       onContextLostChange(false);
       devLog('[BodyMap3D] webglcontextrestored — syncing size & remounting Canvas');
+      applyBodyMapPixelRatio(gl, maxPixelRatio);
       gl.setSize(canvas.clientWidth, canvas.clientHeight, false);
       requestAnimationFrame(() => onContextRestoredRemount());
     };
@@ -404,7 +439,11 @@ function BodyMapWebGlLifecycle({
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
       stopRendererAnimationLoop(gl);
-      disposeSceneGpuResources(scene);
+      try {
+        disposeSceneGpuResources(scene);
+      } catch {
+        /* ignore dispose after context loss */
+      }
       const timer = bodyMapTimerByGl.get(gl);
       if (timer) {
         timer.disconnect();
@@ -426,7 +465,14 @@ function BodyMapWebGlLifecycle({
         }
       }
     };
-  }, [gl, scene, contextLostRef, onContextLostChange, onContextRestoredRemount]);
+  }, [
+    gl,
+    scene,
+    maxPixelRatio,
+    contextLostRef,
+    onContextLostChange,
+    onContextRestoredRemount,
+  ]);
 
   return null;
 }
@@ -606,6 +652,16 @@ function usePreferCoarsePointer(): boolean {
   return coarse;
 }
 
+function useBodyMapGpuProfile(): BodyMapGpuProfile {
+  const [profile, setProfile] = useState(() => getBodyMapGpuProfile());
+  useEffect(() => {
+    const refresh = () => setProfile(getBodyMapGpuProfile());
+    refresh();
+    return subscribeBodyMapMobileGpu(refresh);
+  }, []);
+  return profile;
+}
+
 // ── Main exported component ───────────────────────────────────────
 function BodyMap3D(props: BodyMap3DProps) {
   const {
@@ -659,6 +715,8 @@ function BodyMap3D(props: BodyMap3DProps) {
   );
   const coarsePointer = usePreferCoarsePointer();
   const scrollFriendlyPortal = patientPortalInteractive && coarsePointer;
+  const gpuProfile = useBodyMapGpuProfile();
+  const shadowMapSize = gpuProfile.shadowMapSize;
 
   const streakVal = (streak ?? streakForGlow ?? 0) + strengthGlowBonus;
   const streakEnergy =
@@ -803,37 +861,41 @@ function BodyMap3D(props: BodyMap3DProps) {
           timer.connect(document);
           bodyMapTimerByGl.set(gl, timer);
           set({ clock: createR3fTimerClock(timer) as unknown as THREE.Clock });
+          // Explicit cap — R3F dpr alone can still leave DPR>2 on some remount paths.
+          applyBodyMapPixelRatio(gl, gpuProfile.maxPixelRatio);
           if (!painCleanStudio) {
             gl.shadowMap.type = THREE.PCFShadowMap;
           }
         }}
         gl={{
-          antialias: true,
+          antialias: gpuProfile.antialias,
           alpha: useScenicBackdrop || painCleanStudio,
+          powerPreference: gpuProfile.lowDetail ? 'low-power' : 'default',
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: painCleanStudio ? 1.52 : 1.35,
           outputColorSpace: THREE.SRGBColorSpace,
         }}
-        dpr={[1, 2]}
+        dpr={[1, gpuProfile.maxPixelRatio]}
       >
         <WebGlRuntimeProvider contextLostRef={contextLostRef}>
         <BodyMapWebGlLifecycle
           painCleanStudio={painCleanStudio}
           useScenicBackdrop={useScenicBackdrop}
           flatTherapistPicker={flatTherapistPicker}
+          maxPixelRatio={gpuProfile.maxPixelRatio}
           contextLostRef={contextLostRef}
           onContextLostChange={setWebglContextLost}
           onContextRestoredRemount={bumpWebglCanvasKey}
         />
         {!useScenicBackdrop && !flatTherapistPicker && <StudioGradientBackground />}
 
-        <ambientLight intensity={1.5} />
+        <ambientLight intensity={gpuProfile.skipHdrEnvironment ? 1.85 : 1.5} />
         <directionalLight
           position={[5, 5, 5]}
-          intensity={painCleanStudio ? 1.28 : 1.15}
+          intensity={painCleanStudio ? 1.28 : gpuProfile.skipHdrEnvironment ? 1.35 : 1.15}
           color="#ffffff"
           castShadow={!painCleanStudio}
-          shadow-mapSize={[1024, 1024]}
+          shadow-mapSize={[shadowMapSize, shadowMapSize]}
           shadow-camera-near={0.5}
           shadow-camera-far={28}
           shadow-camera-left={-4}
@@ -842,18 +904,20 @@ function BodyMap3D(props: BodyMap3DProps) {
           shadow-camera-bottom={-5}
         />
 
-        <BodyMapStudioEnvironment
-          instanceKey={webglCanvasKey}
-          environmentIntensity={
-            useScenicBackdrop
-              ? 0.48
-              : painCleanStudio
-                ? 0.55
-                : flatTherapistPicker
-                  ? 0.38
-                  : 0.65
-          }
-        />
+        {!gpuProfile.skipHdrEnvironment && (
+          <BodyMapStudioEnvironment
+            instanceKey={webglCanvasKey}
+            environmentIntensity={
+              useScenicBackdrop
+                ? 0.48
+                : painCleanStudio
+                  ? 0.55
+                  : flatTherapistPicker
+                    ? 0.38
+                    : 0.65
+            }
+          />
+        )}
 
         <group
           position={[0, 0.1 + patientMountainElevation, 0]}
@@ -899,6 +963,9 @@ function BodyMap3D(props: BodyMap3DProps) {
                   hideContactGroundShadow={useScenicBackdrop || flatTherapistPicker}
                   cssLayerVisualsForPortal={useScenicBackdrop && patientPortalInteractive}
                   straightClinicalFrontView={painCleanStudio}
+                  lowDetailGpu={gpuProfile.lowDetail}
+                  contactShadowResolution={gpuProfile.contactShadowResolution}
+                  muscleTextureSize={gpuProfile.muscleTextureSize}
                 />
 
                 <EquippedStoreFloorProps equippedItems={equippedStoreItems} />
