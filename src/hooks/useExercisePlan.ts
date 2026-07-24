@@ -828,6 +828,14 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             const rpc = await completeExerciseSafe(supabaseClient, exerciseId, rpcSessionData);
             if (!rpc.ok) {
               const detail = rpc.message ?? rpc.reason ?? 'complete_exercise_safe';
+              console.error('EXERCISE_SAVE_FAIL_REASON', {
+                scope: 'submitExerciseReport/complete_exercise_safe',
+                reason: rpc.reason,
+                message: rpc.message,
+                exerciseIdPresent: Boolean(exerciseId),
+                patientIdPresent: Boolean(patientId),
+                planRowIdPresent: Boolean(resolvedPlanRowId),
+              });
               onExerciseCloudSyncError?.(
                 `לא נשמרה השלמת התרגיל בשרת. נסו שוב או פנו למטפל.\n\n${detail}`
               );
@@ -864,6 +872,12 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             therapistId: patientBefore.therapistId,
           });
           if (!sRes.ok) {
+            console.error('EXERCISE_SAVE_FAIL_REASON', {
+              scope: 'submitExerciseReport/session_history',
+              message: sRes.message,
+              patientIdPresent: Boolean(patientId),
+              clinicalDay,
+            });
             onExerciseCloudSyncError?.(`שמירת סשן יומי נכשלה: ${sRes.message}`);
             return false;
           }
@@ -872,6 +886,12 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           if (latestPatient && persistPatientPayloadToCloud) {
             const saved = await persistPatientPayloadToCloud(latestPatient);
             if (!saved) {
+              console.error('EXERCISE_SAVE_FAIL_REASON', {
+                scope: 'submitExerciseReport/persistPatientPayloadToCloud',
+                message: 'persistPatientPayloadToCloud returned false',
+                patientIdPresent: Boolean(patientId),
+                latestPatientIdPresent: Boolean(latestPatient.id),
+              });
               onExerciseCloudSyncError?.(
                 'התקדמותכם (נקודות ומטבעות) לא נשמרה לענן. בדקו חיבור או התחברו מחדש.'
               );
@@ -879,6 +899,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             }
           }
         } catch (e) {
+          console.error('EXERCISE_SAVE_FAIL_REASON', e);
           devError('[SYNC_ERROR] submitExerciseReport/portalCloud', {
             patientRef: redactId(patientId),
             exerciseRef: redactId(exerciseId),

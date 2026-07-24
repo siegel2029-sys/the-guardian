@@ -1896,6 +1896,13 @@ export function PatientProvider({
             });
 
         if (result.ok === false) {
+          console.error('EXERCISE_SAVE_FAIL_REASON', {
+            scope: 'saveSinglePatientPayloadToCloud',
+            message: result.message,
+            httpStatus: result.httpStatus,
+            patientIdPresent: Boolean(patient.id),
+            portalMode: Boolean(restrictPatientSessionId),
+          });
           if (import.meta.env.DEV) {
             console.warn('[saveSinglePatientPayloadToCloud] נכשל', result.message);
           }
@@ -1910,6 +1917,7 @@ export function PatientProvider({
         return true;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        console.error('EXERCISE_SAVE_FAIL_REASON', e);
         console.error('[SYNC_ERROR] saveSinglePatientPayloadToCloud', e);
         console.error('[saveSinglePatientPayloadToCloud] שגיאה לא צפויה', msg, e);
         return false;

@@ -355,6 +355,14 @@ export function usePatientTrainingOrchestration({
       });
     }
     if (!selectedPatient || !m || m.patientId !== selectedPatient.id) {
+      console.error('EXERCISE_SAVE_FAIL_REASON', {
+        scope: 'handleTrainingComplete/missingSession',
+        hasSelectedPatient: Boolean(selectedPatient),
+        hasPendingSession: Boolean(m),
+        patientIdMatch: m?.patientId === selectedPatient?.id,
+        exerciseIdPresent: Boolean(m?.exercise?.id),
+        planRowIdPresent: Boolean(m?.planRowId),
+      });
       setTrainingSubmitError('לא נמצאו פרטי התרגיל. סגרו ופתחו את האימון מחדש.');
       return false;
     }
@@ -384,7 +392,14 @@ export function usePatientTrainingOrchestration({
           optionalPoolNoReward,
         }
       );
-      if (!saved) return false;
+      if (!saved) {
+        console.error('EXERCISE_SAVE_FAIL_REASON', {
+          scope: 'handleTrainingComplete/selfCare',
+          patientIdPresent: Boolean(selectedPatient.id),
+          exerciseIdPresent: Boolean(m.exercise.id),
+        });
+        return false;
+      }
       await appendPatientExerciseFinishReport(selectedPatient.id, {
         exerciseId: m.exercise.id,
         exerciseName: m.exercise.name,
@@ -431,7 +446,16 @@ export function usePatientTrainingOrchestration({
         isManualPlan: m.isManualPlan,
       }
     );
-    if (!saved) return false;
+    if (!saved) {
+      console.error('EXERCISE_SAVE_FAIL_REASON', {
+        scope: 'handleTrainingComplete/rehab',
+        patientIdPresent: Boolean(selectedPatient.id),
+        exerciseIdPresent: Boolean(m.exercise.id),
+        planRowIdPresent: Boolean(m.planRowId),
+        isManualPlan: Boolean(m.isManualPlan),
+      });
+      return false;
+    }
 
     await appendPatientExerciseFinishReport(selectedPatient.id, {
       exerciseId: m.exercise.id,

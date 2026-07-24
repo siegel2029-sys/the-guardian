@@ -135,18 +135,18 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — portal exercise cloud-save hotfix shipped (RLS recursion)._
+_Idle — portal Pain/RPE save hotfix (RLS upsert + lock trigger) applied._
 
 ### Completed Steps (recent)
 
-- Hotfix: Phase5 `patients_update_patient` WITH CHECK subqueried `patients` → infinite RLS recursion; portal Save after Pain/RPE failed with sanitized cloud-save error. Policy simplified; control locks remain on BEFORE UPDATE trigger. Client portal upsert preserves exact server freeze/status payload keys.
-- Wave E: remaining production UI off fat `usePatient()`; Waves A–D in place.
-- Verification: `tsc --noEmit`, mergePatientPayload Vitest green; migration applied to production.
+- Portal save still failing after recursion fix: live errors were `new row violates RLS` (`.upsert` needs INSERT; patients had UPDATE-only) and `not allowed` (lock trigger raised on payload freeze-key shape). Applied: soft-restore lock trigger, safe `patients_insert_patient_own_existing` via SECURITY DEFINER helper, client portal path uses `.update()`, `EXERCISE_SAVE_FAIL_REASON` logging.
+- Local `tsc --noEmit` + `npm run build` green (no TS/build blocker found).
+- Migrations applied to production; client UPDATE + logging need deploy.
 
 ### Next Action Items
 
-1. Spot-check patient portal: finish exercise → Pain/RPE → Save (confirm no cloud-save alert).
-2. Spot-check therapist overview / plan manage after Wave E.
+1. Deploy client so portal uses UPDATE path + EXERCISE_SAVE_FAIL_REASON logs.
+2. Spot-check portal: finish exercise → Pain/RPE → Save (DB policies already live for old upsert clients).
 3. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
 4. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
 5. Lazy-load gear armory + portal modal stack / AI intake wizard.

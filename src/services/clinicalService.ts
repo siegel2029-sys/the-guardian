@@ -834,26 +834,82 @@ export async function upsertPatientRecords(
         typeof upsertRow.therapist_id === 'string' ? redactId(upsertRow.therapist_id) : undefined,
       therapist_id_repaired: p.therapistId !== therapistIdForRow,
       full_denormalized: PATIENTS_UPSERT_FULL_DENORMALIZED,
+      portalUpdateOnly: isPatientPortal,
     });
-    consoleTableBeforePatientsUpsert(upsertRow, `UPSERT patients id=${redactId(payloadForUpsert.id)}`);
+    consoleTableBeforePatientsUpsert(
+      upsertRow,
+      `${isPatientPortal ? 'UPDATE' : 'UPSERT'} patients id=${redactId(payloadForUpsert.id)}`
+    );
 
     const selectCols = PATIENTS_UPSERT_FULL_DENORMALIZED
       ? 'id, therapist_id, updated_at, first_name, age, gender, occupation, birth_date, demographics_free_text, active_area, contact_email, payload'
       : 'id, therapist_id, updated_at, first_name, active_area, demographics_free_text, occupation, payload';
 
-    const { data: upserted, error } = await client
-      .from('patients')
-      .upsert([upsertRow], { onConflict: 'id' })
-      .select(selectCols);
+    /**
+     * Portal patients only have UPDATE RLS (no INSERT). PostgREST `.upsert()` always
+     * requires INSERT privilege for ON CONFLICT — that yields
+     * "new row violates row-level security policy for table patients".
+     * Existing portal rows must use `.update()` only.
+     */
+    let upserted: unknown[] | null = null;
+    let error: { message: string; code?: string; details?: string; hint?: string } | null = null;
+
+    if (isPatientPortal) {
+      if (!existing) {
+        console.error('EXERCISE_SAVE_FAIL_REASON', {
+          scope: 'upsertPatientRecords/portal',
+          code: 'PGRST_NO_ROW',
+          message: 'patients row missing for portal update',
+          patientId: redactId(patientRowId),
+        });
+        return clinicalPushFail('patients: שורת המטופל לא נמצאה לעדכון בפורטל');
+      }
+      // Never send auth_user_id / account_frozen / status on portal writes — lock trigger owns them.
+      const { id: _omitId, ...portalUpdateRow } = upsertRow;
+      void _omitId;
+      const updateRes = await client
+        .from('patients')
+        .update(portalUpdateRow)
+        .eq('id', patientRowId)
+        .select(selectCols);
+      upserted = updateRes.data;
+      error = updateRes.error;
+    } else {
+      const upsertRes = await client
+        .from('patients')
+        .upsert([upsertRow], { onConflict: 'id' })
+        .select(selectCols);
+      upserted = upsertRes.data;
+      error = upsertRes.error;
+    }
+
     if (error) {
+      console.error('EXERCISE_SAVE_FAIL_REASON', {
+        scope: isPatientPortal ? 'upsertPatientRecords/portalUpdate' : 'upsertPatientRecords/upsert',
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        patientId: redactId(payloadForUpsert.id),
+      });
       logSupabaseCallError('upsertPatientRecords/upsert', error, {
         patientId: redactId(payloadForUpsert.id),
         therapist_id: redactId(therapistIdForRow),
       });
       return clinicalPushFail(`patients: ${error.message}`, error);
     }
-    devLog('[upsertPatientRecords] upsert select() ok', {
+    if (isPatientPortal && (!upserted || upserted.length === 0)) {
+      console.error('EXERCISE_SAVE_FAIL_REASON', {
+        scope: 'upsertPatientRecords/portalUpdate',
+        code: 'RLS_ZERO_ROWS',
+        message: 'patients update returned 0 rows (RLS USING failed or wrong id)',
+        patientId: redactId(patientRowId),
+      });
+      return clinicalPushFail('patients: העדכון נחסם — אין הרשאת עדכון לשורה');
+    }
+    devLog('[upsertPatientRecords] write select() ok', {
       rowCount: upserted?.length ?? 0,
+      portalUpdateOnly: isPatientPortal,
     });
 
     for (const u of upserted ?? []) {
