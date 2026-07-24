@@ -779,6 +779,30 @@ export async function upsertPatientRecords(
       });
       payloadForUpsert = { ...payloadForUpsert, id: patientRowId };
     }
+    /**
+     * Portal self-updates: Phase5 BEFORE UPDATE trigger compares payload
+     * accountFrozen / account_frozen / status with the DB row byte-for-byte.
+     * Merge canonicalization can inject `accountFrozen: false` when the server
+     * row omitted the key — that trips the lock even when freeze state is unchanged.
+     * Preserve the exact server representation for patient portal writes.
+     */
+    if (isPatientPortal && oldPayload) {
+      const oldRaw = oldPayload as Patient & { account_frozen?: unknown };
+      if (Object.prototype.hasOwnProperty.call(oldRaw, 'accountFrozen')) {
+        payloadForUpsert.accountFrozen = oldRaw.accountFrozen;
+      } else {
+        delete payloadForUpsert.accountFrozen;
+      }
+      if (Object.prototype.hasOwnProperty.call(oldRaw, 'status')) {
+        payloadForUpsert.status = oldRaw.status;
+      }
+      const upsertRec = payloadForUpsert as Patient & { account_frozen?: unknown };
+      if (Object.prototype.hasOwnProperty.call(oldRaw, 'account_frozen')) {
+        upsertRec.account_frozen = oldRaw.account_frozen;
+      } else {
+        delete upsertRec.account_frozen;
+      }
+    }
     const firstName = (payloadForUpsert.name ?? '').trim();
 
     const baseRow: Record<string, unknown> = {

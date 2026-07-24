@@ -4,6 +4,7 @@ import {
   canonicalizeAccountControl,
   mergeAccountControlForUpsert,
   mergePatientPayloadForUpsert,
+  patientPayloadIsFrozen,
 } from './patientPayloadMerge';
 
 function basePatient(overrides: Partial<Patient> = {}): Patient {
@@ -103,5 +104,15 @@ describe('mergePatientPayloadForUpsert account control', () => {
     });
     expect(merged.accountFrozen).toBe(false);
     expect(merged.status).toBe('active');
+  });
+
+  it('preserves non-frozen status without inventing freeze semantics', () => {
+    const existing = basePatient({ status: 'active' });
+    delete (existing as { accountFrozen?: boolean }).accountFrozen;
+    const incoming = basePatient({ status: 'active', xp: 20, accountFrozen: false });
+    const merged = mergePatientPayloadForUpsert(existing, incoming);
+    // Merge may set accountFrozen:false; portal upsert path must strip back to server shape.
+    expect(merged.status).toBe('active');
+    expect(patientPayloadIsFrozen(merged)).toBe(false);
   });
 });

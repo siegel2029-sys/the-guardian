@@ -135,21 +135,21 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — Refactoring Plan (Waves A–E) officially closed._
+_Idle — portal exercise cloud-save hotfix shipped (RLS recursion)._
 
 ### Completed Steps (recent)
 
-- Wave E: remaining production UI off fat `usePatient()` (settings/KB, AI panels, clinical writers, ManagePlanModal, PatientOverview, smart clinical); exercise/KB slice gaps filled; only DEV debug panels retain `usePatient()`.
-- Waves A–D remain in place (ErrorBoundaries, domain slices, ServiceResult fetches, Edge Zod).
-- Verification: `tsc -b`, build, Vitest 66 green.
+- Hotfix: Phase5 `patients_update_patient` WITH CHECK subqueried `patients` → infinite RLS recursion; portal Save after Pain/RPE failed with sanitized cloud-save error. Policy simplified; control locks remain on BEFORE UPDATE trigger. Client portal upsert preserves exact server freeze/status payload keys.
+- Wave E: remaining production UI off fat `usePatient()`; Waves A–D in place.
+- Verification: `tsc --noEmit`, mergePatientPayload Vitest green; migration applied to production.
 
 ### Next Action Items
 
-1. Spot-check therapist overview / plan manage / portal after Wave E.
-2. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
-3. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
-4. Lazy-load gear armory + portal modal stack / AI intake wizard.
-5. Optional: migrate DEV debug panels off god hook or add `usePatientDev` slice.
+1. Spot-check patient portal: finish exercise → Pain/RPE → Save (confirm no cloud-save alert).
+2. Spot-check therapist overview / plan manage after Wave E.
+3. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
+4. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
+5. Lazy-load gear armory + portal modal stack / AI intake wizard.
 
 ### Update protocol
 
