@@ -135,18 +135,18 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — portal Pain/RPE save hotfix (RLS upsert + lock trigger) applied._
+_Idle — link_patient_auth_user 403 hotfix live on Supabase._
 
 ### Completed Steps (recent)
 
-- Portal save still failing after recursion fix: live errors were `new row violates RLS` (`.upsert` needs INSERT; patients had UPDATE-only) and `not allowed` (lock trigger raised on payload freeze-key shape). Applied: soft-restore lock trigger, safe `patients_insert_patient_own_existing` via SECURITY DEFINER helper, client portal path uses `.update()`, `EXERCISE_SAVE_FAIL_REASON` logging.
-- Local `tsc --noEmit` + `npm run build` green (no TS/build blocker found).
-- Migrations applied to production; client UPDATE + logging need deploy.
+- Fixed portal load `link_patient_auth_user` 403: was already SECURITY DEFINER + GRANT; raised `not allowed` because all 8 portal users had patient_id only in user_metadata (0 in app_metadata). Backfilled app_metadata; RPC now idempotent when already linked + soft JSON fail (no RAISE 42501).
+- Prior: portal patients UPDATE path + lock-trigger restore + upsert INSERT compat; Production Vercel deploy Ready.
+- Client `linkPatientAuthUserRow` returns ServiceResult-style soft fail + EXERCISE_SAVE_FAIL_REASON logging (needs redeploy for console cleanup).
 
 ### Next Action Items
 
-1. Deploy client so portal uses UPDATE path + EXERCISE_SAVE_FAIL_REASON logs.
-2. Spot-check portal: finish exercise → Pain/RPE → Save (DB policies already live for old upsert clients).
+1. Hard-refresh portal / re-login; confirm no `link_patient_auth_user` 403; retry Pain/RPE Save.
+2. Redeploy client so soft-fail link helper ships (optional — DB already stops 403).
 3. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
 4. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
 5. Lazy-load gear armory + portal modal stack / AI intake wizard.

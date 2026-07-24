@@ -149,11 +149,55 @@ export async function signUpPortalPatientOnCreate(params: {
 export async function linkPatientAuthUserRow(
   client: SupabaseClient,
   patientId: string
-): Promise<void> {
-  const { error } = await client.rpc('link_patient_auth_user', {
-    p_patient_id: patientId,
-  });
-  if (error) {
-    devWarn('[linkPatientAuthUserRow]', { message: error.message, patientRef: redactId(patientId) });
+): Promise<{ ok: true } | { ok: false; reason?: string; message?: string }> {
+  const id = patientId.trim();
+  if (!id) {
+    return { ok: false, reason: 'missing_patient_id' };
+  }
+
+  try {
+    const { data, error } = await client.rpc('link_patient_auth_user', {
+      p_patient_id: id,
+    });
+
+    if (error) {
+      // Soft: never throw — portal load must continue even if link is redundant/blocked.
+      console.error('EXERCISE_SAVE_FAIL_REASON', {
+        scope: 'linkPatientAuthUserRow/rpc',
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        patientIdPresent: true,
+      });
+      devWarn('[linkPatientAuthUserRow]', {
+        message: error.message,
+        code: error.code,
+        patientRef: redactId(id),
+      });
+      return { ok: false, message: error.message, reason: error.code };
+    }
+
+    const row = data as { ok?: boolean; reason?: string } | null;
+    if (row && typeof row === 'object' && row.ok === true) {
+      return { ok: true };
+    }
+
+    devWarn('[linkPatientAuthUserRow] soft fail', {
+      reason: row?.reason,
+      patientRef: redactId(id),
+    });
+    return { ok: false, reason: row?.reason ?? 'no_match' };
+  } catch (e) {
+    console.error('EXERCISE_SAVE_FAIL_REASON', e);
+    devWarn('[linkPatientAuthUserRow] unexpected', {
+      message: e instanceof Error ? e.message : String(e),
+      patientRef: redactId(id),
+    });
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : String(e),
+      reason: 'unexpected',
+    };
   }
 }

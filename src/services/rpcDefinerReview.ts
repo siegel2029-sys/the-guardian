@@ -20,7 +20,8 @@ export const RPC_DEFINER_REVIEW = {
   },
   link_patient_auth_user: {
     intentionalDefiner: true,
-    authModel: 'jwt.app_metadata.patient_id must equal p_patient_id',
+    authModel:
+      'Idempotent if patients.auth_user_id = auth.uid(); else claim from auth.users app_metadata (promoted from user_metadata). Soft JSON fail — no RAISE 42501.',
     anonExecute: false,
   },
 } as const;
