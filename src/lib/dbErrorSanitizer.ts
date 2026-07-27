@@ -9,11 +9,14 @@ export function sanitizeDbErrorMessage(
   fallback = 'שגיאת שרת בגישה לנתונים. נסו שוב או פנו לתמיכה.'
 ): string {
   const raw = rawMessage?.trim() ?? '';
+  if (raw) {
+    console.error('[db-error]', raw);
+  }
   if (import.meta.env.DEV) {
     return raw || fallback;
   }
-  if (raw) {
-    console.error('[db-error]', raw);
+  if (/row-level security|violates row-level|permission denied|42501/i.test(raw)) {
+    return 'אין הרשאה לשמירת המטופל. התחברו מחדש כמטפל ונסו שוב.';
   }
   return fallback;
 }

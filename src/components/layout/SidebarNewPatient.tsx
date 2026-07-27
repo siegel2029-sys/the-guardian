@@ -65,6 +65,9 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
         password: trimmedPassword.length > 0 ? trimmedPassword : undefined,
       });
       if (!r.ok) {
+        console.error('[SidebarNewPatient] createPatientWithAccess failed', {
+          message: r.message,
+        });
         setCredentialsError(r.message);
         setCreating(false);
         return;
@@ -75,7 +78,10 @@ export default function SidebarNewPatient({ compact = false, layout = 'sidebar' 
       setCreated({ loginId: r.loginId, password: r.password });
       setCredentialsOpen(false);
       setCreating(false);
-    } catch {
+    } catch (e) {
+      console.error('[SidebarNewPatient] submitCredentials threw', {
+        message: e instanceof Error ? e.message : String(e),
+      });
       setCredentialsError('שגיאה ביצירת המטופל. נסו שוב.');
       setCreating(false);
     }

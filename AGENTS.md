@@ -135,18 +135,18 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — Body Map mobile WebGL optimizations landed (pixel-ratio cap, dispose, context-loss, low-poly LOD)._
+_Idle — New Patient RLS fix landed (therapist app_metadata backfill + JWT claim gate)._
 
 ### Completed Steps (recent)
 
-- Body Map mobile GPU path: DPR capped (`setPixelRatio(min(dpr, 1.5|2))`), robust geo/mat/tex dispose, WebGL context-loss overlay + remount, low-poly meshes + skip HDR + smaller shadows/textures on coarse/narrow devices.
-- Prior: `link_patient_auth_user` 403 hotfix (app_metadata backfill + soft fail); portal UPDATE / lock-trigger restore.
-- Wave A ErrorBoundaries remain in place (caught the mobile Body Map crash).
+- New Patient create: root cause was missing `app_metadata.role=therapist` on legacy clinic Auth user → `patients_insert_therapist` RLS reject; backfilled role; Auth no longer elevates via profiles alone; create path refreshes JWT + logs PostgREST errors.
+- Body Map mobile GPU path: DPR capped, dispose, context-loss overlay, low-poly LOD on coarse/narrow devices.
+- Prior: `link_patient_auth_user` soft-fail + portal UPDATE / lock-trigger restore.
 
 ### Next Action Items
 
-1. Hard-refresh portal on a phone; confirm Body Map renders without ErrorBoundary fallback; retry Pain/RPE Save if still open.
-2. Redeploy client so soft-fail link helper + Body Map mobile opts ship together.
+1. Therapist: hard-refresh or re-login once so JWT picks up `role=therapist`; confirm New Patient → clinical intake works.
+2. Redeploy client (Auth claim gate + error logging + Body Map mobile opts).
 3. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
 4. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
 5. Lazy-load gear armory + portal modal stack / AI intake wizard.

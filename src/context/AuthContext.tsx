@@ -291,7 +291,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const productTier = getPatientProductTier(user);
+      let productTier = getPatientProductTier(user);
       const appMeta = (user.app_metadata ?? {}) as Record<string, unknown>;
       const explicitFreemium =
         metadataString(appMeta, 'tier') === 'free' || metadataString(appMeta, 'role') === 'patient';
@@ -309,6 +309,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setPatientPortalDisplayId(null);
+
+      // JWT must carry app_metadata.role=therapist (patients INSERT RLS). Profiles alone
+      // must not elevate — that caused therapist UI + RLS deny on "New Patient".
+      // One refresh picks up auth.users backfills without forcing a full re-login.
+      if (productTier !== 'therapist') {
+        try {
+          const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
+          if (refreshErr) {
+            console.error('[Auth] refreshSession for therapist claim', {
+              message: refreshErr.message,
+              code: refreshErr.code,
+              status: refreshErr.status,
+            });
+          } else if (refreshed.session?.user) {
+            user = refreshed.session.user;
+            productTier = getPatientProductTier(user);
+          }
+        } catch (e) {
+          console.error('[Auth] refreshSession for therapist claim threw', {
+            message: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+
+      if (productTier !== 'therapist') {
+        const meta = getSupabaseUserMetadata(user);
+        const pun = metadataString(meta, 'portal_username') ?? null;
+        setPatientPortalDisplayId(pun);
+        setTherapist(null);
+        setPatientSessionId(null);
+        setSession({ role: 'patient', patientId: '' });
+        setProfile(null);
+        return;
+      }
+
       const tid = user.id;
       const email = user.email ?? '';
 
@@ -329,18 +364,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (e) {
         if (import.meta.env.DEV) console.warn('[Auth] profiles fetch', e);
-      }
-
-      // No therapist claim and no profiles row → App Store guest (fail-closed to free).
-      if (productTier !== 'therapist' && !prof) {
-        const meta = getSupabaseUserMetadata(user);
-        const pun = metadataString(meta, 'portal_username') ?? null;
-        setPatientPortalDisplayId(pun);
-        setTherapist(null);
-        setPatientSessionId(null);
-        setSession({ role: 'patient', patientId: '' });
-        setProfile(null);
-        return;
       }
 
       setProfile(prof ?? null);

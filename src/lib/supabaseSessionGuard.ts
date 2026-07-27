@@ -4,7 +4,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isSupabaseAuthEnabled } from './patientPortalAuth';
 import { hasPersistedSupabaseAuthSession } from './supabase';
-import { isDevLoggingEnabled, redactLogContext } from './safeLog';
+import { redactLogContext } from './safeLog';
 
 export type SupabaseSessionGuardResult = { ok: true } | { ok: false; message: string };
 
@@ -23,30 +23,99 @@ export async function getSupabaseAuthSession(client: SupabaseClient) {
   return session;
 }
 
-/** Log PostgREST / Auth errors for RLS debugging — DEV only; redacts id-like keys (Iron Rule 1). */
+/** Extract PostgREST / Auth error fields without dumping PHI payloads. */
+function postgrestErrorFields(err: unknown): {
+  message: string;
+  code?: unknown;
+  details?: unknown;
+  hint?: unknown;
+  status?: unknown;
+} {
+  if (err && typeof err === 'object') {
+    const o = err as Record<string, unknown>;
+    const message =
+      typeof o.message === 'string'
+        ? o.message
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    return {
+      message,
+      code: o.code,
+      details: o.details,
+      hint: o.hint,
+      status: o.status,
+    };
+  }
+  if (err instanceof Error) return { message: err.message };
+  return { message: String(err) };
+}
+
+/**
+ * Log PostgREST / Auth errors for RLS debugging.
+ * Always emits code/message/details/hint (no patient free-text). Redacts id-like keys (Iron Rule 1).
+ */
 export function logSupabaseCallError(
   scope: string,
   err: unknown,
   extra?: Record<string, unknown>
 ): void {
-  if (!isDevLoggingEnabled()) return;
-  const message =
-    err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string'
-      ? (err as { message: string }).message
-      : err instanceof Error
-        ? err.message
-        : String(err);
-  const code =
-    err && typeof err === 'object' && 'code' in err ? (err as { code?: unknown }).code : undefined;
+  const fields = postgrestErrorFields(err);
   try {
     console.error(`[Supabase:${scope}]`, {
-      message,
-      code,
+      ...fields,
       ...redactLogContext(extra),
     });
   } catch {
-    console.error(`[Supabase:${scope}]`, message);
+    console.error(`[Supabase:${scope}]`, fields.message);
   }
+}
+
+/**
+ * Ensures the JWT carries `app_metadata.role=therapist` (required by patients INSERT RLS).
+ * Refreshes the session once so DB backfills of auth.users.app_metadata are picked up.
+ */
+export async function ensureTherapistJwtRole(
+  client: SupabaseClient
+): Promise<{ ok: true; userId: string } | { ok: false; message: string }> {
+  const appRole = (u: { app_metadata?: Record<string, unknown> } | null | undefined): string => {
+    const role = u?.app_metadata?.role;
+    return typeof role === 'string' ? role.trim() : '';
+  };
+
+  const { data: first, error: getUserErr } = await client.auth.getUser();
+  if (getUserErr) {
+    logSupabaseCallError('ensureTherapistJwtRole/getUser', getUserErr);
+  }
+  if (first.user?.id && appRole(first.user) === 'therapist') {
+    return { ok: true, userId: first.user.id };
+  }
+
+  const { data: refreshed, error: refreshErr } = await client.auth.refreshSession();
+  if (refreshErr) {
+    logSupabaseCallError('ensureTherapistJwtRole/refreshSession', refreshErr);
+  }
+
+  let user = refreshed.session?.user ?? null;
+  if (!user) {
+    const { data: again, error: againErr } = await client.auth.getUser();
+    if (againErr) logSupabaseCallError('ensureTherapistJwtRole/getUserAfterRefresh', againErr);
+    user = again.user;
+  }
+
+  if (user?.id && appRole(user) === 'therapist') {
+    return { ok: true, userId: user.id };
+  }
+
+  console.error('[ensureTherapistJwtRole] missing app_metadata.role=therapist', {
+    hasUser: Boolean(user?.id),
+    appRole: appRole(user),
+  });
+  return {
+    ok: false,
+    message:
+      'חסרה הרשאת מטפל בחשבון. התנתקו והתחברו מחדש, ואז נסו שוב ליצור מטופל.',
+  };
 }
 
 /**

@@ -56,7 +56,7 @@ import {
   upsertDailySessionRowMerged,
   persistPatientFinishReportToCloud,
 } from '../services/exerciseService';
-import { logSupabaseCallError } from '../lib/supabaseSessionGuard';
+import { ensureTherapistJwtRole, logSupabaseCallError } from '../lib/supabaseSessionGuard';
 import { devError, devLog, redactId } from '../lib/safeLog';
 import { defaultPatientGear, type PatientGearState } from '../context/patientGearUtils';
 import { buildEmptySession, clampPain, clampEffort } from '../context/patientDomainHelpers';
@@ -1280,8 +1280,15 @@ export function useExercisePlan(params: UseExercisePlanParams) {
 
       let ownerTid = '';
       if (supabaseClient && isSupabaseAuthEnabled()) {
-        const { data: gu } = await supabaseClient.auth.getUser();
-        if (gu.user?.id) ownerTid = gu.user.id;
+        // patients_insert_therapist RLS requires JWT app_metadata.role=therapist.
+        const claim = await ensureTherapistJwtRole(supabaseClient);
+        if (!claim.ok) {
+          console.error('[createPatientWithAccess] therapist JWT claim missing', {
+            message: claim.message,
+          });
+          return { ok: false, message: claim.message };
+        }
+        ownerTid = claim.userId;
       } else if (therapistScopeIds?.length) {
         ownerTid = therapistScopeIds[0];
       }
@@ -1347,8 +1354,10 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           new Date().toISOString()
         );
         if (!upsertResult.ok) {
-          devError('[createPatientWithAccess] Failed to insert patient into DB', {
+          console.error('[createPatientWithAccess] Failed to insert patient into DB', {
             message: upsertResult.message,
+            httpStatus: upsertResult.httpStatus,
+            patientRef: redactId(patientId),
           });
           return { ok: false, message: `שגיאה בשמירת המטופל: ${upsertResult.message}` };
         }
@@ -1378,8 +1387,10 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             { authUserId: newAuthUserId }
           );
           if (!linkResult.ok) {
-            devError('[createPatientWithAccess] Failed to link auth_user_id', {
+            console.error('[createPatientWithAccess] Failed to link auth_user_id', {
               message: linkResult.message,
+              httpStatus: linkResult.httpStatus,
+              patientRef: redactId(patientId),
             });
             return { ok: false, message: `שגיאה בקישור חשבון הפורטל: ${linkResult.message}` };
           }
