@@ -12,12 +12,12 @@ import {
   usePatientCloudSync,
 } from '../../context/patientDomainHooks';
 import { EXERCISE_LIBRARY } from '../../data/mockData';
-import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../../data/exerciseVideoDefaults';
 import type { PatientExercise, BodyArea, ExerciseDifficulty } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { normalizeCachedPatientExercises, pickCanonicalExercisePlan } from '../../utils/exercisePlanCanonical';
 import { PortalDropdown, PortalMultiSelect } from '../ui/PortalDropdown';
+import ExerciseVideoUrlField from './ExerciseVideoUrlField';
 import {
   formatExerciseBodyAreaLabels,
   formatExerciseMuscleGroups,
@@ -57,6 +57,8 @@ interface CustomFormData {
   instructions: string;
   /** תרגיל נוסף (לבחירה) — לא חובה לסשן */
   isOptional: boolean;
+  /** Optional demo video — blank by default for custom exercises */
+  videoUrl: string;
 }
 
 const DEFAULT_FORM: CustomFormData = {
@@ -71,6 +73,7 @@ const DEFAULT_FORM: CustomFormData = {
   difficulty: 2,
   instructions: '',
   isOptional: false,
+  videoUrl: '',
 };
 
 // ── Custom Exercise Form ──────────────────────────────────────────
@@ -86,6 +89,16 @@ function CustomExerciseForm({
 
   const set = <K extends keyof CustomFormData>(key: K, value: CustomFormData[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  /** SAFEGUARD 1: clearing video when the exercise name changes prevents mismatched clips. */
+  const setName = (name: string) => {
+    setForm((prev) => {
+      if (prev.name !== name && prev.videoUrl.trim()) {
+        return { ...prev, name, videoUrl: '' };
+      }
+      return { ...prev, name };
+    });
+  };
 
   const totalSeconds = form.minutes * 60 + form.seconds;
 
@@ -143,7 +156,7 @@ function CustomExerciseForm({
           <input
             type="text"
             value={form.name}
-            onChange={(e) => set('name', e.target.value)}
+            onChange={(e) => setName(e.target.value)}
             placeholder='לדוגמה: "הרמת רגל עם משקל"'
             className={inputClass(errors.name)}
             maxLength={60}
@@ -154,6 +167,12 @@ function CustomExerciseForm({
             </p>
           )}
         </div>
+
+        <ExerciseVideoUrlField
+          id="custom-exercise-video-url"
+          value={form.videoUrl}
+          onChange={(url) => set('videoUrl', url)}
+        />
 
         {/* Row 2: Muscle Groups + Body Areas (multi-select) */}
         <div className="grid grid-cols-2 gap-2">
@@ -402,7 +421,13 @@ function PlanExerciseRow({
     updates: Partial<
       Pick<
         PatientExercise,
-        'patientReps' | 'patientSets' | 'isOptional' | 'customInstructions' | 'instructions'
+        | 'patientReps'
+        | 'patientSets'
+        | 'isOptional'
+        | 'customInstructions'
+        | 'instructions'
+        | 'videoUrl'
+        | 'name'
       >
     >
   ) => void;
@@ -416,6 +441,8 @@ function PlanExerciseRow({
   instructionsDraftRef.current = instructionsDraft;
   const [editSets, setEditSets] = useState(exercise.patientSets);
   const [editReps, setEditReps] = useState(exercise.patientReps);
+  const [nameDraft, setNameDraft] = useState(exercise.name);
+  const [videoUrlDraft, setVideoUrlDraft] = useState(exercise.videoUrl ?? '');
   const [therapistNotesOpen, setTherapistNotesOpen] = useState(
     Boolean(exercise.customInstructions?.trim())
   );
@@ -468,6 +495,14 @@ function PlanExerciseRow({
   }, [exercise.instructions, exercise.id, editingInstructions]);
 
   useEffect(() => {
+    setNameDraft(exercise.name);
+  }, [exercise.name, exercise.id]);
+
+  useEffect(() => {
+    setVideoUrlDraft(exercise.videoUrl ?? '');
+  }, [exercise.videoUrl, exercise.id]);
+
+  useEffect(() => {
     if (!onRegisterPendingFlush) return;
     const flush = () => {
       if (editingInstructions) {
@@ -484,6 +519,33 @@ function PlanExerciseRow({
     };
     return onRegisterPendingFlush(flush);
   }, [onRegisterPendingFlush, editingInstructions, therapistNotesOpen, onUpdate]);
+
+  const persistVideoUrl = useCallback(
+    (raw: string) => {
+      setVideoUrlDraft(raw);
+      onUpdate({ videoUrl: raw.trim() });
+    },
+    [onUpdate]
+  );
+
+  /** SAFEGUARD 1: name change clears videoUrl to prevent mismatched clips. */
+  const persistCustomName = useCallback(
+    (raw: string) => {
+      const next = raw.slice(0, 60);
+      setNameDraft(next);
+      const trimmed = next.trim();
+      if (!trimmed || trimmed === exercise.name) return;
+      const hadVideo =
+        (exercise.videoUrl ?? '').trim().length > 0 || videoUrlDraft.trim().length > 0;
+      if (hadVideo) {
+        setVideoUrlDraft('');
+        onUpdate({ name: trimmed, videoUrl: '' });
+      } else {
+        onUpdate({ name: trimmed });
+      }
+    },
+    [exercise.name, exercise.videoUrl, videoUrlDraft, onUpdate]
+  );
 
   const persistInstructionsFromDraft = useCallback(
     (raw: string) => {
@@ -544,7 +606,22 @@ function PlanExerciseRow({
       <div className="flex items-start gap-3 p-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-sm font-semibold text-slate-800 break-words">{exercise.name}</span>
+            {exercise.isCustom ? (
+              <input
+                type="text"
+                value={nameDraft}
+                onChange={(e) => persistCustomName(e.target.value)}
+                onBlur={() => {
+                  const trimmed = nameDraft.trim();
+                  if (!trimmed) setNameDraft(exercise.name);
+                }}
+                maxLength={60}
+                aria-label="שם תרגיל מותאם"
+                className="text-sm font-semibold text-slate-800 break-words min-w-0 flex-1 rounded-lg border border-orange-200 bg-white px-2 py-1 focus:outline-none focus:border-teal-400"
+              />
+            ) : (
+              <span className="text-sm font-semibold text-slate-800 break-words">{exercise.name}</span>
+            )}
             {/* Type / Custom badge */}
             <span
               className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0"
@@ -802,6 +879,13 @@ function PlanExerciseRow({
           </p>
         </div>
       )}
+      <div className="px-3 pb-3 pt-2 border-t border-slate-100 w-full min-w-0">
+        <ExerciseVideoUrlField
+          id={`plan-exercise-video-${exercise.id.replace(/[^a-zA-Z0-9_-]/g, '')}`}
+          value={videoUrlDraft}
+          onChange={persistVideoUrl}
+        />
+      </div>
     </div>
   );
 }
@@ -1009,7 +1093,13 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     updates: Partial<
       Pick<
         PatientExercise,
-        'patientReps' | 'patientSets' | 'isOptional' | 'customInstructions' | 'instructions'
+        | 'patientReps'
+        | 'patientSets'
+        | 'isOptional'
+        | 'customInstructions'
+        | 'instructions'
+        | 'videoUrl'
+        | 'name'
       >
     >
   ) => {
@@ -1052,7 +1142,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
       isCustom: true,
       isOptional: data.isOptional,
       videoPlaceholder: `${data.name} – הדגמה`,
-      videoUrl: DEFAULT_EXERCISE_DEMO_VIDEO_URL,
+      videoUrl: data.videoUrl.trim(),
       patientSets: data.sets,
       patientReps: data.mode === 'reps' ? data.reps ?? 10 : 0,
       addedAt: new Date().toISOString(),

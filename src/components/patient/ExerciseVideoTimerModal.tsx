@@ -74,6 +74,8 @@ export default function ExerciseVideoTimerModal({
   );
   const [activeSetTimerKey, setActiveSetTimerKey] = useState<string | null>(null);
   const [setTimerRemaining, setSetTimerRemaining] = useState(0);
+  /** Tracks which URL last failed — auto-clears when `videoUrl` changes (no effect needed). */
+  const [failedVideoUrl, setFailedVideoUrl] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -128,6 +130,9 @@ export default function ExerciseVideoTimerModal({
 
   const presentation = useVideoPresentation(videoUrl);
   const iframeSrc = useMemo(() => getVideoIframeSrc(presentation), [presentation]);
+  const trimmedVideoUrl = videoUrl.trim();
+  const hasVideoUrl = trimmedVideoUrl.length > 0;
+  const videoLoadError = hasVideoUrl && failedVideoUrl === trimmedVideoUrl;
 
   const lateralizationRequired = useMemo(
     () =>
@@ -448,28 +453,36 @@ export default function ExerciseVideoTimerModal({
         </div>
 
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto overscroll-y-contain">
-          <div className="shrink-0 border-b border-slate-700/70 bg-[#0f172a]">
-            <div className="relative w-full bg-black aspect-video max-h-[min(38vh,320px)] sm:max-h-[min(42vh,360px)] md:max-h-[min(48vh,420px)] mx-auto">
-              {presentation.kind === 'iframe' ? (
-                <iframe
-                  title={title}
-                  className="absolute inset-0 w-full h-full border-0"
-                  src={iframeSrc}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                />
-              ) : presentation.kind === 'mp4' && videoUrl.trim() ? (
+          <div className="shrink-0 border-b border-slate-700/70 bg-[#0f172a] px-3 sm:px-4 pt-3 pb-3">
+            <div className="relative w-full max-h-[min(38vh,320px)] sm:max-h-[min(42vh,360px)] md:max-h-[min(48vh,420px)] mx-auto">
+              {presentation.kind === 'iframe' && hasVideoUrl ? (
+                <div className="w-full aspect-video rounded-xl shadow-md overflow-hidden bg-slate-800">
+                  <iframe
+                    title={title}
+                    className="w-full h-full border-0"
+                    src={iframeSrc}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                  />
+                </div>
+              ) : presentation.kind === 'mp4' && hasVideoUrl && !videoLoadError ? (
                 <video
                   ref={videoRef}
-                  key={videoUrl}
-                  className="absolute inset-0 w-full h-full object-contain"
-                  src={videoUrl.trim()}
+                  key={trimmedVideoUrl}
+                  className="w-full rounded-xl shadow-md mt-0 aspect-video bg-gray-100 object-contain"
+                  src={trimmedVideoUrl}
                   controls
                   playsInline
+                  preload="metadata"
                   loop
+                  onError={() => setFailedVideoUrl(trimmedVideoUrl)}
                 />
+              ) : videoLoadError && hasVideoUrl ? (
+                <div className="w-full aspect-video rounded-xl shadow-md bg-slate-800 flex items-center justify-center px-4 text-center">
+                  <p className="text-slate-300 text-sm">לא ניתן לטעון את הסרטון</p>
+                </div>
               ) : (
-                <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm px-4 text-center">
+                <div className="w-full aspect-video rounded-xl bg-slate-800/80 flex items-center justify-center text-slate-400 text-sm px-4 text-center">
                   <p className="text-slate-300">אין סרטון הדגמה</p>
                 </div>
               )}

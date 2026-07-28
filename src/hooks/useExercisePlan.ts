@@ -21,7 +21,6 @@ import type {
 } from '../types';
 import { bodyAreaLabels } from '../types';
 import { EXERCISE_LIBRARY } from '../data/mockData';
-import { DEFAULT_EXERCISE_DEMO_VIDEO_URL } from '../data/exerciseVideoDefaults';
 import { addClinicalDays, getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
 import { getTherapistAlertEmail, openClinicalMailto } from '../utils/clinicalAlertEmail';
 import { medicalHistoryToProfileMetadata } from '../utils/clinicalIntakeTemplate';
@@ -237,7 +236,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
   const addExerciseToPlan = useCallback((patientId: string, exercise: Exercise) => {
     const newEntry: PatientExercise = {
       ...exercise,
-      videoUrl: exercise.videoUrl || DEFAULT_EXERCISE_DEMO_VIDEO_URL,
+      videoUrl: exercise.videoUrl ?? '',
       id: `${patientId}-${exercise.id}-${Date.now()}`,
       patientSets: exercise.sets,
       patientReps: exercise.reps ?? 0,
@@ -294,6 +293,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           | 'isOptional'
           | 'customInstructions'
           | 'instructions'
+          | 'videoUrl'
+          | 'name'
         >
       >
     ) => {

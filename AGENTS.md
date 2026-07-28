@@ -135,21 +135,21 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — New Patient RLS fix landed (therapist app_metadata backfill + JWT claim gate)._
+_Idle — Exercise plan videoUrl workflow (Option 2) landed._
 
 ### Completed Steps (recent)
 
-- New Patient create: root cause was missing `app_metadata.role=therapist` on legacy clinic Auth user → `patients_insert_therapist` RLS reject; backfilled role; Auth no longer elevates via profiles alone; create path refreshes JWT + logs PostgREST errors.
-- Body Map mobile GPU path: DPR capped, dispose, context-loss overlay, low-poly LOD on coarse/narrow devices.
-- Prior: `link_patient_auth_user` soft-fail + portal UPDATE / lock-trigger restore.
+- Therapist plan builder: per-exercise video URL field with clear (X), library auto-fill, name-change auto-clear, and preview modal; persists `videoUrl` in `exercise_plans.exercises` JSONB.
+- `resolveExerciseVideoUrl` preserves intentional empty clears (no DEFAULT flower re-inject); patient `ExerciseVideoTimerModal` hardened with `preload="metadata"`, responsive player, and load-error fallback.
+- Prior: New Patient RLS (`app_metadata.role=therapist`) + Body Map mobile GPU path.
 
 ### Next Action Items
 
-1. Therapist: hard-refresh or re-login once so JWT picks up `role=therapist`; confirm New Patient → clinical intake works.
-2. Redeploy client (Auth claim gate + error logging + Body Map mobile opts).
-3. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
-4. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed.
-5. Lazy-load gear armory + portal modal stack / AI intake wizard.
+1. Therapist: hard-refresh/re-login once so JWT picks up `role=therapist`; confirm New Patient → clinical intake.
+2. Redeploy client (Auth claim gate + exercise video URL UI + Body Map mobile opts).
+3. Smoke-test: library add → prefilled URL → preview → clear → save → patient sees no player; custom name change clears URL.
+4. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
+5. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed; lazy-load gear armory + portal modal stack.
 
 ### Update protocol
 

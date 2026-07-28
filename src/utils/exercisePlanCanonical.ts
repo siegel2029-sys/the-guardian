@@ -37,10 +37,20 @@ export function isOutdatedExerciseVideoUrl(url: string | undefined | null): bool
   return false;
 }
 
-/** Prefer EXERCISE_LIBRARY videoUrl when the stored row is empty or still on legacy demo links. */
+/**
+ * Resolve display/persist video URL for a plan exercise.
+ * - Explicit empty string (`''`) = therapist cleared → keep empty (no DEFAULT injection).
+ * - Missing/undefined + library match → prefer library (incl. hosted upgrades over legacy demos).
+ * - Non-empty legacy demos → upgrade from EXERCISE_LIBRARY when available.
+ */
 export function resolveExerciseVideoUrl(
   exercise: Pick<PatientExercise, 'id' | 'videoUrl'>
 ): string {
+  // Intentional clear — do not re-inject library or demo URLs.
+  if (typeof exercise.videoUrl === 'string' && !exercise.videoUrl.trim()) {
+    return '';
+  }
+
   const stored = (exercise.videoUrl ?? '').trim();
   const libId = resolveLibraryExerciseId(exercise.id);
   const libEntry = libId ? EXERCISE_LIBRARY_BY_ID.get(libId) : undefined;
@@ -51,17 +61,21 @@ export function resolveExerciseVideoUrl(
       libraryUrl.includes(SUPABASE_EXERCISE_VIDEO_PREFIX) ||
       libraryUrl.includes('youtu') ||
       libraryUrl.includes('vimeo.com');
-    const storedIsLegacy = isOutdatedExerciseVideoUrl(stored);
+    const storedIsLegacy = stored.length > 0 && isOutdatedExerciseVideoUrl(stored);
     const storedMissingHostedAsset =
       libraryUrl.includes(SUPABASE_EXERCISE_VIDEO_PREFIX) &&
       !stored.includes(SUPABASE_EXERCISE_VIDEO_PREFIX);
 
-    if (storedIsLegacy || (libraryIsHosted && storedMissingHostedAsset && stored !== libraryUrl)) {
+    if (
+      !stored ||
+      storedIsLegacy ||
+      (libraryIsHosted && storedMissingHostedAsset && stored !== libraryUrl)
+    ) {
       return libraryUrl;
     }
   }
 
-  return stored || libraryUrl || DEFAULT_EXERCISE_DEMO_VIDEO_URL;
+  return stored || libraryUrl || '';
 }
 
 /** Prefer the active plan when multiple slices share the same patientId (versioned Supabase rows). */
