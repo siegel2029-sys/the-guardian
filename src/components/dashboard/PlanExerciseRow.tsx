@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Trash2, Pencil, Check, ChevronDown, ChevronUp, Sparkles, MessageSquare, Film,
+  Trash2, Pencil, Check, ChevronDown, ChevronUp, Sparkles, Film,
 } from 'lucide-react';
 import type { PatientExercise } from '../../types';
 import { formatTime } from '../../utils/formatExerciseTime';
@@ -10,18 +10,11 @@ import {
 } from '../../utils/exerciseTargeting';
 import ExerciseVideoUrlField from './ExerciseVideoUrlField';
 import {
-  CUSTOM_NOTE_MAX_LEN,
   INSTRUCTIONS_MAX_LEN,
-  TEXTAREA_MIN_PX,
   typeBg,
   typeText,
   typeLabel,
 } from './planBuilderShared';
-
-function normalizeCustomInstructionsForStore(raw: string): string | undefined {
-  const capped = raw.slice(0, CUSTOM_NOTE_MAX_LEN);
-  return capped.trim() === '' ? undefined : capped;
-}
 
 export interface PlanExerciseRowProps {
   exercise: PatientExercise;
@@ -57,46 +50,10 @@ export default function PlanExerciseRow({
   const [editSets, setEditSets] = useState(exercise.patientSets);
   const [editReps, setEditReps] = useState(exercise.patientReps);
   const [nameDraft, setNameDraft] = useState(exercise.name);
+  const nameDraftRef = useRef(nameDraft);
+  nameDraftRef.current = nameDraft;
   const [videoUrlDraft, setVideoUrlDraft] = useState(exercise.videoUrl ?? '');
-  const [therapistNotesDraft, setTherapistNotesDraft] = useState(
-    exercise.customInstructions ?? ''
-  );
-  const therapistNotesDraftRef = useRef(therapistNotesDraft);
-  therapistNotesDraftRef.current = therapistNotesDraft;
-  const [noteSaveFlash, setNoteSaveFlash] = useState(false);
-  const notesTaRef = useRef<HTMLTextAreaElement>(null);
-  const noteSaveFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const notesFieldId = `therapist-notes-${exercise.id.replace(/[^a-zA-Z0-9_-]/g, '')}`;
-
-  const persistCustomInstructionsFromDraft = useCallback(
-    (raw: string, options?: { showFlash?: boolean }) => {
-      const capped = raw.slice(0, CUSTOM_NOTE_MAX_LEN);
-      setTherapistNotesDraft(capped);
-      onUpdate({ customInstructions: normalizeCustomInstructionsForStore(capped) });
-      if (options?.showFlash) {
-        setNoteSaveFlash(true);
-        if (noteSaveFlashTimerRef.current) clearTimeout(noteSaveFlashTimerRef.current);
-        noteSaveFlashTimerRef.current = setTimeout(() => {
-          setNoteSaveFlash(false);
-          noteSaveFlashTimerRef.current = null;
-        }, 1400);
-      }
-    },
-    [onUpdate]
-  );
-
-  useEffect(
-    () => () => {
-      if (noteSaveFlashTimerRef.current) clearTimeout(noteSaveFlashTimerRef.current);
-    },
-    []
-  );
-
-  useEffect(() => {
-    if (expanded) return;
-    setTherapistNotesDraft(exercise.customInstructions ?? '');
-  }, [exercise.customInstructions, exercise.id, expanded]);
+  const [videoClearedByNameChange, setVideoClearedByNameChange] = useState(false);
 
   useEffect(() => {
     if (expanded) return;
@@ -115,6 +72,7 @@ export default function PlanExerciseRow({
     if (!expanded) {
       setEditSets(exercise.patientSets);
       setEditReps(exercise.patientReps);
+      setVideoClearedByNameChange(false);
     }
   }, [exercise.patientSets, exercise.patientReps, exercise.id, expanded]);
 
@@ -123,14 +81,13 @@ export default function PlanExerciseRow({
     const flush = () => {
       if (!expanded) return;
       const capped = instructionsDraftRef.current.slice(0, INSTRUCTIONS_MAX_LEN);
+      const trimmedName = nameDraftRef.current.trim();
       onUpdate({
         instructions: capped,
-        customInstructions: normalizeCustomInstructionsForStore(
-          therapistNotesDraftRef.current
-        ),
         patientSets: editSets,
         patientReps: editReps,
         videoUrl: videoUrlDraft.trim(),
+        ...(trimmedName ? { name: trimmedName } : {}),
       });
     };
     return onRegisterPendingFlush(flush);
@@ -146,13 +103,14 @@ export default function PlanExerciseRow({
   const persistVideoUrl = useCallback(
     (raw: string) => {
       setVideoUrlDraft(raw);
+      setVideoClearedByNameChange(false);
       onUpdate({ videoUrl: raw.trim() });
     },
     [onUpdate]
   );
 
-  /** SAFEGUARD 1: name change clears videoUrl to prevent mismatched clips. */
-  const persistCustomName = useCallback(
+  /** SAFEGUARD: renaming clears videoUrl so catalog clips cannot stay mismatched. */
+  const persistExerciseName = useCallback(
     (raw: string) => {
       const next = raw.slice(0, 60);
       setNameDraft(next);
@@ -162,6 +120,7 @@ export default function PlanExerciseRow({
         (exercise.videoUrl ?? '').trim().length > 0 || videoUrlDraft.trim().length > 0;
       if (hadVideo) {
         setVideoUrlDraft('');
+        setVideoClearedByNameChange(true);
         onUpdate({ name: trimmed, videoUrl: '' });
       } else {
         onUpdate({ name: trimmed });
@@ -179,35 +138,31 @@ export default function PlanExerciseRow({
     [onUpdate]
   );
 
-  useLayoutEffect(() => {
-    const el = notesTaRef.current;
-    if (!el || !expanded) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.max(TEXTAREA_MIN_PX, el.scrollHeight)}px`;
-  }, [expanded, therapistNotesDraft]);
-
   const isTimeBased = exercise.patientReps === 0 && !!exercise.holdSeconds;
   const effectiveType = exercise.isCustom ? 'custom' : exercise.type;
   const doseLabel = isTimeBased
     ? `${exercise.patientSets} × ${formatTime(exercise.holdSeconds!)}`
     : `${exercise.patientSets} × ${exercise.patientReps}`;
   const hasInstructions = Boolean(exercise.instructions?.trim());
-  const hasNotes = Boolean(exercise.customInstructions?.trim());
   const hasVideo = Boolean((exercise.videoUrl ?? '').trim() || videoUrlDraft.trim());
+  const nameFieldId = `plan-exercise-name-${exercise.id.replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
   const openExpanded = () => {
     setEditSets(exercise.patientSets);
     setEditReps(exercise.patientReps);
+    setNameDraft(exercise.name);
+    setVideoClearedByNameChange(false);
     setExpanded(true);
   };
 
   const collapseAndFlush = () => {
+    const trimmedName = nameDraft.trim();
     onUpdate({
       patientSets: editSets,
       patientReps: editReps,
       instructions: instructionsDraft.slice(0, INSTRUCTIONS_MAX_LEN),
-      customInstructions: normalizeCustomInstructionsForStore(therapistNotesDraft),
       videoUrl: videoUrlDraft.trim(),
+      ...(trimmedName ? { name: trimmedName } : {}),
     });
     setExpanded(false);
   };
@@ -242,24 +197,9 @@ export default function PlanExerciseRow({
 
         <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-3">
           <div className="flex items-center gap-1.5 min-w-0 flex-wrap sm:flex-nowrap">
-            {exercise.isCustom && expanded ? (
-              <input
-                type="text"
-                value={nameDraft}
-                onChange={(e) => persistCustomName(e.target.value)}
-                onBlur={() => {
-                  const trimmed = nameDraft.trim();
-                  if (!trimmed) setNameDraft(exercise.name);
-                }}
-                maxLength={60}
-                aria-label="שם תרגיל מותאם"
-                className="text-sm font-semibold text-slate-800 break-words min-w-0 flex-1 rounded-lg border border-orange-200 bg-white px-2 py-0.5 focus:outline-none focus:border-teal-400"
-              />
-            ) : (
-              <span className="text-sm font-semibold text-slate-800 truncate">
-                {exercise.name}
-              </span>
-            )}
+            <span className="text-sm font-semibold text-slate-800 truncate">
+              {exercise.name}
+            </span>
             <span
               className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0"
               style={{ background: typeBg[effectiveType], color: typeText[effectiveType] }}
@@ -297,19 +237,14 @@ export default function PlanExerciseRow({
           >
             {doseLabel}
           </span>
-          {!expanded && (hasVideo || hasNotes || hasInstructions) && (
+          {!expanded && (hasVideo || hasInstructions) && (
             <span
               className="hidden sm:flex items-center gap-0.5 text-slate-400"
-              title={[
-                hasVideo ? 'סרטון' : null,
-                hasNotes ? 'הנחיות' : null,
-                hasInstructions ? 'הוראות' : null,
-              ]
+              title={[hasVideo ? 'סרטון' : null, hasInstructions ? 'הוראות' : null]
                 .filter(Boolean)
                 .join(' · ')}
             >
               {hasVideo && <Film className="w-3.5 h-3.5" aria-hidden />}
-              {hasNotes && <MessageSquare className="w-3.5 h-3.5 text-teal-500" aria-hidden />}
               {hasInstructions && <Pencil className="w-3.5 h-3.5 text-teal-500" aria-hidden />}
             </span>
           )}
@@ -337,6 +272,33 @@ export default function PlanExerciseRow({
       {/* Expanded editors — only when editing */}
       {expanded && (
         <div className="border-t border-teal-100/80 px-3 pb-3 pt-2 space-y-3 bg-white/70">
+          <div className="min-w-0">
+            <label
+              htmlFor={nameFieldId}
+              className="text-xs font-medium text-slate-600 mb-1 block"
+            >
+              שם התרגיל
+            </label>
+            <input
+              id={nameFieldId}
+              type="text"
+              value={nameDraft}
+              onChange={(e) => persistExerciseName(e.target.value)}
+              onBlur={() => {
+                const trimmed = nameDraft.trim();
+                if (!trimmed) setNameDraft(exercise.name);
+              }}
+              maxLength={60}
+              placeholder="שם התרגיל"
+              className="w-full min-w-0 px-3 py-2 text-sm font-semibold rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-400/25"
+            />
+            {videoClearedByNameChange && (
+              <p className="mt-1 text-[11px] text-amber-700 leading-snug" role="status">
+                קישור הסרטון נוקה כי שם התרגיל השתנה — הדביקו קישור מעודכן אם נדרש.
+              </p>
+            )}
+          </div>
+
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex items-center gap-2">
               <div className="flex flex-col items-center">
@@ -428,47 +390,6 @@ export default function PlanExerciseRow({
                 {instructionsDraft.length}/{INSTRUCTIONS_MAX_LEN}
               </p>
             </div>
-          </div>
-
-          <div className="min-w-0">
-            <label htmlFor={notesFieldId} className="text-xs font-medium text-slate-600 mb-1 block">
-              הנחיות מהמטפל — יוצגו למטופל לפני הוראות ברירת המחדל
-            </label>
-            <div className="flex items-start gap-2 w-full min-w-0">
-              <textarea
-                ref={notesTaRef}
-                id={notesFieldId}
-                value={therapistNotesDraft}
-                onChange={(e) => persistCustomInstructionsFromDraft(e.target.value)}
-                onBlur={(e) =>
-                  persistCustomInstructionsFromDraft(e.currentTarget.value, { showFlash: true })
-                }
-                rows={2}
-                maxLength={CUSTOM_NOTE_MAX_LEN}
-                placeholder="הוסף הנחיות אישיות כאן..."
-                className="flex-1 min-w-0 min-h-[3.25rem] px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-400/25 resize-none bg-white text-slate-800 placeholder:text-slate-400 overflow-hidden"
-              />
-              <button
-                type="button"
-                onClick={() =>
-                  persistCustomInstructionsFromDraft(therapistNotesDraft, { showFlash: true })
-                }
-                aria-label="שמור הערה"
-                className={`mt-0.5 shrink-0 w-9 h-9 rounded-xl border flex items-center justify-center transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
-                  noteSaveFlash
-                    ? 'border-teal-500 bg-teal-50 text-teal-700 shadow-sm scale-105'
-                    : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-teal-300 hover:bg-teal-50/80'
-                }`}
-              >
-                <Check className={`w-4 h-4 ${noteSaveFlash ? 'text-teal-600' : ''}`} aria-hidden />
-              </button>
-            </div>
-            <p className="text-[9px] text-slate-400 mt-1 text-left tabular-nums">
-              {therapistNotesDraft.length}/{CUSTOM_NOTE_MAX_LEN}
-              {noteSaveFlash ? (
-                <span className="text-teal-600 font-semibold mr-2">נשמר</span>
-              ) : null}
-            </p>
           </div>
         </div>
       )}

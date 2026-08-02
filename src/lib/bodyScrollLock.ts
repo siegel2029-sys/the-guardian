@@ -2,6 +2,9 @@
  * Ref-counted body scroll lock for modals, dialogs, and drawers.
  * Safe with nested overlays: only the first acquire freezes the page;
  * the last release restores scroll position (incl. iOS position:fixed).
+ *
+ * iOS: touchmove is intercepted with scroll-boundary awareness so rubber-band
+ * overscroll inside a modal panel cannot chain-scroll the page behind it.
  */
 
 export const SCROLL_LOCK_ALLOW_ATTR = 'data-scroll-lock-allow';
@@ -22,18 +25,28 @@ type LockSnapshot = {
 
 let lockCount = 0;
 let snapshot: LockSnapshot | null = null;
-let touchHandler: ((e: TouchEvent) => void) | null = null;
+let touchMoveHandler: ((e: TouchEvent) => void) | null = null;
+let touchStartHandler: ((e: TouchEvent) => void) | null = null;
+let touchStartY = 0;
 
 function therapistMain(): HTMLElement | null {
   return document.getElementById('therapist-dashboard-main');
 }
 
-function canScrollTouchTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  if (
-    target.closest(`[${SCROLL_LOCK_ALLOW_ATTR}], [${SCROLL_LOCK_ALLOW_LEGACY_ATTR}]`)
-  ) {
-    return true;
+function findScrollableAncestor(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+
+  const allow = target.closest(
+    `[${SCROLL_LOCK_ALLOW_ATTR}], [${SCROLL_LOCK_ALLOW_LEGACY_ATTR}]`
+  );
+  if (allow instanceof HTMLElement) {
+    const { overflowY, overflowX } = getComputedStyle(allow);
+    const yScrollable =
+      /(auto|scroll|overlay)/.test(overflowY) && allow.scrollHeight > allow.clientHeight;
+    const xScrollable =
+      /(auto|scroll|overlay)/.test(overflowX) && allow.scrollWidth > allow.clientWidth;
+    if (yScrollable || xScrollable) return allow;
+    // Allow-marked region that isn't itself scrollable: walk for a nested scroller.
   }
 
   let node: Element | null = target;
@@ -44,16 +57,48 @@ function canScrollTouchTarget(target: EventTarget | null): boolean {
         /(auto|scroll|overlay)/.test(overflowY) && node.scrollHeight > node.clientHeight;
       const xScrollable =
         /(auto|scroll|overlay)/.test(overflowX) && node.scrollWidth > node.clientWidth;
-      if (yScrollable || xScrollable) return true;
+      if (yScrollable || xScrollable) return node;
     }
     node = node.parentElement;
   }
-  return false;
+  return null;
+}
+
+function onTouchStart(e: TouchEvent): void {
+  if (e.touches.length === 1) {
+    touchStartY = e.touches[0].clientY;
+  }
 }
 
 function onTouchMove(e: TouchEvent): void {
-  if (canScrollTouchTarget(e.target)) return;
-  e.preventDefault();
+  if (e.touches.length !== 1) return;
+
+  const scrollEl = findScrollableAncestor(e.target);
+  if (!scrollEl) {
+    e.preventDefault();
+    return;
+  }
+
+  const currentY = e.touches[0].clientY;
+  const deltaY = currentY - touchStartY;
+  const { overflowY } = getComputedStyle(scrollEl);
+  const yScrollable =
+    /(auto|scroll|overlay)/.test(overflowY) && scrollEl.scrollHeight > scrollEl.clientHeight;
+
+  if (!yScrollable) {
+    // Horizontal-only scroller (or allow marker without overflow): block vertical page bleed.
+    if (Math.abs(deltaY) > 0) e.preventDefault();
+    return;
+  }
+
+  const atTop = scrollEl.scrollTop <= 0;
+  const atBottom =
+    scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 1;
+
+  // Pulling down at top, or pushing up at bottom → would chain-scroll the page.
+  if ((atTop && deltaY > 0) || (atBottom && deltaY < 0)) {
+    e.preventDefault();
+  }
 }
 
 function applyLock(): void {
@@ -83,8 +128,10 @@ function applyLock(): void {
   body.style.width = '100%';
   if (main) main.style.overflow = 'hidden';
 
-  touchHandler = onTouchMove;
-  document.addEventListener('touchmove', touchHandler, { passive: false });
+  touchStartHandler = onTouchStart;
+  touchMoveHandler = onTouchMove;
+  document.addEventListener('touchstart', touchStartHandler, { passive: true });
+  document.addEventListener('touchmove', touchMoveHandler, { passive: false });
 }
 
 function restoreLock(): void {
@@ -104,9 +151,13 @@ function restoreLock(): void {
   body.style.width = prev.bodyWidth;
   if (main) main.style.overflow = prev.mainOverflow;
 
-  if (touchHandler) {
-    document.removeEventListener('touchmove', touchHandler);
-    touchHandler = null;
+  if (touchStartHandler) {
+    document.removeEventListener('touchstart', touchStartHandler);
+    touchStartHandler = null;
+  }
+  if (touchMoveHandler) {
+    document.removeEventListener('touchmove', touchMoveHandler);
+    touchMoveHandler = null;
   }
 
   snapshot = null;

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import type { ModalPainLevel } from './ExerciseVideoTimerModal';
 import type { EffortLevel } from '../../utils/effortScale';
 import { SAFETY_EFFORT_THRESHOLD } from '../../utils/effortScale';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 export interface ExerciseTrainingFeedbackPayload {
   effort: EffortLevel;
@@ -19,11 +20,71 @@ interface ExerciseTrainingFeedbackModalProps {
 const PAIN_TICKS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 const EFFORT_TICKS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 
-function tealTrackFill(value: number, min: number, max: number): CSSProperties {
-  const pct = ((value - min) / (max - min)) * 100;
-  return {
-    background: `linear-gradient(to left, #14b8a6 0%, #0d9488 ${pct}%, #e2e8f0 ${pct}%, #e2e8f0 100%)`,
-  };
+function DiscreteScaleButtons<T extends number>({
+  id,
+  label,
+  ticks,
+  value,
+  onSelect,
+  highRiskFrom,
+}: {
+  id: string;
+  label: string;
+  ticks: readonly T[];
+  value: T | null;
+  onSelect: (n: T) => void;
+  highRiskFrom?: number;
+}) {
+  return (
+    <div className="space-y-2" role="group" aria-labelledby={`${id}-label`}>
+      <div className="flex items-center justify-between gap-2">
+        <span id={`${id}-label`} className="block text-sm font-semibold text-slate-800">
+          {label}
+        </span>
+        <span
+          className="text-sm font-bold tabular-nums min-w-[1.5rem] text-center"
+          style={{
+            color:
+              value == null
+                ? '#94a3b8'
+                : highRiskFrom != null && value >= highRiskFrom
+                  ? '#dc2626'
+                  : '#0f766e',
+          }}
+          aria-live="polite"
+        >
+          {value != null ? value : '—'}
+        </span>
+      </div>
+      <div className="grid grid-cols-10 gap-1">
+        {ticks.map((n) => {
+          const selected = value === n;
+          const risky = highRiskFrom != null && n >= highRiskFrom;
+          return (
+            <button
+              key={n}
+              type="button"
+              aria-pressed={selected}
+              aria-label={`${label}: ${n}`}
+              onClick={() => onSelect(n)}
+              className={`h-10 rounded-lg text-xs font-bold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/50 focus-visible:ring-offset-1 ${
+                selected
+                  ? risky
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'bg-teal-600 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+              }`}
+            >
+              {n}
+            </button>
+          );
+        })}
+      </div>
+      {value == null && (
+        <p className="text-[11px] text-slate-500">בחרו ערך בסולם כדי להמשיך</p>
+      )}
+    </div>
+  );
 }
 
 export default function ExerciseTrainingFeedbackModal({
@@ -32,20 +93,27 @@ export default function ExerciseTrainingFeedbackModal({
   onClose,
   onSubmit,
 }: ExerciseTrainingFeedbackModalProps) {
-  const [pain, setPain] = useState<ModalPainLevel>(3);
-  const [effort, setEffort] = useState<EffortLevel>(5);
+  const [pain, setPain] = useState<ModalPainLevel | null>(null);
+  const [effort, setEffort] = useState<EffortLevel | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useBodyScrollLock(open);
 
   useEffect(() => {
     if (open) {
-      setPain(3);
-      setEffort(5);
+      setPain(null);
+      setEffort(null);
       setSubmitting(false);
     }
   }, [open]);
 
+  const canSubmit = pain != null && effort != null && !submitting;
+
   const willTriggerSafetyAlert = useMemo(
-    () => pain >= 6 || effort >= SAFETY_EFFORT_THRESHOLD,
+    () =>
+      pain != null &&
+      effort != null &&
+      (pain >= 6 || effort >= SAFETY_EFFORT_THRESHOLD),
     [pain, effort]
   );
 
@@ -53,7 +121,7 @@ export default function ExerciseTrainingFeedbackModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting) return;
+    if (pain == null || effort == null || submitting) return;
     setSubmitting(true);
     try {
       const ok = await Promise.resolve(onSubmit({ painLevel: pain, effort }));
@@ -79,6 +147,7 @@ export default function ExerciseTrainingFeedbackModal({
           borderColor: '#cbd5e1',
           boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.35)',
         }}
+        data-scroll-lock-allow
       >
         <div
           className="flex items-center justify-between px-5 py-4 border-b"
@@ -108,53 +177,23 @@ export default function ExerciseTrainingFeedbackModal({
         ) : null}
 
         <form onSubmit={handleSubmit} className="px-5 pb-6 pt-4 space-y-6">
-          <div className="space-y-2">
-            <label htmlFor="training-pain-slider" className="block text-sm font-semibold text-slate-800">
-              רמת כאב
-            </label>
-            <input
-              id="training-pain-slider"
-              type="range"
-              min={1}
-              max={10}
-              step={1}
-              value={pain}
-              onChange={(e) => setPain(Number(e.target.value) as ModalPainLevel)}
-              className="w-full h-2.5 rounded-full appearance-none cursor-pointer accent-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:ring-offset-2"
-              style={tealTrackFill(pain, 1, 10)}
-            />
-            <div className="flex justify-between text-[11px] font-medium text-slate-500 tabular-nums px-0.5">
-              {PAIN_TICKS.map((n) => (
-                <span key={n} className="w-4 text-center">
-                  {n}
-                </span>
-              ))}
-            </div>
-          </div>
+          <DiscreteScaleButtons
+            id="training-pain"
+            label="רמת כאב"
+            ticks={PAIN_TICKS}
+            value={pain}
+            onSelect={setPain}
+            highRiskFrom={6}
+          />
 
-          <div className="space-y-2">
-            <label htmlFor="training-effort-slider" className="block text-sm font-semibold text-slate-800">
-              מאמץ (RPE)
-            </label>
-            <input
-              id="training-effort-slider"
-              type="range"
-              min={1}
-              max={10}
-              step={1}
-              value={effort}
-              onChange={(e) => setEffort(Number(e.target.value) as EffortLevel)}
-              className="w-full h-2.5 rounded-full appearance-none cursor-pointer accent-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:ring-offset-2"
-              style={tealTrackFill(effort, 1, 10)}
-            />
-            <div className="flex justify-between text-[11px] font-medium text-slate-500 tabular-nums px-0.5">
-              {EFFORT_TICKS.map((n) => (
-                <span key={n} className="w-4 text-center">
-                  {n}
-                </span>
-              ))}
-            </div>
-          </div>
+          <DiscreteScaleButtons
+            id="training-effort"
+            label="מאמץ (RPE)"
+            ticks={EFFORT_TICKS}
+            value={effort}
+            onSelect={setEffort}
+            highRiskFrom={SAFETY_EFFORT_THRESHOLD}
+          />
 
           {willTriggerSafetyAlert && (
             <div
@@ -174,8 +213,8 @@ export default function ExerciseTrainingFeedbackModal({
 
           <button
             type="submit"
-            disabled={submitting}
-            className="w-full py-3.5 rounded-2xl text-white font-bold text-base transition-transform active:scale-[0.99] disabled:opacity-60"
+            disabled={!canSubmit}
+            className="w-full py-3.5 rounded-2xl text-white font-bold text-base transition-transform active:scale-[0.99] disabled:opacity-45 disabled:cursor-not-allowed"
             style={{
               background: 'linear-gradient(135deg, #0d9488, #059669)',
               boxShadow: '0 10px 25px -8px rgba(13, 148, 136, 0.5)',

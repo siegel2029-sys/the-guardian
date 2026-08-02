@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { X, Check, Play } from 'lucide-react';
 import type { BodyArea } from '../../types';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import {
   getVideoIframeSrc,
   useVideoPresentation,
@@ -62,6 +63,10 @@ export default function ExerciseVideoTimerModal({
   onClose,
   onFinishPractice,
 }: ExerciseVideoTimerModalProps) {
+  // Imperative lock (in addition to GlobalModalScrollLock via aria-modal) —
+  // freezes patient-portal background scroll on iOS during active workout.
+  useBodyScrollLock(open);
+
   const safeTargetSets = Math.max(1, targetSets);
   const [remaining, setRemaining] = useState(primeSeconds);
   const [timerStarted, setTimerStarted] = useState(false);
@@ -452,7 +457,10 @@ export default function ExerciseVideoTimerModal({
           </button>
         </div>
 
-        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto overscroll-y-contain">
+        <div
+          className="flex flex-col flex-1 min-h-0 overflow-y-auto overscroll-y-contain"
+          data-scroll-lock-allow
+        >
           <div className="shrink-0 border-b border-slate-700/70 bg-[#0f172a] px-3 sm:px-4 pt-3 pb-3">
             <div className="relative w-full max-h-[min(38vh,320px)] sm:max-h-[min(42vh,360px)] md:max-h-[min(48vh,420px)] mx-auto">
               {presentation.kind === 'iframe' && hasVideoUrl ? (

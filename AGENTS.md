@@ -135,18 +135,18 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — compact plan workstation UX landed._
+_Idle — patient workout scroll lock, editable plan titles, mandatory feedback scales._
 
 ### Completed Steps (recent)
 
-- Plan builder workstation: removed change-summary footer; desktop modal `95vw × min(92vh,980px)`; slim action footer.
-- `PlanExerciseRow` collapsed-by-default dense summary; video/instructions/notes/sets editors only when expanded.
-- Tabs on all breakpoints + global modal scroll lock retained from prior pass.
+- Patient workout: `useBodyScrollLock` on video/feedback modals + iOS boundary-aware `touchmove` in `bodyScrollLock`.
+- `PlanExerciseRow`: expanded title input for all exercises; rename auto-clears video URL with amber notice.
+- Post-workout feedback: discrete 1–10 scales start empty (`null`); submit disabled until both selected.
 
 ### Next Action Items
 
-1. Smoke-test: 5–6 collapsed exercises visible; expand one row; Save without change summary.
-2. Confirm background scroll lock under plan modal + therapist drawer.
+1. Smoke-test mobile: open workout → background frozen; expand plan row → rename clears video.
+2. Smoke-test feedback: no preselected pain/RPE; submit stays disabled until taps.
 3. Redeploy client; verify catalog `default_video_url` → new plan exercise URL; old plans unchanged.
 4. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
 5. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed; lazy-load gear armory + portal modal stack.
