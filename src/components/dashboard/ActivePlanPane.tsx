@@ -43,7 +43,7 @@ export default function ActivePlanPane({
       aria-label="תוכנית פעילה"
     >
       <div
-        className="shrink-0 px-4 py-3 border-b flex items-center justify-between gap-3"
+        className="shrink-0 px-4 py-2 border-b flex items-center justify-between gap-3"
         style={{ background: '#f8fffe', borderColor: '#e0f2f1' }}
       >
         <div className="flex items-center gap-2 min-w-0">
@@ -82,14 +82,15 @@ export default function ActivePlanPane({
 
       <div
         data-plan-builder-scroll
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3"
+        data-scroll-lock-allow
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-2 bg-slate-100/70"
       >
         {exercises.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-16 text-slate-400 text-center">
             <ClipboardList className="w-10 h-10 opacity-30" aria-hidden />
             <p className="text-sm font-medium">התוכנית ריקה</p>
             <p className="text-xs max-w-xs">
-              הוסף תרגילים מהקטלוג בצד שמאל, או צור תרגיל מותאם אישית
+              הוסף תרגילים מלשונית הקטלוג, או צור תרגיל מותאם אישית
             </p>
           </div>
         ) : (

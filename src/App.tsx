@@ -5,6 +5,7 @@ import { AppRoutes } from './components/ProtectedRoute';
 import { PatientDidYouKnowProvider } from './components/patient/PatientDidYouKnowPortal';
 import CookieBanner from './components/legal/CookieBanner';
 import LegalOnboardingModal from './components/legal/LegalOnboardingModal';
+import GlobalModalScrollLock from './components/ui/GlobalModalScrollLock';
 import { hasPersistedSupabaseAuthSession } from './lib/supabase';
 import { FREEMIUM_GUEST_SESSION_LOCK } from './context/patientContextRoster';
 
@@ -63,6 +64,8 @@ function PatientRouterShell() {
 export default function App() {
   return (
     <AuthProvider>
+      {/* Freezes document scroll whenever any modal/dialog/drawer is open. */}
+      <GlobalModalScrollLock />
       <PatientRouterShell />
     </AuthProvider>
   );

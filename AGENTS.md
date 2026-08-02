@@ -135,18 +135,18 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — ManagePlanModal two-pane layout landed._
+_Idle — compact plan workstation UX landed._
 
 ### Completed Steps (recent)
 
-- Redesigned `ManagePlanModal` into desktop 30/70 two-pane builder (`CatalogPane` + `ActivePlanPane`); mobile Catalog/Plan tabs; sticky save footer; extracted row/form siblings.
-- Mobile: library add stays on Catalog (toast only); custom add switches to Active Plan. `PlanExerciseRow` uses `lg:` grid so sets/reps sit beside video URL.
-- Therapist workspace width pass: Settings / Knowledge Base / Messages / Clinical AI intake use wider desktop caps; patient portal phone column unchanged.
+- Plan builder workstation: removed change-summary footer; desktop modal `95vw × min(92vh,980px)`; slim action footer.
+- `PlanExerciseRow` collapsed-by-default dense summary; video/instructions/notes/sets editors only when expanded.
+- Tabs on all breakpoints + global modal scroll lock retained from prior pass.
 
 ### Next Action Items
 
-1. Smoke-test plan builder: desktop split scroll + sticky Save; mobile bulk-add from Catalog without tab bounce; custom add → Plan tab.
-2. Confirm video URL field, preview modal, and name-change auto-clear still work in the right pane.
+1. Smoke-test: 5–6 collapsed exercises visible; expand one row; Save without change summary.
+2. Confirm background scroll lock under plan modal + therapist drawer.
 3. Redeploy client; verify catalog `default_video_url` → new plan exercise URL; old plans unchanged.
 4. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
 5. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed; lazy-load gear armory + portal modal stack.

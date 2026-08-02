@@ -397,14 +397,7 @@ export function PatientDidYouKnowProvider({ children }: { children: ReactNode })
     };
   }, [expanded, fact?.id, fact?.explanation]);
 
-  useEffect(() => {
-    if (!expanded) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [expanded]);
+  // Background scroll lock: GlobalModalScrollLock (aria-modal="true" on expanded dialog).
 
   const closeExpanded = useCallback(() => {
     clearAutoHideTimer();

@@ -72,6 +72,7 @@ export default function DashboardLayout() {
           mobileDrawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
         aria-hidden={!mobileDrawerOpen}
+        {...(mobileDrawerOpen ? { 'data-scroll-lock': 'true' } : {})}
       >
         {/* Backdrop */}
         <div

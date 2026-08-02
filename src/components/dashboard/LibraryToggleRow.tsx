@@ -28,7 +28,7 @@ export default function LibraryToggleRow({
   const [addAsOptional, setAddAsOptional] = useState(false);
   return (
     <div
-      className={`rounded-xl border transition-colors ${isAdded ? 'border-emerald-300 bg-emerald-50/50' : 'border-slate-200 bg-white'}`}
+      className={`rounded-xl border-2 shadow-sm transition-colors ${isAdded ? 'border-emerald-300 bg-emerald-50/50 shadow-md' : 'border-slate-200 bg-white'}`}
       dir="rtl"
     >
       <div className="flex items-center gap-3 p-3">

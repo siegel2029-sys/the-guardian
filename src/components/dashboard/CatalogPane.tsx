@@ -201,6 +201,7 @@ export default function CatalogPane({
       <div className="relative flex-1 min-h-0">
         <div
           data-plan-builder-scroll
+          data-scroll-lock-allow
           className={`absolute inset-0 overflow-y-auto overscroll-contain pb-4 ${
             isExpanded
               ? 'p-4 space-y-2.5 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0 sm:content-start'
@@ -277,7 +278,11 @@ export function CustomExerciseModalShell({
             <X className="w-4 h-4" aria-hidden />
           </button>
         </div>
-        <div data-plan-builder-scroll className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3">
+        <div
+          data-plan-builder-scroll
+          data-scroll-lock-allow
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3"
+        >
           {children}
         </div>
       </div>

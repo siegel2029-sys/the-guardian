@@ -25,7 +25,7 @@ interface ManagePlanModalProps {
   onClose: () => void;
 }
 
-type MobilePane = 'catalog' | 'plan';
+type PlanBuilderPane = 'catalog' | 'plan';
 
 export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
   const { selectedPatient } = usePatientRoster();
@@ -51,8 +51,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
 
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [libraryToast, setLibraryToast] = useState<string | null>(null);
-  const [changeSummary, setChangeSummary] = useState('');
-  const [mobilePane, setMobilePane] = useState<MobilePane>('plan');
+  const [activePane, setActivePane] = useState<PlanBuilderPane>('plan');
   const [catalogFullOpen, setCatalogFullOpen] = useState(false);
   const [customFormOpen, setCustomFormOpen] = useState(false);
   const pendingFlushesRef = useRef(new Set<() => void>());
@@ -95,59 +94,8 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     []
   );
 
-  /**
-   * Strict background scroll lock while the plan builder (and expanded catalog) is open.
-   * Locks html/body + dashboard main, freezes body position for iOS, and blocks
-   * touchmove outside plan-builder scroll regions.
-   */
-  useEffect(() => {
-    const html = document.documentElement;
-    const body = document.body;
-    const main = document.getElementById('therapist-dashboard-main');
-    const scrollY = window.scrollY;
-
-    const prev = {
-      htmlOverflow: html.style.overflow,
-      bodyOverflow: body.style.overflow,
-      bodyPosition: body.style.position,
-      bodyTop: body.style.top,
-      bodyWidth: body.style.width,
-      bodyLeft: body.style.left,
-      bodyRight: body.style.right,
-      mainOverflow: main?.style.overflow ?? '',
-    };
-
-    html.style.overflow = 'hidden';
-    body.style.overflow = 'hidden';
-    body.style.position = 'fixed';
-    body.style.top = `-${scrollY}px`;
-    body.style.left = '0';
-    body.style.right = '0';
-    body.style.width = '100%';
-    if (main) main.style.overflow = 'hidden';
-
-    const blockTouchMove = (e: TouchEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target?.closest('[data-plan-builder-scroll]')) return;
-      e.preventDefault();
-    };
-    document.addEventListener('touchmove', blockTouchMove, { passive: false });
-
-    return () => {
-      html.style.overflow = prev.htmlOverflow;
-      body.style.overflow = prev.bodyOverflow;
-      body.style.position = prev.bodyPosition;
-      body.style.top = prev.bodyTop;
-      body.style.left = prev.bodyLeft;
-      body.style.right = prev.bodyRight;
-      body.style.width = prev.bodyWidth;
-      if (main) main.style.overflow = prev.mainOverflow;
-      document.removeEventListener('touchmove', blockTouchMove);
-      window.scrollTo(0, scrollY);
-    };
-  }, []);
-
-  /** Escape closes nested modals first (custom → full catalog). */
+  /** Escape closes nested modals first (custom → full catalog).
+   * Background scroll lock is handled globally via aria-modal (GlobalModalScrollLock). */
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -233,7 +181,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
 
   const handleAddLibrary = (exercise: Exercise, isOptional: boolean) => {
     addExerciseToPlan(selectedPatient.id, { ...exercise, isOptional });
-    // Stay on Catalog for bulk-add on mobile — toast only, no tab switch.
+    // Stay on Catalog for bulk-add — toast only, no tab switch.
     showLibraryToast(`נוסף לתוכנית: ${exercise.name}`);
   };
 
@@ -278,7 +226,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     // Custom exercises need immediate setup — close nested modals and open Active Plan.
     setCustomFormOpen(false);
     setCatalogFullOpen(false);
-    setMobilePane('plan');
+    setActivePane('plan');
     showSuccess(`התרגיל נוסף בהצלחה: ${data.name.trim()}`);
   };
 
@@ -311,7 +259,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
       role="presentation"
     >
       <div
-        className="bg-white shadow-2xl w-full max-w-7xl h-[100dvh] sm:h-[90vh] sm:max-h-[920px] rounded-none sm:rounded-2xl overflow-hidden flex flex-col min-h-0"
+        className="bg-white shadow-2xl w-full h-[100dvh] sm:w-[95vw] sm:max-w-7xl sm:h-[min(92vh,980px)] rounded-none sm:rounded-2xl overflow-hidden flex flex-col min-h-0"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -344,20 +292,22 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
           </button>
         </header>
 
-        {/* Mobile tabs */}
+        {/* Segmented tabs — catalog | active plan (all breakpoints) */}
         <div
-          className="lg:hidden shrink-0 flex border-b border-slate-200 bg-white p-1.5 gap-1"
+          className="shrink-0 flex border-b border-slate-200 bg-white p-1.5 gap-1 sm:px-3"
           role="tablist"
           aria-label="תצוגת בונה תוכנית"
         >
           <button
             type="button"
             role="tab"
-            aria-selected={mobilePane === 'catalog'}
-            onClick={() => setMobilePane('catalog')}
+            id="plan-builder-tab-catalog"
+            aria-controls="plan-builder-panel-catalog"
+            aria-selected={activePane === 'catalog'}
+            onClick={() => setActivePane('catalog')}
             className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-all min-h-[44px]"
             style={
-              mobilePane === 'catalog'
+              activePane === 'catalog'
                 ? { background: '#f0fffe', color: '#0d9488', border: '1px solid #99f6e4' }
                 : { background: 'transparent', color: '#64748b' }
             }
@@ -368,11 +318,13 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
           <button
             type="button"
             role="tab"
-            aria-selected={mobilePane === 'plan'}
-            onClick={() => setMobilePane('plan')}
+            id="plan-builder-tab-plan"
+            aria-controls="plan-builder-panel-plan"
+            aria-selected={activePane === 'plan'}
+            onClick={() => setActivePane('plan')}
             className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-all min-h-[44px]"
             style={
-              mobilePane === 'plan'
+              activePane === 'plan'
                 ? { background: '#f0fffe', color: '#0d9488', border: '1px solid #99f6e4' }
                 : { background: 'transparent', color: '#64748b' }
             }
@@ -388,60 +340,40 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
           </button>
         </div>
 
-        {/* Body — fills remaining height between header and footer */}
+        {/* Body — one full-width pane at a time */}
         <div className="flex-1 min-h-0 h-full overflow-hidden flex flex-col">
-          {/* Desktop: catalog ~35% / plan ~65%; grid-rows 1fr fills height (avoids empty gap) */}
-          <div
-            className="hidden lg:grid lg:grid-cols-[minmax(340px,35%)_1fr] lg:grid-rows-[minmax(0,1fr)] flex-1 min-h-0 h-full overflow-hidden"
-            dir="ltr"
-          >
-            <CatalogPane
-              {...catalogProps}
-              className="border-e border-slate-200 min-h-0 h-full max-h-full overflow-hidden"
-            />
-            <ActivePlanPane
-              {...planProps}
-              className="min-h-0 h-full max-h-full overflow-hidden"
-            />
-          </div>
-
-          {/* Mobile: one pane at a time */}
-          <div className="lg:hidden flex-1 min-h-0 h-full overflow-hidden flex flex-col">
-            {mobilePane === 'catalog' ? (
+          {activePane === 'catalog' ? (
+            <div
+              id="plan-builder-panel-catalog"
+              role="tabpanel"
+              aria-labelledby="plan-builder-tab-catalog"
+              className="flex-1 min-h-0 h-full max-h-full overflow-hidden flex flex-col"
+            >
               <CatalogPane
                 {...catalogProps}
                 className="flex-1 min-h-0 h-full max-h-full overflow-hidden"
               />
-            ) : (
+            </div>
+          ) : (
+            <div
+              id="plan-builder-panel-plan"
+              role="tabpanel"
+              aria-labelledby="plan-builder-tab-plan"
+              className="flex-1 min-h-0 h-full max-h-full overflow-hidden flex flex-col"
+            >
               <ActivePlanPane
                 {...planProps}
                 className="flex-1 min-h-0 h-full max-h-full overflow-hidden"
               />
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
-        {/* Footer — sticky actions */}
+        {/* Footer — sticky actions only */}
         <footer
-          className="px-4 sm:px-6 py-3 border-t shrink-0 flex flex-col gap-3"
+          className="px-4 sm:px-6 py-2.5 border-t shrink-0 flex flex-col gap-2"
           style={{ background: '#f8fafc', borderColor: '#e2e8f0' }}
         >
-          <div className="w-full">
-            <label
-              htmlFor="plan-change-summary"
-              className="block text-xs font-semibold text-slate-600 mb-1"
-            >
-              סיכום השינויים
-            </label>
-            <textarea
-              id="plan-change-summary"
-              value={changeSummary}
-              onChange={(e) => setChangeSummary(e.target.value)}
-              rows={2}
-              placeholder="קצר — יישמר בגרסת התוכנית בענן (אופציונלי)"
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-400/40 bg-white resize-none"
-            />
-          </div>
           {!supabaseConfigured && (
             <p className="text-xs text-amber-700 flex items-start gap-1.5">
               <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden />
@@ -483,10 +415,10 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
                   const res = await saveExercisePlanForPatientToCloud(
                     selectedPatient.id,
                     latestExercises,
-                    { changeSummary: changeSummary.trim(), forceSave: true }
+                    { forceSave: true }
                   );
                   if (res.ok) {
-                    setMobilePane('plan');
+                    setActivePane('plan');
                     showSuccess('נשמר לענן בהצלחה (exercise_plans).');
                     devLog('[ManagePlanModal] exercise plan saved to cloud', {
                       patientRef: redactId(selectedPatient.id),
