@@ -1035,12 +1035,14 @@ export default function PatientOverview() {
           </ErrorBoundary>
         )}
 
-        <TherapistClinicalConsultantFAB
-          key={p.id}
-          patient={p}
-          safetyAlertsForPatient={safetyAlertsForSelected}
-          exerciseSafetyLocked={isPatientExerciseSafetyLocked(p.id)}
-        />
+        {!showManageModal && (
+          <TherapistClinicalConsultantFAB
+            key={p.id}
+            patient={p}
+            safetyAlertsForPatient={safetyAlertsForSelected}
+            exerciseSafetyLocked={isPatientExerciseSafetyLocked(p.id)}
+          />
+        )}
       </div>
     </div>
   );

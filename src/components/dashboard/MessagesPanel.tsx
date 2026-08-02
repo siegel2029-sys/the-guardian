@@ -160,7 +160,7 @@ function MessagesPanelContent({
         style={embedded ? { maxHeight: embeddedMessageMaxHeight } : undefined}
         aria-label="היסטוריית הודעות"
       >
-        <div className="max-w-4xl mx-auto w-full space-y-3 pb-2">
+        <div className="max-w-7xl mx-auto w-full space-y-3 pb-2">
           {embedded && olderMessageCount > 0 && (
             <p className="sticky top-0 z-10 text-center text-[10px] font-semibold text-slate-400 bg-[#f8fafc]/95 py-1.5 rounded-lg border border-dashed border-slate-200">
               {olderMessageCount} הודעות קודמות — גללו למעלה
@@ -256,7 +256,7 @@ function MessagesPanelContent({
         style={{ background: 'rgba(255,255,255,0.98)' }}
       >
         <form
-          className={`mx-auto space-y-2 ${embedded ? 'max-w-none' : 'max-w-3xl'}`}
+          className={`mx-auto space-y-2 ${embedded ? 'max-w-none' : 'max-w-5xl'}`}
           onSubmit={(e) => {
             e.preventDefault();
             handleSend();

@@ -544,7 +544,7 @@ export default function ClinicalAiIntakeWizard({
         className={`w-full overflow-hidden flex flex-col rounded-2xl bg-white shadow-2xl border border-teal-100 ${
           spaciousIntakeLayout
             ? 'max-w-3xl h-[min(96dvh,920px)]'
-            : 'max-w-lg max-h-[90vh]'
+            : 'max-w-lg md:max-w-3xl max-h-[90vh] md:h-[min(96dvh,920px)]'
         }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"

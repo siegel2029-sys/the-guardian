@@ -71,7 +71,7 @@ export default function TherapistSettingsPanel() {
 
   return (
     <div className="h-full overflow-y-auto p-6" dir="rtl">
-      <div className="max-w-lg mx-auto">
+      <div className="max-w-3xl mx-auto">
         <div className="flex items-center gap-2 mb-2">
           <Shield className="w-6 h-6 text-teal-600" />
           <h2 className="text-lg font-bold text-slate-800">הגדרות מטפל</h2>

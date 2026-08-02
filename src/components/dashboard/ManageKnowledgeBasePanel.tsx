@@ -83,7 +83,7 @@ export default function ManageKnowledgeBasePanel() {
 
   return (
     <div className="h-full overflow-y-auto p-6" dir="rtl" style={{ background: '#f1f5f9' }}>
-      <header className="mb-6 max-w-4xl mx-auto">
+      <header className="mb-6 max-w-7xl mx-auto">
         <div className="flex items-center gap-2 text-teal-700 mb-1">
           <BookOpen className="w-5 h-5 shrink-0" />
           <span className="text-xs font-bold uppercase tracking-wide">ניהול תוכן קליני</span>
@@ -136,7 +136,7 @@ export default function ManageKnowledgeBasePanel() {
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto space-y-5">
+      <div className="max-w-7xl mx-auto space-y-5">
         <form
           onSubmit={submitAdd}
           className="rounded-2xl border border-teal-100 bg-white p-5 shadow-sm space-y-4"
