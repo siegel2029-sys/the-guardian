@@ -87,7 +87,24 @@ export type PatientExerciseSlice = {
     updates: Partial<
       Pick<
         PatientExercise,
-        'patientReps' | 'patientSets' | 'patientWeightKg' | 'isOptional' | 'customInstructions' | 'instructions'
+        | 'patientReps'
+        | 'patientSets'
+        | 'patientWeightKg'
+        | 'holdSeconds'
+        | 'isOptional'
+        | 'customInstructions'
+        | 'instructions'
+        | 'videoUrl'
+        | 'name'
+        | 'muscleGroup'
+        | 'muscleGroups'
+        | 'targetArea'
+        | 'targetAreas'
+        | 'sets'
+        | 'reps'
+        | 'type'
+        | 'difficulty'
+        | 'xpReward'
       >
     >
   ) => void;

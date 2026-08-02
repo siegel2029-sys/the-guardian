@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Plus, Wand2, AlertCircle, Clock, RotateCcw } from 'lucide-react';
-import type { BodyArea, ExerciseDifficulty } from '../../types';
+import type { BodyArea, Exercise, ExerciseDifficulty } from '../../types';
 import { PortalMultiSelect } from '../ui/PortalDropdown';
 import ExerciseVideoUrlField from './ExerciseVideoUrlField';
+import ExerciseCatalogCombobox from './ExerciseCatalogCombobox';
 import { formatTime } from '../../utils/formatExerciseTime';
 import {
   ALL_BODY_AREAS,
@@ -56,13 +57,47 @@ export default function CustomExerciseForm({
   const set = <K extends keyof CustomFormData>(key: K, value: CustomFormData[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  /** SAFEGUARD 1: clearing video when the exercise name changes prevents mismatched clips. */
+  /** SAFEGUARD: clearing video when the free-text name changes prevents mismatched clips. */
   const setName = (name: string) => {
     setForm((prev) => {
       if (prev.name !== name && prev.videoUrl.trim()) {
         return { ...prev, name, videoUrl: '' };
       }
       return { ...prev, name };
+    });
+  };
+
+  /** Autofill from catalog suggestion — keeps isOptional as the therapist left it. */
+  const applyCatalogSelection = (cat: Exercise) => {
+    const isTime =
+      cat.holdSeconds != null &&
+      cat.holdSeconds > 0 &&
+      (cat.reps == null || cat.reps === 0);
+    const totalSec = cat.holdSeconds ?? 30;
+    setForm((prev) => ({
+      ...prev,
+      name: cat.name.slice(0, 60),
+      muscleGroups: cat.muscleGroups?.length
+        ? [...cat.muscleGroups]
+        : [cat.muscleGroup],
+      targetAreas: cat.targetAreas?.length
+        ? [...cat.targetAreas]
+        : [cat.targetArea],
+      sets: Math.max(1, cat.sets || 3),
+      mode: isTime ? 'time' : 'reps',
+      reps: cat.reps && cat.reps > 0 ? cat.reps : 10,
+      minutes: isTime ? Math.floor(totalSec / 60) : 0,
+      seconds: isTime ? totalSec % 60 : 30,
+      difficulty: cat.difficulty,
+      instructions: (cat.instructions ?? '').slice(0, 400),
+      videoUrl: cat.videoUrl ?? '',
+    }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.name;
+      delete next.muscleGroups;
+      delete next.targetAreas;
+      return next;
     });
   };
 
@@ -114,16 +149,17 @@ export default function CustomExerciseForm({
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-slate-600 mb-1 block">
-              שם התרגיל <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
+            <ExerciseCatalogCombobox
+              id="custom-exercise-name"
+              label="שם התרגיל"
+              required
               value={form.name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder='לדוגמה: "הרמת רגל עם משקל"'
-              className={inputClass(errors.name)}
+              onChange={setName}
+              onSelectCatalog={applyCatalogSelection}
+              placeholder='חיפוש בקטלוג או שם מותאם — לדוגמה "הרמת רגל"'
               maxLength={60}
+              error={Boolean(errors.name)}
+              inputClassName={inputClass(errors.name) + ' ps-9 font-semibold'}
             />
             {errors.name && (
               <p className="text-[10px] text-red-500 mt-0.5 flex items-center gap-1">

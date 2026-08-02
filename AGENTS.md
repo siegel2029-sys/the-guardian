@@ -135,18 +135,18 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — patient workout scroll lock, editable plan titles, mandatory feedback scales._
+_Idle — catalog-linked exercise title combobox landed._
 
 ### Completed Steps (recent)
 
-- Patient workout: `useBodyScrollLock` on video/feedback modals + iOS boundary-aware `touchmove` in `bodyScrollLock`.
-- `PlanExerciseRow`: expanded title input for all exercises; rename auto-clears video URL with amber notice.
-- Post-workout feedback: discrete 1–10 scales start empty (`null`); submit disabled until both selected.
+- `ExerciseCatalogCombobox`: portal dropdown, catalog filter, free-text + arrow/Enter select.
+- Wired into `PlanExerciseRow` + `CustomExerciseForm`; selection autofills title/video/instructions/muscles/dose.
+- Expanded `updateExerciseInPlan` / `PlanExerciseFieldUpdates` for catalog field patches.
 
 ### Next Action Items
 
-1. Smoke-test mobile: open workout → background frozen; expand plan row → rename clears video.
-2. Smoke-test feedback: no preselected pain/RPE; submit stays disabled until taps.
+1. Smoke-test: type in plan row title → pick suggestion → video/instructions/muscle fill.
+2. Smoke-test custom form «מותאם»: select catalog match → all fields fill; free-text still works.
 3. Redeploy client; verify catalog `default_video_url` → new plan exercise URL; old plans unchanged.
 4. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
 5. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed; lazy-load gear armory + portal modal stack.

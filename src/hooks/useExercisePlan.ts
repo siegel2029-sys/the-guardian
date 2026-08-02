@@ -295,6 +295,15 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           | 'instructions'
           | 'videoUrl'
           | 'name'
+          | 'muscleGroup'
+          | 'muscleGroups'
+          | 'targetArea'
+          | 'targetAreas'
+          | 'sets'
+          | 'reps'
+          | 'type'
+          | 'difficulty'
+          | 'xpReward'
         >
       >
     ) => {

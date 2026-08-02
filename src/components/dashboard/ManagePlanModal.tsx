@@ -17,6 +17,7 @@ import { devError, devLog, redactId } from '../../lib/safeLog';
 import CustomExerciseForm, { type CustomFormData } from './CustomExerciseForm';
 import CatalogPane, { CustomExerciseModalShell } from './CatalogPane';
 import ActivePlanPane from './ActivePlanPane';
+import type { PlanExerciseFieldUpdates } from './planBuilderShared';
 
 /** Re-export for existing consumers that import formatTime from this module. */
 export { formatTime };
@@ -155,18 +156,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
 
   const handlePlanExerciseUpdate = (
     exerciseId: string,
-    updates: Partial<
-      Pick<
-        PatientExercise,
-        | 'patientReps'
-        | 'patientSets'
-        | 'isOptional'
-        | 'customInstructions'
-        | 'instructions'
-        | 'videoUrl'
-        | 'name'
-      >
-    >
+    updates: PlanExerciseFieldUpdates
   ) => {
     flushSync(() => {
       updateExerciseInPlan(selectedPatient.id, exerciseId, updates);

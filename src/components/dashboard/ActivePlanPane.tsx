@@ -1,26 +1,13 @@
 import { Check, ClipboardList } from 'lucide-react';
 import type { PatientExercise } from '../../types';
 import PlanExerciseRow from './PlanExerciseRow';
+import type { PlanExerciseFieldUpdates } from './planBuilderShared';
 
 export interface ActivePlanPaneProps {
   exercises: PatientExercise[];
   successMsg?: string | null;
   onRemove: (exerciseId: string) => void;
-  onUpdate: (
-    exerciseId: string,
-    updates: Partial<
-      Pick<
-        PatientExercise,
-        | 'patientReps'
-        | 'patientSets'
-        | 'isOptional'
-        | 'customInstructions'
-        | 'instructions'
-        | 'videoUrl'
-        | 'name'
-      >
-    >
-  ) => void;
+  onUpdate: (exerciseId: string, updates: PlanExerciseFieldUpdates) => void;
   onRegisterPendingFlush?: (flush: () => void) => () => void;
   className?: string;
 }

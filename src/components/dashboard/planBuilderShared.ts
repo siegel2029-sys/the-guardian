@@ -1,5 +1,30 @@
-import type { BodyArea } from '../../types';
+import type { BodyArea, PatientExercise } from '../../types';
 import { bodyAreaLabels } from '../../types';
+
+/** Fields therapists may patch on a plan row (dose, copy, catalog autofill). */
+export type PlanExerciseFieldUpdates = Partial<
+  Pick<
+    PatientExercise,
+    | 'patientReps'
+    | 'patientSets'
+    | 'patientWeightKg'
+    | 'holdSeconds'
+    | 'isOptional'
+    | 'customInstructions'
+    | 'instructions'
+    | 'videoUrl'
+    | 'name'
+    | 'muscleGroup'
+    | 'muscleGroups'
+    | 'targetArea'
+    | 'targetAreas'
+    | 'sets'
+    | 'reps'
+    | 'type'
+    | 'difficulty'
+    | 'xpReward'
+  >
+>;
 
 export const MUSCLE_GROUPS_FILTER = ['הכל', 'גב תחתון', 'ליבה', 'ברך', 'ירך', 'כתף', 'קרסול'];
 export const MUSCLE_GROUPS_SELECT = [

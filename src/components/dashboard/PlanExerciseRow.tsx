@@ -2,15 +2,17 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Trash2, Pencil, Check, ChevronDown, ChevronUp, Sparkles, Film,
 } from 'lucide-react';
-import type { PatientExercise } from '../../types';
+import type { Exercise, PatientExercise } from '../../types';
 import { formatTime } from '../../utils/formatExerciseTime';
 import {
   formatExerciseBodyAreaLabels,
   formatExerciseMuscleGroups,
 } from '../../utils/exerciseTargeting';
 import ExerciseVideoUrlField from './ExerciseVideoUrlField';
+import ExerciseCatalogCombobox from './ExerciseCatalogCombobox';
 import {
   INSTRUCTIONS_MAX_LEN,
+  type PlanExerciseFieldUpdates,
   typeBg,
   typeText,
   typeLabel,
@@ -19,22 +21,33 @@ import {
 export interface PlanExerciseRowProps {
   exercise: PatientExercise;
   onRemove: () => void;
-  onUpdate: (
-    updates: Partial<
-      Pick<
-        PatientExercise,
-        | 'patientReps'
-        | 'patientSets'
-        | 'isOptional'
-        | 'customInstructions'
-        | 'instructions'
-        | 'videoUrl'
-        | 'name'
-      >
-    >
-  ) => void;
+  onUpdate: (updates: PlanExerciseFieldUpdates) => void;
   /** Parent calls registered flushes before global Save (draft may lag exercisePlans state). */
   onRegisterPendingFlush?: (flush: () => void) => () => void;
+}
+
+function catalogToPlanUpdates(cat: Exercise): PlanExerciseFieldUpdates {
+  const isTimeBased =
+    cat.holdSeconds != null && cat.holdSeconds > 0 && (cat.reps == null || cat.reps === 0);
+  const patientSets = Math.max(1, cat.sets || 1);
+  const patientReps = isTimeBased ? 0 : Math.max(1, cat.reps ?? 10);
+  return {
+    name: cat.name,
+    videoUrl: cat.videoUrl ?? '',
+    instructions: (cat.instructions ?? '').slice(0, INSTRUCTIONS_MAX_LEN),
+    muscleGroup: cat.muscleGroup,
+    muscleGroups: cat.muscleGroups?.length ? [...cat.muscleGroups] : [cat.muscleGroup],
+    targetArea: cat.targetArea,
+    targetAreas: cat.targetAreas?.length ? [...cat.targetAreas] : [cat.targetArea],
+    sets: cat.sets,
+    reps: cat.reps,
+    holdSeconds: cat.holdSeconds,
+    patientSets,
+    patientReps,
+    type: cat.type,
+    difficulty: cat.difficulty,
+    xpReward: cat.xpReward,
+  };
 }
 
 export default function PlanExerciseRow({
@@ -109,7 +122,7 @@ export default function PlanExerciseRow({
     [onUpdate]
   );
 
-  /** SAFEGUARD: renaming clears videoUrl so catalog clips cannot stay mismatched. */
+  /** Free-text rename: clears videoUrl so catalog clips cannot stay mismatched. */
   const persistExerciseName = useCallback(
     (raw: string) => {
       const next = raw.slice(0, 60);
@@ -127,6 +140,20 @@ export default function PlanExerciseRow({
       }
     },
     [exercise.name, exercise.videoUrl, videoUrlDraft, onUpdate]
+  );
+
+  const applyCatalogSelection = useCallback(
+    (cat: Exercise) => {
+      const updates = catalogToPlanUpdates(cat);
+      setNameDraft(cat.name);
+      setVideoUrlDraft(cat.videoUrl ?? '');
+      setInstructionsDraft((cat.instructions ?? '').slice(0, INSTRUCTIONS_MAX_LEN));
+      setEditSets(updates.patientSets ?? exercise.patientSets);
+      setEditReps(updates.patientReps ?? exercise.patientReps);
+      setVideoClearedByNameChange(false);
+      onUpdate(updates);
+    },
+    [onUpdate, exercise.patientSets, exercise.patientReps]
   );
 
   const persistInstructionsFromDraft = useCallback(
@@ -273,28 +300,18 @@ export default function PlanExerciseRow({
       {expanded && (
         <div className="border-t border-teal-100/80 px-3 pb-3 pt-2 space-y-3 bg-white/70">
           <div className="min-w-0">
-            <label
-              htmlFor={nameFieldId}
-              className="text-xs font-medium text-slate-600 mb-1 block"
-            >
-              שם התרגיל
-            </label>
-            <input
+            <ExerciseCatalogCombobox
               id={nameFieldId}
-              type="text"
+              label="שם התרגיל"
               value={nameDraft}
-              onChange={(e) => persistExerciseName(e.target.value)}
-              onBlur={() => {
-                const trimmed = nameDraft.trim();
-                if (!trimmed) setNameDraft(exercise.name);
-              }}
+              onChange={persistExerciseName}
+              onSelectCatalog={applyCatalogSelection}
+              placeholder="חיפוש בקטלוג או שם מותאם…"
               maxLength={60}
-              placeholder="שם התרגיל"
-              className="w-full min-w-0 px-3 py-2 text-sm font-semibold rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-400/25"
             />
             {videoClearedByNameChange && (
               <p className="mt-1 text-[11px] text-amber-700 leading-snug" role="status">
-                קישור הסרטון נוקה כי שם התרגיל השתנה — הדביקו קישור מעודכן אם נדרש.
+                קישור הסרטון נוקה כי שם התרגיל השתנה — בחרו מהקטלוג או הדביקו קישור מעודכן.
               </p>
             )}
           </div>
