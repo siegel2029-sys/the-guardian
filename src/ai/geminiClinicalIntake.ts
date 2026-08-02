@@ -7,8 +7,12 @@ import type {
   ProtocolTrackingState,
   TreatmentProtocolWeek,
 } from '../types';
-import { EXERCISE_LIBRARY } from '../data/mockData';
-import { getExerciseBankIdListForPrompt } from '../data/exerciseBank';
+import {
+  ensureExerciseBankPrefetched,
+  findExerciseInBank,
+  getExerciseBank,
+  getExerciseBankIdListForPrompt,
+} from '../data/exerciseBank';
 import { filterToJointBodyAreas, JOINT_BODY_AREAS } from '../body/jointBodyAreas';
 import {
   geminiGenerateText,
@@ -28,7 +32,9 @@ export { getGeminiApiKey, GeminiRateLimitedError } from './geminiClient';
 
 const LOG_PREFIX = '[GeminiClinicalIntake]';
 
-const VALID_LIB_IDS = new Set(EXERCISE_LIBRARY.map((e) => e.id));
+function validLibIds(): Set<string> {
+  return new Set(getExerciseBank().map((e) => e.id));
+}
 
 /** Raw JSON shape from the model (strings before validation). */
 export type GeminiClinicalCaseRaw = {
@@ -257,12 +263,13 @@ function normalizeClinicalCase(raw: unknown): GeminiClinicalIntakeResult {
   const suggestedAnswers = asStringArray(o.suggestedAnswers, 15);
 
   const rawIds = asStringArray(o.exerciseLibraryIds, 10);
+  const allowed = validLibIds();
   const exerciseLibraryIds = [
-    ...new Set(rawIds.filter((id) => VALID_LIB_IDS.has(id))),
+    ...new Set(rawIds.filter((id) => allowed.has(id))),
   ].slice(0, 5);
 
   const proposedExercises: Exercise[] = exerciseLibraryIds
-    .map((id) => EXERCISE_LIBRARY.find((e) => e.id === id))
+    .map((id) => findExerciseInBank(id))
     .filter((e): e is Exercise => e != null);
 
   const redFlagDetected = inferRedFlagDetected(redFlags, redFlagAnalysis);
@@ -343,6 +350,8 @@ export async function analyzeIntakeStoryWithGemini(
     nameTokens,
     initials
   );
+  // Ensure in-memory catalog is warm before building the prompt (single-flight prefetch).
+  await ensureExerciseBankPrefetched();
   const catalog = getExerciseBankIdListForPrompt();
   const jointIds = [...JOINT_BODY_AREAS].join(', ');
   const modelId = getGeminiModelId();

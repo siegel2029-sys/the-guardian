@@ -11,8 +11,8 @@ import {
   usePatientExercisePlans,
   usePatientCloudSync,
 } from '../../context/patientDomainHooks';
-import { EXERCISE_LIBRARY } from '../../data/mockData';
-import type { PatientExercise, BodyArea, ExerciseDifficulty } from '../../types';
+import { useExerciseCatalog } from '../../hooks/useExerciseCatalog';
+import type { Exercise, PatientExercise, BodyArea, ExerciseDifficulty } from '../../types';
 import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { normalizeCachedPatientExercises, pickCanonicalExercisePlan } from '../../utils/exercisePlanCanonical';
@@ -897,7 +897,7 @@ function LibraryToggleRow({
   onAdd,
   onRemove,
 }: {
-  exercise: (typeof EXERCISE_LIBRARY)[0];
+  exercise: Exercise;
   isAdded: boolean;
   onAdd: (isOptional: boolean) => void;
   onRemove: () => void;
@@ -1009,6 +1009,9 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     supabaseSyncStatus,
     supabaseSyncError,
   } = usePatientCloudSync();
+  const { activeExercises: exerciseLibrary } = useExerciseCatalog({
+    includeInactive: false,
+  });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeGroup, setActiveGroup] = useState('הכל');
@@ -1033,9 +1036,10 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
   const currentExercises = useMemo(() => plan?.exercises ?? [], [plan]);
   const patientId = selectedPatient?.id ?? '';
 
-  /** Sync library video URLs into in-memory plan when opening (legacy DB rows → EXERCISE_LIBRARY). */
+  /** Sync catalog video URLs into in-memory plan when opening (legacy DB rows → exercise_catalog cache). */
   useEffect(() => {
     if (!selectedPatient) return;
+    if (!exerciseLibrary.length) return;
     const rawPlan = pickCanonicalExercisePlan(exercisePlans, selectedPatient.id);
     if (!rawPlan?.exercises.length) return;
     const merged = normalizeCachedPatientExercises(rawPlan.exercises);
@@ -1044,7 +1048,12 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     );
     if (!videoUrlsChanged) return;
     replaceExercisePlanForPatient(selectedPatient.id, merged);
-  }, [selectedPatient?.id, exercisePlans, replaceExercisePlanForPatient]);
+  }, [
+    selectedPatient?.id,
+    exercisePlans,
+    replaceExercisePlanForPatient,
+    exerciseLibrary.length,
+  ]);
 
   const currentIds = useMemo(() => {
     if (!patientId) return new Set<string>();
@@ -1055,7 +1064,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
 
   const filteredLibrary = useMemo(
     () =>
-      EXERCISE_LIBRARY.filter((ex) => {
+      exerciseLibrary.filter((ex) => {
         const matchGroup = activeGroup === 'הכל' || ex.muscleGroup === activeGroup;
         const q = searchQuery.trim();
         const areaLabel = bodyAreaLabels[ex.targetArea];
@@ -1066,7 +1075,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
           areaLabel.includes(q);
         return matchGroup && matchSearch;
       }),
-    [activeGroup, searchQuery]
+    [activeGroup, searchQuery, exerciseLibrary]
   );
 
   const isAddedToLibrary = (libId: string) =>

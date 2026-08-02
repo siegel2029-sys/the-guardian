@@ -9,9 +9,11 @@ export const mockAiSuggestions: never[] = [];
 export const mockTherapist = { id: 'therapist-001', email: '', name: '', title: '', avatarInitials: '', clinicName: '' };
 export const mockTherapistB = { id: 'therapist-002', email: '', name: '', title: '', avatarInitials: '', clinicName: '' };
 
-// ── Global Exercise Library ───────────────────────────────────────
-// כל תרגיל כולל videoUrl; ברירת המחדל ב-exerciseVideoDefaults.ts
+// ── Legacy static Exercise Library (seed source only) ─────────────
+// Runtime catalog is Supabase `exercise_catalog` via exerciseCatalogService.
+// Kept for scripts/generate-exercise-catalog-seed.ts regen only — do not import in app UI/AI.
 
+/** @deprecated Use exercise_catalog / getCachedActiveExercises(). Seed generator only. */
 export const EXERCISE_LIBRARY: Exercise[] = [
   
  // ---------------------------------------------------------

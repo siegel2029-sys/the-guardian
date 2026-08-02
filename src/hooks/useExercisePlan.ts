@@ -20,7 +20,7 @@ import type {
   SelfCareSessionReport,
 } from '../types';
 import { bodyAreaLabels } from '../types';
-import { EXERCISE_LIBRARY } from '../data/mockData';
+import { getCachedActiveExercises } from '../services/exerciseCatalogService';
 import { addClinicalDays, getClinicalDate, getClinicalYesterday } from '../utils/clinicalCalendar';
 import { getTherapistAlertEmail, openClinicalMailto } from '../utils/clinicalAlertEmail';
 import { medicalHistoryToProfileMetadata } from '../utils/clinicalIntakeTemplate';
@@ -1060,7 +1060,9 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       libraryExerciseIds: string[],
       extras?: InitialClinicalProfileExtras
     ) => {
-      const lib = EXERCISE_LIBRARY.filter((e) => libraryExerciseIds.includes(e.id));
+      const lib = getCachedActiveExercises().filter((e) =>
+        libraryExerciseIds.includes(e.id)
+      );
       const addedAt = new Date().toISOString();
       const newExercises: PatientExercise[] = lib.map((exercise, i) => ({
         ...exercise,

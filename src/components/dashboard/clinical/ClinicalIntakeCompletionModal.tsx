@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Stethoscope, Check, UserRoundPen, FileText } from 'lucide-react';
 import type { BodyArea, Patient, PatientClinicalIntakeProfile, PatientExercise } from '../../../types';
 import { bodyAreaLabels } from '../../../types';
-import { EXERCISE_LIBRARY } from '../../../data/mockData';
+import { getCachedActiveExercises } from '../../../services/exerciseCatalogService';
 import { exerciseMatchesPrimary } from '../../../utils/clinicalBodyArea';
 import {
   resolveCoreLegacyIntakeSummaryText,
@@ -51,7 +51,7 @@ function mergeCompletionProfile(patient: Patient) {
 }
 
 function libraryIdsFromPlanExercises(exercises: PatientExercise[]): string[] {
-  const libIds = EXERCISE_LIBRARY.map((e) => e.id);
+  const libIds = getCachedActiveExercises().map((e) => e.id);
   const found: string[] = [];
   for (const pe of exercises) {
     for (const lid of libIds) {
@@ -90,7 +90,8 @@ export default function ClinicalIntakeCompletionModal({
     const primary = patient.primaryBodyArea;
     let libIds = libraryIdsFromPlanExercises(planExercises);
     if (libIds.length === 0) {
-      libIds = EXERCISE_LIBRARY.filter((ex) => exerciseMatchesPrimary(ex, primary))
+      libIds = getCachedActiveExercises()
+        .filter((ex) => exerciseMatchesPrimary(ex, primary))
         .slice(0, 4)
         .map((e) => e.id);
     }

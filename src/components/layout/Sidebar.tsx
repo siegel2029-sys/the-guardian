@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Settings,
   BookOpen,
+  Dumbbell,
   LogOut,
   User,
   Bell,
@@ -34,6 +35,7 @@ const navItems: { id: NavSection; label: string; icon: React.ComponentType<{ cla
   { id: 'clinical', label: 'דוחות קליניים', icon: FileText },
   { id: 'analytics', label: 'היסטוריה ואנליטיקה', icon: BarChart3 },
   { id: 'knowledge', label: 'בסיס ידע', icon: BookOpen },
+  { id: 'exerciseCatalog', label: 'קטלוג תרגילים', icon: Dumbbell },
   { id: 'messages', label: 'הודעות וצ׳אט', icon: MessageSquare },
   { id: 'settings', label: 'הגדרות', icon: Settings },
 ];

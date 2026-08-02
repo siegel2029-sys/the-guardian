@@ -1,5 +1,5 @@
 import type { ExercisePlan, Patient, PatientExercise } from '../types';
-import { EXERCISE_LIBRARY } from '../data/mockData';
+import { getCachedCatalogByIdMap } from '../services/exerciseCatalogService';
 import {
   DEFAULT_EXERCISE_DEMO_VIDEO_URL,
   DEMO_VIDEO_URL_L1,
@@ -8,8 +8,6 @@ import {
 } from '../data/exerciseVideoDefaults';
 
 const LIBRARY_EXERCISE_ID_RE = /lib-[a-z]{2}-\d{2}/;
-
-const EXERCISE_LIBRARY_BY_ID = new Map(EXERCISE_LIBRARY.map((ex) => [ex.id, ex]));
 
 const LEGACY_DEMO_VIDEO_URLS = new Set([
   DEFAULT_EXERCISE_DEMO_VIDEO_URL,
@@ -40,11 +38,13 @@ export function isOutdatedExerciseVideoUrl(url: string | undefined | null): bool
 /**
  * Resolve display/persist video URL for a plan exercise.
  * - Explicit empty string (`''`) = therapist cleared → keep empty (no DEFAULT injection).
- * - Missing/undefined + library match → prefer library (incl. hosted upgrades over legacy demos).
- * - Non-empty legacy demos → upgrade from EXERCISE_LIBRARY when available.
+ * - Missing/undefined + library match → prefer catalog (incl. hosted upgrades over legacy demos).
+ * - Non-empty legacy demos → upgrade from exercise_catalog cache when available.
+ * - Optional `catalogById` injects a map; otherwise uses the in-memory catalog cache.
  */
 export function resolveExerciseVideoUrl(
-  exercise: Pick<PatientExercise, 'id' | 'videoUrl'>
+  exercise: Pick<PatientExercise, 'id' | 'videoUrl'>,
+  catalogById?: Map<string, { videoUrl: string }>
 ): string {
   // Intentional clear — do not re-inject library or demo URLs.
   if (typeof exercise.videoUrl === 'string' && !exercise.videoUrl.trim()) {
@@ -53,7 +53,8 @@ export function resolveExerciseVideoUrl(
 
   const stored = (exercise.videoUrl ?? '').trim();
   const libId = resolveLibraryExerciseId(exercise.id);
-  const libEntry = libId ? EXERCISE_LIBRARY_BY_ID.get(libId) : undefined;
+  const map = catalogById ?? getCachedCatalogByIdMap();
+  const libEntry = libId ? map.get(libId) : undefined;
   const libraryUrl = libEntry?.videoUrl?.trim() ?? '';
 
   if (libraryUrl) {

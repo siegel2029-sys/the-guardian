@@ -135,19 +135,19 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — Exercise plan videoUrl workflow (Option 2) landed._
+_Idle — exercise_catalog DB migration landed._
 
 ### Completed Steps (recent)
 
-- Therapist plan builder: per-exercise video URL field with clear (X), library auto-fill, name-change auto-clear, and preview modal; persists `videoUrl` in `exercise_plans.exercises` JSONB.
-- `resolveExerciseVideoUrl` preserves intentional empty clears (no DEFAULT flower re-inject); patient `ExerciseVideoTimerModal` hardened with `preload="metadata"`, responsive player, and load-error fallback.
-- Prior: New Patient RLS (`app_metadata.role=therapist`) + Body Map mobile GPU path.
+- Migrated `EXERCISE_LIBRARY` → Supabase `exercise_catalog` (schema + RLS + deterministic SQL seed of 150 rows); therapist CRUD panel with virtualized list; in-memory catalog cache for AI/plan builder.
+- `ManagePlanModal` + clinical AI consumers read from cached catalog (`default_video_url` → plan `videoUrl` on add); catalog edits do not rewrite existing patient plans.
+- Prior: plan builder videoUrl field, intentional clear safeguards, New Patient RLS + Body Map mobile GPU path.
 
 ### Next Action Items
 
-1. Therapist: hard-refresh/re-login once so JWT picks up `role=therapist`; confirm New Patient → clinical intake.
-2. Redeploy client (Auth claim gate + exercise video URL UI + Body Map mobile opts).
-3. Smoke-test: library add → prefilled URL → preview → clear → save → patient sees no player; custom name change clears URL.
+1. Redeploy client; open **קטלוג תרגילים** → edit a `default_video_url` → add that exercise to a new patient plan and confirm the new URL; confirm an old plan is unchanged.
+2. Smoke-test: deactivate catalog row → hidden from ManagePlanModal library; reactivate restores it.
+3. Therapist: hard-refresh/re-login once so JWT picks up `role=therapist` if New Patient still fails.
 4. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
 5. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed; lazy-load gear armory + portal modal stack.
 

@@ -2,7 +2,7 @@
  * Compact exercise catalog for Clinical AI Insights — filtered by plan target areas.
  */
 
-import { EXERCISE_LIBRARY } from '../data/mockData';
+import { getCachedActiveExercises, getCachedExerciseById } from '../services/exerciseCatalogService';
 import {
   STRENGTH_EXERCISE_CHAINS,
   type StrengthExerciseLevelDef,
@@ -133,7 +133,7 @@ export function buildClinicalExerciseCatalog(
     }
   }
 
-  for (const lib of EXERCISE_LIBRARY) {
+  for (const lib of getCachedActiveExercises()) {
     if (!relevantAreas.has(lib.targetArea)) continue;
     if (seen.has(lib.id) || planAlreadyContainsCatalogId(planExercises, lib.id)) continue;
     seen.add(lib.id);
@@ -152,7 +152,7 @@ export function findCatalogExerciseById(
   bodyArea: BodyArea;
   source: 'library' | 'strength_chain';
 } | null {
-  const lib = EXERCISE_LIBRARY.find((e) => e.id === catalogId);
+  const lib = getCachedExerciseById(catalogId);
   if (lib) return { exercise: lib, bodyArea: lib.targetArea, source: 'library' };
 
   for (const chain of STRENGTH_EXERCISE_CHAINS) {

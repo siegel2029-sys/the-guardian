@@ -3,7 +3,7 @@
  * מזהה אזורי גוף, רמות כאב ומטרות, ומתאים תרגילים מספריית המערכת.
  */
 import type { BodyArea, Exercise } from '../types';
-import { EXERCISE_LIBRARY } from '../data/mockData';
+import { getCachedActiveExercises } from '../services/exerciseCatalogService';
 
 export type ClinicalGoalTag =
   | 'rom'
@@ -147,7 +147,7 @@ function extractPainLevels(text: string): number[] {
 }
 
 function exercisesForArea(area: BodyArea): Exercise[] {
-  return EXERCISE_LIBRARY.filter((e) => e.targetArea === area);
+  return getCachedActiveExercises().filter((e) => e.targetArea === area);
 }
 
 /** תרגילים „שכנים” קליניים (למשל ירך לשיקום ברך) */

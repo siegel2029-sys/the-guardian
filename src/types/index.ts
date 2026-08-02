@@ -550,7 +550,8 @@ export type NavSection =
   | 'analytics'
   | 'messages'
   | 'settings'
-  | 'knowledge';
+  | 'knowledge'
+  | 'exerciseCatalog';
 
 // ── Exercise System ──────────────────────────────────────────────
 

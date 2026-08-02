@@ -1,16 +1,40 @@
 /**
- * ספריית תרגילים למערכת — מקור: mockData (EXERCISE_LIBRARY).
+ * ספריית תרגילים למערכת — מקור: exercise_catalog (Supabase) דרך in-memory cache.
  * שם הקובץ תואם לציפיית ה-prompt הקליני (exerciseBank).
+ *
+ * AI / sync callers MUST use these getters (prefetched on therapist shell mount).
+ * Do not await DB inside prompt assembly.
  */
-import { EXERCISE_LIBRARY } from './mockData';
+import {
+  getCachedActiveExercises,
+  getCachedCatalogIdList,
+  getCachedExerciseById,
+  isExerciseCatalogCacheReady,
+  prefetchExerciseCatalog,
+} from '../services/exerciseCatalogService';
+import type { Exercise } from '../types';
 
-export { EXERCISE_LIBRARY };
-export const exerciseBank = EXERCISE_LIBRARY;
+/** Active catalog exercises from memory (may be empty before prefetch). */
+export function getExerciseBank(): Exercise[] {
+  return getCachedActiveExercises();
+}
 
-export function getExerciseBankIdListForPrompt(): { id: string; name: string; targetArea: string }[] {
-  return EXERCISE_LIBRARY.map((e) => ({
-    id: e.id,
-    name: e.name,
-    targetArea: e.targetArea,
-  }));
+/** @deprecated Prefer getExerciseBank() — kept for gradual call-site migration. */
+export const exerciseBank: Exercise[] = [];
+
+export function getExerciseBankIdListForPrompt(): {
+  id: string;
+  name: string;
+  targetArea: string;
+}[] {
+  return getCachedCatalogIdList();
+}
+
+export function findExerciseInBank(id: string): Exercise | undefined {
+  return getCachedExerciseById(id);
+}
+
+export function ensureExerciseBankPrefetched(): Promise<void> {
+  if (isExerciseCatalogCacheReady()) return Promise.resolve();
+  return prefetchExerciseCatalog({ includeInactive: true }).then(() => undefined);
 }

@@ -7,7 +7,8 @@ import {
   AlertTriangle,
   Loader2,
 } from 'lucide-react';
-import { EXERCISE_LIBRARY } from '../../data/mockData';
+import { getCachedActiveExercises } from '../../services/exerciseCatalogService';
+import { useExerciseCatalog } from '../../hooks/useExerciseCatalog';
 import type {
   BodyArea,
   Exercise,
@@ -213,9 +214,9 @@ async function runIntakeAnalysis(
       }
     }
     if (proposedExercises.length < 4) {
-      proposedExercises = EXERCISE_LIBRARY.filter((ex) =>
-        exerciseMatchesPrimary(ex, primaryBodyArea)
-      ).slice(0, 5);
+      proposedExercises = getCachedActiveExercises()
+        .filter((ex) => exerciseMatchesPrimary(ex, primaryBodyArea))
+        .slice(0, 5);
     }
 
     const injuryHighlightSegments: BodyArea[] = g.primaryInjuryZoneJoint
@@ -280,6 +281,7 @@ export default function ClinicalAiIntakeWizard({
   onClose,
   onSave,
 }: Props) {
+  const { activeExercises: exerciseLibrary } = useExerciseCatalog();
   const defaultStory =
     initialIntakeStory?.trim() ||
     (clinicalIntakeMode === 'create' ? CLINICAL_INTAKE_TEMPLATE_HE : '');
@@ -306,8 +308,9 @@ export default function ClinicalAiIntakeWizard({
   const [secondaryClinicalBodyAreas, setSecondaryClinicalBodyAreas] = useState<BodyArea[]>([]);
 
   const suggestedForPrimary = useMemo(
-    () => EXERCISE_LIBRARY.filter((ex) => exerciseMatchesPrimary(ex, primary)),
-    [primary]
+    () =>
+      exerciseLibrary.filter((ex) => exerciseMatchesPrimary(ex, primary)),
+    [primary, exerciseLibrary]
   );
 
   const reviewExercises = useMemo(() => {
@@ -518,7 +521,8 @@ export default function ClinicalAiIntakeWizard({
       ids = analysisBundle.proposedExercises.map((e) => e.id);
     }
     if (ids.length === 0) {
-      ids = EXERCISE_LIBRARY.filter((ex) => exerciseMatchesPrimary(ex, primary))
+      ids = exerciseLibrary
+        .filter((ex) => exerciseMatchesPrimary(ex, primary))
         .slice(0, 4)
         .map((e) => e.id);
     }

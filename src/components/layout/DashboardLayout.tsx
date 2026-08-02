@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import MobileBottomNav from './MobileBottomNav';
@@ -8,9 +8,12 @@ import ClinicalReportsPanel from '../dashboard/ClinicalReportsPanel';
 import HistoryAnalyticsPanel from '../dashboard/HistoryAnalyticsPanel';
 import TherapistSettingsPanel from '../dashboard/TherapistSettingsPanel';
 import ManageKnowledgeBasePanel from '../dashboard/ManageKnowledgeBasePanel';
+import ManageExerciseCatalogPanel from '../dashboard/ManageExerciseCatalogPanel';
 import ErrorBoundary from '../ui/error-boundary';
 import { usePatientRoster } from '../../context/patientDomainHooks';
 import { useTherapistPushInfrastructure } from '../../hooks/useTherapistPushInfrastructure';
+import { prefetchExerciseCatalog } from '../../services/exerciseCatalogService';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import type { NavSection } from '../../types';
 
 export default function DashboardLayout() {
@@ -19,6 +22,14 @@ export default function DashboardLayout() {
 
   // Refresh + persist the therapist's push subscription on dashboard open (server-validated VAPID key).
   useTherapistPushInfrastructure();
+
+  // Prefetch global exercise catalog into memory for plan builder + AI prompts (sync cache).
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    void prefetchExerciseCatalog({ includeInactive: true }).catch(() => {
+      /* non-fatal — UI/AI degrade to empty catalog until retry */
+    });
+  }, []);
 
   const openMobileDrawer = useCallback(() => setMobileDrawerOpen(true), []);
   const closeMobileDrawer = useCallback(() => setMobileDrawerOpen(false), []);
@@ -41,6 +52,8 @@ export default function DashboardLayout() {
         return <TherapistSettingsPanel />;
       case 'knowledge':
         return <ManageKnowledgeBasePanel />;
+      case 'exerciseCatalog':
+        return <ManageExerciseCatalogPanel />;
       default:
         return <PatientOverview />;
     }
