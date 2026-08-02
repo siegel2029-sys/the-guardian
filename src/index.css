@@ -901,3 +901,89 @@ html[data-a11y-font-scale='lg'] {
 html[data-a11y-font-scale='xl'] {
   font-size: 20px;
 }
+
+/* Clinical VAS / Borg slider — RTL (0 right → 10 left); empty until first tap */
+.clinical-vas-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  direction: rtl;
+  width: 100%;
+  height: 2.5rem;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.clinical-vas-slider:focus {
+  outline: none;
+}
+
+.clinical-vas-slider:focus-visible {
+  outline: 2px solid rgba(13, 148, 136, 0.45);
+  outline-offset: 2px;
+  border-radius: 9999px;
+}
+
+.clinical-vas-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+}
+
+.clinical-vas-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+}
+
+.clinical-vas-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -9px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #0d9488, #059669);
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.45);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.clinical-vas-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #0d9488, #059669);
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.45);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+/* Hidden thumb until the patient makes an explicit selection */
+.clinical-vas-slider[data-unset='true']::-webkit-slider-thumb {
+  opacity: 0;
+  transform: scale(0.5);
+  /* Keep a hittable target so the first tap registers on the thumb hit-area too */
+  pointer-events: auto;
+}
+
+.clinical-vas-slider[data-unset='true']::-moz-range-thumb {
+  opacity: 0;
+  transform: scale(0.5);
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.clinical-vas-slider[data-unset='false']::-webkit-slider-thumb {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.clinical-vas-slider[data-unset='false']::-moz-range-thumb {
+  opacity: 1;
+  transform: scale(1);
+}

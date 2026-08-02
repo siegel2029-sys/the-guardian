@@ -135,18 +135,18 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — catalog-linked exercise title combobox landed._
+_Idle — clinical VAS/Borg feedback sliders landed._
 
 ### Completed Steps (recent)
 
-- `ExerciseCatalogCombobox`: portal dropdown, catalog filter, free-text + arrow/Enter select.
-- Wired into `PlanExerciseRow` + `CustomExerciseForm`; selection autofills title/video/instructions/muscles/dose.
-- Expanded `updateExerciseInPlan` / `PlanExerciseFieldUpdates` for catalog field patches.
+- `ClinicalScaleSlider`: 0–10 track + ticks, hidden thumb until first tap, null initial state.
+- Wired into `ExerciseTrainingFeedbackModal` + `ExerciseReportModal`; submit disabled until both set.
+- Pain/effort types allow 0; `clampEffort` min updated to 0.
 
 ### Next Action Items
 
-1. Smoke-test: type in plan row title → pick suggestion → video/instructions/muscle fill.
-2. Smoke-test custom form «מותאם»: select catalog match → all fields fill; free-text still works.
+1. Smoke-test feedback: empty track, no thumb; tap → thumb appears; submit enables only then.
+2. Smoke-test catalog combobox in plan row + custom form.
 3. Redeploy client; verify catalog `default_video_url` → new plan exercise URL; old plans unchanged.
 4. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
 5. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed; lazy-load gear armory + portal modal stack.

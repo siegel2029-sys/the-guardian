@@ -145,7 +145,7 @@ export interface PatientExerciseFinishReport {
   effortScale?: 5 | 10;
   exerciseName?: string;
   zone?: string;
-  painLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  painLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   source?: ExerciseFinishReportSource;
   /** @deprecated השתמשו ב־source */
   isClinical?: boolean;

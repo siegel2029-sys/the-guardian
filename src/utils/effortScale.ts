@@ -4,7 +4,8 @@
  * Canonical scale is 1–10. Legacy records stored on 1–5 are normalized ×2 for display.
  */
 
-export type EffortLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+/** Borg / RPE 0–10 (0 = no effort). */
+export type EffortLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 export type EffortScaleVersion = 5 | 10;
 
 export const EFFORT_SCALE_MAX = 10;
@@ -24,7 +25,7 @@ export const CLINICAL_PROGRESS_PAIN_WEIGHT = 0.7;
 export const CLINICAL_PROGRESS_EFFORT_WEIGHT = 0.3;
 
 export function clampEffort(n: number): EffortLevel {
-  const r = Math.round(Math.min(EFFORT_SCALE_MAX, Math.max(1, n)));
+  const r = Math.round(Math.min(EFFORT_SCALE_MAX, Math.max(0, n)));
   return r as EffortLevel;
 }
 

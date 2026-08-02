@@ -5,11 +5,10 @@ import {
   SAFETY_EFFORT_THRESHOLD,
   type EffortLevel,
 } from '../../utils/effortScale';
-
-const PAIN_TICKS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
-const EFFORT_TICKS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+import ClinicalScaleSlider from './ClinicalScaleSlider';
 
 const EFFORT_LABELS: Record<number, string> = {
+  0: 'ללא מאמץ',
   1: 'קל מאוד',
   2: 'קל מאוד',
   3: 'קל',
@@ -26,80 +25,8 @@ interface ExerciseReportModalProps {
   exercise: PatientExercise | null;
   onClose: () => void;
   onSubmit: (painLevel: number, effortRating: number) => void | Promise<void>;
-  /** Prefill from card effort (1–10) — unused; scales start empty by design */
+  /** Prefill from card effort (0–10) — unused; scales start empty by design */
   initialEffort?: EffortLevel;
-}
-
-function DiscreteScaleButtons<T extends number>({
-  id,
-  label,
-  ticks,
-  value,
-  onSelect,
-  highRiskFrom,
-  cols = 10,
-}: {
-  id: string;
-  label: string;
-  ticks: readonly T[];
-  value: T | null;
-  onSelect: (n: T) => void;
-  highRiskFrom?: number;
-  cols?: number;
-}) {
-  return (
-    <div className="space-y-2" role="group" aria-labelledby={`${id}-label`}>
-      <div className="flex items-center justify-between gap-2">
-        <span id={`${id}-label`} className="block text-sm font-medium text-slate-700">
-          {label}
-        </span>
-        <span
-          className="text-2xl font-bold tabular-nums min-w-[1.5rem] text-center"
-          style={{
-            color:
-              value == null
-                ? '#94a3b8'
-                : highRiskFrom != null && value >= highRiskFrom
-                  ? '#dc2626'
-                  : '#0f766e',
-          }}
-          aria-live="polite"
-        >
-          {value != null ? value : '—'}
-        </span>
-      </div>
-      <div
-        className="grid gap-1"
-        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-      >
-        {ticks.map((n) => {
-          const selected = value === n;
-          const risky = highRiskFrom != null && n >= highRiskFrom;
-          return (
-            <button
-              key={n}
-              type="button"
-              aria-pressed={selected}
-              aria-label={`${label}: ${n}`}
-              onClick={() => onSelect(n)}
-              className={`h-9 rounded-lg text-[11px] font-bold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/50 ${
-                selected
-                  ? risky
-                    ? 'bg-rose-600 text-white shadow-sm'
-                    : 'bg-teal-600 text-white shadow-sm'
-                  : 'bg-teal-50 text-teal-800 hover:bg-teal-100 border border-teal-100'
-              }`}
-            >
-              {n}
-            </button>
-          );
-        })}
-      </div>
-      {value == null && (
-        <p className="text-[11px] text-slate-500">בחרו ערך בסולם כדי להמשיך</p>
-      )}
-    </div>
-  );
 }
 
 export default function ExerciseReportModal({
@@ -171,24 +98,29 @@ export default function ExerciseReportModal({
 
         <p className="px-5 pt-4 text-sm text-teal-800/90 font-medium">{exercise.name}</p>
 
-        <form onSubmit={handleSubmit} className="px-5 pb-6 pt-3 space-y-6">
-          <DiscreteScaleButtons
-            id="report-pain"
-            label="דרגת כאב בביצוע התרגיל (0–10)"
-            ticks={PAIN_TICKS}
+        <form onSubmit={handleSubmit} className="px-5 pb-6 pt-3 space-y-7">
+          <ClinicalScaleSlider
+            id="report-pain-slider"
+            label="רמת כאב"
             value={pain}
-            onSelect={setPain}
+            onChange={setPain}
+            min={0}
+            max={10}
+            minAnchor="ללא כאב"
+            maxAnchor="בלתי נסבל"
             highRiskFrom={6}
-            cols={11}
           />
 
           <div className="space-y-1">
-            <DiscreteScaleButtons
-              id="report-effort"
-              label="דרגת מאמץ (RPE 1–10)"
-              ticks={EFFORT_TICKS}
+            <ClinicalScaleSlider
+              id="report-effort-slider"
+              label="רמת מאמץ"
               value={effort}
-              onSelect={setEffort}
+              onChange={(n) => setEffort(n as EffortLevel)}
+              min={0}
+              max={10}
+              minAnchor="ללא מאמץ"
+              maxAnchor="בלתי נסבל"
               highRiskFrom={SAFETY_EFFORT_THRESHOLD}
             />
             {effort != null && (
