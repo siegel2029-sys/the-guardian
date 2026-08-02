@@ -15,6 +15,7 @@ const sectionTitles: Record<NavSection, string> = {
   messages: 'הודעות וצ׳אט',
   settings: 'הגדרות',
   knowledge: 'בסיס ידע — הידעת?',
+  exerciseCatalog: 'קטלוג תרגילים',
 };
 
 /** תאימות לסשן ישן לפני שינוי NavSection */
