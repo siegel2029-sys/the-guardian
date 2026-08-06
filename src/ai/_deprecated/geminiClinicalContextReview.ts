@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { Patient } from '../types';
 import { bodyAreaLabels } from '../types';
 import {

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * @deprecated Import from `./clinicalRecommendationEngine` instead.
  * Re-exports preserved for existing import paths — kept intact for future product iterations.
