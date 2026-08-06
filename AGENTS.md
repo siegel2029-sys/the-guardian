@@ -135,19 +135,18 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — UI wired to gap-aware adherence + effective protocol week._
+_Idle — remote migration history repaired; schema already had `target_workouts_per_week`._
 
 ### Completed Steps (recent)
 
-- Protocol/adherence UI now uses enriched session dates, plan weekly target, freeze banner, and gap-aware % (not grace 0/planned subtitle).
-- Forced AI regression + adherence floor for historical activity with critical gaps.
-- Flexible weekly target schema + gap-aware engine (prior).
+- Repaired local↔remote migration history drift (MCP timestamp mismatches); `db push` reports up to date through `20260806132907`.
+- Confirmed Gemini uses Supabase `GEMINI_API_KEY` (proxy 200s); Vercel `VITE_GEMINI_API_KEY` unused by app.
+- Protocol/adherence UI + gap-aware engine (prior).
 
 ### Next Action Items
 
-1. Smoke-test long-gap patient: accordion highlights effective week + «הוקפא»; adherence card shows ≥3% if any history, not 0%.
-2. Apply migration `target_workouts_per_week` on remote if needed.
-3. Ops leftovers: `REGISTER_THERAPIST_SECRET` / `ALLOWED_ORIGINS`.
+1. Smoke-test long-gap patient on production: accordion «הוקפא» + adherence floor ≥3% if any history.
+2. Ops leftover: `REGISTER_THERAPIST_SECRET` on Vercel if therapist self-register is needed in prod.
 
 ### Update protocol
 
