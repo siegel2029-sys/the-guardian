@@ -382,6 +382,10 @@ verify_jwt = false
 [functions.reminder-cron]
 verify_jwt = false
 
+# Daily 3-day clinical program review; auth via x-cron-secret === INTERNAL_CRON_SECRET
+[functions.clinical-review-cron]
+verify_jwt = false
+
 # Public therapist registration; sets app_metadata.role=therapist via service_role (no client claim).
 [functions.register-therapist]
 verify_jwt = false

@@ -74,7 +74,11 @@ export type SignUpPortalPatientResult =
    * immediately, without waiting for the patient's first portal login.
    */
   | { ok: true; authUserId: string }
-  | { ok: false; message: string };
+  | { ok: false; message: string; reason?: 'email_already_in_use' };
+
+function isValidAuthEmail(raw: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw.trim());
+}
 
 export async function signUpPortalPatientOnCreate(params: {
   url: string;
@@ -82,12 +86,21 @@ export async function signUpPortalPatientOnCreate(params: {
   portalUsername: string;
   password: string;
   patientId: string;
+  /**
+   * When set, Auth account uses this real email (patient logs in with email + password).
+   * Otherwise falls back to the synthetic `{portalUsername}@patient…` address.
+   */
+  authEmail?: string;
 }): Promise<SignUpPortalPatientResult> {
   const normalized = normalizePortalUsername(params.portalUsername);
   if (!isValidPortalUsername(normalized)) {
     return { ok: false, message: 'מזהה פורטל לא תקין (2–32 תווים, אנגלית ומספרים).' };
   }
-  const email = portalUsernameToAuthEmail(normalized);
+  const requestedEmail = params.authEmail?.trim().toLowerCase() ?? '';
+  const email =
+    requestedEmail && isValidAuthEmail(requestedEmail)
+      ? requestedEmail
+      : portalUsernameToAuthEmail(normalized);
   const ephemeral = createEphemeralSupabaseClient(params.url, params.anonKey);
   const { data, error } = await ephemeral.auth.signUp({
     email,
@@ -109,17 +122,23 @@ export async function signUpPortalPatientOnCreate(params: {
       supabaseUrl: params.url,
     });
 
+    const status = (error as { status?: number }).status;
+    const code = (error as { code?: string }).code ?? '';
     const isAlreadyRegistered =
-      /already registered|already been registered|User already registered|email.*already/i.test(
+      status === 422 ||
+      /already_registered|user_already_exists|email_exists/i.test(code) ||
+      /already registered|already been registered|User already registered|email.*already|user_already_exists/i.test(
         error.message
       );
     if (isAlreadyRegistered) {
       return {
         ok: false,
-        message:
-          'מזהה הפורטל כבר קיים ב-Supabase Auth (גם אם השורה ב-patients נמחקה). ' +
-          'מחקו את משתמש ה-Auth ידנית בלוח הבקרה של Supabase (Authentication → Users) ואז נסו שוב, ' +
-          `או בחרו מזהה אחר (למשל ${normalized}2).`,
+        reason: 'email_already_in_use',
+        message: requestedEmail
+          ? 'כתובת האימייל כבר רשומה במערכת. בדקו אם המטופל כבר קיים, או השתמשו באימייל אחר.'
+          : 'מזהה הפורטל כבר קיים ב-Supabase Auth (גם אם השורה ב-patients נמחקה). ' +
+            'מחקו את משתמש ה-Auth ידנית בלוח הבקרה של Supabase (Authentication → Users) ואז נסו שוב, ' +
+            `או בחרו מזהה אחר (למשל ${normalized}2).`,
       };
     }
     return {

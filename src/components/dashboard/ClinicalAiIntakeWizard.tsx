@@ -198,6 +198,7 @@ async function runIntakeAnalysis(
       followUp,
       patientName: opts?.patientName,
       portalUsername: opts?.portalUsername,
+      hintBodyAreas: local.bodyAreas,
     });
     const primaryBodyArea =
       g.primaryInjuryZoneJoint ?? local.primaryBodyArea ?? 'back_lower';

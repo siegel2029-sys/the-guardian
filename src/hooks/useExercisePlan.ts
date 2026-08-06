@@ -50,7 +50,12 @@ import {
   normalizePortalUsername,
   isValidPortalUsername,
 } from '../lib/patientPortalAuth';
-import { mergeSessionCompletionByDateMaps, upsertPatientRecords, fetchActiveExercisePlanForPatient } from '../services/clinicalService';
+import {
+  mergeSessionCompletionByDateMaps,
+  upsertPatientRecords,
+  fetchActiveExercisePlanForPatient,
+  deletePatientRowFromSupabase,
+} from '../services/clinicalService';
 import {
   upsertDailySessionRowMerged,
   persistPatientFinishReportToCloud,
@@ -71,6 +76,7 @@ import {
 import { canPilot11DebugMutatePatient } from '../utils/pilot11GamificationDebug';
 import { validateNewPassword } from '../lib/passwordPolicy';
 import { completeExerciseSafe } from '../services/exerciseCompletionRpc';
+import { clampTargetWorkoutsPerWeek } from '../utils/targetWorkoutsPerWeek';
 
 export type UseExercisePlanParams = {
   patients: Patient[];
@@ -232,6 +238,19 @@ export function useExercisePlan(params: UseExercisePlanParams) {
     },
     []
   );
+
+  const setPlanTargetWorkoutsPerWeek = useCallback((patientId: string, value: number) => {
+    const clamped = clampTargetWorkoutsPerWeek(value);
+    setExercisePlans((prev) => {
+      const existing = prev.find((ep) => ep.patientId === patientId);
+      if (existing) {
+        return prev.map((ep) =>
+          ep.patientId === patientId ? { ...ep, targetWorkoutsPerWeek: clamped } : ep
+        );
+      }
+      return [...prev, { patientId, exercises: [], targetWorkoutsPerWeek: clamped }];
+    });
+  }, []);
 
   const addExerciseToPlan = useCallback((patientId: string, exercise: Exercise) => {
     const newEntry: PatientExercise = {
@@ -1275,7 +1294,14 @@ export function useExercisePlan(params: UseExercisePlanParams) {
   const createPatientWithAccess = useCallback(
     async (
       displayName: string,
-      access: { portalUsername: string; password?: string }
+      access: {
+        portalUsername: string;
+        password?: string;
+        allowChat?: boolean;
+        selectAfterCreate?: boolean;
+        /** Real email for Auth login (lead convert). When set, returned as loginId. */
+        authEmail?: string;
+      }
     ): Promise<
       | { ok: true; loginId: string; password: string; patientId: string }
       | { ok: false; message: string }
@@ -1286,6 +1312,10 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           ok: false,
           message: 'נא מזהה פורטל: 2–32 תווים (אנגלית ומספרים), לדוגמה JD.',
         };
+      }
+      const authEmail = access.authEmail?.trim().toLowerCase() ?? '';
+      if (authEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(authEmail)) {
+        return { ok: false, message: 'כתובת אימייל לא תקינה.' };
       }
       // Local-state and localStorage duplicate checks removed — the server (Supabase Auth) is the
       // authoritative source of truth. Local caches may be stale after deleting patients.
@@ -1320,6 +1350,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
 
       const joinDate = new Date().toISOString().slice(0, 10);
+      const allowChat = access.allowChat !== false;
       const newPatient: Patient = {
         id: patientId,
         therapistId: ownerTid,
@@ -1331,6 +1362,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         primaryBodyArea: 'back_lower',
         // Account/credentials exist at create time — status is active regardless of intake.
         status: 'active',
+        allowChat,
         level: 1,
         xp: 0,
         xpForNextLevel: xpRequiredToReachNextLevel(1),
@@ -1357,13 +1389,16 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         },
       };
 
+      const upsertOpts = authEmail ? { authLoginEmail: authEmail } : undefined;
+
       // Insert patients row BEFORE Auth signup so before-user-created + app_metadata
       // promotion can validate the clinic invite (patient_id) against a real row.
       if (isSupabaseAuthEnabled() && supabaseClient) {
         const upsertResult = await upsertPatientRecords(
           supabaseClient,
           [newPatient],
-          new Date().toISOString()
+          new Date().toISOString(),
+          upsertOpts
         );
         if (!upsertResult.ok) {
           console.error('[createPatientWithAccess] Failed to insert patient into DB', {
@@ -1386,8 +1421,31 @@ export function useExercisePlan(params: UseExercisePlanParams) {
           portalUsername: normalized,
           password,
           patientId,
+          ...(authEmail ? { authEmail } : {}),
         });
         if (!su.ok) {
+          // Patient stub was already inserted — roll it back so lead convert can retry.
+          if (supabaseClient) {
+            const rollback = await deletePatientRowFromSupabase(supabaseClient, patientId);
+            if (!rollback.ok && import.meta.env.DEV) {
+              console.warn('[createPatientWithAccess] orphan patient rollback failed', {
+                message: rollback.message,
+                patientRef: redactId(patientId),
+              });
+            }
+          }
+          if (su.reason === 'email_already_in_use') {
+            return {
+              ok: false,
+              message: 'Email already in use. Conversion reverted.',
+            };
+          }
+          if (authEmail) {
+            return {
+              ok: false,
+              message: `Account creation failed. Conversion reverted. (${su.message})`,
+            };
+          }
           return { ok: false, message: su.message };
         }
         newAuthUserId = su.authUserId;
@@ -1396,7 +1454,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
             supabaseClient,
             [newPatient],
             new Date().toISOString(),
-            { authUserId: newAuthUserId }
+            { authUserId: newAuthUserId, ...upsertOpts }
           );
           if (!linkResult.ok) {
             console.error('[createPatientWithAccess] Failed to link auth_user_id', {
@@ -1404,7 +1462,19 @@ export function useExercisePlan(params: UseExercisePlanParams) {
               httpStatus: linkResult.httpStatus,
               patientRef: redactId(patientId),
             });
-            return { ok: false, message: `שגיאה בקישור חשבון הפורטל: ${linkResult.message}` };
+            const rollback = await deletePatientRowFromSupabase(supabaseClient, patientId);
+            if (!rollback.ok && import.meta.env.DEV) {
+              console.warn('[createPatientWithAccess] link-fail patient rollback failed', {
+                message: rollback.message,
+                patientRef: redactId(patientId),
+              });
+            }
+            return {
+              ok: false,
+              message: authEmail
+                ? `Account creation failed. Conversion reverted. (${linkResult.message})`
+                : `שגיאה בקישור חשבון הפורטל: ${linkResult.message}`,
+            };
           }
         }
         devLog('[createPatientWithAccess] Patient row created', {
@@ -1418,9 +1488,16 @@ export function useExercisePlan(params: UseExercisePlanParams) {
       if (!isSupabaseAuthEnabled()) {
         addPatientAccount(normalized, patientId, password, ownerTid, { mustChangePassword: true });
       }
-      setSelectedPatientId(patientId);
-      setActiveSection('overview');
-      return { ok: true, loginId: normalized, password, patientId };
+      if (access.selectAfterCreate !== false) {
+        setSelectedPatientId(patientId);
+        setActiveSection('overview');
+      }
+      return {
+        ok: true,
+        loginId: authEmail || normalized,
+        password,
+        patientId,
+      };
     },
     [allPatients, therapistScopeIds, supabaseClient]
   );
@@ -1709,6 +1786,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
   return {
     getExercisePlan,
     replaceExercisePlanForPatient,
+    setPlanTargetWorkoutsPerWeek,
     addExerciseToPlan,
     removeExerciseFromPlan,
     updateExerciseInPlan,

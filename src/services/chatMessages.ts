@@ -265,6 +265,19 @@ export async function insertPatientChatMessage(
   }
   const { patientId: pid, therapistId, content: body } = parsed.data;
 
+  // Defense in depth: Generic / self-guided plans must not open chat via API.
+  const { data: gateRow, error: gateErr } = await client
+    .from('patients')
+    .select('allow_chat, account_frozen')
+    .eq('id', pid)
+    .maybeSingle();
+  if (gateErr) {
+    return serviceFail(sanitizeDbErrorMessage(gateErr.message));
+  }
+  if (!gateRow || gateRow.allow_chat !== true || gateRow.account_frozen === true) {
+    return serviceFail('chat_locked');
+  }
+
   const { data, error } = await client
     .from('chat_messages')
     .insert({

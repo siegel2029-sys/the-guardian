@@ -25,6 +25,7 @@ import { useAuth } from '../../context/AuthContext';
 import { usePatientRoster, usePatientChat } from '../../context/patientDomainHooks';
 import type { NavSection } from '../../types';
 import SidebarNewPatient from './SidebarNewPatient';
+import OnboardingLeadsPanel from './OnboardingLeadsPanel';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { isProlongedAbsenceSafetyAlert } from '../../ai/proactiveAbsenceAlerts';
 import { getPatientDataUpdateGaps, resolvePatientRosterStatus } from '../../utils/patientRosterMetrics';
@@ -70,7 +71,6 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
     selectPatient,
     activeSection,
     setActiveSection,
-    getTotalAwaitingTherapistCount,
     aiSuggestions,
     unlinkedPortalPatientIds,
   } = usePatientRoster();
@@ -86,7 +86,6 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
   }, 0);
 
   const totalRedFlags = patients.filter((p) => p.hasRedFlag).length;
-  const pendingApprovals = getTotalAwaitingTherapistCount();
 
   const pendingAiCountForPatient = (patientId: string) => {
     const patientRow = patients.find((p) => p.id === patientId);
@@ -134,14 +133,6 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
             </div>
           </button>
           <div className="flex items-center gap-1 shrink-0">
-            {pendingApprovals > 0 && (
-              <div className="relative" title="אישורי AI ממתינים">
-                <CheckCircle2 className="w-5 h-5 text-emerald-700" strokeWidth={2.5} />
-                <span className="absolute -top-1 -left-1 min-w-[16px] h-4 px-0.5 rounded-full bg-emerald-700 text-white text-[9px] font-black flex items-center justify-center border border-white">
-                  {pendingApprovals}
-                </span>
-              </div>
-            )}
             {totalRedFlags > 0 && (
               <div className="relative">
                 <Bell className="w-5 h-5 text-red-600" strokeWidth={2.5} />
@@ -166,6 +157,7 @@ export default function Sidebar({ mobileMode = false, onClose }: Props) {
       </div>
 
       <SidebarNewPatient compact={false} />
+      <OnboardingLeadsPanel />
 
       {/* מטופלים — portal dropdown switcher */}
       <div className="px-3 py-2 border-b-2 border-slate-100 shrink-0">

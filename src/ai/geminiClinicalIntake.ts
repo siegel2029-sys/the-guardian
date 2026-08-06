@@ -11,9 +11,9 @@ import {
   ensureExerciseBankPrefetched,
   findExerciseInBank,
   getExerciseBank,
-  getExerciseBankIdListForPrompt,
 } from '../data/exerciseBank';
 import { filterToJointBodyAreas, JOINT_BODY_AREAS } from '../body/jointBodyAreas';
+import { buildIntakeCatalogIdListForPrompt } from '../utils/clinicalExerciseCatalog';
 import {
   geminiGenerateText,
   getGeminiApiKey,
@@ -27,8 +27,11 @@ import {
   scrubPhiPatterns,
 } from './clinicalConsultantContext';
 import { mapInitialIntakeProtocolFromRaw } from '../utils/medicalIntakeSchema';
+import { parseModelJson } from './parseModelJson';
 
 export { getGeminiApiKey, GeminiRateLimitedError } from './geminiClient';
+/** @deprecated Prefer `parseModelJson` — kept for call-site compat. */
+export { parseModelJson as parseJsonObject } from './parseModelJson';
 
 const LOG_PREFIX = '[GeminiClinicalIntake]';
 
@@ -89,71 +92,6 @@ function logInfo(message: string, detail?: Record<string, unknown>): void {
 
 function logError(message: string, detail?: unknown): void {
   console.error(`${LOG_PREFIX} ${message}`, detail ?? '');
-}
-
-/**
- * Strips markdown fences and extracts the first balanced `{ ... }` JSON object.
- * Handles leading/trailing prose from the model.
- */
-export function parseJsonObject(text: string): unknown {
-  let t = text.replace(/^\uFEFF/, '').trim();
-
-  const fenceJson = /^```(?:json)?\s*\r?\n?([\s\S]*?)\r?\n?```\s*$/im.exec(t);
-  if (fenceJson) {
-    t = fenceJson[1].trim();
-  } else {
-    t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-  }
-
-  const slice = extractFirstBalancedJsonObject(t);
-  if (slice) {
-    t = slice;
-  }
-
-  try {
-    return JSON.parse(t) as unknown;
-  } catch (firstErr) {
-    const loose = t.match(/\{[\s\S]*\}/);
-    if (loose && loose[0] !== t) {
-      try {
-        return JSON.parse(loose[0]) as unknown;
-      } catch {
-        logError('parseJsonObject: fallback brace match failed', { snippet: loose[0].slice(0, 200) });
-      }
-    }
-    logError('parseJsonObject: JSON.parse failed', { preview: t.slice(0, 280), error: firstErr });
-    throw new Error('Invalid AI response: could not parse JSON');
-  }
-}
-
-function extractFirstBalancedJsonObject(text: string): string | null {
-  const start = text.indexOf('{');
-  if (start < 0) return null;
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  for (let i = start; i < text.length; i++) {
-    const c = text[i];
-    if (escape) {
-      escape = false;
-      continue;
-    }
-    if (c === '\\' && inString) {
-      escape = true;
-      continue;
-    }
-    if (c === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (c === '{') depth++;
-    else if (c === '}') {
-      depth--;
-      if (depth === 0) return text.slice(start, i + 1);
-    }
-  }
-  return null;
 }
 
 function asTrimmedString(v: unknown): string {
@@ -316,6 +254,11 @@ export type AnalyzeIntakeStoryOptions = {
   portalUsername?: string | null;
   /** Extra explicit tokens (e.g. from intake header). */
   nameTokens?: string[];
+  /**
+   * Body areas from local heuristics — used to filter the exercise catalog
+   * sent to Gemini (never the full bank).
+   */
+  hintBodyAreas?: BodyArea[] | null;
 };
 
 /**
@@ -352,7 +295,7 @@ export async function analyzeIntakeStoryWithGemini(
   );
   // Ensure in-memory catalog is warm before building the prompt (single-flight prefetch).
   await ensureExerciseBankPrefetched();
-  const catalog = getExerciseBankIdListForPrompt();
+  const catalog = buildIntakeCatalogIdListForPrompt(opts?.hintBodyAreas ?? null);
   const jointIds = [...JOINT_BODY_AREAS].join(', ');
   const modelId = getGeminiModelId();
   const urlForLog = getGeminiGenerateContentUrlForLogging();
@@ -456,7 +399,7 @@ ${trimmedStory}`;
 
   logInfo('Received model text', { modelId, chars: responseText.length });
 
-  const parsed = parseJsonObject(responseText);
+  const parsed = parseModelJson(responseText, { logPrefix: LOG_PREFIX });
   const normalized = normalizeClinicalCase(parsed);
 
   logInfo('Analysis normalized successfully', {

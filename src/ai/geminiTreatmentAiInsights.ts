@@ -7,30 +7,30 @@ import {
   scrubKnownPatientPhi,
   scrubPhiPatterns,
 } from './clinicalConsultantContext';
+import { buildClinicalPromptContext } from './buildClinicalPromptContext';
 import { geminiGenerateText, getGeminiApiKey } from './geminiClient';
+import { parseModelJsonObject } from './parseModelJson';
 import type { ClinicalTimelineEntry, TreatmentAiInsights } from '../types';
 
 const LOG_PREFIX = '[GeminiTreatmentAiInsights]';
 
 function intakeContextJson(patient: Patient): string {
   const arch = patient.initialIntakeArchive;
-  if (arch) {
-    return JSON.stringify(redactIntakeArchiveForAi(arch), null, 2);
-  }
-  return JSON.stringify(
-    {
-      note: 'אין צילום אינטייק שמור — מוצג מצב נוכחי כקשר ראשוני',
-      primaryBodyArea: bodyAreaLabels[patient.primaryBodyArea],
-      diagnosis: scrubPhiPatterns(patient.diagnosis ?? ''),
-      therapistNotes: scrubPhiPatterns(patient.therapistNotes ?? ''),
-      geminiClinicalNarrative: patient.geminiClinicalNarrative
-        ? scrubPhiPatterns(patient.geminiClinicalNarrative)
-        : undefined,
-      injuryHighlightSegments: (patient.injuryHighlightSegments ?? []).map((a) => bodyAreaLabels[a]),
-    },
-    null,
-    2
-  );
+  const payload = arch
+    ? redactIntakeArchiveForAi(arch)
+    : {
+        note: 'אין צילום אינטייק שמור — מוצג מצב נוכחי כקשר ראשוני',
+        primaryBodyArea: bodyAreaLabels[patient.primaryBodyArea],
+        diagnosis: scrubPhiPatterns(patient.diagnosis ?? ''),
+        therapistNotes: scrubPhiPatterns(patient.therapistNotes ?? ''),
+        geminiClinicalNarrative: patient.geminiClinicalNarrative
+          ? scrubPhiPatterns(patient.geminiClinicalNarrative)
+          : undefined,
+        injuryHighlightSegments: (patient.injuryHighlightSegments ?? []).map(
+          (a) => bodyAreaLabels[a]
+        ),
+      };
+  return buildClinicalPromptContext({ mode: 'treatment', payload }).text;
 }
 
 function pastTreatmentsText(entries: ClinicalTimelineEntry[], scrub: (s: string) => string): string {
@@ -47,18 +47,13 @@ function pastTreatmentsText(entries: ClinicalTimelineEntry[], scrub: (s: string)
 }
 
 function parseInsights(raw: string, generatedAt: string): TreatmentAiInsights | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  try {
-    const o = JSON.parse(trimmed) as Record<string, unknown>;
-    const patientProgress = String(o.patientProgress ?? '').trim();
-    const recommendations = String(o.recommendations ?? '').trim();
-    const exerciseModifications = String(o.exerciseModifications ?? '').trim();
-    if (!patientProgress && !recommendations && !exerciseModifications) return null;
-    return { patientProgress, recommendations, exerciseModifications, generatedAt };
-  } catch {
-    return null;
-  }
+  const o = parseModelJsonObject(raw, { logPrefix: LOG_PREFIX });
+  if (!o) return null;
+  const patientProgress = String(o.patientProgress ?? '').trim();
+  const recommendations = String(o.recommendations ?? '').trim();
+  const exerciseModifications = String(o.exerciseModifications ?? '').trim();
+  if (!patientProgress && !recommendations && !exerciseModifications) return null;
+  return { patientProgress, recommendations, exerciseModifications, generatedAt };
 }
 
 /**

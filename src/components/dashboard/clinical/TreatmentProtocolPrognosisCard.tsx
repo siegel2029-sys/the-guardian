@@ -11,6 +11,7 @@ import {
 import {
   protocolWeekCoversCurrentWeek,
   resolveDefaultExpandedProtocolWeek,
+  PROTOCOL_PROGRESSION_FROZEN_BADGE_HE,
 } from '../../../utils/clinicalProtocolWeek';
 
 export type TreatmentProtocolPrognosisCardProps = {
@@ -18,6 +19,8 @@ export type TreatmentProtocolPrognosisCardProps = {
   prognosisHypothesis?: string;
   protocolTrackingState?: ProtocolTrackingState;
   currentProtocolWeek?: number | null;
+  /** When true, show inactivity freeze badge near the active week */
+  protocolProgressionFrozen?: boolean;
   readOnly?: boolean;
   onTrackingChange?: (next: ProtocolTrackingState) => void;
   className?: string;
@@ -32,6 +35,7 @@ export default function TreatmentProtocolPrognosisCard({
   prognosisHypothesis,
   protocolTrackingState = [],
   currentProtocolWeek = null,
+  protocolProgressionFrozen = false,
   readOnly = false,
   onTrackingChange,
   className = '',
@@ -153,11 +157,19 @@ export default function TreatmentProtocolPrognosisCard({
       <div className="p-5 space-y-5">
         {hasProtocol && (
           <div className="space-y-2">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <CalendarCheck className="w-4 h-4 text-slate-600 shrink-0" aria-hidden />
               <p className="text-xs font-bold text-slate-700">
                 מעקב שבועי ({protocolWeeks.length} שבועות)
               </p>
+              {protocolProgressionFrozen && (
+                <span
+                  className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-950 border border-amber-400"
+                  role="status"
+                >
+                  {PROTOCOL_PROGRESSION_FROZEN_BADGE_HE}
+                </span>
+              )}
             </div>
 
             <div className="space-y-2" role="region" aria-label="שבועות פרוטוקול">
@@ -198,6 +210,14 @@ export default function TreatmentProtocolPrognosisCard({
                           {isCurrentWeek && currentProtocolWeek != null && (
                             <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-200 text-yellow-900 border border-yellow-400">
                               {showYouAreHereBadge ? 'אתה כאן' : activeWeekBadgeLabel}
+                            </span>
+                          )}
+                          {isCurrentWeek && protocolProgressionFrozen && (
+                            <span
+                              className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-950 border border-amber-500"
+                              title={PROTOCOL_PROGRESSION_FROZEN_BADGE_HE}
+                            >
+                              הוקפא
                             </span>
                           )}
                         </span>

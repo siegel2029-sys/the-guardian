@@ -7,10 +7,11 @@ import OptionalSection from './OptionalSection';
 import type { UseOptionalRehabPoolResult } from './useOptionalRehabPool';
 import type { ExerciseVideoModalState } from './usePatientTrainingOrchestration';
 import type { AiLongitudinalGateResult } from '../../ai/aiProgramLongitudinalGate';
+import { usePatientProgramReviewEngineStatus } from '../../hooks/usePatientProgramReviewEngineStatus';
+import PatientBackgroundReviewIndicator from './PatientBackgroundReviewIndicator';
 
 export interface PatientPortalActivitySectionProps {
   selectedPatient: Patient;
-  trainingAiPlanModalOpen: boolean;
   aiProgramLongitudinalGate: AiLongitudinalGateResult | null;
   patientMustChangePassword: boolean;
   exercisesLocked: boolean;
@@ -33,7 +34,6 @@ export interface PatientPortalActivitySectionProps {
 /** טאב אימונים: משימות חובה + רשימת שיקום אופציונלי */
 export default function PatientPortalActivitySection({
   selectedPatient,
-  trainingAiPlanModalOpen,
   aiProgramLongitudinalGate,
   patientMustChangePassword,
   exercisesLocked,
@@ -52,25 +52,22 @@ export default function PatientPortalActivitySection({
   openExerciseTrainingModal,
   setSelfCareStrengthTier,
 }: PatientPortalActivitySectionProps) {
+  const { phase: reviewEnginePhase, isActive: reviewEngineActive } =
+    usePatientProgramReviewEngineStatus(true);
+
   return (
     <>
-      <div
-        className={[
-          'relative',
-          trainingAiPlanModalOpen
-            ? 'pointer-events-none select-none opacity-[0.35] motion-safe:transition-opacity motion-safe:duration-200'
-            : '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
-        aria-hidden={trainingAiPlanModalOpen || undefined}
-      >
+      <div className="relative">
         <h1
           id="today-missions"
           className="text-lg font-bold text-slate-900 mb-2 tracking-tight scroll-mt-28 text-center"
         >
           תכנית השיקום (חובה)
         </h1>
+        <PatientBackgroundReviewIndicator
+          phase={reviewEnginePhase}
+          active={reviewEngineActive}
+        />
         {aiProgramLongitudinalGate?.showSteadyProgress &&
           !patientMustChangePassword &&
           !exercisesLocked &&

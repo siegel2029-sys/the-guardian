@@ -2,6 +2,8 @@ import { memo, useMemo } from 'react';
 import { MessageCircle } from 'lucide-react';
 import type { Patient } from '../../types';
 import { getTherapistDisplayName } from '../../context/authPersistence';
+import { isPatientChatAllowed } from '../../utils/patientChatAccess';
+import PatientPortalChatLocked from './PatientPortalChatLocked';
 import PatientPortalMessageFeed from './PatientPortalMessageFeed';
 import PatientPortalMessagesUnreadBadge from './PatientPortalMessagesUnreadBadge';
 import PatientPortalTherapistChatInput from './PatientPortalTherapistChatInput';
@@ -30,6 +32,10 @@ function PatientPortalMessagesTab({
     if (!careGiverName || careGiverName === 'המטפל') return careGiverName;
     return careGiverName.replace(/^ד"ר\s+/u, '').split(/\s+/)[0] || careGiverName;
   }, [careGiverName]);
+
+  if (!isPatientChatAllowed(patient)) {
+    return <PatientPortalChatLocked />;
+  }
 
   return (
     <section

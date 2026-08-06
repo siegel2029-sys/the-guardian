@@ -69,7 +69,6 @@ export default function PatientDailyView() {
     clinicalToday,
     dailyHistoryByPatient,
     isPatientExerciseSafetyLocked,
-    submitPatientAiPlanAdjustmentRequest,
     getSelfCareZones,
     toggleSelfCareZone,
     logSelfCareSession,
@@ -290,17 +289,15 @@ export default function PatientDailyView() {
       dayMap: patientDayMap,
       rehabExerciseCount: clinicalRehabExercises.length,
     });
-    if (portalOnboardingSilence) {
-      return { ...base, shouldSuggest: false, showSteadyProgress: false };
-    }
-    return base;
+    // Never surface plan-adjustment suggestions on the patient portal (no popups).
+    // Therapist-facing 3-day review runs via clinical-review-cron + Sidebar panels only.
+    return { ...base, shouldSuggest: false };
   }, [
     selectedPatient?.id,
     selectedPatient?.analytics?.sessionHistory,
     clinicalToday,
     patientDayMap,
     clinicalRehabExercises.length,
-    portalOnboardingSilence,
   ]);
 
   const mandatoryRehabExercises = useMemo(
@@ -347,21 +344,13 @@ export default function PatientDailyView() {
     selectedPatient,
     getExercisePlan,
     exercises,
-    selectedZones,
-    clinicalRehabExercises,
     clinicalToday,
-    patientDayMap,
-    portalTab,
-    patientMustChangePassword,
     exercisesLocked,
-    portalOnboardingSilence,
-    aiProgramLongitudinalGate,
     optionalPool,
     submitExerciseReport,
     appendPatientExerciseFinishReport,
     logSelfCareSession,
     getSelfCareStrengthTier,
-    submitPatientAiPlanAdjustmentRequest,
   });
 
   /** ספירת משימות: כל תרגילי התוכנית שהמטפל הגדיר + תרגילי כוח (אזורי בחירה) */
@@ -551,7 +540,6 @@ export default function PatientDailyView() {
           <ErrorBoundary variant="section" scopeLabel="PortalActivity">
             <PatientPortalActivitySection
               selectedPatient={selectedPatient}
-              trainingAiPlanModalOpen={training.trainingAiPlanModalOpen}
               aiProgramLongitudinalGate={aiProgramLongitudinalGate}
               patientMustChangePassword={patientMustChangePassword}
               exercisesLocked={exercisesLocked}
@@ -691,12 +679,6 @@ export default function PatientDailyView() {
         sessionRole={sessionRole}
         patientMustChangePassword={patientMustChangePassword}
         showPortalFrozenOverlay={showPortalFrozenOverlay}
-        trainingAiPlanModalOpen={training.trainingAiPlanModalOpen}
-        trainingAiPlanModalLoading={training.trainingAiPlanModalLoading}
-        trainingAiPlanModalInfo={training.trainingAiPlanModalInfo}
-        trainingAiPlanModalSuggestion={training.trainingAiPlanModalSuggestion}
-        onTrainingAiPlanApprove={training.handleTrainingAiPlanApprove}
-        onTrainingAiPlanDecline={training.acknowledgeTrainingAiPlanModal}
         redFlagOpen={redFlagOpen}
         onCloseRedFlag={() => setRedFlagOpen(false)}
         painAnalyticsOpen={painAnalyticsOpen}

@@ -47,6 +47,8 @@ import {
   linkPatientAuthUserRow,
 } from '../lib/patientPortalAuth';
 import { touchPatientLastLoginThrottled } from '../services/patientPushNotifications';
+import { PATIENT_STATE_STORAGE_KEY } from './patientPersistence';
+import { ONBOARDING_WIZARD_STORAGE_KEY } from '../hooks/useOnboardingWizard';
 import {
   fetchTherapistProfile,
   upsertTherapistProfileRow,
@@ -594,6 +596,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             email,
             password,
             full_name: name,
+            registration_secret:
+              (import.meta.env.VITE_THERAPIST_REGISTER_SECRET as string | undefined)?.trim() ?? '',
           }),
         });
         let registerJson: { ok?: boolean; error?: string } = {};
@@ -606,6 +610,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const code = registerJson.error ?? '';
           if (code === 'email_taken' || registerRes.status === 409) {
             setLoginError('כתובת הדוא״ל כבר רשומה במערכת.');
+          } else if (code === 'forbidden' || registerRes.status === 403) {
+            setLoginError('קוד הרשמה שגוי או חסר. בדקו את הגדרות הסביבה.');
           } else if (code === 'invalid_password' || code === 'invalid_payload') {
             setLoginError('פרטי ההרשמה אינם תקינים. בדקו שם, דוא״ל וסיסמה.');
           } else if (code === 'rate_limited' || registerRes.status === 429) {
@@ -666,8 +672,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           signingInRef.current = true;
 
           if (isEmailLike(id)) {
-            const therapistEmail = id.trim().toLowerCase();
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(therapistEmail)) {
+            const loginEmail = id.trim().toLowerCase();
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginEmail)) {
               signingInRef.current = false;
               setLoginError('כתובת דוא"ל לא תקינה.');
               setIsLoading(false);
@@ -678,14 +684,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             let error: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['error'];
             try {
               ({ data, error } = await supabase.auth.signInWithPassword({
-                email: therapistEmail,
+                email: loginEmail,
                 password: pw,
               }));
             } finally {
               signingInRef.current = false;
             }
             if (error || !data.user) {
-              devError('[Auth] signInWithPassword failed (therapist)', {
+              devError('[Auth] signInWithPassword failed (email)', {
                 message: error?.message,
                 status: error?.status,
                 code: error?.code,
@@ -693,22 +699,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               setLoginError(
                 supabaseAuthErrorMessageHe(
                   error ?? undefined,
-                  'כתובת דוא"ל או סיסמה שגויים (מטפל).'
+                  'כתובת דוא"ל או סיסמה שגויים.'
                 )
               );
               setIsLoading(false);
               return null;
             }
-            const meta = getSupabaseUserMetadata(data.user);
-            if (metadataString(meta, 'patient_id')) {
-              setLoginError('התחברתם כמטופל עם דוא״ל מטפל — השתמשו במזהה הפורטל (רמזים).');
-              await supabase.auth.signOut();
+            const clinicPid = getClinicPatientIdFromUser(data.user);
+            // Patients created from /join convert log in with their real email.
+            if (clinicPid) {
+              await linkPatientAuthUserRow(supabase, clinicPid);
+              await loadSupabaseUserIntoState();
+              const meta = getSupabaseUserMetadata(data.user);
+              const portalUsername = metadataString(meta, 'portal_username');
+              setPatientPortalDisplayId((prev) => prev ?? portalUsername ?? loginEmail);
               setIsLoading(false);
-              return null;
+              return 'patient';
             }
             await loadSupabaseUserIntoState();
             setIsLoading(false);
-            return 'therapist';
+            const tier = getPatientProductTier(data.user);
+            if (tier === 'therapist') return 'therapist';
+            return 'patient';
           }
 
           const normalized = normalizePortalUsername(id);
@@ -825,6 +837,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUsesSupabaseSession(false);
     setPatientPortalDisplayId(null);
     setPatientAuthRevision((n) => n + 1);
+    clearLegacyLocalUserStorageKeys();
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(PATIENT_STATE_STORAGE_KEY);
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.removeItem(ONBOARDING_WIZARD_STORAGE_KEY);
+      }
+    } catch {
+      /* ignore */
+    }
     if (!isSupabaseAuthEnabled()) {
       mergeAuthSnapshot({ session: null });
     }

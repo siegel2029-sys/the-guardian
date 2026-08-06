@@ -16,6 +16,11 @@ interface ImportMetaEnv {
    */
   readonly VITE_SUPABASE_ANON_KEY?: string;
   /**
+   * Same value as Edge `REGISTER_THERAPIST_SECRET` — UX gate + sent on register-therapist.
+   * Never a substitute for the server-side secret check.
+   */
+  readonly VITE_THERAPIST_REGISTER_SECRET?: string;
+  /**
    * דומיין סינתטי לדוא״ל Auth של מטופלים (למשל patient.clinic.internal).
    * ברירת מחדל: patient.guardian.internal (דומיין demo; נשמר לתאימות לאחור עם מיתוג PHYSIOSHIELD).
    */
@@ -37,6 +42,16 @@ interface ImportMetaEnv {
   readonly VITE_WEB_PUSH_VAPID_PUBLIC_KEY?: string;
   /** Alias לתאימות לאחור אם ב-Vercel הוגדר השם הקצר בלבד. עדיף `VITE_WEB_PUSH_VAPID_PUBLIC_KEY`. */
   readonly VITE_VAPID_PUBLIC_KEY?: string;
+  /**
+   * קישור תשלום Paybox לתוכנית הגנרית במשפך ההצטרפות (/join).
+   * למשל: https://payboxapp.page.link/XXXX — ללא קישור, מוצגת הודעת "ניצור קשר" במקום כפתור.
+   */
+  readonly VITE_PAYBOX_PAYMENT_URL?: string;
+  /**
+   * קישור תיאום/תשלום לבדיקת Zoom במסלול הליווי האישי במשפך ההצטרפות (/join).
+   * למשל: https://calendly.com/XXXX — ללא קישור, מוצגת הודעת "ניצור קשר" במקום כפתור.
+   */
+  readonly VITE_ZOOM_BOOKING_URL?: string;
 }
 
 interface ImportMeta {

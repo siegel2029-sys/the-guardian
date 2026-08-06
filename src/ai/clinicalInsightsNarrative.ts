@@ -131,10 +131,6 @@ function painVisualTrendActive(series: ClinicalDayPoint[]): 'down' | 'up' | 'fla
   return 'flat';
 }
 
-function pickProgressionCatalogId(catalog: ClinicalExerciseCatalog | undefined): string | null {
-  return catalog?.availableCatalogExercises[0]?.id ?? null;
-}
-
 export function formatAdherenceStatus(adherencePercent: number | null): string {
   return adherencePercent != null ? `${adherencePercent}%` : '—';
 }
@@ -327,6 +323,77 @@ export function finalizeClinicalModifications(
   );
 }
 
+/** True when LOAD_ADJUST increases reps/sets vs the current plan (unsafe after a long gap). */
+function isLoadProgression(
+  mod: ClinicalModification,
+  catalog: ClinicalExerciseCatalog
+): boolean {
+  if (mod.type !== 'LOAD_ADJUST' || !mod.currentExerciseId) return false;
+  const planEx = findPlanCatalogExercise(catalog, mod.currentExerciseId);
+  if (!planEx) return false;
+  if (mod.reps != null && mod.reps > planEx.patientReps) return true;
+  if (mod.sets != null && mod.sets > planEx.patientSets) return true;
+  return false;
+}
+
+function isRegressionModification(
+  mod: ClinicalModification,
+  catalog: ClinicalExerciseCatalog
+): boolean {
+  if (mod.type === 'REMOVE' || mod.type === 'REPLACE') return true;
+  if (mod.type !== 'LOAD_ADJUST' || !mod.currentExerciseId) return false;
+  const planEx = findPlanCatalogExercise(catalog, mod.currentExerciseId);
+  if (!planEx) return false;
+  if (mod.reps != null && mod.reps < planEx.patientReps) return true;
+  if (mod.sets != null && mod.sets < planEx.patientSets) return true;
+  return false;
+}
+
+function buildFallbackRegressionModification(
+  catalog: ClinicalExerciseCatalog,
+  longestGapDays: number
+): ClinicalModification | null {
+  const planEx = catalog.currentPlanExercises[0];
+  if (!planEx) return null;
+
+  const reducedReps = Math.max(1, Math.floor(planEx.patientReps * 0.7));
+  const reducedSets =
+    planEx.patientSets > 1 ? Math.max(1, planEx.patientSets - 1) : planEx.patientSets;
+  const useReps = reducedReps < planEx.patientReps;
+  const suggestedReps = useReps ? reducedReps : planEx.patientReps;
+  const suggestedSets = useReps ? planEx.patientSets : reducedSets;
+
+  const draft: ClinicalModification = {
+    type: 'LOAD_ADJUST',
+    currentExerciseId: planEx.id,
+    newExerciseChainId: null,
+    reps: suggestedReps,
+    sets: suggestedSets !== planEx.patientSets ? suggestedSets : null,
+    label: '',
+    rationale: `רגרסיה קלינית לאחר הפסקה של ${longestGapDays} ימים — הפחתת נפח לחזרה בטוחה לפעילות.`,
+  };
+  draft.label = labelDisplayToPlainText(resolveModificationLabelDisplay(draft, catalog));
+  return draft;
+}
+
+/**
+ * After a critical inactivity gap, strip progressions and guarantee at least one
+ * actionable regression recommendation (never leave modifications empty).
+ */
+export function ensureCriticalGapRegressionModifications(
+  modifications: ClinicalModification[],
+  catalog: ClinicalExerciseCatalog,
+  longestGapDays: number
+): ClinicalModification[] {
+  const withoutProgression = modifications.filter((mod) => !isLoadProgression(mod, catalog));
+  if (withoutProgression.some((mod) => isRegressionModification(mod, catalog))) {
+    return withoutProgression.slice(0, 4);
+  }
+  const fallback = buildFallbackRegressionModification(catalog, longestGapDays);
+  if (!fallback) return withoutProgression.slice(0, 4);
+  return [fallback, ...withoutProgression].slice(0, 4);
+}
+
 /** Deterministic Hebrew display — never uses long LLM label text for REPLACE/REMOVE. */
 export function formatModificationDisplayHe(
   mod: ClinicalModification,
@@ -398,24 +465,40 @@ export function normalizeClinicalModification(raw: unknown): ClinicalModificatio
 }
 
 export function normalizeUnifiedClinicalNarrative(raw: unknown): LlmClinicalNarrative {
-  const o = raw as Record<string, unknown>;
+  const o =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+
+  const summaryRaw =
+    o.summary && typeof o.summary === 'object' && !Array.isArray(o.summary)
+      ? (o.summary as Record<string, unknown>)
+      : {};
+
+  const actionItems = Array.isArray(o.actionItems)
+    ? o.actionItems
+        .map((x) => trimStr(x, 180))
+        .filter(Boolean)
+        .slice(0, 6)
+    : [];
 
   const modifications = Array.isArray(o.modifications)
-    ? filterInvalidReplacements(
-        filterModificationConflicts(
-          o.modifications
-            .map(normalizeClinicalModification)
-            .filter((x): x is ClinicalModification => x != null)
-            .slice(0, 6)
-        )
+    ? filterModificationConflicts(
+        o.modifications
+          .map(normalizeClinicalModification)
+          .filter((x): x is ClinicalModification => x != null)
+          .slice(0, 6)
       )
     : [];
 
   return {
-    summary: { consistency: '', painLoad: '' },
-    actionItems: [],
+    summary: {
+      consistency: trimStr(summaryRaw.consistency, 280),
+      painLoad: trimStr(summaryRaw.painLoad, 280),
+    },
+    actionItems,
     modifications,
-    prognosis: '',
+    prognosis: trimStr(o.prognosis, 400),
   };
 }
 
@@ -423,7 +506,7 @@ export function buildUnifiedClinicalNarrative(
   agg: ClinicalInsightsAggregated,
   _patientDisplayName: string,
   progressInsight: ClinicalProgressInsight | null,
-  catalog?: ClinicalExerciseCatalog
+  _catalog?: ClinicalExerciseCatalog
 ): UnifiedClinicalNarrative {
   const areaLabel = bodyAreaLabels[agg.primaryBodyArea];
   const streak = agg.activeStreak;
@@ -435,12 +518,14 @@ export function buildUnifiedClinicalNarrative(
   let consistency: string;
   if (streak.actualStartDate == null) {
     consistency = 'אין סשנים מתועדים עדיין.';
+  } else if (agg.hasCriticalGaps) {
+    consistency = `אזהרה: פער תרגול ארוך (${agg.longestGapDays} ימים) · עמידה מול יעד ${agg.targetWorkoutsPerWeek}/שבוע: ${adherencePct ?? '—'}%.`;
   } else if (agg.hasRecentGap && shortStreak) {
     consistency = `חזרה לאחר הפסקה של ${streak.lastGapDays} ימים — מסלול קצר.`;
   } else if (agg.hasRecentGap) {
-    consistency = `חזרה לתרגול לאחר הפסקה · עמידה ${adherencePct ?? '—'}%.`;
+    consistency = `חזרה לתרגול לאחר הפסקה · עמידה מול יעד ${agg.targetWorkoutsPerWeek}/שבוע: ${adherencePct ?? '—'}%.`;
   } else {
-    consistency = `עמידה במסלול הפעיל ${adherencePct ?? '—'}%.`;
+    consistency = `עמידה מול יעד ${agg.targetWorkoutsPerWeek} אימונים/שבוע: ${adherencePct ?? '—'}%.`;
   }
 
   let painLoad: string;
@@ -465,39 +550,17 @@ export function buildUnifiedClinicalNarrative(
   if (agg.highPainWithStrongCompliance) {
     actionItems.push('בדיקת טכניקה — עומס מול סובלנות');
   }
+  if (agg.hasCriticalGaps) {
+    actionItems.push('בדיקת דפוס binge/cram — פערים ארוכים מול יעד שבועי');
+  }
 
-  const modifications: ClinicalModification[] = [];
-  const firstPlanEx = catalog?.currentPlanExercises[0];
-  const catalogId = pickProgressionCatalogId(catalog);
-
-  if (
-    progressInsight?.category === 'load_increase' &&
-    !shortStreak &&
-    firstPlanEx &&
-    catalogId
-  ) {
-    modifications.push({
-      type: 'REPLACE',
-      currentExerciseId: firstPlanEx.id,
-      newExerciseChainId: catalogId,
-      label: firstPlanEx.name,
-      rationale: 'עמידה טובה — התקדמות לתרגיל מאתגר יותר.',
-    });
+  if (progressInsight?.category === 'load_increase' && !shortStreak) {
+    actionItems.push('שקלו התקדמות זהירה — ניתן לייצר המלצות Gemini לאישור ידני.');
   } else if (
-    (progressInsight?.category === 'load_decrease' ||
-      progressInsight?.category === 'escalate_care') &&
-    firstPlanEx
+    progressInsight?.category === 'load_decrease' ||
+    progressInsight?.category === 'escalate_care'
   ) {
-    const reps = Math.max(1, Math.floor(firstPlanEx.patientReps * 0.75));
-    modifications.push({
-      type: 'LOAD_ADJUST',
-      currentExerciseId: firstPlanEx.id,
-      newExerciseChainId: null,
-      label: `${firstPlanEx.name}: ${firstPlanEx.patientSets}×${reps}`,
-      rationale: 'כאב/עומס גבוה — הפחתת נפח תרגיל.',
-      reps,
-      sets: firstPlanEx.patientSets,
-    });
+    actionItems.push('שקלו הפחתת עומס / בדיקת טכניקה — ניתן לייצר המלצות Gemini לאישור ידני.');
   }
 
   let prognosis = 'מעקב שבועי — תלוי בעמידה ויציבות כאב';
@@ -511,10 +574,7 @@ export function buildUnifiedClinicalNarrative(
     {
       summary: { consistency, painLoad },
       actionItems: actionItems.slice(0, 5),
-      modifications: finalizeClinicalModifications(
-        filterModificationConflicts(modifications),
-        catalog
-      ),
+      modifications: [],
       prognosis,
     },
     { adherencePercent: adherencePct, hasRecentGap: agg.hasRecentGap }

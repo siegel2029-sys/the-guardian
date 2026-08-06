@@ -4,14 +4,15 @@ import type {
   PatientClinicalIntakeProfile,
   PatientIntakeArchive,
 } from '../types';
-import { bodyAreaLabels } from '../types';
 import {
   collectPatientPhiTokens,
   patientInitialsFromName,
-  redactIntakeArchiveForAi,
   scrubKnownPatientPhi,
 } from './clinicalConsultantContext';
+import { buildClinicalPromptContext } from './buildClinicalPromptContext';
 import { geminiGenerateText, getGeminiApiKey } from './geminiClient';
+import { buildIntakeComparativeDiffPayload } from './intakeComparativeDiff';
+import { parseModelJsonObject } from './parseModelJson';
 import { normalizeLegacyIntake } from '../utils/normalizeLegacyIntake';
 import { isClinicalIntakeProfileEmpty } from '../utils/clinicalIntakeTemplate';
 import {
@@ -71,10 +72,9 @@ function parseIntakeComparative(
   raw: string,
   sourceFields?: ClinicalIntakeEditableFields
 ): IntakeComparativeAiResult | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
+  const o = parseModelJsonObject(raw, { logPrefix: LOG_PREFIX });
+  if (!o) return null;
   try {
-    const o = JSON.parse(trimmed) as Record<string, unknown>;
     const medicalSchema = parseMedicalIntakeSchemaFromAi(o);
     if (!medicalSchema) return null;
 
@@ -103,29 +103,6 @@ function parseIntakeComparative(
   } catch {
     return null;
   }
-}
-
-function patientCurrentContextLite(p: Patient): string {
-  const pain = [...p.analytics.painHistory]
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(-10);
-  const sessions = [...p.analytics.sessionHistory]
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 12);
-
-  return JSON.stringify(
-    {
-      diagnosisNow: p.diagnosis,
-      primaryBodyAreaNow: bodyAreaLabels[p.primaryBodyArea],
-      painHistoryRecent: pain,
-      sessionHistoryRecent: sessions,
-      intakeVasScore: p.intakeVasScore ?? null,
-      clinicalIntakeProfile: p.clinicalIntakeProfile ?? null,
-      clinicalIntakeAiInsights: p.clinicalIntakeAiInsights ?? null,
-    },
-    null,
-    2
-  );
 }
 
 export type StructuredIntakeForComparative = {
@@ -235,35 +212,32 @@ export async function analyzeIntakeVersusCurrentCare(
     ? mapEditableFieldsToMedicalSchema(currentFields)
     : undefined;
 
-  const intakeJson = scrub(
-    JSON.stringify(
-      {
-        archive: redactIntakeArchiveForAi(intakeArchive),
-        structured: structuredIntake,
-        currentVersion: currentSchema,
-      },
-      null,
-      2
-    )
-  );
+  const diffPayload = buildIntakeComparativeDiffPayload({
+    patient,
+    structuredBaseline: structuredIntake,
+    currentSchema,
+    scrub,
+  });
+
+  const comparativeContext = buildClinicalPromptContext({
+    mode: 'comparative',
+    payload: diffPayload,
+  });
 
   const systemInstruction = `אתה עוזר קליני לפיזיותרפיסט (מטא־ניתוח בלבד).
 חוקים:
 - עברית מקצועית, תמציתית.
 - אין אבחנה סופית ואין התחייבות רפואית.
-- השווה בין אינטייק ראשוני לבין מצב נוכחי ונתוני תוכנית/סשנים.
+- השווה לפי diff מובנה (changedFields + baselines קצרים) ונתוני תוכנית/סשנים — אל תניח שיש ארכיון מלא בבקשה.
 - הפלט חייב להיות JSON מובנה בלבד — ללא בלוב טקסט יחיד.
 - אל תשלב שמות מטופלים או מזהים אישיים בפלט.
 
 ${MEDICAL_SCHEMA_PROMPT}`;
 
-  const userText = `אינטייק ראשוני + גרסה נוכחית (JSON, ללא מזהים אישיים):
-${intakeJson}
+  const userText = `השוואת אינטייק מול מצב נוכחי (diff מובנה בלבד — ללא ארכיון מלא):
+${comparativeContext.text}
 
-מצב נוכחי (מקומי):
-${scrub(patientCurrentContextLite(patient))}
-
-נתוני Supabase:
+נתוני Supabase (מסוכמים):
 ${supabaseDatastoreJson}`;
 
   const raw = await geminiGenerateText({
@@ -272,7 +246,11 @@ ${supabaseDatastoreJson}`;
     temperature: 0.2,
     responseMimeType: 'application/json',
     logPrefix: LOG_PREFIX,
-    logDetail: { mode: 'intake_comparative' },
+    logDetail: {
+      mode: 'intake_comparative',
+      changedFieldCount:
+        typeof diffPayload.changedFieldCount === 'number' ? diffPayload.changedFieldCount : 0,
+    },
     patientInitials: initials,
     nameTokens,
   });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { User } from '@supabase/supabase-js';
-import { getPatientProductTier } from './mapSupabaseUser';
+import { getClinicPatientIdFromUser, getPatientProductTier } from './mapSupabaseUser';
 
 function mockUser(partial: {
   app?: Record<string, unknown>;
@@ -36,5 +36,10 @@ describe('getPatientProductTier', () => {
 
   it('ignores user_metadata.role=therapist (client-writable — not authoritative)', () => {
     expect(getPatientProductTier(mockUser({ user: { role: 'therapist' } }))).toBe('free');
+  });
+
+  it('ignores user_metadata.patient_id for clinic routing', () => {
+    expect(getClinicPatientIdFromUser(mockUser({ user: { patient_id: 'p-stolen' } }))).toBeUndefined();
+    expect(getPatientProductTier(mockUser({ user: { patient_id: 'p-stolen' } }))).toBe('free');
   });
 });

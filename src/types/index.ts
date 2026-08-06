@@ -234,6 +234,11 @@ export interface Patient {
    * נשמר ב־payload של patients ב-Supabase.
    */
   accountFrozen?: boolean;
+  /**
+   * When `false`, patient portal direct chat is locked (self-guided / unassisted plan).
+   * Missing / `true` = chat allowed. Synced to `patients.allow_chat`.
+   */
+  allowChat?: boolean;
   level: ExerciseLevel;
   xp: number;
   xpForNextLevel: number;
@@ -605,6 +610,11 @@ export interface ExercisePlan {
   versionNumber?: number;
   /** When false, this in-memory slice is not the active plan (e.g. history overlay). */
   isActive?: boolean;
+  /**
+   * Therapist weekly session target (1–7). Maps to `exercise_plans.target_workouts_per_week`.
+   * Default 7 when unset (legacy daily expectation).
+   */
+  targetWorkoutsPerWeek?: number;
 }
 
 /** Inactive exercise_plans rows for a patient (treatment evolution). */
@@ -616,6 +626,7 @@ export interface ExercisePlanHistoryEntry {
   parentPlanId: string | null;
   changeSummary: string | null;
   updatedAt: string;
+  targetWorkoutsPerWeek?: number;
 }
 
 export interface DailySession {

@@ -46,7 +46,16 @@ export type PatientRosterSlice = {
   isPatientSessionLocked: boolean;
   createPatientWithAccess: (
     displayName: string,
-    access: { portalUsername: string; password?: string }
+    access: {
+      portalUsername: string;
+      password?: string;
+      /** When false, portal chat is locked (self-guided plan). Default true. */
+      allowChat?: boolean;
+      /** When false, do not switch the dashboard selection to the new patient. Default true. */
+      selectAfterCreate?: boolean;
+      /** Real email for Auth login (e.g. lead convert). Returned as loginId when set. */
+      authEmail?: string;
+    }
   ) => Promise<
     | { ok: true; loginId: string; password: string; patientId: string }
     | { ok: false; message: string }
@@ -132,6 +141,7 @@ export type PatientExerciseSlice = {
   isPatientExerciseSafetyLocked: (patientId: string) => boolean;
   clearPatientExerciseSafetyLock: (patientId: string) => void;
   replaceExercisePlanForPatient: (patientId: string, exercises: PatientExercise[]) => void;
+  setPlanTargetWorkoutsPerWeek: (patientId: string, value: number) => void;
   patientExerciseFinishReportsByPatientId: Record<string, PatientExerciseFinishReport[]>;
   submitPatientAiPlanAdjustmentRequest: (suggestion: AiSuggestion) => void;
   getSelfCareZones: (patientId: string) => BodyArea[];

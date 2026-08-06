@@ -19,6 +19,8 @@ import ErrorBoundary from './ui/error-boundary';
 // Three.js, Recharts and large feature trees — keep them out of the login bundle.
 const DashboardLayout = lazy(() => import('./layout/DashboardLayout'));
 const PatientDailyView = lazy(() => import('./patient/PatientDailyView'));
+// Public self-service onboarding funnel — kept out of the main bundle.
+const OnboardingWizardPage = lazy(() => import('./onboarding/OnboardingWizardPage'));
 
 function AuthLoadingFallback() {
   return (
@@ -160,6 +162,32 @@ function TherapistRoute() {
   );
 }
 
+/**
+ * Public onboarding funnel (/join) for NEW, anonymous visitors only.
+ * Already-authenticated users are sent to their dashboard (same role logic as /login).
+ */
+function JoinRoute() {
+  const { sessionRole } = useAuth();
+  const { allow, waitForBootstrap } = useRouteAccess();
+
+  if (waitForBootstrap) {
+    return <AuthLoadingFallback />;
+  }
+  if (allow) {
+    if (sessionRole === 'patient') {
+      return <Navigate to="/patient-portal" replace />;
+    }
+    return <Navigate to="/therapist" replace />;
+  }
+  return (
+    <ErrorBoundary variant="section" scopeLabel="JoinRoute">
+      <Suspense fallback={<AuthLoadingFallback />}>
+        <OnboardingWizardPage />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
 function RootRedirect() {
   const { sessionRole } = useAuth();
   const { allow, waitForBootstrap } = useRouteAccess();
@@ -167,8 +195,10 @@ function RootRedirect() {
   if (waitForBootstrap) {
     return <AuthLoadingFallback />;
   }
+  // Unauthenticated visitors land on the unified entry (join CTA + login).
+  // Authenticated users go straight to their role dashboard.
   if (!allow) {
-    return <RedirectToLogin reason="RootRedirect: !allow (no session / not authenticated)" />;
+    return <LoginPage />;
   }
   if (sessionRole === 'patient') {
     return <Navigate to="/patient-portal" replace />;
@@ -193,10 +223,12 @@ export function AppRoutes() {
       <Route path="/refund-policy" element={<Navigate to="/legal/refund-policy" replace />} />
       <Route path="/accessibility" element={<Navigate to="/legal/accessibility" replace />} />
       <Route path="/shop" element={<Navigate to="/patient-portal/gear" replace />} />
+      {/* Public self-service onboarding & triage funnel for new independent users. */}
+      <Route path="/join" element={<JoinRoute />} />
       <Route path="/patient-portal/*" element={<PatientPortalRoute />} />
       <Route path="/therapist" element={<TherapistRoute />} />
       <Route path="/" element={<RootRedirect />} />
-      <Route path="*" element={<RootRedirect />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

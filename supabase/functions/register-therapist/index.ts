@@ -2,12 +2,13 @@
  * Secure therapist registration. Clients cannot set app_metadata on signUp;
  * this function creates the Auth user with app_metadata.role=therapist via service_role.
  *
- * Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY (CORS/apikey).
- * Optional: ALLOWED_ORIGINS (comma-separated); empty → Access-Control-Allow-Origin: *
+ * Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, REGISTER_THERAPIST_SECRET
+ * Optional: ALLOWED_ORIGINS (comma-separated). Localhost Vite origins always allowed.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { z } from "npm:zod@3.25.76";
+import { corsHeadersFor, isOriginForbidden } from "../_shared/cors.ts";
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 8;
@@ -18,29 +19,9 @@ const RegisterBodySchema = z
     email: z.string().trim().email().max(320),
     password: z.string().min(8).max(128),
     full_name: z.string().trim().min(1).max(120),
+    registration_secret: z.string().trim().min(1).max(256),
   })
   .strict();
-
-function parseAllowedOrigins(): string[] {
-  return (Deno.env.get("ALLOWED_ORIGINS") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
-function corsHeadersFor(req: Request): Record<string, string> {
-  const allowed = parseAllowedOrigins();
-  const origin = req.headers.get("Origin") ?? "";
-  let allowOrigin = "*";
-  if (allowed.length > 0) {
-    allowOrigin = allowed.includes(origin) ? origin : allowed[0];
-  }
-  return {
-    "Access-Control-Allow-Origin": allowOrigin,
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-    "Vary": "Origin",
-  };
-}
 
 function jsonResponse(
   body: unknown,
@@ -79,6 +60,16 @@ function passwordPolicyOk(password: string): boolean {
   return true;
 }
 
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const aa = enc.encode(a);
+  const bb = enc.encode(b);
+  if (aa.length !== bb.length) return false;
+  let out = 0;
+  for (let i = 0; i < aa.length; i++) out |= aa[i]! ^ bb[i]!;
+  return out === 0;
+}
+
 Deno.serve(async (req) => {
   const cors = corsHeadersFor(req);
 
@@ -90,9 +81,19 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Method not allowed" }, 405, cors);
   }
 
+  if (isOriginForbidden(req)) {
+    return jsonResponse({ error: "Origin not allowed" }, 403, cors);
+  }
+
   const ip = clientIp(req);
   if (!allowRate(`ip:${ip}`)) {
     return jsonResponse({ error: "rate_limited" }, 429, cors);
+  }
+
+  const expectedSecret = (Deno.env.get("REGISTER_THERAPIST_SECRET") ?? "").trim();
+  if (!expectedSecret) {
+    console.error("[register-therapist] REGISTER_THERAPIST_SECRET not configured");
+    return jsonResponse({ error: "Server misconfigured" }, 500, cors);
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
@@ -112,6 +113,10 @@ Deno.serve(async (req) => {
   const parsed = RegisterBodySchema.safeParse(raw);
   if (!parsed.success) {
     return jsonResponse({ error: "invalid_payload" }, 400, cors);
+  }
+
+  if (!timingSafeEqual(parsed.data.registration_secret, expectedSecret)) {
+    return jsonResponse({ error: "forbidden" }, 403, cors);
   }
 
   const email = parsed.data.email.trim().toLowerCase();
@@ -140,7 +145,6 @@ Deno.serve(async (req) => {
 
   if (error) {
     const msg = (error.message ?? "").toLowerCase();
-    // Generic client messages — no stack / internal detail.
     if (msg.includes("already") || msg.includes("registered") || msg.includes("exists")) {
       return jsonResponse({ error: "email_taken" }, 409, cors);
     }
@@ -154,7 +158,6 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "registration_failed" }, 500, cors);
   }
 
-  // Defense-in-depth: ensure app_metadata.role survived the BEFORE INSERT promote trigger.
   const role = (data.user?.app_metadata as Record<string, unknown> | undefined)?.role;
   if (role !== "therapist") {
     const { error: updErr } = await admin.auth.admin.updateUserById(userId, {
@@ -170,7 +173,6 @@ Deno.serve(async (req) => {
   return jsonResponse(
     {
       ok: true,
-      // Session is created client-side via signInWithPassword after verify-email when required.
       needsEmailVerification: true,
     },
     200,

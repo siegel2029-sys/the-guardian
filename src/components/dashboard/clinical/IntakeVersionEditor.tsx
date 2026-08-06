@@ -11,6 +11,9 @@ import {
   computeClinicalProtocolContext,
   resolveProtocolStartDateForPatient,
 } from '../../../utils/clinicalProtocolWeek';
+import { collectPatientSessionDates } from '../../../utils/collectPatientSessionDates';
+import { clampTargetWorkoutsPerWeek } from '../../../utils/targetWorkoutsPerWeek';
+import { usePatientExercisePlans } from '../../../context/patientDomainHooks';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -45,6 +48,7 @@ export default function IntakeVersionEditor({
   patient,
   clinicalToday,
 }: Props) {
+  const { getExercisePlan, dailyHistoryByPatient, dailySessions } = usePatientExercisePlans();
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [isDirty, setIsDirty] = useState(false);
   const fieldsRef = useRef(fields);
@@ -102,10 +106,16 @@ export default function IntakeVersionEditor({
   const noop = () => undefined;
   const noopList = () => undefined;
 
-  const currentProtocolWeek = useMemo(() => {
+  const protocolContext = useMemo(() => {
     if (!patient || !clinicalToday) return null;
-    const sessionDates = (patient.analytics?.sessionHistory ?? []).map((s) => s.date);
+    const dailyHistoryForPatient = dailyHistoryByPatient?.[patient.id];
+    const sessionDates = collectPatientSessionDates({
+      patient,
+      dailyHistoryForPatient,
+      dailySessions,
+    });
     const activeStreak = resolveClinicalActiveStreak(sessionDates, clinicalToday);
+    const plan = getExercisePlan(patient.id);
     return computeClinicalProtocolContext({
       protocolStartDate: resolveProtocolStartDateForPatient(
         patient,
@@ -113,8 +123,19 @@ export default function IntakeVersionEditor({
       ),
       clinicalToday,
       treatmentProtocol: fields.treatmentProtocol,
-    }).currentProtocolWeek;
-  }, [patient, clinicalToday, fields.treatmentProtocol]);
+      sessionDatesChronological: sessionDates,
+      targetWorkoutsPerWeek: clampTargetWorkoutsPerWeek(plan?.targetWorkoutsPerWeek),
+    });
+  }, [
+    patient,
+    clinicalToday,
+    fields.treatmentProtocol,
+    dailyHistoryByPatient,
+    dailySessions,
+    getExercisePlan,
+  ]);
+
+  const currentProtocolWeek = protocolContext?.currentProtocolWeek ?? null;
 
   const saveIndicator =
     !readOnly && saveStatus === 'saving' ? (
@@ -181,6 +202,7 @@ export default function IntakeVersionEditor({
         prognosisHypothesis={fields.prognosisHypothesis}
         protocolTrackingState={fields.protocolTrackingState}
         currentProtocolWeek={currentProtocolWeek}
+        protocolProgressionFrozen={protocolContext?.protocolProgressionFrozen === true}
         readOnly={readOnly}
         onTrackingChange={
           readOnly ? undefined : (protocolTrackingState) => patch({ protocolTrackingState })

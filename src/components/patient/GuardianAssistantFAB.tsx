@@ -20,6 +20,16 @@ import { screenPatientFreeTextForEmergency } from '../../safety/clinicalEmergenc
 import { usePatientChat } from '../../context/patientDomainHooks';
 import { getGeminiApiKey } from '../../ai/geminiClient';
 import { guardiPatientChatWithGemini } from '../../ai/geminiGordyPatient';
+import {
+  fetchLatestProgramReviewForPatient,
+  formatProgramReviewForPatientAi,
+} from '../../services/programReviewService';
+import {
+  NEW_PATIENT_GRACE_DAYS,
+  REJECTION_COOLDOWN_DAYS,
+  clinicalDayDiff,
+} from '../../ai/programReviewEngine';
+import { getClinicalDate } from '../../utils/clinicalCalendar';
 import PatientPortalAiChatInput, {
   PATIENT_PORTAL_AI_CHAT_PLACEHOLDER,
 } from './PatientPortalAiChatInput';
@@ -155,6 +165,10 @@ const GuardianAssistantFAB = forwardRef<GuardianAssistantFABHandle, GuardianAssi
     const text = (incomingText ?? input).trim();
     if (!text || replyLoading) return;
     if (!open) setOpen(true);
+    // ניקוי טיוטת המודל רק כשההודעה נשלחה משורת הקלט של המודל עצמו
+    const clearModalDraft = () => {
+      if (incomingText === undefined) setInput('');
+    };
 
     // חובה: סינון חירום לפני כל לוגיקה אחרת (הצעות, אישורים, buildGuardianTurn)
     const emergency = screenPatientFreeTextForEmergency(text);
@@ -173,7 +187,7 @@ const GuardianAssistantFAB = forwardRef<GuardianAssistantFABHandle, GuardianAssi
         },
       ]);
       setPendingOffer(null);
-      if (!portalInline) setInput('');
+      setInput('');
       setOpen(false);
       setPortalBarSticky(false);
       setPortalBarHover(false);
@@ -203,7 +217,7 @@ const GuardianAssistantFAB = forwardRef<GuardianAssistantFABHandle, GuardianAssi
           },
         ]);
         setPendingOffer(null);
-        if (!portalInline) setInput('');
+        setInput('');
         return;
       }
       onSubmitGuardianRepsRequest(
@@ -223,7 +237,7 @@ const GuardianAssistantFAB = forwardRef<GuardianAssistantFABHandle, GuardianAssi
         },
       ]);
       setPendingOffer(null);
-      if (!portalInline) setInput('');
+      setInput('');
       return;
     }
 
@@ -239,19 +253,49 @@ const GuardianAssistantFAB = forwardRef<GuardianAssistantFABHandle, GuardianAssi
 
     setMessages((m) => [...m, { role: 'user', text }]);
     setPendingOffer(offer);
-    if (!portalInline) setInput('');
+    setInput('');
 
     let assistantText = reply;
     if (getGeminiApiKey()) {
       setReplyLoading(true);
       onReplyLoadingChange?.(true);
       try {
+        let programReviewSummary: string | undefined;
+        try {
+          const reviewResult = await fetchLatestProgramReviewForPatient(patient.id);
+          if (reviewResult.ok) {
+            const today = getClinicalDate();
+            const startYmd =
+              (patient.startDate && patient.startDate.slice(0, 10)) ||
+              (patient.joinDate && patient.joinDate.slice(0, 10)) ||
+              (patient.surgeryDate && patient.surgeryDate.slice(0, 10)) ||
+              null;
+            const inGracePeriod =
+              startYmd != null &&
+              clinicalDayDiff(startYmd, today) < NEW_PATIENT_GRACE_DAYS;
+            const declined = reviewResult.data?.status === 'declined';
+            const declinedYmd = reviewResult.data?.resolved_at?.slice(0, 10) ?? null;
+            const inRejectionCooldown =
+              declined &&
+              declinedYmd != null &&
+              clinicalDayDiff(declinedYmd, today) < REJECTION_COOLDOWN_DAYS;
+            programReviewSummary = formatProgramReviewForPatientAi(reviewResult.data, {
+              inGracePeriod,
+              inRejectionCooldown,
+            });
+          }
+        } catch {
+          // Non-blocking — chat still works without review context.
+        }
         assistantText = await guardiPatientChatWithGemini({
           patient,
           exerciseCount,
           exercises,
           history: messages,
           userMessage: text,
+          programReview: programReviewSummary
+            ? { summaryHebrew: programReviewSummary }
+            : null,
         });
       } catch (err) {
         console.warn('[PHYSIOSHIELD Assistant FAB] Gemini fallback to rule reply', err);
@@ -475,40 +519,38 @@ const GuardianAssistantFAB = forwardRef<GuardianAssistantFABHandle, GuardianAssi
               <div ref={endRef} />
             </div>
 
-            <div className="p-3 border-t shrink-0 flex gap-2" style={{ borderColor: '#e0e7ff' }}>
-              {!portalInline && (
-                <>
-                  <input
-                    ref={modalInputRef}
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && !replyLoading && void send()}
-                    placeholder={
-                      isPortal
-                        ? PATIENT_PORTAL_AI_CHAT_PLACEHOLDER
-                        : 'שאלה או «כן» לאישור שליחה למטפל…'
-                    }
-                    className="flex-1 min-w-0 rounded-2xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
-                    style={{ background: '#fafafa' }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void send()}
-                    disabled={!input.trim() || replyLoading}
-                    className="shrink-0 w-11 h-11 rounded-2xl flex items-center justify-center text-white disabled:opacity-40"
-                    style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}
-                    aria-label="שלח"
-                  >
-                    <Send className="w-5 h-5" />
-                  </button>
-                </>
-              )}
-              {portalInline && (
-                <p className="w-full text-center text-xs text-indigo-600/90 py-1">
-                  המשיכו לכתוב בשורת הקלט למטה
-                </p>
-              )}
+            <div
+              className="p-3 border-t shrink-0 flex gap-2"
+              style={{
+                borderColor: '#e0e7ff',
+                background: 'linear-gradient(180deg, #ffffff 0%, #eef2ff 100%)',
+              }}
+            >
+              <input
+                ref={modalInputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !replyLoading && void send()}
+                placeholder={
+                  isPortal
+                    ? PATIENT_PORTAL_AI_CHAT_PLACEHOLDER
+                    : 'שאלה או «כן» לאישור שליחה למטפל…'
+                }
+                className="flex-1 min-w-0 rounded-2xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                style={{ background: '#fafafa' }}
+                aria-label="הודעה לעוזר השיקום"
+              />
+              <button
+                type="button"
+                onClick={() => void send()}
+                disabled={!input.trim() || replyLoading}
+                className="shrink-0 w-11 h-11 rounded-2xl flex items-center justify-center text-white disabled:opacity-40"
+                style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}
+                aria-label="שלח"
+              >
+                <Send className="w-5 h-5" aria-hidden="true" />
+              </button>
             </div>
           </div>
         </div>

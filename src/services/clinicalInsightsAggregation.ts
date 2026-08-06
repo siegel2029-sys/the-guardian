@@ -21,7 +21,9 @@ import {
   type ClinicalActiveStreakContext,
   type TrainingPhaseSegment,
 } from '../utils/clinicalActiveStreak';
-import { computeGraceAwareAdherence } from '../utils/clinicalAdherence';
+import { computeGraceAwareAdherence, computeGapAwareWeeklyAdherence } from '../utils/clinicalAdherence';
+import { clampTargetWorkoutsPerWeek } from '../utils/targetWorkoutsPerWeek';
+import { collectPatientSessionDates } from '../utils/collectPatientSessionDates';
 import { computeClinicalProtocolContext, resolveProtocolStartDateForPatient } from '../utils/clinicalProtocolWeek';
 import { effortToScale10 } from '../utils/effortScale';
 
@@ -52,11 +54,29 @@ export type ClinicalInsightsAggregated = {
   actualStartDate: string | null;
   /** 1-based week within treatment protocol (floor(daysSinceStart / 7) + 1) */
   currentProtocolWeek: number | null;
+  /** Pure calendar week ignoring gaps (for diagnostics / AI). */
+  chronologicalProtocolWeek: number | null;
   currentProtocolName: string | null;
   daysSinceProtocolStart: number | null;
+  /** True when protocol week is stalled behind calendar due to gap / low adherence. */
+  protocolProgressionFrozen: boolean;
+  protocolFreezeReason: 'critical_gap' | 'low_adherence' | null;
   trainingPhaseHistory: TrainingPhaseSegment[];
-  /** Stream 1 — grace-aware adherence, current phase only (server hard fact) */
+  /**
+   * Gap-aware weekly adherence vs `targetWorkoutsPerWeek` (rolling lookback + weekly cap + gap penalty).
+   * Server hard fact — never invented by the LLM.
+   */
   adherencePercent: number | null;
+  /** Weekly session target from active plan (1–7). */
+  targetWorkoutsPerWeek: number;
+  /** Longest consecutive calendar days without a logged session in the adherence lookback. */
+  longestGapDays: number;
+  /** true when longestGapDays > critical threshold (binge/cram risk). */
+  hasCriticalGaps: boolean;
+  /** Adherence % before gap penalty (weekly-capped average). */
+  adherenceBeforeGapPenalty: number | null;
+  /** Session days counted inside the gap-aware lookback window. */
+  sessionDaysInLookback: number;
   /** true when current active phase started after a gap > 4 days */
   hasRecentGap: boolean;
   adherenceCountableDays: number;
@@ -282,7 +302,10 @@ export function aggregateClinicalInsights(params: {
   const sessionHistoryRaw = patient.analytics?.sessionHistory ?? [];
   const exerciseHistory = [...sessionHistoryRaw].sort((a, b) => a.date.localeCompare(b.date));
 
-  const sessionDates = exerciseHistory.map((s) => s.date);
+  const sessionDates = collectPatientSessionDates({
+    patient,
+    dailyHistoryForPatient,
+  });
   const activeStreak = resolveClinicalActiveStreak(sessionDates, clinicalToday);
 
   const assigned = buildAssignedBodyAreas(patient, plan);
@@ -292,10 +315,17 @@ export function aggregateClinicalInsights(params: {
   const patientSelfCare = selfCareReports.filter((r) => r.patientId === patient.id);
 
   const plannedPerDay = plan?.exercises.length ?? 0;
+  const targetWorkoutsPerWeek = clampTargetWorkoutsPerWeek(plan?.targetWorkoutsPerWeek);
   const primary = patient.primaryBodyArea;
 
   const streakStart = activeStreak.activeStreakStart ?? clinicalToday;
   const streakEnd = clinicalToday;
+
+  const gapAwareAdherence = computeGapAwareWeeklyAdherence({
+    clinicalToday,
+    sessionDatesChronological: sessionDates,
+    targetWorkoutsPerWeek,
+  });
 
   const graceAdherence = computeGraceAwareAdherence({
     activeStreakStart: activeStreak.activeStreakStart,
@@ -309,9 +339,11 @@ export function aggregateClinicalInsights(params: {
     completedSum: graceAdherence.adherenceCompletedSum,
     plannedSum: graceAdherence.adherencePlannedSum,
     rate:
-      graceAdherence.adherencePlannedSum > 0
-        ? graceAdherence.adherenceCompletedSum / graceAdherence.adherencePlannedSum
-        : null,
+      gapAwareAdherence.adherencePercent != null
+        ? gapAwareAdherence.adherencePercent / 100
+        : graceAdherence.adherencePlannedSum > 0
+          ? graceAdherence.adherenceCompletedSum / graceAdherence.adherencePlannedSum
+          : null,
     daysPlanned: graceAdherence.adherenceCountableDays,
   };
 
@@ -391,8 +423,8 @@ export function aggregateClinicalInsights(params: {
   const highPainWithStrongCompliance =
     avgPainActiveStreakPrimary != null &&
     avgPainActiveStreakPrimary >= 5.5 &&
-    graceAdherence.adherencePercent != null &&
-    graceAdherence.adherencePercent >= 82;
+    gapAwareAdherence.adherencePercent != null &&
+    gapAwareAdherence.adherencePercent >= 82;
 
   let highPainLowCompletionDays = 0;
   for (const ymd of eachClinicalDayInRange(streakStart, streakEnd)) {
@@ -412,6 +444,11 @@ export function aggregateClinicalInsights(params: {
     ),
     clinicalToday,
     treatmentProtocol,
+    sessionDatesChronological: sessionDates,
+    adherencePercent: gapAwareAdherence.adherencePercent,
+    hasCriticalGaps: gapAwareAdherence.hasCriticalGaps,
+    longestGapDays: gapAwareAdherence.longestGapDays,
+    targetWorkoutsPerWeek,
   });
 
   return {
@@ -422,10 +459,18 @@ export function aggregateClinicalInsights(params: {
     activeStreak,
     actualStartDate: activeStreak.actualStartDate,
     currentProtocolWeek: protocolContext.currentProtocolWeek,
+    chronologicalProtocolWeek: protocolContext.chronologicalProtocolWeek,
     currentProtocolName: protocolContext.currentProtocolName,
     daysSinceProtocolStart: protocolContext.daysSinceProtocolStart,
+    protocolProgressionFrozen: protocolContext.protocolProgressionFrozen,
+    protocolFreezeReason: protocolContext.protocolFreezeReason,
     trainingPhaseHistory: activeStreak.trainingPhaseHistory,
-    adherencePercent: graceAdherence.adherencePercent,
+    adherencePercent: gapAwareAdherence.adherencePercent,
+    targetWorkoutsPerWeek: gapAwareAdherence.targetWorkoutsPerWeek,
+    longestGapDays: gapAwareAdherence.longestGapDays,
+    hasCriticalGaps: gapAwareAdherence.hasCriticalGaps,
+    adherenceBeforeGapPenalty: gapAwareAdherence.adherenceBeforePenalty,
+    sessionDaysInLookback: gapAwareAdherence.sessionDaysInLookback,
     hasRecentGap: activeStreak.lastGapDays != null,
     adherenceCountableDays: graceAdherence.adherenceCountableDays,
     adherenceCompletedSum: graceAdherence.adherenceCompletedSum,

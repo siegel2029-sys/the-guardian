@@ -12,6 +12,7 @@ import {
   mergeExercisePlansWithPatientPayloadCache,
   normalizeCachedPatientExercises,
 } from '../utils/exercisePlanCanonical';
+import { clampTargetWorkoutsPerWeek } from '../utils/targetWorkoutsPerWeek';
 import {
   isSupabaseAuthEnabled,
   normalizePortalUsername,
@@ -637,6 +638,11 @@ export type UpsertPatientRecordsOptions = {
    * sticky server freeze protection. Never set from patient portal upserts.
    */
   trustIncomingAccountControl?: boolean;
+  /**
+   * When creating a portal patient who logs in with a real email, write that
+   * address to `patients.contact_email` instead of the synthetic portal email.
+   */
+  authLoginEmail?: string;
 };
 
 export async function upsertPatientRecords(
@@ -694,13 +700,17 @@ export async function upsertPatientRecords(
     if (therapistUser) {
       const resolved = resolveTherapistIdForSupabaseRls(p.therapistId, therapistUser);
       if (resolved === null) {
-        therapistIdForRow = therapistUser.id;
-        payloadForRow =
-          p.therapistId === therapistUser.id ? p : { ...p, therapistId: therapistUser.id };
-      } else {
-        therapistIdForRow = resolved;
-        payloadForRow = resolved === p.therapistId ? p : { ...p, therapistId: resolved };
+        // Do not remap arbitrary therapist ids onto the caller (phantom / stolen roster).
+        // Only demo aliases and the caller's own id are accepted.
+        if (import.meta.env.DEV) {
+          console.warn('[upsertPatientRecords] skipping patient with foreign therapistId', {
+            patientRef: redactId(patientRowId),
+          });
+        }
+        continue;
       }
+      therapistIdForRow = resolved;
+      payloadForRow = resolved === p.therapistId ? p : { ...p, therapistId: resolved };
     }
 
     const { data: existing, error: fetchErr } = await client
@@ -723,9 +733,13 @@ export async function upsertPatientRecords(
     /** patients.auth_user_id = portal patient's Auth id only — never the therapist's uid */
 
     const rawUsername = payloadForRow.portalUsername?.trim() ?? '';
-    const contactEmail = rawUsername
-      ? portalUsernameToAuthEmail(normalizePortalUsername(rawUsername))
-      : '';
+    const loginEmailOverride = options?.authLoginEmail?.trim().toLowerCase() ?? '';
+    const contactEmail =
+      loginEmailOverride && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginEmailOverride)
+        ? loginEmailOverride
+        : rawUsername
+          ? portalUsernameToAuthEmail(normalizePortalUsername(rawUsername))
+          : '';
 
     const ageVal =
       typeof payloadForRow.age === 'number' && Number.isFinite(payloadForRow.age)
@@ -787,7 +801,7 @@ export async function upsertPatientRecords(
      * Preserve the exact server representation for patient portal writes.
      */
     if (isPatientPortal && oldPayload) {
-      const oldRaw = oldPayload as Patient & { account_frozen?: unknown };
+      const oldRaw = oldPayload as Patient & { account_frozen?: unknown; allow_chat?: unknown };
       if (Object.prototype.hasOwnProperty.call(oldRaw, 'accountFrozen')) {
         payloadForUpsert.accountFrozen = oldRaw.accountFrozen;
       } else {
@@ -796,11 +810,24 @@ export async function upsertPatientRecords(
       if (Object.prototype.hasOwnProperty.call(oldRaw, 'status')) {
         payloadForUpsert.status = oldRaw.status;
       }
-      const upsertRec = payloadForUpsert as Patient & { account_frozen?: unknown };
+      if (Object.prototype.hasOwnProperty.call(oldRaw, 'allowChat')) {
+        payloadForUpsert.allowChat = oldRaw.allowChat;
+      } else {
+        delete payloadForUpsert.allowChat;
+      }
+      const upsertRec = payloadForUpsert as Patient & {
+        account_frozen?: unknown;
+        allow_chat?: unknown;
+      };
       if (Object.prototype.hasOwnProperty.call(oldRaw, 'account_frozen')) {
         upsertRec.account_frozen = oldRaw.account_frozen;
       } else {
         delete upsertRec.account_frozen;
+      }
+      if (Object.prototype.hasOwnProperty.call(oldRaw, 'allow_chat')) {
+        upsertRec.allow_chat = oldRaw.allow_chat;
+      } else {
+        delete upsertRec.allow_chat;
       }
     }
     const firstName = (payloadForUpsert.name ?? '').trim();
@@ -1035,7 +1062,11 @@ export async function fetchUnlinkedPortalPatientIds(
   return serviceOk(unlinked);
 }
 
-/** מחיקת שורת מטופל ב-Supabase (RLS — מטפל מחובר בלבד). מפעיל CASCADE למסדי תלות (תוכניות, היסטוריית סשנים, יומן ביקורת). חייב להצליח לפני ניקוי המצב המקומי. */
+/**
+ * Hard-delete patient via SECURITY DEFINER RPC (owned rows only).
+ * Deletes linked auth.users (email freed) after refusing therapist accounts;
+ * then deletes patients (clinical FKs cascade).
+ */
 export async function deletePatientRowFromSupabase(
   client: SupabaseClient,
   patientId: string
@@ -1048,21 +1079,36 @@ export async function deletePatientRowFromSupabase(
     return { ok: false, message: 'patients delete: נדרש מטפל מחובר ל-Supabase' };
   }
 
-  // Filter by therapist_id (TEXT column, matches auth.uid()::text — satisfies RLS) and
-  // the app patient ID stored inside the payload JSONB. This avoids touching the `id`
-  // primary-key column whose type (TEXT vs UUID) may differ between environments.
-  const { error } = await client
-    .from('patients')
-    .delete()
-    .eq('therapist_id', user.id)
-    .filter('payload->>id', 'eq', patientId)
-    .select('therapist_id');
+  const pid = patientId.trim();
+  if (!pid) {
+    return { ok: false, message: 'patients delete: מזהה מטופל חסר' };
+  }
+
+  const { data, error } = await client.rpc('hard_delete_patient', {
+    p_patient_id: pid,
+  });
 
   if (error) {
-    return { ok: false, message: `patients delete: ${error.message}` };
+    const msg = error.message ?? '';
+    if (/Cannot hard-delete a therapist account/i.test(msg)) {
+      return { ok: false, message: 'patients delete: cannot hard-delete a therapist account' };
+    }
+    return { ok: false, message: `patients delete: ${msg}` };
   }
-  // If data is empty the row was already gone — treat as success.
-  return { ok: true };
+
+  const payload =
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : null;
+  if (payload?.ok === true) {
+    return { ok: true };
+  }
+  if (payload?.reason === 'not_found') {
+    // Already gone — treat as success so local cleanup can proceed.
+    return { ok: true };
+  }
+  const reason = typeof payload?.reason === 'string' ? payload.reason : 'delete_failed';
+  return { ok: false, message: `patients delete: ${reason}` };
 }
 
 function logExercisePlansSupabaseError(
@@ -1158,6 +1204,7 @@ type ActiveExercisePlanRow = {
   id: string;
   version_number: number;
   exercises: unknown;
+  target_workouts_per_week: number;
 };
 
 /**
@@ -1173,7 +1220,7 @@ async function fetchCanonicalActiveExercisePlanRow(
 > {
   const { data, error } = await client
     .from('exercise_plans')
-    .select('id, version_number, exercises, is_active, updated_at')
+    .select('id, version_number, exercises, target_workouts_per_week, is_active, updated_at')
     .eq('patient_id', patientId)
     .order('is_active', { ascending: false })
     .order('version_number', { ascending: false })
@@ -1193,6 +1240,9 @@ async function fetchCanonicalActiveExercisePlanRow(
       id: hit.id as string,
       version_number: typeof hit.version_number === 'number' ? hit.version_number : 0,
       exercises: hit.exercises,
+      target_workouts_per_week: clampTargetWorkoutsPerWeek(
+        (hit as { target_workouts_per_week?: unknown }).target_workouts_per_week
+      ),
     },
   };
 }
@@ -1201,11 +1251,13 @@ type UpdateActivePlanInPlaceArgs = {
   planRowId: string;
   patientId: string;
   exercises: PatientExercise[];
+  targetWorkoutsPerWeek: number;
   now: string;
   changeSummary: string | null;
   authUid: string;
   rowTherapistId: string | null;
   prevExercises: unknown;
+  prevTargetWorkoutsPerWeek: number;
   therapistId: string;
 };
 
@@ -1216,6 +1268,7 @@ async function updateActiveExercisePlanInPlace(
 ): Promise<ClinicalPushResult> {
   const updatePayload: Record<string, unknown> = {
     exercises: args.exercises,
+    target_workouts_per_week: args.targetWorkoutsPerWeek,
     updated_at: args.now,
     is_active: true,
   };
@@ -1264,8 +1317,14 @@ async function updateActiveExercisePlanInPlace(
     patientId: args.patientId,
     entityType: 'plan',
     action: 'update',
-    oldValue: { exercises: args.prevExercises },
-    newValue: { exercises: args.exercises },
+    oldValue: {
+      exercises: args.prevExercises,
+      targetWorkoutsPerWeek: args.prevTargetWorkoutsPerWeek,
+    },
+    newValue: {
+      exercises: args.exercises,
+      targetWorkoutsPerWeek: args.targetWorkoutsPerWeek,
+    },
   });
   if (!audit.ok) return audit;
 
@@ -1275,6 +1334,7 @@ async function updateActiveExercisePlanInPlace(
 type InsertActivePlanVersionArgs = {
   patientId: string;
   exercises: PatientExercise[];
+  targetWorkoutsPerWeek: number;
   now: string;
   versionNumber: number;
   parentPlanId: string | null;
@@ -1304,6 +1364,7 @@ async function insertNewActiveExercisePlanVersion(
       id: newId,
       patient_id: args.patientId,
       exercises: args.exercises,
+      target_workouts_per_week: args.targetWorkoutsPerWeek,
       updated_at: args.now,
       version_number: args.versionNumber,
       is_active: true,
@@ -1391,8 +1452,25 @@ export function exercisePlanExercisesComparableSignature(exercises: PatientExerc
   );
 }
 
-function exercisesComparableSignatureFromUnknown(raw: unknown): string {
-  return exercisePlanExercisesComparableSignature(tryParsePatientExerciseArray(raw));
+/** Full plan content signature (exercises + weekly target). */
+export function exercisePlanContentComparableSignature(
+  exercises: PatientExercise[],
+  targetWorkoutsPerWeek?: number
+): string {
+  return JSON.stringify({
+    exercises: exercisePlanExercisesComparableSignature(exercises),
+    targetWorkoutsPerWeek: clampTargetWorkoutsPerWeek(targetWorkoutsPerWeek),
+  });
+}
+
+function planContentSignatureFromDbRow(
+  exercisesRaw: unknown,
+  targetWorkoutsPerWeek: unknown
+): string {
+  return exercisePlanContentComparableSignature(
+    tryParsePatientExerciseArray(exercisesRaw),
+    clampTargetWorkoutsPerWeek(targetWorkoutsPerWeek)
+  );
 }
 
 /**
@@ -1404,7 +1482,12 @@ export async function upsertExercisePlan(
   client: SupabaseClient,
   patientId: string,
   exercises: PatientExercise[],
-  options?: { changeSummary?: string | null; now?: string; forceSave?: boolean }
+  options?: {
+    changeSummary?: string | null;
+    now?: string;
+    forceSave?: boolean;
+    targetWorkoutsPerWeek?: number;
+  }
 ): Promise<ClinicalPushResult> {
   try {
     const trimmedPid = typeof patientId === 'string' ? patientId.trim() : '';
@@ -1424,7 +1507,13 @@ export async function upsertExercisePlan(
         : undefined;
     return await upsertExercisePlans(
       client,
-      [{ patientId: trimmedPid, exercises }],
+      [
+        {
+          patientId: trimmedPid,
+          exercises,
+          targetWorkoutsPerWeek: options?.targetWorkoutsPerWeek,
+        },
+      ],
       now,
       upsertOpts
     );
@@ -1522,6 +1611,7 @@ export async function upsertExercisePlans(
     for (const plan of exercisePlans) {
       const { patientId: rawPatientId } = plan;
       const exercises = normalizeCachedPatientExercises(plan.exercises);
+      const targetWorkoutsPerWeek = clampTargetWorkoutsPerWeek(plan.targetWorkoutsPerWeek);
 
       // ── Validate patient_id ──────────────────────────────────────────────
       if (typeof rawPatientId !== 'string' || !rawPatientId.trim()) {
@@ -1574,8 +1664,14 @@ export async function upsertExercisePlans(
       const atVersionCap = currentVn >= EXERCISE_PLAN_VERSION_INSERT_CAP;
 
       if (hadPrev && prevActive && !forceSave) {
-        const dbSig = exercisesComparableSignatureFromUnknown(prevActive.exercises);
-        const incomingSig = exercisePlanExercisesComparableSignature(exercises);
+        const dbSig = planContentSignatureFromDbRow(
+          prevActive.exercises,
+          prevActive.target_workouts_per_week
+        );
+        const incomingSig = exercisePlanContentComparableSignature(
+          exercises,
+          targetWorkoutsPerWeek
+        );
         if (dbSig === incomingSig) {
           devLog('[SAVE_CHECK] Attempting to save exercise plan. Change detected: NO', {
             patientRef: redactId(patientId),
@@ -1593,6 +1689,7 @@ export async function upsertExercisePlans(
           patientRef: redactId(patientId),
           rls_will_pass: rowTherapistId === authUid,
           exerciseCount: exercises.length,
+          targetWorkoutsPerWeek,
           is_active: true,
           changeSummary,
           now,
@@ -1622,11 +1719,13 @@ export async function upsertExercisePlans(
           planRowId: prevActive.id,
           patientId,
           exercises,
+          targetWorkoutsPerWeek,
           now,
           changeSummary,
           authUid,
           rowTherapistId,
           prevExercises: prevActive.exercises,
+          prevTargetWorkoutsPerWeek: prevActive.target_workouts_per_week,
           therapistId,
         });
         if (!upd.ok) return upd;
@@ -1640,6 +1739,7 @@ export async function upsertExercisePlans(
       const ins = await insertNewActiveExercisePlanVersion(client, {
         patientId,
         exercises,
+        targetWorkoutsPerWeek,
         now,
         versionNumber: nextVersion,
         parentPlanId,
@@ -1731,6 +1831,7 @@ type ExercisePlanDbRow = {
   version_number?: number | null;
   updated_at?: string | null;
   is_active?: boolean | null;
+  target_workouts_per_week?: number | null;
 };
 
 /** Prefer active plan, then highest version_number, then newest updated_at. */
@@ -1758,6 +1859,7 @@ function exercisePlanFromDbRow(row: ExercisePlanDbRow): ExercisePlan {
     planRowId: typeof row.id === 'string' ? row.id : undefined,
     versionNumber: typeof row.version_number === 'number' ? row.version_number : undefined,
     isActive: row.is_active === true ? true : row.is_active === false ? false : undefined,
+    targetWorkoutsPerWeek: clampTargetWorkoutsPerWeek(row.target_workouts_per_week),
   };
 }
 
@@ -1843,7 +1945,7 @@ export async function fetchActiveExercisePlansForPatientIds(
 
   const { data, error } = await client
     .from('exercise_plans')
-    .select('id, patient_id, exercises, version_number, updated_at, is_active')
+    .select('id, patient_id, exercises, version_number, updated_at, is_active, target_workouts_per_week')
     .in('patient_id', ids);
 
   devLog('[fetchActiveExercisePlansForPatientIds] raw Supabase response', {
@@ -1890,7 +1992,7 @@ export async function fetchActiveExercisePlanForPatient(
   // more than one row matches. Pick the newest row by version_number, then updated_at.
   const { data, error } = await client
     .from('exercise_plans')
-    .select('id, patient_id, exercises, version_number, updated_at, is_active')
+    .select('id, patient_id, exercises, version_number, updated_at, is_active, target_workouts_per_week')
     .eq('patient_id', id)
     .order('version_number', { ascending: false })
     .order('updated_at', { ascending: false });
@@ -2058,12 +2160,17 @@ export async function updatePatientExercises(
   patientId: string,
   updatedExercises: PatientExercise[],
   now?: string,
-  options?: { changeSummary?: string | null; forceSave?: boolean }
+  options?: {
+    changeSummary?: string | null;
+    forceSave?: boolean;
+    targetWorkoutsPerWeek?: number;
+  }
 ): Promise<ClinicalPushResult> {
   return upsertExercisePlan(client, patientId, updatedExercises, {
     changeSummary: options?.changeSummary,
     now,
     forceSave: options?.forceSave,
+    targetWorkoutsPerWeek: options?.targetWorkoutsPerWeek,
   });
 }
 

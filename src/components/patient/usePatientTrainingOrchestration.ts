@@ -1,11 +1,9 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type {
-  AiSuggestion,
   PatientExercise,
   BodyArea,
   Patient,
   ExercisePlan,
-  DailyHistoryEntry,
   PatientExerciseFinishReport,
 } from '../../types';
 import { bodyAreaLabels } from '../../types';
@@ -15,10 +13,7 @@ import {
   PAIN_SURGE_PATIENT_COPY,
   DIFFICULTY_MAX_PATIENT_COPY,
 } from '../../safety/clinicalEmergencyScreening';
-import { fetchAiPlanAdjustmentSuggestion } from '../../ai/clinicalRecommendationEngine';
-import type { AiLongitudinalGateResult } from '../../ai/aiProgramLongitudinalGate';
 import { getOptionalPoolExerciseId } from '../../utils/optionalExerciseUnlock';
-import { portalTrainingAiPlanModalAckKey, type PortalTab } from './patientPortalRouting';
 import type { UseOptionalRehabPoolResult } from './useOptionalRehabPool';
 
 export type ExerciseVideoModalState =
@@ -58,15 +53,8 @@ export interface UsePatientTrainingOrchestrationParams {
   selectedPatient: Patient | null | undefined;
   getExercisePlan: (patientId: string) => ExercisePlan | undefined;
   exercises: PatientExercise[];
-  selectedZones: BodyArea[];
-  clinicalRehabExercises: PatientExercise[];
   clinicalToday: string;
-  patientDayMap: Record<string, DailyHistoryEntry | undefined>;
-  portalTab: PortalTab;
-  patientMustChangePassword: boolean;
   exercisesLocked: boolean;
-  portalOnboardingSilence: boolean;
-  aiProgramLongitudinalGate: AiLongitudinalGateResult | null;
   optionalPool: Pick<
     UseOptionalRehabPoolResult,
     | 'fullOptionalPool'
@@ -87,28 +75,19 @@ export interface UsePatientTrainingOrchestrationParams {
     effortRating: number
   ) => void;
   getSelfCareStrengthTier: (patientId: string, area: BodyArea) => 0 | 1 | 2;
-  submitPatientAiPlanAdjustmentRequest: (suggestion: AiSuggestion) => void;
 }
 
 export function usePatientTrainingOrchestration({
   selectedPatient,
   getExercisePlan,
   exercises,
-  selectedZones,
-  clinicalRehabExercises,
   clinicalToday,
-  patientDayMap,
-  portalTab,
-  patientMustChangePassword,
   exercisesLocked,
-  portalOnboardingSilence,
-  aiProgramLongitudinalGate,
   optionalPool,
   submitExerciseReport,
   appendPatientExerciseFinishReport,
   logSelfCareSession,
   getSelfCareStrengthTier,
-  submitPatientAiPlanAdjustmentRequest,
 }: UsePatientTrainingOrchestrationParams) {
   const {
     fullOptionalPool,
@@ -124,15 +103,9 @@ export function usePatientTrainingOrchestration({
     useState<PendingTrainingSession | null>(null);
   const [trainingFeedbackOpen, setTrainingFeedbackOpen] = useState(false);
   const [trainingSubmitError, setTrainingSubmitError] = useState<string | null>(null);
-  const [trainingAiPlanModalOpen, setTrainingAiPlanModalOpen] = useState(false);
-  const [trainingAiPlanModalLoading, setTrainingAiPlanModalLoading] = useState(false);
-  const [trainingAiPlanModalSuggestion, setTrainingAiPlanModalSuggestion] =
-    useState<AiSuggestion | null>(null);
-  const [trainingAiPlanModalInfo, setTrainingAiPlanModalInfo] = useState<string | null>(null);
   const [aiSteadyBannerDismissed, setAiSteadyBannerDismissed] = useState(false);
   const [loadSafetyNudge, setLoadSafetyNudge] = useState<string | null>(null);
   const [optionalGlowBoost, setOptionalGlowBoost] = useState(0);
-  const trainingAiFetchKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     setOptionalGlowBoost(0);
@@ -215,122 +188,8 @@ export function usePatientTrainingOrchestration({
     clearTrainingSession,
   ]);
 
-  const trainingTabContextKey = useMemo(() => {
-    const zoneKey = [...selectedZones].sort().join(',');
-    const exKey = [...exercises.map((e) => e.id)].sort().join(',');
-    return `${zoneKey}|${exKey}`;
-  }, [selectedZones, exercises]);
-
-  const acknowledgeTrainingAiPlanModal = useCallback(() => {
-    if (selectedPatient) {
-      try {
-        sessionStorage.setItem(portalTrainingAiPlanModalAckKey(selectedPatient.id, clinicalToday), '1');
-      } catch {
-        /* ייתכן מצב פרטי / חסימת אחסון */
-      }
-    }
-    setTrainingAiPlanModalOpen(false);
-    setTrainingAiPlanModalSuggestion(null);
-    setTrainingAiPlanModalInfo(null);
-  }, [selectedPatient, clinicalToday]);
-
-  const handleTrainingAiPlanApprove = useCallback(() => {
-    if (trainingAiPlanModalSuggestion) {
-      submitPatientAiPlanAdjustmentRequest(trainingAiPlanModalSuggestion);
-    }
-    acknowledgeTrainingAiPlanModal();
-  }, [
-    trainingAiPlanModalSuggestion,
-    submitPatientAiPlanAdjustmentRequest,
-    acknowledgeTrainingAiPlanModal,
-  ]);
-
-  useEffect(() => {
-    const patientId = selectedPatient?.id;
-    if (
-      !patientId ||
-      portalTab !== 'activity' ||
-      patientMustChangePassword ||
-      exercisesLocked ||
-      portalOnboardingSilence
-    ) {
-      trainingAiFetchKeyRef.current = null;
-      setTrainingAiPlanModalOpen(false);
-      setTrainingAiPlanModalLoading(false);
-      setTrainingAiPlanModalSuggestion(null);
-      setTrainingAiPlanModalInfo(null);
-      return;
-    }
-
-    const gate = aiProgramLongitudinalGate;
-    if (!gate || clinicalRehabExercises.length === 0 || !gate.shouldSuggest) {
-      trainingAiFetchKeyRef.current = null;
-      setTrainingAiPlanModalOpen(false);
-      setTrainingAiPlanModalLoading(false);
-      setTrainingAiPlanModalSuggestion(null);
-      setTrainingAiPlanModalInfo(null);
-      return;
-    }
-
-    try {
-      if (sessionStorage.getItem(portalTrainingAiPlanModalAckKey(patientId, clinicalToday)) === '1') {
-        setTrainingAiPlanModalOpen(false);
-        return;
-      }
-    } catch {
-      /* ignore */
-    }
-
-    const fetchKey = `${patientId}|${clinicalToday}|${trainingTabContextKey}|${gate.shouldSuggest}`;
-    if (trainingAiFetchKeyRef.current === fetchKey) {
-      return;
-    }
-    trainingAiFetchKeyRef.current = fetchKey;
-
-    let cancelled = false;
-    setTrainingAiPlanModalOpen(true);
-    setTrainingAiPlanModalLoading(true);
-    setTrainingAiPlanModalSuggestion(null);
-    setTrainingAiPlanModalInfo(null);
-
-    const patient = selectedPatient;
-    const clinical = clinicalRehabExercises;
-
-    void (async () => {
-      const sug = await fetchAiPlanAdjustmentSuggestion({
-        patient,
-        clinicalExercises: clinical,
-        longitudinalGate: gate,
-        clinicalToday,
-        dayMap: patientDayMap,
-      });
-      if (cancelled) return;
-      setTrainingAiPlanModalLoading(false);
-      if (sug) {
-        setTrainingAiPlanModalSuggestion(sug);
-        setTrainingAiPlanModalInfo(null);
-      } else {
-        setTrainingAiPlanModalSuggestion(null);
-        setTrainingAiPlanModalInfo(
-          'אין כרגע תרגילי שיקום בתוכנית שאפשר להציע עבורם שינוי אוטומטי.'
-        );
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    portalTab,
-    selectedPatient?.id,
-    patientMustChangePassword,
-    clinicalToday,
-    trainingTabContextKey,
-    exercisesLocked,
-    clinicalRehabExercises.length,
-    aiProgramLongitudinalGate?.shouldSuggest,
-    portalOnboardingSilence,
-  ]);
+  // Patient AI plan-adjustment modal removed: 3-day review / catalog proposals run
+  // silently via clinical-review-cron → therapist Sidebar only (never interrupt portal UX).
 
   // MUTED: Guardi session-complete / mandatory-extra / companion eligibility triggers removed pending redesign.
 
@@ -493,12 +352,6 @@ export function usePatientTrainingOrchestration({
     setTrainingFeedbackOpen,
     trainingSubmitError,
     setTrainingSubmitError,
-    trainingAiPlanModalOpen,
-    trainingAiPlanModalLoading,
-    trainingAiPlanModalSuggestion,
-    trainingAiPlanModalInfo,
-    acknowledgeTrainingAiPlanModal,
-    handleTrainingAiPlanApprove,
     openExerciseTrainingModal,
     clearTrainingSession,
     handleTrainingComplete,

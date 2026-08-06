@@ -1,6 +1,10 @@
 import { useCallback, useMemo } from 'react';
 import type { Patient, ProtocolTrackingState } from '../../../types';
-import { usePatientClinical, usePatientCloudSync } from '../../../context/patientDomainHooks';
+import {
+  usePatientClinical,
+  usePatientCloudSync,
+  usePatientExercisePlans,
+} from '../../../context/patientDomainHooks';
 import {
   buildPatchForLatestVersionSave,
   loadLatestIntakeFields,
@@ -8,8 +12,11 @@ import {
 import { resolveClinicalActiveStreak } from '../../../utils/clinicalActiveStreak';
 import {
   computeClinicalProtocolContext,
+  PROTOCOL_PROGRESSION_FROZEN_BADGE_HE,
   resolveProtocolStartDateForPatient,
 } from '../../../utils/clinicalProtocolWeek';
+import { collectPatientSessionDates } from '../../../utils/collectPatientSessionDates';
+import { clampTargetWorkoutsPerWeek } from '../../../utils/targetWorkoutsPerWeek';
 import TreatmentProtocolPrognosisCard from './TreatmentProtocolPrognosisCard';
 
 type Props = {
@@ -28,11 +35,18 @@ export default function PatientContinuationProtocolSection({
 }: Props) {
   const { updatePatient } = usePatientClinical();
   const { saveSinglePatientPayloadToCloud } = usePatientCloudSync();
+  const { getExercisePlan, dailyHistoryByPatient, dailySessions } = usePatientExercisePlans();
 
   const fields = useMemo(() => loadLatestIntakeFields(patient), [patient]);
+  const plan = useMemo(() => getExercisePlan(patient.id), [getExercisePlan, patient.id]);
 
   const protocolContext = useMemo(() => {
-    const sessionDates = (patient.analytics?.sessionHistory ?? []).map((s) => s.date);
+    const dailyHistoryForPatient = dailyHistoryByPatient?.[patient.id];
+    const sessionDates = collectPatientSessionDates({
+      patient,
+      dailyHistoryForPatient,
+      dailySessions,
+    });
     const activeStreak = resolveClinicalActiveStreak(sessionDates, clinicalToday);
     return computeClinicalProtocolContext({
       protocolStartDate: resolveProtocolStartDateForPatient(
@@ -41,8 +55,17 @@ export default function PatientContinuationProtocolSection({
       ),
       clinicalToday,
       treatmentProtocol: fields.treatmentProtocol,
+      sessionDatesChronological: sessionDates,
+      targetWorkoutsPerWeek: clampTargetWorkoutsPerWeek(plan?.targetWorkoutsPerWeek),
     });
-  }, [patient, clinicalToday, fields.treatmentProtocol]);
+  }, [
+    patient,
+    clinicalToday,
+    fields.treatmentProtocol,
+    dailyHistoryByPatient,
+    dailySessions,
+    plan?.targetWorkoutsPerWeek,
+  ]);
 
   const onTrackingChange = useCallback(
     (protocolTrackingState: ProtocolTrackingState) => {
@@ -90,11 +113,32 @@ export default function PatientContinuationProtocolSection({
 
   return (
     <div className={className}>
+      {protocolContext.protocolProgressionFrozen && (
+        <div
+          className="mb-2 rounded-xl border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-950"
+          role="status"
+        >
+          {PROTOCOL_PROGRESSION_FROZEN_BADGE_HE}
+          {protocolContext.chronologicalProtocolWeek != null &&
+            protocolContext.currentProtocolWeek != null && (
+              <span className="font-semibold text-amber-900/80">
+                {' '}
+                (שבוע אפקטיבי {protocolContext.currentProtocolWeek}
+                {protocolContext.chronologicalProtocolWeek !==
+                protocolContext.currentProtocolWeek
+                  ? ` · לוח שנה: שבוע ${protocolContext.chronologicalProtocolWeek}`
+                  : ''}
+                )
+              </span>
+            )}
+        </div>
+      )}
       <TreatmentProtocolPrognosisCard
         treatmentProtocol={fields.treatmentProtocol}
         prognosisHypothesis={fields.prognosisHypothesis}
         protocolTrackingState={fields.protocolTrackingState}
         currentProtocolWeek={protocolContext.currentProtocolWeek}
+        protocolProgressionFrozen={protocolContext.protocolProgressionFrozen}
         readOnly={false}
         onTrackingChange={onTrackingChange}
         showYouAreHereBadge

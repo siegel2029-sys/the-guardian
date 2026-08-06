@@ -49,13 +49,13 @@ export function metadataString(meta: Record<string, unknown>, key: string): stri
   return typeof v === 'string' && v.trim() ? v.trim() : undefined;
 }
 
-/** Secure clinic link — prefers non-editable `app_metadata.patient_id`. */
+/**
+ * Secure clinic link — `app_metadata.patient_id` only.
+ * Never trust client-writable `user_metadata` for authorization / routing.
+ */
 export function getClinicPatientIdFromUser(user: User): string | undefined {
   const app = (user.app_metadata ?? {}) as Record<string, unknown>;
-  const fromApp = metadataString(app, 'patient_id');
-  if (fromApp) return fromApp;
-  const um = (user.user_metadata ?? {}) as Record<string, unknown>;
-  return metadataString(um, 'patient_id');
+  return metadataString(app, 'patient_id');
 }
 
 /** Product tier for portal routing (B2C freemium prep). */

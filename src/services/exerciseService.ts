@@ -11,6 +11,7 @@ import { bodyAreaLabels } from '../types';
 import { clampEffort, clampPain } from '../context/patientDomainHelpers';
 import { effortToScale10 } from '../utils/effortScale';
 import { addClinicalDays, getClinicalDate } from '../utils/clinicalCalendar';
+import { clampTargetWorkoutsPerWeek } from '../utils/targetWorkoutsPerWeek';
 import {
   bodyAreasShareActiveZone,
   zoneLabelToBodyAreas,
@@ -332,7 +333,9 @@ export async function fetchPlanHistory(
 ): Promise<ExercisePlanHistoryEntry[] | null> {
   const { data, error } = await client
     .from('exercise_plans')
-    .select('id, patient_id, exercises, version_number, parent_plan_id, change_summary, updated_at')
+    .select(
+      'id, patient_id, exercises, version_number, parent_plan_id, change_summary, updated_at, target_workouts_per_week'
+    )
     .eq('patient_id', patientId)
     .eq('is_active', false)
     .order('version_number', { ascending: false });
@@ -347,6 +350,9 @@ export async function fetchPlanHistory(
     parentPlanId: typeof row.parent_plan_id === 'string' ? row.parent_plan_id : null,
     changeSummary: typeof row.change_summary === 'string' ? row.change_summary : null,
     updatedAt: typeof row.updated_at === 'string' ? row.updated_at : '',
+    targetWorkoutsPerWeek: clampTargetWorkoutsPerWeek(
+      (row as { target_workouts_per_week?: unknown }).target_workouts_per_week
+    ),
   }));
 }
 

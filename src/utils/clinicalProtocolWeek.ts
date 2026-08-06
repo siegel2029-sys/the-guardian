@@ -1,12 +1,28 @@
 import type { Patient, TreatmentProtocolWeek } from '../types';
+import {
+  computeGapAwareWeeklyAdherence,
+  CRITICAL_GAP_THRESHOLD_DAYS,
+} from './clinicalAdherence';
 import { clinicalDaysBetween } from './patientProgressChartData';
 import { normalizeProtocolWeeksForDisplay } from './protocolTrackingState';
+import { clampTargetWorkoutsPerWeek } from './targetWorkoutsPerWeek';
+
+/** Freeze protocol week advancement when gap-aware adherence is below this %. */
+export const PROTOCOL_FREEZE_ADHERENCE_THRESHOLD = 40;
+
+export type ProtocolFreezeReason = 'critical_gap' | 'low_adherence';
 
 export type ClinicalProtocolContext = {
+  /** Effective (gap/adherence-aware) protocol week shown in UI / AI. */
   currentProtocolWeek: number | null;
+  /** Pure calendar week from startDate → today (ignores gaps). */
+  chronologicalProtocolWeek: number | null;
   currentProtocolName: string | null;
   daysSinceProtocolStart: number | null;
   protocolStartDate: string | null;
+  /** True when chronological progression is paused due to inactivity / low adherence. */
+  protocolProgressionFrozen: boolean;
+  protocolFreezeReason: ProtocolFreezeReason | null;
 };
 
 export type ProtocolWeekRange = {
@@ -114,7 +130,7 @@ export function resolveProtocolStartDateForPatient(
   return null;
 }
 
-/** Week 1 = days 0–6 since protocol/training start. */
+/** Week 1 = days 0–6 since protocol/training start (pure chronological). */
 export function computeCurrentProtocolWeek(
   protocolStartDate: string | null | undefined,
   clinicalToday: string,
@@ -142,43 +158,169 @@ export function resolveCurrentProtocolName(
   return `שבוע ${currentProtocolWeek}`;
 }
 
+function uniqueSortedDates(dates: string[]): string[] {
+  return [...new Set(dates.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Effective protocol week: freezes chronological advancement when the patient has a
+ * critical inactivity gap or gap-aware adherence falls below the functional threshold.
+ * When frozen, week is capped at the week of the last logged session (min week 1).
+ */
+export function computeEffectiveProtocolWeek(params: {
+  protocolStartDate: string | null | undefined;
+  clinicalToday: string;
+  totalWeeks?: number;
+  sessionDatesChronological?: string[];
+  adherencePercent?: number | null;
+  hasCriticalGaps?: boolean;
+}): {
+  effectiveWeek: number | null;
+  chronologicalWeek: number | null;
+  frozen: boolean;
+  freezeReason: ProtocolFreezeReason | null;
+} {
+  const chronologicalWeek = computeCurrentProtocolWeek(
+    params.protocolStartDate,
+    params.clinicalToday,
+    params.totalWeeks
+  );
+  if (chronologicalWeek == null) {
+    return {
+      effectiveWeek: null,
+      chronologicalWeek: null,
+      frozen: false,
+      freezeReason: null,
+    };
+  }
+
+  const start = normalizeYmd(params.protocolStartDate);
+  const sessions = uniqueSortedDates(params.sessionDatesChronological ?? []).filter(
+    (d) => start == null || (d >= start && d <= params.clinicalToday)
+  );
+
+  const lastSession = sessions.length > 0 ? sessions[sessions.length - 1] : null;
+  const weekAtLastActivity =
+    lastSession != null
+      ? (computeCurrentProtocolWeek(params.protocolStartDate, lastSession, params.totalWeeks) ??
+        1)
+      : 1;
+
+  const hasCriticalGaps = params.hasCriticalGaps === true;
+  const lowAdherence =
+    params.adherencePercent != null &&
+    params.adherencePercent < PROTOCOL_FREEZE_ADHERENCE_THRESHOLD;
+
+  const daysSinceLastSession =
+    lastSession != null
+      ? clinicalDaysBetween(lastSession, params.clinicalToday)
+      : chronologicalWeek > 1
+        ? Number.POSITIVE_INFINITY
+        : 0;
+
+  const shouldHoldProgress = hasCriticalGaps || lowAdherence;
+  const shouldCap = shouldHoldProgress
+    ? Math.min(chronologicalWeek, Math.max(1, weekAtLastActivity))
+    : chronologicalWeek;
+
+  // Freeze when calendar advanced past last activity, or patient is past week 1
+  // with a critical inactivity stretch (> threshold days since last session).
+  const frozen =
+    shouldHoldProgress &&
+    chronologicalWeek > 1 &&
+    (shouldCap < chronologicalWeek ||
+      daysSinceLastSession > CRITICAL_GAP_THRESHOLD_DAYS);
+
+  let freezeReason: ProtocolFreezeReason | null = null;
+  if (frozen) {
+    freezeReason = hasCriticalGaps ? 'critical_gap' : 'low_adherence';
+  }
+
+  return {
+    effectiveWeek: shouldCap,
+    chronologicalWeek,
+    frozen,
+    freezeReason,
+  };
+}
+
 export function computeClinicalProtocolContext(params: {
   protocolStartDate: string | null | undefined;
   clinicalToday: string;
   treatmentProtocol?: TreatmentProtocolWeek[] | string;
+  /** Session dates used to freeze chronological advancement after gaps. */
+  sessionDatesChronological?: string[];
+  /** Precomputed gap-aware adherence % (optional — computed from sessions when omitted). */
+  adherencePercent?: number | null;
+  hasCriticalGaps?: boolean;
+  longestGapDays?: number;
+  targetWorkoutsPerWeek?: number;
 }): ClinicalProtocolContext {
   const weeks = normalizeProtocolWeeksForDisplay(params.treatmentProtocol);
   const protocolStart = normalizeYmd(params.protocolStartDate);
   const daysSinceProtocolStart =
     protocolStart != null ? clinicalDaysBetween(protocolStart, params.clinicalToday) : null;
 
+  const empty = (week: number | null): ClinicalProtocolContext => ({
+    currentProtocolWeek: week,
+    chronologicalProtocolWeek: week,
+    currentProtocolName: resolveCurrentProtocolName(params.treatmentProtocol, week),
+    daysSinceProtocolStart:
+      daysSinceProtocolStart != null && daysSinceProtocolStart >= 0
+        ? daysSinceProtocolStart
+        : null,
+    protocolStartDate: protocolStart,
+    protocolProgressionFrozen: false,
+    protocolFreezeReason: null,
+  });
+
   if (daysSinceProtocolStart == null || daysSinceProtocolStart < 0 || weeks.length === 0) {
-    return {
-      currentProtocolWeek: null,
-      currentProtocolName: resolveCurrentProtocolName(params.treatmentProtocol, null),
-      daysSinceProtocolStart:
-        daysSinceProtocolStart != null && daysSinceProtocolStart >= 0
-          ? daysSinceProtocolStart
-          : null,
-      protocolStartDate: protocolStart,
-    };
+    return empty(null);
   }
 
   const maxWeekSpan = maxProtocolWeekSpan(weeks);
-  const currentProtocolWeek = computeCurrentProtocolWeek(
-    protocolStart,
-    params.clinicalToday,
-    maxWeekSpan
-  );
-  const currentProtocolName = resolveCurrentProtocolName(
-    params.treatmentProtocol,
-    currentProtocolWeek
-  );
+  const sessionDates = params.sessionDatesChronological ?? [];
+
+  let adherencePercent = params.adherencePercent;
+  let hasCriticalGaps = params.hasCriticalGaps;
+
+  if (adherencePercent === undefined || hasCriticalGaps === undefined) {
+    const gapAware = computeGapAwareWeeklyAdherence({
+      clinicalToday: params.clinicalToday,
+      sessionDatesChronological: sessionDates,
+      targetWorkoutsPerWeek: clampTargetWorkoutsPerWeek(params.targetWorkoutsPerWeek),
+    });
+    if (adherencePercent === undefined) adherencePercent = gapAware.adherencePercent;
+    if (hasCriticalGaps === undefined) {
+      hasCriticalGaps =
+        gapAware.hasCriticalGaps ||
+        gapAware.longestGapDays > CRITICAL_GAP_THRESHOLD_DAYS;
+    }
+  }
+
+  const effective = computeEffectiveProtocolWeek({
+    protocolStartDate: protocolStart,
+    clinicalToday: params.clinicalToday,
+    totalWeeks: maxWeekSpan,
+    sessionDatesChronological: sessionDates,
+    adherencePercent: adherencePercent ?? null,
+    hasCriticalGaps: hasCriticalGaps === true,
+  });
 
   return {
-    currentProtocolWeek,
-    currentProtocolName,
+    currentProtocolWeek: effective.effectiveWeek,
+    chronologicalProtocolWeek: effective.chronologicalWeek,
+    currentProtocolName: resolveCurrentProtocolName(
+      params.treatmentProtocol,
+      effective.effectiveWeek
+    ),
     daysSinceProtocolStart,
     protocolStartDate: protocolStart,
+    protocolProgressionFrozen: effective.frozen,
+    protocolFreezeReason: effective.freezeReason,
   };
 }
+
+/** Hebrew badge copy when protocol week is frozen due to inactivity / low adherence. */
+export const PROTOCOL_PROGRESSION_FROZEN_BADGE_HE =
+  'ההתקדמות בפרוטוקול הוקפאה עקב חוסר פעילות';

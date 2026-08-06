@@ -51,6 +51,7 @@ import {
   mergeFetchedExercisePlanWithLocal,
   normalizeCachedPatientExercises,
 } from '../utils/exercisePlanCanonical';
+import { clampTargetWorkoutsPerWeek } from '../utils/targetWorkoutsPerWeek';
 import {
   savePersistedPatientState,
   PATIENT_STATE_STORAGE_KEY,
@@ -279,7 +280,13 @@ interface PatientContextValue {
    */
   createPatientWithAccess: (
     displayName: string,
-    access: { portalUsername: string; password?: string }
+    access: {
+      portalUsername: string;
+      password?: string;
+      allowChat?: boolean;
+      selectAfterCreate?: boolean;
+      authEmail?: string;
+    }
   ) => Promise<
     | { ok: true; loginId: string; password: string; patientId: string }
     | { ok: false; message: string }
@@ -575,6 +582,8 @@ interface PatientContextValue {
   ) => Promise<{ ok: true } | { ok: false; message: string }>;
   /** החלפת רשימת תרגילים בזיכרון (דשבורד מטפל) */
   replaceExercisePlanForPatient: (patientId: string, exercises: PatientExercise[]) => void;
+  /** עדכון יעד אימונים שבועי (1–7) בזיכרון */
+  setPlanTargetWorkoutsPerWeek: (patientId: string, value: number) => void;
 
   /** בסיס ידע "הידעת?" — אישור מטפל וסנכרון */
   knowledgeFacts: KnowledgeFact[];
@@ -1057,27 +1066,7 @@ export function PatientProvider({
             )
           );
         }
-        if (
-          mergedWithSessionAnalytics.id.trim() === restrictPatientSessionId.trim()
-        ) {
-          const syncRes = await upsertPatientRecords(
-            supabaseClient,
-            [mergedWithSessionAnalytics],
-            new Date().toISOString(),
-            { onlyPatientId: restrictPatientSessionId }
-          );
-          if (syncRes.ok === false && import.meta.env.DEV) {
-            console.warn(
-              '[PatientPortal] אחרי מיזוג מקומי+שרת — upsertPatientRecords נכשל',
-              syncRes.message
-            );
-          }
-        } else if (import.meta.env.DEV) {
-          console.warn('[PatientPortal] skipping upsertPatientRecords — patient id mismatch', {
-            sessionId: restrictPatientSessionId,
-            mergedId: mergedWithSessionAnalytics.id,
-          });
-        }
+        // Portal hydration is READ-ONLY — no upsertPatientRecords on load.
       }
 
       const pid = fetched.id;
@@ -1155,17 +1144,7 @@ export function PatientProvider({
       const list = res.data.patients;
 
       if (list.length === 0) {
-        const prevCount = allPatientsRef.current.length;
-        if (prevCount > 0) {
-          console.warn(
-            '[PatientContext] Supabase returned 0 patients but local state still has',
-            prevCount,
-            '— not wiping (check patients.therapist_id vs auth.uid() in Network → patients request)'
-          );
-          return;
-        }
-
-        // Server is authoritative when there was no local roster: clear caches so stale data can't block re-creation
+        // Server is authoritative: never keep local-only roster (phantom patient bug).
         try { localStorage.removeItem(PATIENT_STATE_STORAGE_KEY); } catch { /* ignore */ }
         try { clearAllPatientAccountsFromStorage(); } catch { /* ignore */ }
 
@@ -1227,9 +1206,8 @@ export function PatientProvider({
             clinicalToday: clinicalDayForMerge,
           });
         });
-        const serverIds = new Set(mergedFromServer.map((p) => p.id));
-        const localOnly = prevPatientsSnapshot.filter((p) => !serverIds.has(p.id));
-        mergedPatientsForCloud = [...mergedFromServer, ...localOnly];
+        // Never re-upsert local-only ids absent from the server (phantom patient bug).
+        mergedPatientsForCloud = mergedFromServer;
         const intakeMigration = migratePatientsClinicalIntakeProfiles(mergedPatientsForCloud);
         if (intakeMigration.migratedPatientIds.length > 0 && import.meta.env.DEV) {
           console.info('[PatientContext] clinical intake profile legacy migration', {
@@ -1241,20 +1219,8 @@ export function PatientProvider({
         setAllPatients(mergedPatientsForCloud);
       }
 
-      if (!cancelled && mergedPatientsForCloud.length > 0) {
-        const patientsForUpsert =
-          mergedKbAfterHydrate.length > 0
-            ? mergedPatientsForCloud.map((p) => ({ ...p, knowledgeFacts: mergedKbAfterHydrate }))
-            : mergedPatientsForCloud;
-        const syncRes = await upsertPatientRecords(
-          supabaseClient,
-          patientsForUpsert,
-          new Date().toISOString()
-        );
-        if (syncRes.ok === false && import.meta.env.DEV) {
-          console.warn('[PatientContext] אחרי מיזוג טעינת מטפל — upsertPatientRecords נכשל', syncRes.message);
-        }
-      }
+      // Hydration is READ-ONLY: never upsertPatientRecords / cloud-write on load.
+      // Persistence happens only via explicit Save / Create user actions.
 
       setExercisePlans(res.data.exercisePlans);
       exercisePlansSessionBaselineRef.current = cloneExercisePlansForBaseline(res.data.exercisePlans);
@@ -2029,10 +1995,14 @@ export function PatientProvider({
             ? exercises
             : (pickCanonicalExercisePlan(exercisePlansRef.current, patientId)?.exercises ?? [])
         );
+        const targetWorkoutsPerWeek = clampTargetWorkoutsPerWeek(
+          pickCanonicalExercisePlan(exercisePlansRef.current, patientId)?.targetWorkoutsPerWeek
+        );
 
         devLog('[Exercise cloud save] מתחיל שמירת תוכנית לענן', {
           patientId: redactId(patientId),
           exerciseCount: exercisesToPersist.length,
+          targetWorkoutsPerWeek,
           changeSummary: options?.changeSummary ?? null,
         });
 
@@ -2070,6 +2040,7 @@ export function PatientProvider({
           {
             changeSummary: options?.changeSummary,
             forceSave: options?.forceSave,
+            targetWorkoutsPerWeek,
           }
         );
         if (upd.ok === false) {
@@ -2942,9 +2913,6 @@ export function PatientProvider({
     clinicalToday,
     dailyHistoryByPatient,
     restrictPatientSessionId,
-    onClinicalQueueUpdated: () => {
-      void savePersistedStateToCloud({ immediate: true });
-    },
   });
 
   const therapistApproveAiSuggestion = useCallback(
@@ -3060,27 +3028,10 @@ export function PatientProvider({
     const purged = purgeProactiveAbsenceFromClinicalQueue(safetyAlerts, aiSuggestions);
     if (!purged.changed) return;
 
+    // Local-only purge — do not auto-upsert patient records as a side-effect of queue cleanup.
     setSafetyAlerts(purged.safetyAlerts);
     setAiSuggestions(purged.aiSuggestions);
-
-    const snap = latestCloudPersistRef.current;
-    if (snap) {
-      void savePersistedStateToCloud({
-        immediate: true,
-        persistSnapshotOverride: {
-          ...snap,
-          safetyAlerts: purged.safetyAlerts,
-          aiSuggestions: purged.aiSuggestions,
-        },
-      });
-    }
-  }, [
-    safetyAlerts,
-    aiSuggestions,
-    restrictPatientSessionId,
-    sessionRole,
-    savePersistedStateToCloud,
-  ]);
+  }, [safetyAlerts, aiSuggestions, restrictPatientSessionId, sessionRole]);
 
   const resolveRedFlag = useCallback(
     (patientId: string) => {
@@ -3546,6 +3497,7 @@ export function PatientProvider({
         saveExercisePlanForPatientToCloud,
         persistExercisePlanCacheForPatient,
         replaceExercisePlanForPatient: exercise.replaceExercisePlanForPatient,
+        setPlanTargetWorkoutsPerWeek: exercise.setPlanTargetWorkoutsPerWeek,
         knowledgeFacts: gamification.knowledgeFacts,
         addManualKnowledgeFact: addManualKnowledgeFactAndForceCloudSave,
         deleteKnowledgeFactAndForceCloudSave,
@@ -3661,6 +3613,7 @@ export function PatientProvider({
       saveExercisePlanForPatientToCloud,
       persistExercisePlanCacheForPatient,
       exercise.replaceExercisePlanForPatient,
+      exercise.setPlanTargetWorkoutsPerWeek,
       gamification.knowledgeFacts,
       addManualKnowledgeFactAndForceCloudSave,
       deleteKnowledgeFactAndForceCloudSave,
@@ -3744,6 +3697,7 @@ export function PatientProvider({
       isPatientExerciseSafetyLocked: patientContextValue.isPatientExerciseSafetyLocked,
       clearPatientExerciseSafetyLock: patientContextValue.clearPatientExerciseSafetyLock,
       replaceExercisePlanForPatient: patientContextValue.replaceExercisePlanForPatient,
+      setPlanTargetWorkoutsPerWeek: patientContextValue.setPlanTargetWorkoutsPerWeek,
       patientExerciseFinishReportsByPatientId:
         patientContextValue.patientExerciseFinishReportsByPatientId,
       submitPatientAiPlanAdjustmentRequest: patientContextValue.submitPatientAiPlanAdjustmentRequest,
@@ -3772,6 +3726,7 @@ export function PatientProvider({
       patientContextValue.isPatientExerciseSafetyLocked,
       patientContextValue.clearPatientExerciseSafetyLock,
       patientContextValue.replaceExercisePlanForPatient,
+      patientContextValue.setPlanTargetWorkoutsPerWeek,
       patientContextValue.patientExerciseFinishReportsByPatientId,
       patientContextValue.submitPatientAiPlanAdjustmentRequest,
       patientContextValue.getSelfCareZones,

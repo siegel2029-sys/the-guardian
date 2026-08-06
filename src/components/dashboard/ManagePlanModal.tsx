@@ -12,6 +12,7 @@ import { useExerciseCatalog } from '../../hooks/useExerciseCatalog';
 import type { Exercise, PatientExercise } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { normalizeCachedPatientExercises, pickCanonicalExercisePlan } from '../../utils/exercisePlanCanonical';
+import { clampTargetWorkoutsPerWeek } from '../../utils/targetWorkoutsPerWeek';
 import { formatTime } from '../../utils/formatExerciseTime';
 import { devError, devLog, redactId } from '../../lib/safeLog';
 import CustomExerciseForm, { type CustomFormData } from './CustomExerciseForm';
@@ -36,6 +37,7 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
     removeExerciseFromPlan,
     updateExerciseInPlan,
     replaceExercisePlanForPatient,
+    setPlanTargetWorkoutsPerWeek,
     readExercisePlanSnapshot,
     exercisePlans,
   } = usePatientExercisePlans();
@@ -234,6 +236,11 @@ export default function ManagePlanModal({ onClose }: ManagePlanModalProps) {
 
   const planProps = {
     exercises: currentExercises,
+    targetWorkoutsPerWeek: clampTargetWorkoutsPerWeek(plan?.targetWorkoutsPerWeek),
+    onTargetWorkoutsPerWeekChange: (value: number) => {
+      if (!selectedPatient) return;
+      setPlanTargetWorkoutsPerWeek(selectedPatient.id, value);
+    },
     successMsg,
     onRemove: handleRemoveFromPlan,
     onUpdate: handlePlanExerciseUpdate,

@@ -1,11 +1,10 @@
 import { Settings } from 'lucide-react';
-import type { AiSuggestion, Patient, PatientExerciseFinishReport, BodyArea } from '../../types';
+import type { Patient, PatientExerciseFinishReport, BodyArea } from '../../types';
 import type { PatientPasswordChangeResult } from '../../context/authPersistence';
 import type { ExerciseTrainingFeedbackPayload } from './ExerciseTrainingFeedbackModal';
 import ExerciseVideoTimerModal from './ExerciseVideoTimerModal';
 import ExerciseTrainingFeedbackModal from './ExerciseTrainingFeedbackModal';
 import EmergencyStopModal from './EmergencyStopModal';
-import PatientAiPlanSuggestionModal from './PatientAiPlanSuggestionModal';
 import PainAnalyticsModal from './PainAnalyticsModal';
 import PatientRedFlagEmergencyModal from './PatientRedFlagEmergencyModal';
 import PatientPortalSettingsModal from './PatientPortalSettingsModal';
@@ -23,13 +22,6 @@ export interface PatientDailyViewModalsProps {
   sessionRole: string | null | undefined;
   patientMustChangePassword: boolean;
   showPortalFrozenOverlay: boolean;
-
-  trainingAiPlanModalOpen: boolean;
-  trainingAiPlanModalLoading: boolean;
-  trainingAiPlanModalInfo: string | null;
-  trainingAiPlanModalSuggestion: AiSuggestion | null;
-  onTrainingAiPlanApprove: () => void;
-  onTrainingAiPlanDecline: () => void;
 
   redFlagOpen: boolean;
   onCloseRedFlag: () => void;
@@ -81,12 +73,6 @@ export default function PatientDailyViewModals({
   sessionRole,
   patientMustChangePassword,
   showPortalFrozenOverlay,
-  trainingAiPlanModalOpen,
-  trainingAiPlanModalLoading,
-  trainingAiPlanModalInfo,
-  trainingAiPlanModalSuggestion,
-  onTrainingAiPlanApprove,
-  onTrainingAiPlanDecline,
   redFlagOpen,
   onCloseRedFlag,
   painAnalyticsOpen,
@@ -120,16 +106,6 @@ export default function PatientDailyViewModals({
 }: PatientDailyViewModalsProps) {
   return (
     <>
-      <PatientAiPlanSuggestionModal
-        open={trainingAiPlanModalOpen}
-        loading={trainingAiPlanModalLoading}
-        infoMessage={trainingAiPlanModalInfo}
-        suggestion={trainingAiPlanModalSuggestion}
-        onApprove={onTrainingAiPlanApprove}
-        onDecline={onTrainingAiPlanDecline}
-        onClose={onTrainingAiPlanDecline}
-      />
-
       <PatientRedFlagEmergencyModal
         open={redFlagOpen}
         onClose={onCloseRedFlag}

@@ -145,6 +145,65 @@ export function buildClinicalExerciseCatalog(
   return { currentPlanExercises, availableCatalogExercises: available };
 }
 
+export type IntakeCatalogIdRow = {
+  id: string;
+  name: string;
+  targetArea: string;
+};
+
+const DEFAULT_INTAKE_CATALOG_MAX = 60;
+
+/**
+ * Compact id/name/targetArea list for clinical-intake Gemini prompts.
+ * Filters to hint body areas (Smart Clinical pattern); caps size to avoid full-bank dumps.
+ */
+export function buildIntakeCatalogIdListForPrompt(
+  hintBodyAreas?: BodyArea[] | null,
+  maxItems: number = DEFAULT_INTAKE_CATALOG_MAX
+): IntakeCatalogIdRow[] {
+  const areaFilter =
+    hintBodyAreas && hintBodyAreas.length > 0 ? new Set<BodyArea>(hintBodyAreas) : null;
+
+  const rows: IntakeCatalogIdRow[] = [];
+  const seen = new Set<string>();
+
+  const push = (id: string, name: string, targetArea: BodyArea) => {
+    if (seen.has(id)) return;
+    if (areaFilter && !areaFilter.has(targetArea)) return;
+    seen.add(id);
+    rows.push({ id, name, targetArea });
+  };
+
+  for (const chain of STRENGTH_EXERCISE_CHAINS) {
+    for (const level of chain.levels) {
+      push(level.id, level.name, chain.bodyArea);
+    }
+  }
+  for (const lib of getCachedActiveExercises()) {
+    push(lib.id, lib.name, lib.targetArea);
+  }
+
+  // If area filter yielded nothing (cache cold / odd areas), fall back to uncapped-by-area sample.
+  if (rows.length === 0 && areaFilter) {
+    for (const chain of STRENGTH_EXERCISE_CHAINS) {
+      for (const level of chain.levels) {
+        if (seen.has(level.id)) continue;
+        seen.add(level.id);
+        rows.push({ id: level.id, name: level.name, targetArea: chain.bodyArea });
+      }
+    }
+    for (const lib of getCachedActiveExercises()) {
+      if (seen.has(lib.id)) continue;
+      seen.add(lib.id);
+      rows.push({ id: lib.id, name: lib.name, targetArea: lib.targetArea });
+    }
+  }
+
+  rows.sort((a, b) => a.name.localeCompare(b.name, 'he'));
+  const cap = Math.max(5, maxItems);
+  return rows.slice(0, cap);
+}
+
 export function findCatalogExerciseById(
   catalogId: string
 ): {

@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { Patient } from '../types';
-import {
-  usePatientExercisePlans,
-  usePatientClinical,
-  usePatientAiQueue,
-} from '../context/patientDomainHooks';
+import { usePatientExercisePlans } from '../context/patientDomainHooks';
 import { aggregateClinicalInsights } from '../services/clinicalInsightsAggregation';
 import { computeClinicalProgressInsight } from '../ai/clinicalCommandInsight';
 import {
@@ -15,20 +11,12 @@ import {
 import { analyzeSmartClinicalCenterWithGemini } from '../ai/geminiSmartClinicalCenter';
 import { getGeminiApiKey } from '../ai/geminiClient';
 import { getPatientDisplayName } from '../utils/patientDisplayName';
-import {
-  collectRecentTherapistReviewedSuggestions,
-  filterTherapistPendingAiSuggestions,
-  therapistReviewedCategoryKeySet,
-} from '../utils/clinicalAiQueueMerge';
 import { loadLatestIntakeFields } from '../utils/clinicalIntakeVersions';
 import { formatContinuationProtocol } from '../utils/continuationProtocolDisplay';
 import { buildClinicalExerciseCatalog } from '../utils/clinicalExerciseCatalog';
 import type { ClinicalExerciseCatalog } from '../utils/clinicalExerciseCatalog';
-import {
-  useUnifiedClinicalActions,
-} from './useUnifiedClinicalActions';
+import { useUnifiedClinicalActions } from './useUnifiedClinicalActions';
 import type { UnifiedClinicalAction } from '../utils/clinicalUnifiedActions';
-import type { AiSuggestion } from '../types';
 import {
   applyLoadAdjustment,
   applySuggestedExerciseChange,
@@ -54,6 +42,9 @@ export type TherapistSmartClinicalState = {
   exerciseCatalog: ClinicalExerciseCatalog | null;
   geminiLoading: boolean;
   geminiError: string | null;
+  geminiAvailable: boolean;
+  generateGeminiInsights: () => void;
+  /** Gemini-sourced plan recommendations awaiting therapist Approve/Decline. */
   unifiedActions: UnifiedClinicalAction[];
   isLoading: boolean;
   isClinicalContextReady: boolean;
@@ -70,6 +61,8 @@ const EMPTY_CLINICAL_STATE: TherapistSmartClinicalState = {
   exerciseCatalog: null,
   geminiLoading: false,
   geminiError: null,
+  geminiAvailable: false,
+  generateGeminiInsights: () => {},
   unifiedActions: [],
   isLoading: false,
   isClinicalContextReady: true,
@@ -130,6 +123,10 @@ function progressInsightSnapshotKey(
   ].join('|');
 }
 
+/**
+ * Smart Clinical Center — narrative + optional Gemini plan recommendations.
+ * Recommendations apply only via explicit Approve (plan mutation handlers).
+ */
 export function useTherapistPatientSmartClinical(
   patient: Patient | null | undefined
 ): TherapistSmartClinicalState {
@@ -146,33 +143,21 @@ export function useTherapistPatientSmartClinical(
     removeExerciseFromPlan,
     replaceExercisePlanForPatient,
   } = usePatientExercisePlans();
-  const { runClinicalAssessmentEngine } = usePatientClinical();
-  const {
-    aiSuggestions,
-    therapistApproveAiSuggestion,
-    therapistDeclineAiSuggestion,
-  } = usePatientAiQueue();
 
   const patientId = patient?.id?.trim() || null;
   const safePatient = patientId && patient ? withSafePatientAnalytics(patient) : null;
 
   const painHistoryLen = safePatient?.analytics.painHistory.length ?? 0;
   const sessionHistoryLen = safePatient?.analytics.sessionHistory.length ?? 0;
-  const therapistNotes = safePatient?.therapistNotes ?? '';
 
   const [isLoading, setIsLoading] = useState(false);
   const [geminiNarrative, setGeminiNarrative] = useState<UnifiedClinicalNarrative | null>(null);
   const [geminiLoading, setGeminiLoading] = useState(false);
   const [geminiError, setGeminiError] = useState<string | null>(null);
   const [dismissedRowKeys, setDismissedRowKeys] = useState<Set<string>>(new Set());
-  const [dismissedPendingIds, setDismissedPendingIds] = useState<Set<string>>(new Set());
   const [planModificationFeedback, setPlanModificationFeedback] = useState<string | null>(null);
 
-  const assessmentRunRef = useRef<string>('');
-  const geminiRunRef = useRef<string>('');
   const geminiFetchIdRef = useRef(0);
-  const runAssessmentRef = useRef(runClinicalAssessmentEngine);
-  runAssessmentRef.current = runClinicalAssessmentEngine;
 
   const plan = useMemo(
     () => (patientId ? getExercisePlan(patientId) : undefined),
@@ -256,6 +241,13 @@ export function useTherapistPatientSmartClinical(
   const aggregatedKey = aggregatedSnapshotKey(aggregated);
   const progressInsightKey = progressInsightSnapshotKey(progressInsight);
 
+  const aggregatedRef = useRef(aggregated);
+  const progressInsightRef = useRef(progressInsight);
+  const safePatientRef = useRef(safePatient);
+  const exerciseCatalogRef = useRef(exerciseCatalog);
+  const continuationProtocolRef = useRef(continuationProtocol);
+  const prognosisRef = useRef(prognosis);
+
   const localNarrative = useMemo(() => {
     if (!safePatient || !aggregated) return null;
     try {
@@ -269,19 +261,7 @@ export function useTherapistPatientSmartClinical(
       console.error('[SmartClinical] Error building local narrative:', err);
       return null;
     }
-  }, [safePatient, aggregatedKey, progressInsightKey, exerciseCatalog]);
-
-  const pendingAiSuggestions = useMemo((): AiSuggestion[] => {
-    if (!patientId) return [];
-    const excludedCategoryKeys = therapistReviewedCategoryKeySet(
-      collectRecentTherapistReviewedSuggestions(aiSuggestions ?? [], patientId, clinicalToday)
-    );
-    return filterTherapistPendingAiSuggestions(aiSuggestions ?? [], patientId, {
-      extraDismissedSignatures:
-        patient?.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? [],
-      excludedCategoryKeys,
-    }).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
-  }, [patientId, patient?.clinicalInsightsQueue?.dismissedRecommendationSignatures, aiSuggestions, clinicalToday]);
+  }, [safePatient, aggregatedKey, progressInsightKey, exerciseCatalog, progressInsight, aggregated]);
 
   useEffect(() => {
     if (!patientId || !safePatient) setIsLoading(false);
@@ -289,92 +269,66 @@ export function useTherapistPatientSmartClinical(
   }, [patientId, safePatient, aggregatedKey, progressInsightKey]);
 
   useEffect(() => {
-    assessmentRunRef.current = '';
-    geminiRunRef.current = '';
+    geminiFetchIdRef.current += 1;
     setGeminiNarrative(null);
     setGeminiError(null);
     setGeminiLoading(false);
     setDismissedRowKeys(new Set());
-    setDismissedPendingIds(new Set());
     setPlanModificationFeedback(null);
   }, [patientId]);
 
-  useEffect(() => {
+  aggregatedRef.current = aggregated;
+  progressInsightRef.current = progressInsight;
+  safePatientRef.current = safePatient;
+  exerciseCatalogRef.current = exerciseCatalog;
+  continuationProtocolRef.current = continuationProtocol;
+  prognosisRef.current = prognosis;
+
+  const generateGeminiInsights = useCallback(() => {
     if (!patientId || isLoading) return;
-    const signature = [
-      patientId,
-      clinicalToday,
-      aggregatedKey ?? '',
-      progressInsightKey ?? '',
-      therapistNotes.trim(),
-    ].join('|');
-    if (assessmentRunRef.current === signature) return;
-    assessmentRunRef.current = signature;
-    void runAssessmentRef.current(patientId, therapistNotes);
-  }, [patientId, isLoading, clinicalToday, aggregatedKey, progressInsightKey, therapistNotes]);
-
-  useEffect(() => {
-    if (!patientId || isLoading || !aggregatedKey || !progressInsightKey || !exerciseCatalog) {
-      setGeminiLoading(false);
-      return;
-    }
     if (!getGeminiApiKey()) {
-      setGeminiLoading(false);
+      setGeminiError('Gemini לא זמין — בדקו הגדרות Supabase / gemini-proxy.');
       return;
     }
-    const runKey = `${patientId}|${aggregatedKey}|${progressInsightKey}`;
-    if (geminiRunRef.current === runKey) return;
-    geminiRunRef.current = runKey;
-    if (!aggregated || !progressInsight || !safePatient) {
-      setGeminiLoading(false);
+    const agg = aggregatedRef.current;
+    const insight = progressInsightRef.current;
+    const patientSafe = safePatientRef.current;
+    const catalog = exerciseCatalogRef.current;
+    if (!agg || !insight || !patientSafe || !catalog) {
+      setGeminiError('נתוני מעקב עדיין לא מוכנים — נסו שוב בעוד רגע.');
       return;
     }
 
-    let cancelled = false;
     const fetchId = ++geminiFetchIdRef.current;
     setGeminiLoading(true);
     setGeminiError(null);
 
-    const fetchInsights = async () => {
+    void (async () => {
       try {
         const n = await analyzeSmartClinicalCenterWithGemini({
-          aggregated,
-          patient: safePatient,
-          progressInsight,
-          catalog: exerciseCatalog,
-          continuationProtocol,
-          prognosis,
+          aggregated: agg,
+          patient: patientSafe,
+          progressInsight: insight,
+          catalog,
+          continuationProtocol: continuationProtocolRef.current,
+          prognosis: prognosisRef.current,
         });
-        if (!cancelled && fetchId === geminiFetchIdRef.current) {
+        if (fetchId === geminiFetchIdRef.current) {
           setGeminiNarrative(n);
           setDismissedRowKeys(new Set());
         }
       } catch (e) {
-        if (!cancelled && fetchId === geminiFetchIdRef.current) {
+        if (fetchId === geminiFetchIdRef.current) {
           setGeminiNarrative(null);
           setGeminiError(e instanceof Error ? e.message : String(e));
         }
       } finally {
-        setGeminiLoading(false);
+        if (fetchId === geminiFetchIdRef.current) {
+          setGeminiLoading(false);
+        }
       }
-    };
-
-    void fetchInsights();
-
-    return () => {
-      cancelled = true;
-      setGeminiLoading(false);
-    };
-  }, [
-    patientId,
-    isLoading,
-    aggregatedKey,
-    progressInsightKey,
-    continuationProtocol,
-    prognosis,
-    exerciseCatalog,
-    safePatient,
-  ]);
+    })();
+  }, [patientId, isLoading]);
 
   const narrative = geminiNarrative ?? localNarrative;
   const narrativeSource: TherapistSmartClinicalState['narrativeSource'] = geminiNarrative
@@ -383,11 +337,12 @@ export function useTherapistPatientSmartClinical(
       ? 'local'
       : null;
 
+  // Only Gemini modifications become actionable cards (not legacy AI suggestion queue).
   const { unifiedActions } = useUnifiedClinicalActions({
-    narrative,
-    pendingSuggestions: pendingAiSuggestions,
+    narrative: geminiNarrative,
+    pendingSuggestions: [],
     dismissedAiRowKeys: dismissedRowKeys,
-    dismissedPendingIds,
+    dismissedPendingIds: new Set(),
     catalog: exerciseCatalog,
   });
 
@@ -410,38 +365,26 @@ export function useTherapistPatientSmartClinical(
 
   const approveUnifiedAction = useCallback(
     (action: UnifiedClinicalAction) => {
-      if (!patientId) return;
-      if (action.kind === 'ai_modification') {
-        const row = action.row;
-        const result =
-          row.kind === 'exercise'
-            ? applySuggestedExerciseChange(patientId, row.item, planHandlers)
-            : applyLoadAdjustment(patientId, row.item, planHandlers);
-        setDismissedRowKeys((prev) => new Set([...prev, approvableRowKey(row)]));
-        setPlanModificationFeedback(
-          result.ok ? 'השינוי יושם בתוכנית המקומית.' : result.message
-        );
-      } else {
-        therapistApproveAiSuggestion(action.suggestionId);
-        setDismissedPendingIds((prev) => new Set([...prev, action.suggestionId]));
-        setPlanModificationFeedback('השינוי יושם בתוכנית המקומית.');
-      }
+      if (!patientId || action.kind !== 'ai_modification') return;
+      const row = action.row;
+      const result =
+        row.kind === 'exercise'
+          ? applySuggestedExerciseChange(patientId, row.item, planHandlers)
+          : applyLoadAdjustment(patientId, row.item, planHandlers);
+      setDismissedRowKeys((prev) => new Set([...prev, approvableRowKey(row)]));
+      setPlanModificationFeedback(
+        result.ok ? 'ההמלצה אושרה ועודכנה בתוכנית.' : result.message
+      );
       setTimeout(() => setPlanModificationFeedback(null), 4000);
     },
-    [patientId, planHandlers, therapistApproveAiSuggestion]
+    [patientId, planHandlers]
   );
 
-  const dismissUnifiedAction = useCallback(
-    (action: UnifiedClinicalAction) => {
-      if (action.kind === 'ai_modification') {
-        setDismissedRowKeys((prev) => new Set([...prev, action.id]));
-      } else {
-        therapistDeclineAiSuggestion(action.suggestionId);
-        setDismissedPendingIds((prev) => new Set([...prev, action.suggestionId]));
-      }
-    },
-    [therapistDeclineAiSuggestion]
-  );
+  const dismissUnifiedAction = useCallback((action: UnifiedClinicalAction) => {
+    if (action.kind === 'ai_modification') {
+      setDismissedRowKeys((prev) => new Set([...prev, action.id]));
+    }
+  }, []);
 
   if (!patientId || !safePatient) {
     return EMPTY_CLINICAL_STATE;
@@ -455,6 +398,8 @@ export function useTherapistPatientSmartClinical(
     exerciseCatalog,
     geminiLoading,
     geminiError,
+    geminiAvailable: Boolean(getGeminiApiKey()),
+    generateGeminiInsights,
     unifiedActions,
     isLoading,
     isClinicalContextReady: !isLoading,

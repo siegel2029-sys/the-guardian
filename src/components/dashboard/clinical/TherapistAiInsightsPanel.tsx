@@ -1,8 +1,9 @@
 import type { ClinicalActionLabelDisplay } from '../../../ai/clinicalInsightsNarrative';
-import { Brain, Loader2, Route, Activity } from 'lucide-react';
+import { Brain, Loader2, Route, Activity, Sparkles, ClipboardList, Lightbulb } from 'lucide-react';
 import type { Patient } from '../../../types';
 import { useTherapistPatientSmartClinical } from '../../../hooks/useTherapistPatientSmartClinical';
 import { bodyAreaLabels } from '../../../types';
+import { PROTOCOL_PROGRESSION_FROZEN_BADGE_HE } from '../../../utils/clinicalProtocolWeek';
 
 type Props = { patient: Patient | null | undefined };
 
@@ -14,6 +15,8 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
     narrativeSource = null,
     geminiLoading = false,
     geminiError = null,
+    geminiAvailable = false,
+    generateGeminiInsights,
     unifiedActions = [],
     isLoading = false,
     approveUnifiedAction,
@@ -21,17 +24,19 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
     planModificationFeedback,
   } = useTherapistPatientSmartClinical(patient);
 
-  const adherencePct =
-    aggregated?.adherencePercent ??
-    (aggregated?.compliance?.rate != null
-      ? Math.round(aggregated.compliance.rate * 100)
-      : null);
+  const adherencePct = aggregated?.adherencePercent ?? null;
 
   const streakStart = aggregated?.activeStreak.activeStreakStart;
   const streakDays = aggregated?.activeStreak.activeStreakDayCount ?? 0;
   const gapDays = aggregated?.activeStreak.lastGapDays;
   const hasRecentGap = aggregated?.hasRecentGap ?? false;
-  const countableDays = aggregated?.adherenceCountableDays ?? 0;
+  const hasCriticalGaps = aggregated?.hasCriticalGaps ?? false;
+  const longestGapDays = aggregated?.longestGapDays ?? 0;
+  const targetPerWeek = aggregated?.targetWorkoutsPerWeek ?? 7;
+  const sessionDaysInLookback = aggregated?.sessionDaysInLookback ?? 0;
+  const protocolWeek = aggregated?.currentProtocolWeek;
+  const chronologicalWeek = aggregated?.chronologicalProtocolWeek;
+  const protocolFrozen = aggregated?.protocolProgressionFrozen ?? false;
 
   const hasMetrics = progressInsight != null;
   const hasNarrative = narrative != null;
@@ -43,7 +48,10 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
       ? gapDays != null
         ? `מסלול פעיל מ-${streakStart} · לאחר הפסקה ${gapDays} ימים`
         : `מסלול פעיל · ${streakDays} ימים`
-      : 'מעקב קליני · המלצות מערכת';
+      : 'מעקב קליני · תובנות והמלצות';
+
+  const actionItems = narrative?.actionItems?.filter((x) => x.trim()) ?? [];
+  const recommendationActions = unifiedActions.filter((a) => a.kind === 'ai_modification');
 
   return (
     <div
@@ -68,10 +76,30 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
             {narrativeSource === 'gemini' && (
               <span className="ms-1 text-teal-700 font-semibold">(Gemini)</span>
             )}
+            {narrativeSource === 'local' && !geminiLoading && (
+              <span className="ms-1 text-slate-500">(סיכום מקומי)</span>
+            )}
+          </p>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            המלצות תוכנית מיושמות רק אחרי «אשר המלצה».
           </p>
         </div>
-        {geminiLoading && (
-          <Loader2 className="w-5 h-5 text-teal-600 animate-spin shrink-0" aria-hidden="true" />
+        {geminiAvailable && (
+          <button
+            type="button"
+            onClick={() => generateGeminiInsights()}
+            disabled={geminiLoading || isLoading}
+            className="inline-flex items-center gap-1.5 shrink-0 rounded-xl px-3 py-2 text-xs font-bold text-white disabled:opacity-50 min-h-[40px]"
+            style={{ background: 'linear-gradient(135deg, #0d9488, #10b981)' }}
+            aria-label="צור תובנות Gemini"
+          >
+            {geminiLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Sparkles className="w-4 h-4" aria-hidden="true" />
+            )}
+            {geminiLoading ? 'מייצר…' : 'צור תובנות Gemini'}
+          </button>
         )}
       </div>
 
@@ -97,9 +125,17 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
               sub={patient?.primaryBodyArea ? bodyAreaLabels[patient.primaryBodyArea] : undefined}
             />
             <MetricCard
-              label="מסלול פעיל"
-              value={streakDays > 0 ? `${streakDays} ימים` : '—'}
-              sub={streakStart ? `מ-${streakStart}` : undefined}
+              label="שבוע פרוטוקול"
+              value={protocolWeek != null ? `שבוע ${protocolWeek}` : '—'}
+              sub={
+                protocolFrozen
+                  ? PROTOCOL_PROGRESSION_FROZEN_BADGE_HE
+                  : chronologicalWeek != null && chronologicalWeek !== protocolWeek
+                    ? `לוח שנה: שבוע ${chronologicalWeek}`
+                    : streakStart
+                      ? `מסלול מ-${streakStart}`
+                      : undefined
+              }
             />
           </div>
         )}
@@ -120,27 +156,89 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
               {adherencePct != null ? `${adherencePct}%` : '—'}
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              {countableDays > 0
-                ? `${aggregated?.adherenceCompletedSum ?? 0}/${aggregated?.adherencePlannedSum ?? 0} תרגילים · ${countableDays} ימים נספרים (מסלול פעיל)`
-                : 'אין נתוני עמידה במסלול הפעיל'}
-              {hasRecentGap && gapDays != null && (
+              יעד {targetPerWeek} אימונים/שבוע · {sessionDaysInLookback} ימי אימון ב־28 הימים האחרונים
+              {aggregated?.adherenceBeforeGapPenalty != null &&
+                aggregated.adherenceBeforeGapPenalty !== adherencePct && (
+                  <span className="block mt-0.5">
+                    לפני קנס פער: {aggregated.adherenceBeforeGapPenalty}%
+                  </span>
+                )}
+              {hasCriticalGaps && (
+                <span className="block mt-0.5 text-amber-700 font-semibold">
+                  פער קריטי · {longestGapDays} ימים ללא תרגול
+                </span>
+              )}
+              {hasRecentGap && gapDays != null && !hasCriticalGaps && (
                 <span className="block mt-0.5 text-amber-700">
                   חזרה לתרגול לאחר הפסקה של {gapDays} ימים
+                </span>
+              )}
+              {protocolFrozen && (
+                <span className="block mt-0.5 text-amber-800 font-bold">
+                  {PROTOCOL_PROGRESSION_FROZEN_BADGE_HE}
                 </span>
               )}
             </p>
           </div>
         </section>
 
+        {narrative && (
+          <section>
+            <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <Route className="w-3.5 h-3.5" aria-hidden="true" />
+              סיכום קליני
+            </h4>
+            <div className="rounded-xl border border-slate-100 bg-white px-4 py-3 space-y-2 text-sm text-slate-700">
+              {narrative.summary?.consistency ? (
+                <p>
+                  <span className="font-bold text-slate-900">עמידה: </span>
+                  {narrative.summary.consistency}
+                </p>
+              ) : null}
+              {narrative.summary?.painLoad ? (
+                <p>
+                  <span className="font-bold text-slate-900">כאב/עומס: </span>
+                  {narrative.summary.painLoad}
+                </p>
+              ) : null}
+              {narrative.prognosis ? (
+                <p>
+                  <span className="font-bold text-slate-900">תחזית: </span>
+                  {narrative.prognosis}
+                </p>
+              ) : null}
+            </div>
+          </section>
+        )}
+
+        {actionItems.length > 0 && (
+          <section>
+            <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <ClipboardList className="w-3.5 h-3.5" aria-hidden="true" />
+              נקודות למעקב
+            </h4>
+            <ul className="space-y-2 mt-1">
+              {actionItems.map((item) => (
+                <li
+                  key={item}
+                  className="rounded-xl border border-slate-100 bg-white px-4 py-2.5 text-sm text-slate-700"
+                >
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <section>
           <h4 className="text-xs font-black text-teal-900 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-            <Route className="w-3.5 h-3.5" aria-hidden="true" />
-            שינויים בתכנית
+            <Lightbulb className="w-3.5 h-3.5" aria-hidden="true" />
+            המלצות תוכנית (Gemini)
           </h4>
-          {unifiedActions.length > 0 ? (
+          {recommendationActions.length > 0 ? (
             <div className="space-y-3 mt-2">
-              {unifiedActions.map((action) => (
-                <ModificationCard
+              {recommendationActions.map((action) => (
+                <RecommendationCard
                   key={action.id}
                   sourceTag={action.sourceTag}
                   labelDisplay={action.labelDisplay}
@@ -152,13 +250,21 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-slate-500">אין שינויים בתכנית</p>
+            <p className="text-sm text-slate-500">
+              {geminiLoading
+                ? 'מייצר המלצות…'
+                : narrativeSource === 'gemini'
+                  ? 'אין המלצות תוכנית כרגע — הסיכום הקליני בלבד.'
+                  : 'לחצו «צור תובנות Gemini» כדי לקבל המלצות לאישור ידני.'}
+            </p>
           )}
         </section>
 
         {showEmptyState && (
           <p className="text-sm text-slate-500 text-center py-4">
-            אין תובנות קליניות זמינות כרגע.
+            {geminiAvailable
+              ? 'אין תובנות קליניות זמינות כרגע. לחצו «צור תובנות Gemini» לניתוח.'
+              : 'אין תובנות קליניות זמינות כרגע.'}
           </p>
         )}
 
@@ -170,7 +276,7 @@ export default function TherapistAiInsightsPanel({ patient }: Props) {
   );
 }
 
-function ModificationCard({
+function RecommendationCard({
   sourceTag,
   labelDisplay,
   label,
@@ -203,17 +309,17 @@ function ModificationCard({
           type="button"
           onClick={onApprove}
           className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700"
-          aria-label={`אשר ועדכן תוכנית: ${label}`}
+          aria-label={`אשר המלצה: ${label}`}
         >
-          אשר ועדכן תוכנית
+          אשר המלצה
         </button>
         <button
           type="button"
           onClick={onDismiss}
           className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
-          aria-label={`דחה: ${label}`}
+          aria-label={`התעלם: ${label}`}
         >
-          דחה
+          התעלם
         </button>
       </div>
     </article>

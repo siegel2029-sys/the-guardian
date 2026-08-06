@@ -135,21 +135,19 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — clinical VAS/Borg feedback sliders landed._
+_Idle — UI wired to gap-aware adherence + effective protocol week._
 
 ### Completed Steps (recent)
 
-- `ClinicalScaleSlider`: 0–10 track + ticks, hidden thumb until first tap, null initial state.
-- Wired into `ExerciseTrainingFeedbackModal` + `ExerciseReportModal`; submit disabled until both set.
-- Pain/effort types allow 0; `clampEffort` min updated to 0.
+- Protocol/adherence UI now uses enriched session dates, plan weekly target, freeze banner, and gap-aware % (not grace 0/planned subtitle).
+- Forced AI regression + adherence floor for historical activity with critical gaps.
+- Flexible weekly target schema + gap-aware engine (prior).
 
 ### Next Action Items
 
-1. Smoke-test feedback: empty track, no thumb; tap → thumb appears; submit enables only then.
-2. Smoke-test catalog combobox in plan row + custom form.
-3. Redeploy client; verify catalog `default_video_url` → new plan exercise URL; old plans unchanged.
-4. **Ops:** Rotate `service_role`; align webhook secrets; HIBP after Pro.
-5. Set `ALLOWED_ORIGINS` for Edge CORS fail-closed; lazy-load gear armory + portal modal stack.
+1. Smoke-test long-gap patient: accordion highlights effective week + «הוקפא»; adherence card shows ≥3% if any history, not 0%.
+2. Apply migration `target_workouts_per_week` on remote if needed.
+3. Ops leftovers: `REGISTER_THERAPIST_SECRET` / `ALLOWED_ORIGINS`.
 
 ### Update protocol
 

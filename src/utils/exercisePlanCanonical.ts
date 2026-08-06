@@ -258,5 +258,7 @@ export function mergeFetchedExercisePlanWithLocal(
     planRowId: remote?.planRowId ?? loc?.planRowId,
     versionNumber: remote?.versionNumber ?? loc?.versionNumber,
     isActive: remote?.isActive ?? loc?.isActive,
+    targetWorkoutsPerWeek:
+      remote?.targetWorkoutsPerWeek ?? loc?.targetWorkoutsPerWeek,
   };
 }

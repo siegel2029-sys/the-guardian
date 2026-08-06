@@ -1,6 +1,6 @@
 import type { Patient, SafetyAlert } from '../types';
+import { buildClinicalPromptContext } from './buildClinicalPromptContext';
 import {
-  buildAnonymizedClinicalContextSnapshot,
   collectPatientPhiTokens,
   patientInitialsFromName,
   scrubKnownPatientPhi,
@@ -41,11 +41,12 @@ export async function therapistClinicalConsultantChatWithGemini(params: {
 
   const nameTokens = collectPatientPhiTokens(params.patient);
   const initials = patientInitialsFromName(params.patient.name);
-  const snapshot = buildAnonymizedClinicalContextSnapshot(
-    params.patient,
-    params.safetyAlertsForPatient,
-    { exerciseSafetyLocked: params.exerciseSafetyLocked }
-  );
+  const snapshot = buildClinicalPromptContext({
+    mode: 'therapistConsult',
+    patient: params.patient,
+    safetyAlertsForPatient: params.safetyAlertsForPatient,
+    exerciseSafetyLocked: params.exerciseSafetyLocked,
+  }).text;
   const systemInstruction = clinicalConsultantSystemInstruction(snapshot);
 
   const history: GeminiChatTurn[] = params.history.map((m) => ({

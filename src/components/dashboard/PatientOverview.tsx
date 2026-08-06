@@ -13,6 +13,8 @@ import {
   UserRoundPen,
   Sparkles,
   BellRing,
+  MessageCircle,
+  MessageCircleOff,
 } from 'lucide-react';
 import {
   usePatientRoster,
@@ -29,7 +31,6 @@ import { getPatientCredentialsByPatientId } from '../../context/authPersistence'
 import { devError, redactId } from '../../lib/safeLog';
 import ErrorBoundary from '../ui/error-boundary';
 import RedFlagAlert from './RedFlagAlert';
-import AiSuggestionsPanel from './AiSuggestionsPanel';
 import ManagePlanModal from './ManagePlanModal';
 import ClinicalAiIntakeWizard from './ClinicalAiIntakeWizard';
 import ClinicalIntakeCompletionModal from './clinical/ClinicalIntakeCompletionModal';
@@ -60,6 +61,7 @@ import {
   patientHasDemographicsFreeText,
   patientNeedsDataUpdate,
 } from '../../utils/patientRosterMetrics';
+import { isPatientChatAllowed } from '../../utils/patientChatAccess';
 
 function AccessibilityFooterLink() {
   return (
@@ -107,6 +109,9 @@ export default function PatientOverview() {
   const [freezeConfirmStep, setFreezeConfirmStep] = useState<1 | 2>(1);
   /** יעד לאחר אישור כפול: true = הקפאה, false = שחרור הקפאה */
   const [freezePendingIntent, setFreezePendingIntent] = useState<boolean | null>(null);
+  const [chatToggleConfirmOpen, setChatToggleConfirmOpen] = useState(false);
+  /** Next allowChat value after therapist confirms the toggle. */
+  const [chatAllowPending, setChatAllowPending] = useState<boolean | null>(null);
   const [editingDemographics, setEditingDemographics] = useState(false);
   const [demoFreeText, setDemoFreeText] = useState(selectedPatient?.demographicsFreeText ?? '');
   const [piPushSyncBusy, setPiPushSyncBusy] = useState(false);
@@ -117,6 +122,8 @@ export default function PatientOverview() {
     setShowTreatmentDocs(false);
     setEditingDemographics(false);
     setPortalBannerDismissed(false);
+    setChatToggleConfirmOpen(false);
+    setChatAllowPending(null);
     if (selectedPatient) {
       setDemoFreeText(selectedPatient.demographicsFreeText ?? '');
     }
@@ -473,6 +480,35 @@ export default function PatientOverview() {
                           >
                             <Snowflake className="w-3.5 h-3.5 text-sky-600" strokeWidth={2.25} aria-hidden />
                           </button>
+                          <button
+                            type="button"
+                            title={
+                              isPatientChatAllowed(p)
+                                ? 'נעילת צ׳אט — תוכנית עצמאית'
+                                : 'הפעלת צ׳אט עם המטפל'
+                            }
+                            aria-label={
+                              isPatientChatAllowed(p)
+                                ? 'נעילת צ׳אט בפורטל המטופל'
+                                : 'הפעלת צ׳אט בפורטל המטופל'
+                            }
+                            aria-pressed={isPatientChatAllowed(p)}
+                            onClick={() => {
+                              setChatAllowPending(!isPatientChatAllowed(p));
+                              setChatToggleConfirmOpen(true);
+                            }}
+                            className={`flex items-center justify-center w-8 h-8 rounded-lg border-2 transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                              isPatientChatAllowed(p)
+                                ? 'border-teal-500 bg-teal-50 text-teal-700 hover:bg-teal-100 hover:border-teal-600 focus-visible:outline-teal-600'
+                                : 'border-amber-500 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:border-amber-600 focus-visible:outline-amber-600'
+                            }`}
+                          >
+                            {isPatientChatAllowed(p) ? (
+                              <MessageCircle className="w-3.5 h-3.5" strokeWidth={2.25} aria-hidden />
+                            ) : (
+                              <MessageCircleOff className="w-3.5 h-3.5" strokeWidth={2.25} aria-hidden />
+                            )}
+                          </button>
                         </div>
                       )}
                     </div>
@@ -558,6 +594,12 @@ export default function PatientOverview() {
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border border-sky-300 bg-sky-50 text-sky-900">
                       <Snowflake className="w-3 h-3 shrink-0 text-sky-600" strokeWidth={2.25} aria-hidden />
                       פורטל מוקפא
+                    </span>
+                  )}
+                  {!isPatientChatAllowed(p) && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border border-amber-300 bg-amber-50 text-amber-900">
+                      <MessageCircleOff className="w-3 h-3 shrink-0" strokeWidth={2.25} aria-hidden />
+                      צ׳אט נעול
                     </span>
                   )}
                 </div>
@@ -727,8 +769,6 @@ export default function PatientOverview() {
 
         <TherapistAiInsightsPanel patient={p} />
 
-        <AiSuggestionsPanel />
-
         <AccessibilityFooterLink />
 
         {freezeConfirmOpen && freezePendingIntent !== null && (
@@ -804,6 +844,67 @@ export default function PatientOverview() {
                     {freezePendingIntent ? 'אשר הקפאה' : 'אשר שחרור'}
                   </button>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {chatToggleConfirmOpen && chatAllowPending !== null && (
+          <div
+            className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[2px]"
+            dir="rtl"
+            role="presentation"
+            onClick={() => {
+              setChatToggleConfirmOpen(false);
+              setChatAllowPending(null);
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="chat-toggle-confirm-title"
+              className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 id="chat-toggle-confirm-title" className="text-lg font-black text-slate-900 mb-2">
+                {chatAllowPending ? 'להפעיל צ׳אט עם המטפל?' : 'לנעול את הצ׳אט?'}
+              </h2>
+              <p className="text-sm text-slate-600 leading-relaxed mb-5">
+                {chatAllowPending
+                  ? 'המטופל יוכל לשלוח ולקבל הודעות ישירות בפורטל.'
+                  : 'בפורטל המטופל תוצג הודעת נעילה — מתאים לתוכנית תרגול עצמאית ללא ליווי צ׳אט.'}
+              </p>
+              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 min-h-[44px]"
+                  onClick={() => {
+                    setChatToggleConfirmOpen(false);
+                    setChatAllowPending(null);
+                  }}
+                >
+                  ביטול
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-xl text-white px-4 py-2.5 text-sm font-bold min-h-[44px] ${
+                    chatAllowPending
+                      ? 'bg-teal-600 hover:bg-teal-700'
+                      : 'bg-amber-600 hover:bg-amber-700'
+                  }`}
+                  onClick={() => {
+                    const allowChat = chatAllowPending;
+                    updatePatient(p.id, { allowChat });
+                    void saveSinglePatientPayloadToCloud({
+                      ...p,
+                      allowChat,
+                    });
+                    setChatToggleConfirmOpen(false);
+                    setChatAllowPending(null);
+                  }}
+                >
+                  {chatAllowPending ? 'הפעל צ׳אט' : 'נעל צ׳אט'}
+                </button>
               </div>
             </div>
           </div>

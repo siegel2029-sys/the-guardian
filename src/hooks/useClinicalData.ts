@@ -1,12 +1,6 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import type { AiSuggestion, BodyArea, DailyHistoryEntry, ExercisePlan, Message, Patient, SafetyAlert } from '../types';
 import { bodyAreaBlocksSelfCare } from '../body/bodyPickMapping';
-import { computeClinicalProgressInsight } from '../ai/clinicalCommandInsight';
-import {
-  consolidateClinicalTracking,
-  generateClinicalRecommendation,
-  type TherapistReviewHistoryEntry,
-} from '../ai/clinicalRecommendationEngine';
 import {
   upsertPatientRecords,
   upsertTherapistProfilesForPatients,
@@ -20,17 +14,11 @@ import {
   applyTherapistClinicalCycle,
   applyTherapistPrimaryFocus,
 } from '../context/patientDomainHelpers';
-import { pickCanonicalExercisePlan } from '../utils/exercisePlanCanonical';
 import {
-  appendTherapistNoteToReason,
-  mergeClinicalRecommendationIntoQueue,
-  newClinicalAssessmentSuggestionId,
   collectRecentTherapistReviewedSuggestions,
-  therapistReviewedCategoryKeySet,
   clinicalRecommendationCategoryKey,
   appendLocalDismissedRecommendationSignature,
   collectDismissedRecommendationTypeSignatures,
-  isRecommendationTypeDismissed,
   recommendationTypeDismissalSignature,
   type TherapistReviewedSuggestion,
 } from '../utils/clinicalAiQueueMerge';
@@ -306,157 +294,23 @@ export function useClinicalData({
     ]
   );
 
+  /**
+   * Former Recommendation Engine enqueue path — retired.
+   * Program Review is the sole actionable plan-modification queue.
+   * Still syncs optional therapist notes when provided.
+   */
   const runClinicalAssessmentEngine = useCallback(
     (patientId: string, notes: string) => {
       const patient = allPatients.find((p) => p.id === patientId);
       if (!patient) return;
-
-      const plan = pickCanonicalExercisePlan(exercisePlans, patientId);
-      const exercises = plan?.exercises ?? [];
-      const dayMap = dailyHistoryByPatient?.[patientId];
-      const insight = computeClinicalProgressInsight(patient, clinicalToday);
-
       const trimmedNotes = notes.trim();
       if (trimmedNotes.length > 0 && (patient.therapistNotes ?? '').trim() !== trimmedNotes) {
         setAllPatients((prev) =>
           prev.map((p) => (p.id === patientId ? { ...p, therapistNotes: trimmedNotes } : p))
         );
       }
-
-      void (async () => {
-        const therapistReviewHistory = await resolveTherapistReviewHistory(patientId);
-        const patientRow = allPatients.find((p) => p.id === patientId);
-        const excludedCategoryKeys = therapistReviewedCategoryKeySet(therapistReviewHistory);
-        const excludedTypeSignatures = collectDismissedRecommendationTypeSignatures(
-          aiSuggestions,
-          patientId,
-          patientRow?.clinicalInsightsQueue?.dismissedRecommendationSignatures ?? []
-        );
-        const reviewHistoryForPrompt: TherapistReviewHistoryEntry[] = therapistReviewHistory.map(
-          (r) => ({
-            categoryKey: r.categoryKey,
-            status: r.status,
-            type: r.type,
-            field: r.field,
-            exerciseName: r.exerciseName,
-            reason: r.reason,
-          })
-        );
-
-        const tracking = consolidateClinicalTracking({
-          patient,
-          clinicalToday,
-          dayMap,
-          rehabExerciseCount: exercises.length,
-        });
-
-        const gate = tracking.longitudinalGate;
-        const shouldGenerate =
-          exercises.length > 0 &&
-          (gate.shouldSuggest ||
-            tracking.recommendationIntent === 'progression' ||
-            tracking.recommendationIntent === 'regression' ||
-            insight.category === 'load_increase' ||
-            insight.category === 'load_decrease' ||
-            insight.category === 'escalate_care');
-
-        if (!shouldGenerate) return;
-
-        const engineRec = await generateClinicalRecommendation({
-          patient,
-          clinicalExercises: exercises,
-          clinicalToday,
-          dayMap,
-          longitudinalGate: gate,
-          defaultStatus: 'awaiting_therapist',
-          therapistReviewHistory: reviewHistoryForPrompt,
-        });
-
-        let queueChanged = false;
-
-        setAiSuggestions((prev) => {
-          let candidate: AiSuggestion | null = null;
-
-          if (engineRec) {
-            const categoryKey = clinicalRecommendationCategoryKey(engineRec);
-            if (
-              excludedCategoryKeys.has(categoryKey) ||
-              isRecommendationTypeDismissed(patientId, engineRec.type, excludedTypeSignatures)
-            ) {
-              candidate = null;
-            } else {
-              candidate = {
-                ...engineRec,
-                id: newClinicalAssessmentSuggestionId(patientId),
-                status: 'awaiting_therapist',
-                source: 'clinical_recommendation_engine',
-                reason: appendTherapistNoteToReason(engineRec.reason, notes),
-              };
-            }
-          } else if (
-            insight.category === 'load_increase' ||
-            insight.category === 'load_decrease' ||
-            insight.category === 'escalate_care'
-          ) {
-            const ex = exercises.find((e) => (e.patientReps ?? 0) > 0);
-            if (ex) {
-              const currentValue = ex.patientReps;
-              const isReduce =
-                insight.category === 'load_decrease' || insight.category === 'escalate_care';
-              const suggestedValue = isReduce
-                ? Math.max(1, Math.floor(currentValue * 0.75))
-                : Math.max(currentValue + 1, Math.round(currentValue * 1.1));
-
-              if (suggestedValue !== currentValue) {
-                const draft: AiSuggestion = {
-                  id: newClinicalAssessmentSuggestionId(patientId),
-                  patientId,
-                  exerciseId: ex.id,
-                  exerciseName: ex.name,
-                  type: isReduce ? 'reduce_reps' : 'increase_reps',
-                  field: 'reps',
-                  currentValue,
-                  suggestedValue,
-                  reason: appendTherapistNoteToReason(
-                    `${insight.nextStepHe}\n\n${insight.basisHe}`,
-                    notes
-                  ),
-                  createdAt: new Date().toISOString(),
-                  status: 'awaiting_therapist',
-                  source: 'clinical_recommendation_engine',
-                };
-                candidate = excludedCategoryKeys.has(clinicalRecommendationCategoryKey(draft)) ||
-                  isRecommendationTypeDismissed(patientId, draft.type, excludedTypeSignatures)
-                  ? null
-                  : draft;
-              }
-            }
-          }
-
-          const { next, changed } = mergeClinicalRecommendationIntoQueue(
-            prev,
-            patientId,
-            candidate,
-            { excludedCategoryKeys, excludedTypeSignatures }
-          );
-          queueChanged = changed;
-          return next;
-        });
-
-        if (queueChanged) onClinicalQueueUpdated?.();
-      })();
     },
-    [
-      allPatients,
-      exercisePlans,
-      clinicalToday,
-      dailyHistoryByPatient,
-      setAiSuggestions,
-      setAllPatients,
-      onClinicalQueueUpdated,
-      resolveTherapistReviewHistory,
-      aiSuggestions,
-    ]
+    [allPatients, setAllPatients]
   );
 
   const resetPatientPainReports = useCallback(

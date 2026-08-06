@@ -117,8 +117,10 @@ export default function AiSuggestionsPanel() {
           <Wand2 className="w-5 h-5 text-white" />
         </div>
         <div className="flex-1">
-          <h3 className="text-sm font-bold text-slate-800">הצעות AI (מעקב)</h3>
-          <p className="text-xs text-slate-500">המטופל מאשר בקשה מהאפליקציה; אישור סופי שלך נמצא ב«אישורים ממתינים»</p>
+          <h3 className="text-sm font-bold text-slate-800">הצעות AI (מעקב היסטורי)</h3>
+          <p className="text-xs text-slate-500">
+            שינויי תוכנית מאושרים רק דרך «ביקורת תוכנית» בסרגל הצד — פאנל זה למעקב בלבד.
+          </p>
         </div>
       </div>
 
@@ -126,7 +128,7 @@ export default function AiSuggestionsPanel() {
         <div className="p-4 space-y-3 border-b" style={{ borderColor: '#c7f0eb' }}>
           <div className="flex items-start gap-2 text-xs text-teal-800 bg-teal-50 rounded-xl px-3 py-2 border border-teal-100">
             <Info className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>הצעות אלו מוצגות למטופל. לאחר שילחץ «שלח בקשה למטפל», יופיעו לך תחת «אישורים ממתינים».</span>
+            <span>הצעות אלו מוצגות למעקב. יישום שינויי תוכנית מתבצע אך ורק ב«ביקורת תוכנית».</span>
           </div>
           {pendingPatient.map((s) => (
             <ReadOnlySuggestionCard key={s.id} suggestion={s} />

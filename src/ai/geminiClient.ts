@@ -26,12 +26,13 @@ const TOKEN_REFRESH_BUFFER_SEC = 90;
 
 export const GEMINI_API_HOST = 'https://generativelanguage.googleapis.com';
 export const GEMINI_API_VERSION = 'v1beta' as const;
-const GEMINI_MODEL_DEFAULT = 'gemini-2.5-flash' as const;
+const GEMINI_MODEL_DEFAULT = 'gemini-3.6-flash' as const;
 
 const DEFAULT_429_WAIT_MS = 8_000;
 const MAX_429_WAIT_MS = 25_000;
-const MAX_NON_OK_RETRIES = 4;
-const SERVER_ERROR_BACKOFF_MS = [800, 2500, 6000] as const;
+/** Client retries only for transient gateway/network failures — keep low (proxy owns model fallbacks). */
+const MAX_NON_OK_RETRIES = 2;
+const SERVER_ERROR_BACKOFF_MS = [800, 2500] as const;
 
 export class GeminiRateLimitedError extends Error {
   readonly code = 'GEMINI_RATE_LIMIT' as const;
@@ -463,6 +464,18 @@ export async function geminiGenerateText(params: GeminiTextParams): Promise<stri
 
 export type GeminiChatTurn = { role: 'user' | 'assistant'; text: string };
 
+/** Max prior conversational turns sent to Gemini (excludes the current userMessage). */
+export const GEMINI_CHAT_HISTORY_MAX_TURNS = 10;
+
+/** Keep only the most recent turns to bound token growth on long chats. */
+export function takeRecentGeminiChatTurns<T>(
+  history: readonly T[],
+  maxTurns: number = GEMINI_CHAT_HISTORY_MAX_TURNS
+): T[] {
+  if (maxTurns <= 0 || history.length <= maxTurns) return [...history];
+  return history.slice(-maxTurns);
+}
+
 export type GeminiChatParams = {
   systemInstruction: string;
   history: GeminiChatTurn[];
@@ -477,8 +490,9 @@ export type GeminiChatParams = {
 /** תור שיחה — role assistant ממופה ל-model ב-API. */
 export async function geminiGenerateChat(params: GeminiChatParams): Promise<string> {
   const contents: GeminiGenerationBody['contents'] = [];
+  const recentHistory = takeRecentGeminiChatTurns(params.history);
 
-  for (const turn of params.history) {
+  for (const turn of recentHistory) {
     const role = turn.role === 'user' ? 'user' : 'model';
     contents.push({ role, parts: [{ text: turn.text }] });
   }
@@ -492,7 +506,11 @@ export async function geminiGenerateChat(params: GeminiChatParams): Promise<stri
 
   return geminiGenerateFromBody(body, {
     logPrefix: params.logPrefix,
-    logDetail: params.logDetail,
+    logDetail: {
+      ...params.logDetail,
+      historyTurns: recentHistory.length,
+      historyTurnsCappedFrom: params.history.length,
+    },
     patientInitials: params.patientInitials,
     nameTokens: params.nameTokens,
   });

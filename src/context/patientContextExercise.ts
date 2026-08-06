@@ -1,8 +1,6 @@
-/**
- * PatientContext exercise-plan domain helpers (baseline clone + therapist push delta).
- */
 import type { ExercisePlan } from '../types';
-import { exercisePlanExercisesComparableSignature } from '../services/clinicalService';
+import { exercisePlanContentComparableSignature } from '../services/clinicalService';
+import { clampTargetWorkoutsPerWeek } from '../utils/targetWorkoutsPerWeek';
 
 export function cloneExercisePlansForBaseline(plans: ExercisePlan[]): ExercisePlan[] {
   try {
@@ -28,8 +26,14 @@ export function exercisePlansDeltaForTherapistPush(
     const b = baseByPatient.get(plan.patientId);
     if (!b) return true;
     return (
-      exercisePlanExercisesComparableSignature(plan.exercises) !==
-      exercisePlanExercisesComparableSignature(b.exercises)
+      exercisePlanContentComparableSignature(
+        plan.exercises,
+        clampTargetWorkoutsPerWeek(plan.targetWorkoutsPerWeek)
+      ) !==
+      exercisePlanContentComparableSignature(
+        b.exercises,
+        clampTargetWorkoutsPerWeek(b.targetWorkoutsPerWeek)
+      )
     );
   });
 }

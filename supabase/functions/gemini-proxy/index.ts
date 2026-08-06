@@ -1,9 +1,14 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { GeminiProxyBodySchema, parseJsonText } from "../_shared/schemas.ts";
+import { corsHeadersFor, isOriginForbidden } from "../_shared/cors.ts";
+import { parseJsonObject } from "../_shared/safeJson.ts";
 
 const GEMINI_HOST = "https://generativelanguage.googleapis.com";
 const GEMINI_VERSION = "v1beta";
-const DEFAULT_MODEL = "gemini-2.5-flash";
+/** Current stable Flash model (as of 2026-08). Override with GEMINI_MODEL secret. */
+const DEFAULT_MODEL = "gemini-3.6-flash";
+/** Tried in order when primary returns 404 / NOT_FOUND. */
+const MODEL_FALLBACKS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"] as const;
 
 /** Max request body size. Patients get a tighter cap than therapists. */
 const MAX_BODY_BYTES_THERAPIST = 256 * 1024;
@@ -25,29 +30,16 @@ type GenerationBody = {
   generationConfig: Record<string, unknown>;
 };
 
+type GeminiGeneratePayload = {
+  candidates?: Array<{
+    content?: { parts?: Array<{ text?: string }> };
+    finishReason?: string;
+  }>;
+  error?: { message?: string; status?: string; code?: number };
+};
+
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function parseAllowedOrigins(): string[] {
-  return (Deno.env.get("ALLOWED_ORIGINS") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
-function corsHeadersFor(req: Request): Record<string, string> {
-  const allowed = parseAllowedOrigins();
-  const origin = req.headers.get("Origin") ?? "";
-  let allowOrigin = "*";
-  if (allowed.length > 0) {
-    allowOrigin = allowed.includes(origin) ? origin : allowed[0];
-  }
-  return {
-    "Access-Control-Allow-Origin": allowOrigin,
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-    "Vary": "Origin",
-  };
 }
 
 /**
@@ -117,12 +109,28 @@ function jsonResponse(
   });
 }
 
-function getResponseText(data: {
-  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
-  error?: { message?: string };
-}): string {
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (typeof text === "string" && text.trim()) return text;
+function resolveModelCandidates(): string[] {
+  const primary = (Deno.env.get("GEMINI_MODEL") ?? DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+  const ordered = [primary, ...MODEL_FALLBACKS];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of ordered) {
+    const id = m.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+/** Concatenate all text parts from the first candidate (thinking models may split parts). */
+function getResponseText(data: GeminiGeneratePayload): string {
+  const parts = data.candidates?.[0]?.content?.parts ?? [];
+  const text = parts
+    .map((p) => (typeof p.text === "string" ? p.text : ""))
+    .join("")
+    .trim();
+  if (text) return text;
   const reason = data.candidates?.[0]?.finishReason;
   throw new Error(
     reason ? `Empty model text (finishReason: ${reason})` : "Empty model response text",
@@ -169,6 +177,29 @@ async function resolveIsPatientBudget(
   return true;
 }
 
+function isModelNotFound(status: number, body: string, parsed: GeminiGeneratePayload | null): boolean {
+  if (status === 404) return true;
+  const msg = (parsed?.error?.message ?? body).toLowerCase();
+  return msg.includes("not found") || msg.includes("is not found") || msg.includes("not supported");
+}
+
+async function callGeminiGenerate(
+  apiKey: string,
+  modelId: string,
+  scrubbed: GenerationBody,
+): Promise<{ status: number; rawBody: string; parsed: GeminiGeneratePayload | null }> {
+  const url =
+    `${GEMINI_HOST}/${GEMINI_VERSION}/models/${modelId}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const geminiRes = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(scrubbed),
+  });
+  const rawBody = await geminiRes.text();
+  const parsed = parseJsonObject(rawBody) as GeminiGeneratePayload | null;
+  return { status: geminiRes.status, rawBody, parsed };
+}
+
 Deno.serve(async (req) => {
   const corsHeaders = corsHeadersFor(req);
 
@@ -180,9 +211,8 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Method not allowed" }, 405, corsHeaders);
   }
 
-  const allowed = parseAllowedOrigins();
-  const origin = req.headers.get("Origin") ?? "";
-  if (allowed.length > 0 && origin && !allowed.includes(origin)) {
+  const allowedDenied = isOriginForbidden(req);
+  if (allowedDenied) {
     return jsonResponse({ error: "Origin not allowed" }, 403, corsHeaders);
   }
 
@@ -279,57 +309,107 @@ Deno.serve(async (req) => {
   }
 
   const gen = payload.generation;
-
-  const modelId = (Deno.env.get("GEMINI_MODEL") ?? DEFAULT_MODEL).trim();
   const scrubbed = scrubGeneration(gen, payload.patientInitials, payload.nameTokens);
-  const url = `${GEMINI_HOST}/${GEMINI_VERSION}/models/${modelId}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const modelCandidates = resolveModelCandidates();
 
-  const geminiRes = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(scrubbed),
-  });
+  let lastStatus = 0;
+  let lastRaw = "";
+  let lastParsed: GeminiGeneratePayload | null = null;
+  let usedModel = modelCandidates[0] ?? DEFAULT_MODEL;
 
-  const rawBody = await geminiRes.text();
-
-  if (geminiRes.status === 429) {
-    console.error("[gemini-proxy] Gemini HTTP 429:", rawBody.slice(0, 200));
-    return jsonResponse({ error: "Rate limited" }, 429, corsHeaders);
-  }
-
-  if (!geminiRes.ok) {
-    console.error(`[gemini-proxy] Gemini HTTP ${geminiRes.status}:`, rawBody.slice(0, 200));
-    return jsonResponse(
-      { error: "upstream_failed", detail: "Upstream AI service error" },
-      502,
-      corsHeaders,
-    );
-  }
-
-  let parsed: Parameters<typeof getResponseText>[0];
   try {
-    const parsedObj = parseJsonObject(rawBody);
-    if (!parsedObj) {
-      return jsonResponse({ error: "Invalid JSON from Gemini" }, 502, corsHeaders);
+    for (const modelId of modelCandidates) {
+      usedModel = modelId;
+      const result = await callGeminiGenerate(apiKey, modelId, scrubbed);
+      lastStatus = result.status;
+      lastRaw = result.rawBody;
+      lastParsed = result.parsed;
+
+      if (result.status === 429) {
+        console.error("[gemini-proxy] Gemini HTTP 429:", result.rawBody.slice(0, 200));
+        return jsonResponse({ error: "Rate limited", model: modelId }, 429, corsHeaders);
+      }
+
+      if (result.status >= 200 && result.status < 300) {
+        break;
+      }
+
+      if (isModelNotFound(result.status, result.rawBody, result.parsed)) {
+        console.warn("[gemini-proxy] model unavailable, trying fallback:", modelId);
+        continue;
+      }
+
+      console.error(`[gemini-proxy] Gemini HTTP ${result.status}:`, result.rawBody.slice(0, 200));
+      return jsonResponse(
+        {
+          error: "upstream_failed",
+          detail: "Upstream AI service error",
+          model: modelId,
+          upstreamStatus: result.status,
+        },
+        502,
+        corsHeaders,
+      );
     }
-    parsed = parsedObj as Parameters<typeof getResponseText>[0];
-  } catch {
-    return jsonResponse({ error: "Invalid JSON from Gemini" }, 502, corsHeaders);
-  }
 
-  if (parsed.error?.message) {
-    console.error("[gemini-proxy] Gemini API error:", String(parsed.error.message).slice(0, 200));
-    return jsonResponse({ error: "upstream_failed" }, 502, corsHeaders);
-  }
+    if (!(lastStatus >= 200 && lastStatus < 300)) {
+      console.error(`[gemini-proxy] all models failed; last HTTP ${lastStatus}:`, lastRaw.slice(0, 200));
+      return jsonResponse(
+        {
+          error: "upstream_failed",
+          detail: "Upstream AI service error",
+          model: usedModel,
+          upstreamStatus: lastStatus || undefined,
+        },
+        502,
+        corsHeaders,
+      );
+    }
 
-  try {
-    const text = getResponseText(parsed);
-    return jsonResponse({ text, model: modelId }, 200, corsHeaders);
+    if (!lastParsed) {
+      console.error("[gemini-proxy] non-JSON Gemini body:", lastRaw.slice(0, 200));
+      return jsonResponse(
+        {
+          error: "invalid_upstream_json",
+          detail: "Upstream AI returned a non-JSON body",
+          model: usedModel,
+        },
+        502,
+        corsHeaders,
+      );
+    }
+
+    if (lastParsed.error?.message) {
+      console.error(
+        "[gemini-proxy] Gemini API error:",
+        String(lastParsed.error.message).slice(0, 200),
+      );
+      return jsonResponse(
+        {
+          error: "upstream_failed",
+          detail: "Upstream AI service error",
+          model: usedModel,
+        },
+        502,
+        corsHeaders,
+      );
+    }
+
+    const text = getResponseText(lastParsed);
+    return jsonResponse({ text, model: usedModel }, 200, corsHeaders);
   } catch (e) {
     console.error(
       "[gemini-proxy] empty/invalid model response:",
       e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
     );
-    return jsonResponse({ error: "upstream_failed" }, 502, corsHeaders);
+    return jsonResponse(
+      {
+        error: "upstream_failed",
+        detail: "Upstream AI returned an empty or unusable response",
+        model: usedModel,
+      },
+      502,
+      corsHeaders,
+    );
   }
 });
