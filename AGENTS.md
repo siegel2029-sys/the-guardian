@@ -135,18 +135,19 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — remote migration history repaired; schema already had `target_workouts_per_week`._
+_Idle — Git/Vercel synced; Gemini CORS allow-list updated for physioshield-app._
 
 ### Completed Steps (recent)
 
-- Repaired local↔remote migration history drift (MCP timestamp mismatches); `db push` reports up to date through `20260806132907`.
-- Confirmed Gemini uses Supabase `GEMINI_API_KEY` (proxy 200s); Vercel `VITE_GEMINI_API_KEY` unused by app.
-- Protocol/adherence UI + gap-aware engine (prior).
+- Set `ALLOWED_ORIGINS` (physioshield-app + team Vercel + localhost) and redeployed `gemini-proxy`.
+- Migration history repaired; local/main/Vercel production on same SHA.
+- Confirmed Last Login / freeze UI gaps are data-driven — no `patientPortalMeta` change.
 
 ### Next Action Items
 
-1. Smoke-test long-gap patient on production: accordion «הוקפא» + adherence floor ≥3% if any history.
-2. Ops leftover: `REGISTER_THERAPIST_SECRET` on Vercel if therapist self-register is needed in prod.
+1. Hard-refresh production and confirm AI insights work without CORS errors.
+2. Smoke-test long-gap patient: «הוקפא» only when freeze criteria met.
+3. Ops leftover: `REGISTER_THERAPIST_SECRET` on Vercel if therapist self-register is needed in prod.
 
 ### Update protocol
 
