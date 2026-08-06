@@ -80,7 +80,6 @@ export interface UsePatientTrainingOrchestrationParams {
 export function usePatientTrainingOrchestration({
   selectedPatient,
   getExercisePlan,
-  exercises,
   clinicalToday,
   exercisesLocked,
   optionalPool,

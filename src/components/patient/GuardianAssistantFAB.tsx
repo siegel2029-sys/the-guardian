@@ -165,10 +165,6 @@ const GuardianAssistantFAB = forwardRef<GuardianAssistantFABHandle, GuardianAssi
     const text = (incomingText ?? input).trim();
     if (!text || replyLoading) return;
     if (!open) setOpen(true);
-    // ניקוי טיוטת המודל רק כשההודעה נשלחה משורת הקלט של המודל עצמו
-    const clearModalDraft = () => {
-      if (incomingText === undefined) setInput('');
-    };
 
     // חובה: סינון חירום לפני כל לוגיקה אחרת (הצעות, אישורים, buildGuardianTurn)
     const emergency = screenPatientFreeTextForEmergency(text);

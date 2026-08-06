@@ -196,12 +196,11 @@ export default function PatientDailyView() {
     [session?.completedIds]
   );
 
-  const { exerciseLogCount, refetchExerciseLogCount } = usePatientReminderInfrastructure({
+  const { refetchExerciseLogCount } = usePatientReminderInfrastructure({
     patientId: selectedPatient?.id ?? null,
     active: sessionRole === 'patient' && usesSupabaseSession,
     portalTab,
   });
-  const portalOnboardingSilence = exerciseLogCount !== null && exerciseLogCount < 3;
 
   useEffect(() => {
     if (!selectedPatient) return;

@@ -1,5 +1,5 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
-import type { AiSuggestion, BodyArea, DailyHistoryEntry, ExercisePlan, Message, Patient, SafetyAlert } from '../types';
+import type { AiSuggestion, BodyArea, Message, Patient, SafetyAlert } from '../types';
 import { bodyAreaBlocksSelfCare } from '../body/bodyPickMapping';
 import {
   upsertPatientRecords,
@@ -9,18 +9,14 @@ import {
   logRecommendationApprovalAudit,
 } from '../services/clinicalService';
 import { supabase } from '../lib/supabase';
-import { pullPersistedState } from '../lib/supabaseSync';
 import {
   applyTherapistClinicalCycle,
   applyTherapistPrimaryFocus,
 } from '../context/patientDomainHelpers';
 import {
-  collectRecentTherapistReviewedSuggestions,
-  clinicalRecommendationCategoryKey,
   appendLocalDismissedRecommendationSignature,
   collectDismissedRecommendationTypeSignatures,
   recommendationTypeDismissalSignature,
-  type TherapistReviewedSuggestion,
 } from '../utils/clinicalAiQueueMerge';
 
 function applySelfCareZonesForPatientUpdate(
@@ -50,12 +46,8 @@ export type UseClinicalDataParams = {
   setSelfCareZonesByPatientId: React.Dispatch<
     React.SetStateAction<Record<string, BodyArea[]>>
   >;
-  exercisePlans: ExercisePlan[];
-  aiSuggestions: AiSuggestion[];
   setAiSuggestions: React.Dispatch<React.SetStateAction<AiSuggestion[]>>;
   safetyAlerts?: SafetyAlert[];
-  clinicalToday: string;
-  dailyHistoryByPatient?: Record<string, Record<string, DailyHistoryEntry>>;
   /** Patient portal — skip `profiles` upsert; only own `patients` row. */
   restrictPatientSessionId?: string | null;
   /** Called after new AI queue items are added (e.g. immediate cloud shard push). */
@@ -67,12 +59,8 @@ export function useClinicalData({
   setAllPatients,
   setMessages,
   setSelfCareZonesByPatientId,
-  exercisePlans,
-  aiSuggestions,
   setAiSuggestions,
   safetyAlerts = [],
-  clinicalToday,
-  dailyHistoryByPatient = {},
   restrictPatientSessionId = null,
   onClinicalQueueUpdated,
 }: UseClinicalDataParams) {
@@ -133,41 +121,6 @@ export function useClinicalData({
       );
     },
     [setAllPatients]
-  );
-
-  const resolveTherapistReviewHistory = useCallback(
-    async (patientId: string): Promise<TherapistReviewedSuggestion[]> => {
-      const local = collectRecentTherapistReviewedSuggestions(
-        aiSuggestions,
-        patientId,
-        clinicalToday
-      );
-
-      if (!supabase || restrictPatientSessionId) {
-        return local;
-      }
-
-      try {
-        const pulled = await pullPersistedState(supabase, { onlyPatientId: patientId });
-        if (!pulled.ok) return local;
-        const remote = collectRecentTherapistReviewedSuggestions(
-          pulled.clinicalInsights.aiSuggestions,
-          patientId,
-          clinicalToday
-        );
-        const byKey = new Map<string, TherapistReviewedSuggestion>();
-        for (const row of [...remote, ...local]) {
-          const prev = byKey.get(row.categoryKey);
-          if (!prev || row.reviewedAt.localeCompare(prev.reviewedAt) >= 0) {
-            byKey.set(row.categoryKey, row);
-          }
-        }
-        return [...byKey.values()].sort((a, b) => b.reviewedAt.localeCompare(a.reviewedAt));
-      } catch {
-        return local;
-      }
-    },
-    [aiSuggestions, clinicalToday, restrictPatientSessionId]
   );
 
   const persistAiSuggestionQueueForPatient = useCallback(

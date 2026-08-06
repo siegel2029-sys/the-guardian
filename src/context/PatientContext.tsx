@@ -2906,12 +2906,8 @@ export function PatientProvider({
     setAllPatients,
     setMessages,
     setSelfCareZonesByPatientId,
-    exercisePlans,
-    aiSuggestions,
     setAiSuggestions,
     safetyAlerts,
-    clinicalToday,
-    dailyHistoryByPatient,
     restrictPatientSessionId,
   });
 
