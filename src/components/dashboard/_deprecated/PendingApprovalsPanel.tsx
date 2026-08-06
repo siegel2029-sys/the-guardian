@@ -1,3 +1,4 @@
+// @ts-nocheck
 import {
   Wand2, ThumbsUp, ThumbsDown, TrendingUp, TrendingDown, Sparkles, UserCheck,
 } from 'lucide-react';

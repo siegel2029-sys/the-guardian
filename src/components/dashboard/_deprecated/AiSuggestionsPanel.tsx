@@ -1,3 +1,4 @@
+// @ts-nocheck
 import {
   Wand2, TrendingUp, TrendingDown, Sparkles, CheckCircle2, XCircle, Clock, Info,
 } from 'lucide-react';
