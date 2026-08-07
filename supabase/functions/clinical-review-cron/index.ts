@@ -302,7 +302,8 @@ Deno.serve(async (req: Request) => {
 
     const { data: patients, error: patientsErr } = await supabase
       .from("patients")
-      .select("id, therapist_id, account_frozen, status, payload")
+      .select("id, therapist_id, account_frozen, status, payload, subscription_tier")
+      .eq("subscription_tier", "generic")
       .not("therapist_id", "is", null);
     if (patientsErr) {
       console.error(`[clinical-review-cron] patients fetch failed: ${patientsErr.message}`);
@@ -327,11 +328,17 @@ Deno.serve(async (req: Request) => {
       account_frozen: boolean | null;
       status: string | null;
       payload: unknown;
+      subscription_tier?: string | null;
     };
 
     const eligiblePatients: PatientRow[] = [];
     for (const patient of (patients ?? []) as PatientRow[]) {
-      const patientId = patient.id;
+      // Defense-in-depth: only Generic (AI-led) patients get automated proposals.
+      const tier = String(patient.subscription_tier ?? "").toLowerCase();
+      if (tier !== "generic") {
+        skipped++;
+        continue;
+      }
       if (patient.account_frozen === true) {
         skipped++;
         continue;

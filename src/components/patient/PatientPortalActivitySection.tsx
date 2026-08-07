@@ -9,6 +9,7 @@ import type { ExerciseVideoModalState } from './usePatientTrainingOrchestration'
 import type { AiLongitudinalGateResult } from '../../ai/aiProgramLongitudinalGate';
 import { usePatientProgramReviewEngineStatus } from '../../hooks/usePatientProgramReviewEngineStatus';
 import PatientBackgroundReviewIndicator from './PatientBackgroundReviewIndicator';
+import PatientProgramReviewAcceptCard from './PatientProgramReviewAcceptCard';
 
 export interface PatientPortalActivitySectionProps {
   selectedPatient: Patient;
@@ -68,6 +69,7 @@ export default function PatientPortalActivitySection({
           phase={reviewEnginePhase}
           active={reviewEngineActive}
         />
+        <PatientProgramReviewAcceptCard patient={selectedPatient} />
         {aiProgramLongitudinalGate?.showSteadyProgress &&
           !patientMustChangePassword &&
           !exercisesLocked &&

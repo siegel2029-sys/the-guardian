@@ -408,6 +408,19 @@ export function allowChatForOnboardingLeadStatus(status: OnboardingLeadStatus): 
   return true;
 }
 
+/**
+ * Care-mode tier for a patient created from an onboarding lead:
+ * - pending_paybox → generic (AI-led, patient-accept plan changes)
+ * - pending_zoom → premium (therapist-led)
+ * - all other statuses → premium (legacy / default)
+ */
+export function subscriptionTierForOnboardingLeadStatus(
+  status: OnboardingLeadStatus
+): 'premium' | 'generic' {
+  if (status === 'pending_paybox') return 'generic';
+  return 'premium';
+}
+
 /** Portal username derived from lead id (A–Z0–9, 2–32 chars). */
 export function portalUsernameFromLeadId(leadId: string): string {
   const compact = leadId.replace(/-/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');

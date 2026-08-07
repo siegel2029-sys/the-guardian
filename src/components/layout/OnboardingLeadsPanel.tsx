@@ -22,6 +22,7 @@ import {
 } from '../../context/patientDomainHooks';
 import {
   allowChatForOnboardingLeadStatus,
+  subscriptionTierForOnboardingLeadStatus,
   HIGH_PAIN_THRESHOLD,
   RED_FLAG_QUESTIONS,
   updateLeadStatus,
@@ -172,6 +173,7 @@ type ConvertSuccess = {
   password: string;
   displayName: string;
   allowChat: boolean;
+  subscriptionTier: 'premium' | 'generic';
   exerciseCount: number;
   primaryBodyAreaLabel: string;
 };
@@ -197,6 +199,7 @@ function LeadCard({
     lead.pain_level != null && lead.pain_level >= HIGH_PAIN_THRESHOLD;
   const displayName = lead.full_name?.trim() || 'מטופל חדש';
   const allowChat = allowChatForOnboardingLeadStatus(status);
+  const subscriptionTier = subscriptionTierForOnboardingLeadStatus(status);
 
   const handleConvert = async () => {
     if (converting) return;
@@ -223,6 +226,7 @@ function LeadCard({
         portalUsername,
         password,
         allowChat,
+        subscriptionTier,
         selectAfterCreate: false,
         authEmail: loginEmail,
       });
@@ -266,6 +270,7 @@ function LeadCard({
         password: created.password,
         displayName,
         allowChat,
+        subscriptionTier,
         exerciseCount: program.libraryExerciseIds.length,
         primaryBodyAreaLabel:
           bodyAreaLabels[program.primaryBodyArea] ?? program.primaryBodyArea,

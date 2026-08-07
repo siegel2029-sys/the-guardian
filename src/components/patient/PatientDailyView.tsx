@@ -288,8 +288,8 @@ export default function PatientDailyView() {
       dayMap: patientDayMap,
       rehabExerciseCount: clinicalRehabExercises.length,
     });
-    // Never surface plan-adjustment suggestions on the patient portal (no popups).
-    // Therapist-facing 3-day review runs via clinical-review-cron + Sidebar panels only.
+    // Portal plan-adjustment popups stay off for all tiers.
+    // Generic pending proposals surface via PatientProgramReviewAcceptCard (patient-accept RPC).
     return { ...base, shouldSuggest: false };
   }, [
     selectedPatient?.id,

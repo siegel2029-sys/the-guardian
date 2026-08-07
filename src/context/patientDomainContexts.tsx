@@ -51,6 +51,8 @@ export type PatientRosterSlice = {
       password?: string;
       /** When false, portal chat is locked (self-guided plan). Default true. */
       allowChat?: boolean;
+      /** Care mode; defaults to premium. Paybox convert → generic. */
+      subscriptionTier?: 'premium' | 'generic';
       /** When false, do not switch the dashboard selection to the new patient. Default true. */
       selectAfterCreate?: boolean;
       /** Real email for Auth login (e.g. lead convert). Returned as loginId when set. */

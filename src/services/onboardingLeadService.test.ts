@@ -12,6 +12,7 @@ import {
   isGenericPlanBlocked,
   leadContactSchema,
   allowChatForOnboardingLeadStatus,
+  subscriptionTierForOnboardingLeadStatus,
   leadImpliesUnassistedPlan,
   normalizeIsraeliPhone,
   portalUsernameFromLeadId,
@@ -199,6 +200,13 @@ describe('lead care-track helpers', () => {
     expect(allowChatForOnboardingLeadStatus('pending_zoom')).toBe(true);
     expect(allowChatForOnboardingLeadStatus('abandoned')).toBe(true);
     expect(allowChatForOnboardingLeadStatus('converted')).toBe(true);
+  });
+
+  it('maps lead status to subscriptionTier for convert', () => {
+    expect(subscriptionTierForOnboardingLeadStatus('pending_paybox')).toBe('generic');
+    expect(subscriptionTierForOnboardingLeadStatus('pending_zoom')).toBe('premium');
+    expect(subscriptionTierForOnboardingLeadStatus('abandoned')).toBe('premium');
+    expect(subscriptionTierForOnboardingLeadStatus('converted')).toBe('premium');
   });
 
   it('builds a valid-length portal username from a lead uuid', () => {

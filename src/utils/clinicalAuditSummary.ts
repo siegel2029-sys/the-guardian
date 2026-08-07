@@ -36,7 +36,29 @@ export function summarizeClinicalAuditLine(
   if (entityType === 'patient_info') {
     return summarizePatientInfoDiff(action, oldValue, newValue);
   }
+  if (entityType === 'recommendation') {
+    return summarizeRecommendationAudit(action, newValue);
+  }
   return action === 'create' ? 'רשומה חדשה' : 'עדכון';
+}
+
+function summarizeRecommendationAudit(action: string, newValue: unknown): string {
+  const n = isRecord(newValue) ? newValue : null;
+  const summaryHe =
+    n && typeof n.summaryHebrew === 'string' && n.summaryHebrew.trim()
+      ? n.summaryHebrew.trim()
+      : null;
+  if (summaryHe) return summaryHe;
+
+  if (action === 'patient_accept') {
+    return 'ה-AI הציע שינוי תוכנית והמטופל אישר אותו';
+  }
+  if (action === 'patient_decline') {
+    return 'ה-AI הציע שינוי תוכנית והמטופל דחה אותו';
+  }
+  if (action === 'approve') return 'אושרה המלצת AI לשינוי תוכנית';
+  if (action === 'decline') return 'נדחתה המלצת AI לשינוי תוכנית';
+  return 'עדכון המלצה קלינית';
 }
 
 function summarizePlanDiff(action: string, oldValue: unknown, newValue: unknown): string {

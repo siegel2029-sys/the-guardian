@@ -135,18 +135,18 @@ Long-term memory across chat sessions. **Every agent must read this section firs
 
 ### Current Active Task
 
-_Idle — Git/Vercel synced; Gemini CORS allow-list updated for physioshield-app._
+_Idle — Granular Generic AI accept + tier/chat coupling + therapist roster cues shipped._
 
 ### Completed Steps (recent)
 
-- Set `ALLOWED_ORIGINS` (physioshield-app + team Vercel + localhost) and redeployed `gemini-proxy`.
-- Migration history repaired; local/main/Vercel production on same SHA.
-- Confirmed Last Login / freeze UI gaps are data-driven — no `patientPortalMeta` change.
+- Granular `patient_apply_program_review_items` (accepted changeKeys only; server-side merge + audit).
+- Portal per-item Accept/Decline UI; continuous 3-day loop verified; tier hard-couples allow_chat.
+- Therapist Overview tier row layout fix; Premium amber vs Generic slate roster cards.
 
 ### Next Action Items
 
-1. Hard-refresh production and confirm AI insights work without CORS errors.
-2. Smoke-test long-gap patient: «הוקפא» only when freeze criteria met.
+1. Smoke-test Generic patient: force/wait for proposal → accept some items / decline others → confirm plan + audit.
+2. Confirm Generic has no chat; upgrade to Premium unlocks chat.
 3. Ops leftover: `REGISTER_THERAPIST_SECRET` on Vercel if therapist self-register is needed in prod.
 
 ### Update protocol

@@ -181,6 +181,30 @@ describe('isDueForProgramReview', () => {
     ).toBe(false);
   });
 
+  it('continues the loop every 3 days after a resolved review (no pending)', () => {
+    expect(
+      isDueForProgramReview({
+        clinicalToday: '2026-08-08',
+        programStartYmd: '2026-07-01',
+        lastReviewWindowEnd: '2026-08-05',
+        lastDeclinedYmd: null,
+        hasPendingProposal: false,
+        daysWithLogsInWindow: 3,
+      })
+    ).toBe(true);
+    expect(
+      isDueForProgramReview({
+        clinicalToday: '2026-08-07',
+        programStartYmd: '2026-07-01',
+        lastReviewWindowEnd: '2026-08-05',
+        lastDeclinedYmd: null,
+        hasPendingProposal: false,
+        daysWithLogsInWindow: 3,
+      })
+    ).toBe(false);
+    expect(PROGRAM_REVIEW_WINDOW_DAYS).toBe(3);
+  });
+
   it('requires enough logs for first review after grace', () => {
     expect(
       isDueForProgramReview({

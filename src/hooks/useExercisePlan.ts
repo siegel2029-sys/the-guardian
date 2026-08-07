@@ -1298,6 +1298,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         portalUsername: string;
         password?: string;
         allowChat?: boolean;
+        /** Care mode; defaults to premium when omitted. */
+        subscriptionTier?: 'premium' | 'generic';
         selectAfterCreate?: boolean;
         /** Real email for Auth login (lead convert). When set, returned as loginId. */
         authEmail?: string;
@@ -1351,6 +1353,8 @@ export function useExercisePlan(params: UseExercisePlanParams) {
 
       const joinDate = new Date().toISOString().slice(0, 10);
       const allowChat = access.allowChat !== false;
+      const subscriptionTier =
+        access.subscriptionTier === 'generic' ? 'generic' : 'premium';
       const newPatient: Patient = {
         id: patientId,
         therapistId: ownerTid,
@@ -1363,6 +1367,7 @@ export function useExercisePlan(params: UseExercisePlanParams) {
         // Account/credentials exist at create time — status is active regardless of intake.
         status: 'active',
         allowChat,
+        subscriptionTier,
         level: 1,
         xp: 0,
         xpForNextLevel: xpRequiredToReachNextLevel(1),

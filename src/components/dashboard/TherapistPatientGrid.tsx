@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ClipboardList, Activity, Search } from 'lucide-react';
+import { ClipboardList, Activity, Search, Sparkles } from 'lucide-react';
 import {
   usePatientRoster,
   usePatientExercisePlans,
@@ -19,6 +19,7 @@ import {
   patientIsFrozenStatus,
   patientNeedsDataUpdate,
 } from '../../utils/patientRosterMetrics';
+import { resolvePatientSubscriptionTier } from '../../utils/patientSubscriptionTier';
 
 export type RosterFilterKey =
   | 'all'
@@ -160,6 +161,8 @@ export default function TherapistPatientGrid({
               clinicalToday
             );
             const visitValueParts = patientLastVisitValueParts(lastVisit);
+            const tier = resolvePatientSubscriptionTier(p);
+            const isPremium = tier === 'premium';
 
             return (
               <button
@@ -170,7 +173,9 @@ export default function TherapistPatientGrid({
                 className={`text-start rounded-xl border p-4 transition-shadow min-w-0 ${
                   selected
                     ? 'border-teal-500 bg-teal-50/60 shadow-md ring-2 ring-teal-200/50'
-                    : 'border-gray-100 bg-white shadow-sm hover:shadow-md hover:border-gray-200'
+                    : isPremium
+                      ? 'border-amber-300/90 bg-amber-50/45 shadow-sm hover:shadow-md hover:border-amber-400'
+                      : 'border-slate-200 bg-white shadow-sm hover:shadow-md hover:border-slate-300'
                 }`}
               >
                 <div className="flex items-center gap-3">
@@ -178,7 +183,9 @@ export default function TherapistPatientGrid({
                     className={`w-[3.75rem] h-[3.75rem] rounded-full flex items-center justify-center shrink-0 text-center px-1 ${
                       selected
                         ? 'bg-teal-600 text-white'
-                        : 'bg-slate-400 text-white'
+                        : isPremium
+                          ? 'bg-amber-600 text-white'
+                          : 'bg-slate-400 text-white'
                     }`}
                     aria-hidden
                   >
@@ -188,13 +195,25 @@ export default function TherapistPatientGrid({
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    {statusBadge && (
+                    <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                      {statusBadge && (
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold border ${statusBadge.className}`}
+                        >
+                          {statusBadge.label}
+                        </span>
+                      )}
                       <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold border mb-2 ${statusBadge.className}`}
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${
+                          isPremium
+                            ? 'border-amber-300 bg-amber-50 text-amber-950'
+                            : 'border-slate-300 bg-slate-50 text-slate-700'
+                        }`}
                       >
-                        {statusBadge.label}
+                        <Sparkles className="w-3 h-3 shrink-0" aria-hidden />
+                        {isPremium ? 'Premium' : 'Generic'}
                       </span>
-                    )}
+                    </div>
 
                     <div className="flex items-center gap-3 text-xs text-slate-500">
                       <span className="inline-flex items-center gap-1">

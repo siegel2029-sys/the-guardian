@@ -13,7 +13,6 @@ import {
   UserRoundPen,
   Sparkles,
   BellRing,
-  MessageCircle,
   MessageCircleOff,
 } from 'lucide-react';
 import {
@@ -47,6 +46,11 @@ import { bodyAreaLabels } from '../../types';
 import { getPatientDisplayName } from '../../utils/patientDisplayName';
 import { resolveCoreLegacyIntakeSummaryText } from '../../utils/clinicalIntakeProfileMigration';
 import { patientRosterStatusBadge } from '../../utils/patientPortalMeta';
+import { isPatientChatAllowed } from '../../utils/patientChatAccess';
+import {
+  isAiLedPlanReviewAllowed,
+  resolvePatientSubscriptionTier,
+} from '../../utils/patientSubscriptionTier';
 import MissingFieldHint from './clinical/MissingFieldHint';
 import {
   DATA_UPDATE_ACTION_HIGHLIGHT,
@@ -61,7 +65,6 @@ import {
   patientHasDemographicsFreeText,
   patientNeedsDataUpdate,
 } from '../../utils/patientRosterMetrics';
-import { isPatientChatAllowed } from '../../utils/patientChatAccess';
 
 function AccessibilityFooterLink() {
   return (
@@ -109,9 +112,9 @@ export default function PatientOverview() {
   const [freezeConfirmStep, setFreezeConfirmStep] = useState<1 | 2>(1);
   /** יעד לאחר אישור כפול: true = הקפאה, false = שחרור הקפאה */
   const [freezePendingIntent, setFreezePendingIntent] = useState<boolean | null>(null);
-  const [chatToggleConfirmOpen, setChatToggleConfirmOpen] = useState(false);
-  /** Next allowChat value after therapist confirms the toggle. */
-  const [chatAllowPending, setChatAllowPending] = useState<boolean | null>(null);
+  /** Next subscriptionTier after therapist confirms. */
+  const [tierPending, setTierPending] = useState<'premium' | 'generic' | null>(null);
+  const [tierToggleConfirmOpen, setTierToggleConfirmOpen] = useState(false);
   const [editingDemographics, setEditingDemographics] = useState(false);
   const [demoFreeText, setDemoFreeText] = useState(selectedPatient?.demographicsFreeText ?? '');
   const [piPushSyncBusy, setPiPushSyncBusy] = useState(false);
@@ -122,8 +125,8 @@ export default function PatientOverview() {
     setShowTreatmentDocs(false);
     setEditingDemographics(false);
     setPortalBannerDismissed(false);
-    setChatToggleConfirmOpen(false);
-    setChatAllowPending(null);
+    setTierToggleConfirmOpen(false);
+    setTierPending(null);
     if (selectedPatient) {
       setDemoFreeText(selectedPatient.demographicsFreeText ?? '');
     }
@@ -480,35 +483,6 @@ export default function PatientOverview() {
                           >
                             <Snowflake className="w-3.5 h-3.5 text-sky-600" strokeWidth={2.25} aria-hidden />
                           </button>
-                          <button
-                            type="button"
-                            title={
-                              isPatientChatAllowed(p)
-                                ? 'נעילת צ׳אט — תוכנית עצמאית'
-                                : 'הפעלת צ׳אט עם המטפל'
-                            }
-                            aria-label={
-                              isPatientChatAllowed(p)
-                                ? 'נעילת צ׳אט בפורטל המטופל'
-                                : 'הפעלת צ׳אט בפורטל המטופל'
-                            }
-                            aria-pressed={isPatientChatAllowed(p)}
-                            onClick={() => {
-                              setChatAllowPending(!isPatientChatAllowed(p));
-                              setChatToggleConfirmOpen(true);
-                            }}
-                            className={`flex items-center justify-center w-8 h-8 rounded-lg border-2 transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                              isPatientChatAllowed(p)
-                                ? 'border-teal-500 bg-teal-50 text-teal-700 hover:bg-teal-100 hover:border-teal-600 focus-visible:outline-teal-600'
-                                : 'border-amber-500 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:border-amber-600 focus-visible:outline-amber-600'
-                            }`}
-                          >
-                            {isPatientChatAllowed(p) ? (
-                              <MessageCircle className="w-3.5 h-3.5" strokeWidth={2.25} aria-hidden />
-                            ) : (
-                              <MessageCircleOff className="w-3.5 h-3.5" strokeWidth={2.25} aria-hidden />
-                            )}
-                          </button>
                         </div>
                       )}
                     </div>
@@ -601,6 +575,47 @@ export default function PatientOverview() {
                       <MessageCircleOff className="w-3 h-3 shrink-0" strokeWidth={2.25} aria-hidden />
                       צ׳אט נעול
                     </span>
+                  )}
+                </div>
+
+                <div
+                  className="mt-1 w-full rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
+                  aria-label="מסלול טיפול Premium או Generic"
+                >
+                  <div className="min-w-0 flex items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black border ${
+                        isAiLedPlanReviewAllowed(p.subscriptionTier)
+                          ? 'border-slate-300 bg-slate-50 text-slate-800'
+                          : 'border-amber-300 bg-amber-50 text-amber-950'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5 shrink-0" strokeWidth={2.25} aria-hidden />
+                      {resolvePatientSubscriptionTier(p) === 'generic' ? 'Generic' : 'Premium'}
+                    </span>
+                    <p className="text-[11px] text-slate-500 leading-snug">
+                      {resolvePatientSubscriptionTier(p) === 'generic'
+                        ? 'AI + אישור מטופל · ללא צ׳אט מטפל'
+                        : 'מטפל מוביל · צ׳אט פתוח'}
+                    </p>
+                  </div>
+                  {!isPatientSessionLocked && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTierPending(
+                          isAiLedPlanReviewAllowed(p.subscriptionTier)
+                            ? 'premium'
+                            : 'generic'
+                        );
+                        setTierToggleConfirmOpen(true);
+                      }}
+                      className="shrink-0 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-800 hover:bg-slate-100 min-h-[40px]"
+                    >
+                      {isAiLedPlanReviewAllowed(p.subscriptionTier)
+                        ? 'העבר ל-Premium'
+                        : 'העבר ל-Generic'}
+                    </button>
                   )}
                 </div>
 
@@ -849,61 +864,61 @@ export default function PatientOverview() {
           </div>
         )}
 
-        {chatToggleConfirmOpen && chatAllowPending !== null && (
+        {tierToggleConfirmOpen && tierPending !== null && (
           <div
             className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[2px]"
             dir="rtl"
             role="presentation"
             onClick={() => {
-              setChatToggleConfirmOpen(false);
-              setChatAllowPending(null);
+              setTierToggleConfirmOpen(false);
+              setTierPending(null);
             }}
           >
             <div
               role="dialog"
               aria-modal="true"
-              aria-labelledby="chat-toggle-confirm-title"
+              aria-labelledby="tier-toggle-confirm-title"
               className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl p-6"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 id="chat-toggle-confirm-title" className="text-lg font-black text-slate-900 mb-2">
-                {chatAllowPending ? 'להפעיל צ׳אט עם המטפל?' : 'לנעול את הצ׳אט?'}
+              <h2 id="tier-toggle-confirm-title" className="text-lg font-black text-slate-900 mb-2">
+                {tierPending === 'generic'
+                  ? 'להעביר ל-Generic (AI + אישור מטופל)?'
+                  : 'להעביר ל-Premium (מטפל מוביל)?'}
               </h2>
               <p className="text-sm text-slate-600 leading-relaxed mb-5">
-                {chatAllowPending
-                  ? 'המטופל יוכל לשלוח ולקבל הודעות ישירות בפורטל.'
-                  : 'בפורטל המטופל תוצג הודעת נעילה — מתאים לתוכנית תרגול עצמאית ללא ליווי צ׳אט.'}
+                {tierPending === 'generic'
+                  ? 'ביקורת תוכנית אוטומטית תופעל אחרי שבוע חסד. שינויים ייכנסו לתוקף רק אחרי שהמטופל יאשר בפורטל. הצ׳אט עם המטפל יינעל.'
+                  : 'ביקורת תוכנית אוטומטית תיחסם. התאמות תוכנית יישארו באחריות המטפל (כולל תובנות AI לאישור). הצ׳אט עם המטפל ייפתח.'}
               </p>
               <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
                 <button
                   type="button"
                   className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 min-h-[44px]"
                   onClick={() => {
-                    setChatToggleConfirmOpen(false);
-                    setChatAllowPending(null);
+                    setTierToggleConfirmOpen(false);
+                    setTierPending(null);
                   }}
                 >
                   ביטול
                 </button>
                 <button
                   type="button"
-                  className={`rounded-xl text-white px-4 py-2.5 text-sm font-bold min-h-[44px] ${
-                    chatAllowPending
-                      ? 'bg-teal-600 hover:bg-teal-700'
-                      : 'bg-amber-600 hover:bg-amber-700'
-                  }`}
+                  className="rounded-xl bg-violet-700 text-white px-4 py-2.5 text-sm font-bold hover:bg-violet-800 min-h-[44px]"
                   onClick={() => {
-                    const allowChat = chatAllowPending;
-                    updatePatient(p.id, { allowChat });
+                    const subscriptionTier = tierPending;
+                    const allowChat = subscriptionTier === 'premium';
+                    updatePatient(p.id, { subscriptionTier, allowChat });
                     void saveSinglePatientPayloadToCloud({
                       ...p,
+                      subscriptionTier,
                       allowChat,
                     });
-                    setChatToggleConfirmOpen(false);
-                    setChatAllowPending(null);
+                    setTierToggleConfirmOpen(false);
+                    setTierPending(null);
                   }}
                 >
-                  {chatAllowPending ? 'הפעל צ׳אט' : 'נעל צ׳אט'}
+                  אשר שינוי מסלול
                 </button>
               </div>
             </div>

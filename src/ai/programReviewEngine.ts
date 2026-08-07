@@ -69,6 +69,8 @@ export type ProposedExerciseChange = {
   swapToExerciseId?: string;
   swapToExerciseName?: string;
   noteHebrew: string;
+  /** Stable id for granular patient accept (exerciseId:action:swapTo). */
+  changeKey?: string;
 };
 
 export type ProgramReviewEngineResult = {
@@ -88,6 +90,14 @@ export type ProgramReviewEngineResult = {
 
 function clampInt(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+function withChangeKey<T extends ProposedExerciseChange>(change: T): T {
+  const swap = (change.swapToExerciseId ?? '').trim();
+  return {
+    ...change,
+    changeKey: `${change.exerciseId.trim()}:${change.action}:${swap}`,
+  };
 }
 
 function mean(nums: number[]): number | null {
@@ -470,7 +480,7 @@ export function evaluateProgramReview(input: EvaluateProgramReviewInput): Progra
     decision,
     rationaleHebrew,
     metrics,
-    proposedChanges,
+    proposedChanges: proposedChanges.map((c) => withChangeKey(c)),
     proposedExercises,
   };
 }

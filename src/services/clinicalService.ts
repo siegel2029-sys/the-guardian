@@ -801,7 +801,11 @@ export async function upsertPatientRecords(
      * Preserve the exact server representation for patient portal writes.
      */
     if (isPatientPortal && oldPayload) {
-      const oldRaw = oldPayload as Patient & { account_frozen?: unknown; allow_chat?: unknown };
+      const oldRaw = oldPayload as Patient & {
+        account_frozen?: unknown;
+        allow_chat?: unknown;
+        subscription_tier?: unknown;
+      };
       if (Object.prototype.hasOwnProperty.call(oldRaw, 'accountFrozen')) {
         payloadForUpsert.accountFrozen = oldRaw.accountFrozen;
       } else {
@@ -815,9 +819,15 @@ export async function upsertPatientRecords(
       } else {
         delete payloadForUpsert.allowChat;
       }
+      if (Object.prototype.hasOwnProperty.call(oldRaw, 'subscriptionTier')) {
+        payloadForUpsert.subscriptionTier = oldRaw.subscriptionTier;
+      } else {
+        delete payloadForUpsert.subscriptionTier;
+      }
       const upsertRec = payloadForUpsert as Patient & {
         account_frozen?: unknown;
         allow_chat?: unknown;
+        subscription_tier?: unknown;
       };
       if (Object.prototype.hasOwnProperty.call(oldRaw, 'account_frozen')) {
         upsertRec.account_frozen = oldRaw.account_frozen;
@@ -828,6 +838,11 @@ export async function upsertPatientRecords(
         upsertRec.allow_chat = oldRaw.allow_chat;
       } else {
         delete upsertRec.allow_chat;
+      }
+      if (Object.prototype.hasOwnProperty.call(oldRaw, 'subscription_tier')) {
+        upsertRec.subscription_tier = oldRaw.subscription_tier;
+      } else {
+        delete upsertRec.subscription_tier;
       }
     }
     const firstName = (payloadForUpsert.name ?? '').trim();

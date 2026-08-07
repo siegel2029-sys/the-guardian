@@ -30,6 +30,7 @@ export type ProgramReviewProposedChange = {
   swapToExerciseId?: string;
   swapToExerciseName?: string;
   noteHebrew: string;
+  changeKey?: string;
 };
 
 export type ProgramReviewMetrics = {
@@ -267,6 +268,175 @@ export async function declineProgramReviewProposal(
   return serviceFail(he);
 }
 
+function mapPatientProposalRpcFailure(reason: string, fallback: string): string {
+  if (reason === 'not_pending' || reason === 'not_found') {
+    return 'ההצעה אינה ממתינה לאישור או לא נמצאה.';
+  }
+  if (reason === 'forbidden') return 'אין הרשאה לפעולה זו.';
+  if (reason === 'tier_not_generic') {
+    return 'אישור שינויי תוכנית בפורטל זמין למסלול Generic בלבד.';
+  }
+  if (reason === 'account_locked') return 'החשבון מוקפא — לא ניתן לעדכן את התוכנית.';
+  if (reason === 'invalid_plan') return 'להצעה אין תוכנית תרגילים תקינה ליישום.';
+  if (reason === 'no_accepted_keys') return 'יש לאשר לפחות שינוי אחד לפני עדכון התוכנית.';
+  if (reason === 'unknown_change_key') return 'חלק מהשינויים שנבחרו אינם תקפים להצעה זו.';
+  if (reason === 'exercise_missing') return 'תרגיל מההצעה לא נמצא בתוכנית הנוכחית.';
+  return fallback;
+}
+
+/** Generic patient: pending program-review proposal for self-accept UI (RLS: own patient). */
+export async function fetchPendingProgramReviewForPatient(
+  patientId: string,
+  client?: SupabaseClient | null
+): Promise<ServiceResult<ProgramReviewProposalRow | null>> {
+  const c = client ?? supabase;
+  if (!c) return serviceFail('מערכת הענן אינה מוגדרת.');
+  const key = patientId.trim();
+  if (!key) return serviceFail('מזהה מטופל חסר.');
+
+  const { data, error } = await c
+    .from('program_review_proposals')
+    .select('*')
+    .eq('patient_id', key)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    return serviceFail(
+      sanitizeDbErrorMessage(error.message, 'לא ניתן לטעון הצעת התאמת תוכנית.')
+    );
+  }
+  return data ? serviceOk(mapRow(data as Record<string, unknown>)) : serviceOk(null);
+}
+
+/**
+ * Generic patient accepts via SECURITY DEFINER RPC (plan + clinical_audit_logs footprint).
+ * Never silent — caller must confirm in UI first.
+ * @deprecated Prefer {@link patientApplyProgramReviewItems} for granular accept.
+ */
+export async function patientAcceptProgramReviewProposal(
+  proposalId: string,
+  opts?: { client?: SupabaseClient | null }
+): Promise<ServiceResult<{ patientId: string }>> {
+  const gate = clientOrFail();
+  if (!gate.ok) return gate;
+  const client = opts?.client ?? gate.data;
+
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+  if (!user?.id) return serviceFail('נדרשת התחברות מטופל.');
+
+  const { data, error } = await client.rpc('patient_accept_program_review_proposal', {
+    p_proposal_id: proposalId,
+  });
+
+  if (error) {
+    return serviceFail(
+      sanitizeDbErrorMessage(error.message, 'אישור השינוי נכשל.')
+    );
+  }
+
+  const payload =
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : null;
+  if (payload?.ok === true && typeof payload.patientId === 'string') {
+    invalidateLatestProgramReviewCache(payload.patientId);
+    return serviceOk({ patientId: payload.patientId });
+  }
+  const reason = typeof payload?.reason === 'string' ? payload.reason : 'accept_failed';
+  return serviceFail(mapPatientProposalRpcFailure(reason, 'אישור השינוי נכשל.'));
+}
+
+/**
+ * Generic patient: apply only accepted change keys (server merges onto live plan).
+ */
+export async function patientApplyProgramReviewItems(
+  proposalId: string,
+  acceptedChangeKeys: string[],
+  opts?: { client?: SupabaseClient | null }
+): Promise<ServiceResult<{ patientId: string; acceptedCount: number; declinedCount: number }>> {
+  const gate = clientOrFail();
+  if (!gate.ok) return gate;
+  const client = opts?.client ?? gate.data;
+
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+  if (!user?.id) return serviceFail('נדרשת התחברות מטופל.');
+
+  const keys = acceptedChangeKeys.map((k) => k.trim()).filter(Boolean);
+  if (keys.length === 0) {
+    return serviceFail('יש לאשר לפחות שינוי אחד לפני עדכון התוכנית.');
+  }
+
+  const { data, error } = await client.rpc('patient_apply_program_review_items', {
+    p_proposal_id: proposalId,
+    p_accepted_change_keys: keys,
+  });
+
+  if (error) {
+    return serviceFail(
+      sanitizeDbErrorMessage(error.message, 'אישור השינויים נכשל.')
+    );
+  }
+
+  const payload =
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : null;
+  if (payload?.ok === true && typeof payload.patientId === 'string') {
+    invalidateLatestProgramReviewCache(payload.patientId);
+    return serviceOk({
+      patientId: payload.patientId,
+      acceptedCount:
+        typeof payload.acceptedCount === 'number' ? payload.acceptedCount : keys.length,
+      declinedCount: typeof payload.declinedCount === 'number' ? payload.declinedCount : 0,
+    });
+  }
+  const reason = typeof payload?.reason === 'string' ? payload.reason : 'accept_failed';
+  return serviceFail(mapPatientProposalRpcFailure(reason, 'אישור השינויים נכשל.'));
+}
+
+/** Generic patient declines pending AI proposal (audit footprint + cooldown path). */
+export async function patientDeclineProgramReviewProposal(
+  proposalId: string,
+  opts?: { client?: SupabaseClient | null }
+): Promise<ServiceResult<{ patientId: string }>> {
+  const gate = clientOrFail();
+  if (!gate.ok) return gate;
+  const client = opts?.client ?? gate.data;
+
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+  if (!user?.id) return serviceFail('נדרשת התחברות מטופל.');
+
+  const { data, error } = await client.rpc('patient_decline_program_review_proposal', {
+    p_proposal_id: proposalId,
+  });
+
+  if (error) {
+    return serviceFail(
+      sanitizeDbErrorMessage(error.message, 'דחיית השינוי נכשלה.')
+    );
+  }
+
+  const payload =
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : null;
+  if (payload?.ok === true && typeof payload.patientId === 'string') {
+    invalidateLatestProgramReviewCache(payload.patientId);
+    return serviceOk({ patientId: payload.patientId });
+  }
+  const reason = typeof payload?.reason === 'string' ? payload.reason : 'decline_failed';
+  return serviceFail(mapPatientProposalRpcFailure(reason, 'דחיית השינוי נכשלה.'));
+}
+
 export type ProgramReviewEnginePhase = 'idle' | 'scanning' | 'analyzing';
 
 export type ProgramReviewEngineStatus = {
@@ -478,7 +648,7 @@ export async function forceRunProgramReviewForPatient(
 
     const { data: patient, error: patientErr } = await client
       .from('patients')
-      .select('id, therapist_id, account_frozen, status, payload')
+      .select('id, therapist_id, account_frozen, status, payload, subscription_tier')
       .eq('id', pid)
       .maybeSingle();
     if (patientErr) {
@@ -489,6 +659,11 @@ export async function forceRunProgramReviewForPatient(
     if (!patient) return serviceFail('המטופל לא נמצא.');
     if (patient.therapist_id !== user.id) {
       return serviceFail('אין הרשאה להריץ ביקורת על מטופל זה.');
+    }
+    if (String(patient.subscription_tier ?? '').toLowerCase() !== 'generic') {
+      return serviceFail(
+        'ביקורת תוכנית אוטומטית זמינה למטופלי Generic בלבד. למטופלי Premium השתמשו בתובנות AI של המטפל.'
+      );
     }
 
     const { data: existingPendingEarly } = await client

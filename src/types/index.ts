@@ -239,6 +239,11 @@ export interface Patient {
    * Missing / `true` = chat allowed. Synced to `patients.allow_chat`.
    */
   allowChat?: boolean;
+  /**
+   * Care mode: `premium` = therapist-led (default); `generic` = AI-led proposals with patient-accept.
+   * Synced to `patients.subscription_tier`. Missing → treat as premium.
+   */
+  subscriptionTier?: 'premium' | 'generic';
   level: ExerciseLevel;
   xp: number;
   xpForNextLevel: number;
